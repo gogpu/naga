@@ -11,6 +11,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // workgroupCompositeCases are workgroup variables of every composite shape a
@@ -86,7 +87,7 @@ func TestScalarizedWorkgroupIRValidates(t *testing.T) {
 	for _, tt := range workgroupCompositeCases {
 		t.Run(tt.name, func(t *testing.T) {
 			m := scalarizedModule(t, workgroupCompositeSource(tt.decls, tt.body), true)
-			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Fatalf("validate: %v", err)
 			}
 			for _, e := range emitScopeErrors(&m.EntryPoints[0].Function) {
@@ -96,7 +97,7 @@ func TestScalarizedWorkgroupIRValidates(t *testing.T) {
 	}
 }
 
-// emitScopeErrors checks what ir.Validate does not and Rust naga's validator
+// emitScopeErrors checks what valid.Validate does not and Rust naga's validator
 // does: every expression a statement or an emitted expression uses is in
 // scope, emitted before it in its block or a block around it, the result of
 // a statement before it, or one that needs no Emit.

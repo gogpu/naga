@@ -21,8 +21,6 @@ func TestWalkStatementTypes(t *testing.T) {
 			Result:    &ir.FunctionResult{Type: 0, Binding: &outBind},
 			LocalVars: []ir.LocalVariable{{Name: "r", Type: 0}},
 		}
-		f32H := ir.TypeHandle(0)
-		boolH := ir.TypeHandle(len(mod.Types))
 		mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}})
 
 		fn.Expressions = []ir.Expression{
@@ -30,12 +28,6 @@ func TestWalkStatementTypes(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // 1: condition
 			{Kind: ir.ExprLocalVariable{Variable: 0}},       // 2: &r
 			{Kind: ir.ExprLoad{Pointer: 2}},                 // 3: load r
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &boolH},
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(3)
 		fn.Body = []ir.Statement{
@@ -68,17 +60,11 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
-		u32H := ir.TypeHandle(len(mod.Types))
 		mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}})
 
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // selector
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &u32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -111,17 +97,11 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
-		boolH := ir.TypeHandle(len(mod.Types) - 1) // reuse bool type
 
 		breakIf := ir.ExpressionHandle(1)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &boolH},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -151,12 +131,8 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -184,14 +160,9 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -218,12 +189,8 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -247,12 +214,8 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -276,12 +239,8 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -308,12 +267,8 @@ func TestWalkStatementTypes(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -351,16 +306,10 @@ func TestHandleStore(t *testing.T) {
 			Result:    &ir.FunctionResult{Type: 0, Binding: &outBind},
 			LocalVars: []ir.LocalVariable{{Name: "x", Type: 0}},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}}, // 0
 			{Kind: ir.ExprLocalVariable{Variable: 0}}, // 1: &x
 			{Kind: ir.ExprLoad{Pointer: 1}},           // 2: load x
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(2)
 		fn.Body = []ir.Statement{
@@ -387,18 +336,11 @@ func TestHandleStore(t *testing.T) {
 			Result:    &ir.FunctionResult{Type: vec2H, Binding: &outBind},
 			LocalVars: []ir.LocalVariable{{Name: "v", Type: vec2H}},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},     // 0: s (f32)
 			{Kind: ir.ExprLocalVariable{Variable: 0}},     // 1: &v
 			{Kind: ir.ExprAccessIndex{Base: 1, Index: 0}}, // 2: &v.x
 			{Kind: ir.ExprLoad{Pointer: 1}},               // 3: load v
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &vec2H},
-			{Handle: &f32H},
-			{Handle: &vec2H},
 		}
 		ret := ir.ExpressionHandle(3)
 		fn.Body = []ir.Statement{
@@ -425,14 +367,9 @@ func TestHandleStore(t *testing.T) {
 			},
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBind},
 		}
-		f32H := ir.TypeHandle(0)
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprGlobalVariable{Variable: 0}}, // global, not local
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -454,7 +391,6 @@ func TestHandleStore(t *testing.T) {
 // TestRootLocalVar verifies rootLocalVar path tracing.
 func TestRootLocalVar(t *testing.T) {
 	mod := makeBasicMod()
-	f32H := ir.TypeHandle(0)
 
 	t.Run("direct_local_var", func(t *testing.T) {
 		fn := ir.Function{
@@ -462,7 +398,6 @@ func TestRootLocalVar(t *testing.T) {
 				{Kind: ir.ExprLocalVariable{Variable: 5}},
 			},
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 		ep := ir.EntryPoint{Function: fn}
 		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
@@ -485,9 +420,6 @@ func TestRootLocalVar(t *testing.T) {
 				{Kind: ir.ExprAccessIndex{Base: 0, Index: 2}},
 				{Kind: ir.ExprAccessIndex{Base: 1, Index: 1}},
 			},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H}, {Handle: &f32H}, {Handle: &f32H},
 		}
 		ep := ir.EntryPoint{Function: fn}
 		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
@@ -519,9 +451,6 @@ func TestRootLocalVar(t *testing.T) {
 				{Kind: ir.ExprAccess{Base: 0, Index: 1}},    // dynamic access
 			},
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H}, {Handle: &f32H}, {Handle: &f32H},
-		}
 		ep := ir.EntryPoint{Function: fn}
 		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
@@ -549,7 +478,6 @@ func TestRootLocalVar(t *testing.T) {
 				{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			},
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 		ep := ir.EntryPoint{Function: fn}
 		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
@@ -687,8 +615,6 @@ func TestHandleReturnNoResult(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
 		},
 	}
-	f32H := ir.TypeHandle(0)
-	fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 	ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
 	s := newAnalysisState(mod, &ep, typesOf(t, mod, &ep), nil, nil)
 	val := ir.ExpressionHandle(0)

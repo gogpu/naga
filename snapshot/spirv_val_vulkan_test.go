@@ -88,7 +88,7 @@ func compileSPIRVAt(name, source string, version spirv.Version) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	module, err = naga.ProcessOverrides(module, naga.OverrideOptions{Constants: readSPVPipelineConstants(name)})
+	module, _, err = naga.ProcessOverrides(module, unvalidated, naga.OverrideOptions{Constants: readSPVPipelineConstants(name)})
 	if err != nil {
 		return nil, err
 	}

@@ -126,11 +126,6 @@ func buildChainedOverrideModule() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(5.0)}},                   // [1] 5.0
 			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 0, Right: 1}}, // [2] height*5
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			// Hold-alive: we don't actually store t anywhere but the
@@ -164,7 +159,6 @@ func buildChainedOverrideModule() *ir.Module {
 // pipeline rather than just the internal Emit function.
 func buildLdexpRegressionModule() *ir.Module {
 	f32Handle := ir.TypeHandle(0)
-	i32Handle := ir.TypeHandle(1)
 	vec4Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -196,13 +190,6 @@ func buildLdexpRegressionModule() *ir.Module {
 			{Kind: ir.ExprMath{Fun: ir.MathLdexp, Arg: 0, Arg1: &arg1Handle}},     // [2] ldexp(x, 2)
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [4] vec4(r,r,r,1)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &i32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},

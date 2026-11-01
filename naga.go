@@ -10,7 +10,7 @@
 // This package is the one-call path from WGSL to SPIR-V, plus pipeline
 // constants (ProcessOverrides) and module compaction (Compact). Each
 // language has its own package: a frontend's Parse (wgsl.Parse) gives an IR
-// module, ir.Validate checks it, and a backend's Compile (spirv, msl, glsl,
+// module, valid.Validate checks it, and a backend's Compile (spirv, msl, glsl,
 // hlsl, dxil) writes it.
 //
 // Example usage (SPIR-V):
@@ -30,7 +30,7 @@
 //
 //	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 //	...
-//	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil { ... }
+//	if _, err := valid.Validate(module, valid.Options{}); err != nil { ... }
 //	mslCode, info, err := msl.Compile(module, msl.Options{})
 //
 // # Concurrency
@@ -45,8 +45,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -61,12 +61,14 @@ type CompileOptions struct {
 
 	// Capabilities is what the IR validator allows beyond the core: the
 	// zero value rejects f64, i64, u64 and f16, as Rust naga's default
-	// does. Use [ir.CapFloat64], [ir.CapShaderInt64], [ir.CapShaderFloat16]
-	// to enable one, or [ir.CapAll] to permit everything.
-	Capabilities ir.Capabilities
+	// does. Use [valid.CapFloat64], [valid.CapShaderInt64], [valid.CapShaderFloat16]
+	// to enable one, or [valid.CapAll] to permit everything.
+	Capabilities valid.Capabilities
 
 	// SkipValidation compiles the module without validating it first. The
-	// zero value validates, as Rust naga's CLI does.
+	// zero value validates, as Rust naga's CLI does. A module with overrides
+	// is still validated after they are replaced, with every capability (as
+	// ProcessOverrides always does); one without is not validated at all.
 	SkipValidation bool
 }
 
@@ -104,13 +106,14 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 	}
 
 	// Validate IR unless skipped (includes capability checks)
+	var info valid.ModuleInfo
 	if !opts.SkipValidation {
-		if _, err := ir.Validate(module, ir.ValidateOptions{Capabilities: opts.Capabilities}); err != nil {
+		if info, err = valid.Validate(module, valid.Options{Capabilities: opts.Capabilities}); err != nil {
 			return nil, fmt.Errorf("validation failed: %w", err)
 		}
 	}
 
-	module, err = ProcessOverrides(module, OverrideOptions{})
+	module, _, err = ProcessOverrides(module, info, OverrideOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pipeline constants: %w", err)
 	}

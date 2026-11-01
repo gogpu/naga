@@ -197,7 +197,7 @@ func prepareForBackend(source, shader string) (*ir.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	processed, err := naga.ProcessOverrides(prepared, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader)})
+	processed, _, err := naga.ProcessOverrides(prepared, unvalidated, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader)})
 	if err != nil {
 		return nil, fmt.Errorf("process overrides: %w", err)
 	}

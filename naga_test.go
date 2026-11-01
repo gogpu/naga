@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
-	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -191,7 +191,7 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 	}
 
 	// Stage 3: Validate (expect validation errors for minimal shader)
-	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil {
+	if _, err := valid.Validate(module, valid.Options{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
 
@@ -381,7 +381,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	}
 
 	// Test Validate stage
-	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil {
+	if _, err := valid.Validate(module, valid.Options{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
 

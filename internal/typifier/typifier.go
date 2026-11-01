@@ -74,7 +74,7 @@ func (t *Typifier) Grow(m *ir.Module, fn *ir.Function, upTo ir.ExpressionHandle)
 		res, ok, err := r.resolve(h)
 		if err != nil {
 			t.resolutions = t.resolutions[:start]
-			return fmt.Errorf("typifier: expression [%d]: %w", h, err)
+			return &Error{Expression: h, Err: err}
 		}
 		if ok {
 			t.resolutions[h] = res
@@ -88,7 +88,7 @@ func (t *Typifier) Grow(m *ir.Module, fn *ir.Function, upTo ir.ExpressionHandle)
 			res, ok, err := r.resolve(h)
 			if err != nil {
 				t.resolutions = t.resolutions[:start]
-				return fmt.Errorf("typifier: expression [%d]: %w", h, err)
+				return &Error{Expression: h, Err: err}
 			}
 			if ok {
 				t.resolutions[h] = res
@@ -98,7 +98,7 @@ func (t *Typifier) Grow(m *ir.Module, fn *ir.Function, upTo ir.ExpressionHandle)
 		}
 		if len(left) == len(pending) {
 			t.resolutions = t.resolutions[:start]
-			return fmt.Errorf("typifier: expression [%d] reads an expression that cannot be typed before it", left[0])
+			return &Error{Expression: left[0], Err: errForward}
 		}
 		pending = left
 	}
@@ -115,7 +115,7 @@ func (t *Typifier) Invalidate(m *ir.Module, fn *ir.Function, h ir.ExpressionHand
 	r := resolver{module: m, fn: fn, t: t}
 	res, ok, err := r.resolve(h)
 	if err != nil {
-		return fmt.Errorf("typifier: expression [%d]: %w", h, err)
+		return &Error{Expression: h, Err: err}
 	}
 	if !ok {
 		return fmt.Errorf("typifier: expression [%d] reads an expression that is not typed", h)
@@ -169,6 +169,24 @@ func (mt *Module) Function(fn *ir.Function) *Typifier {
 	}
 	return mt.functions[fn]
 }
+
+// Error is a failure to type an expression (Rust's ResolveError, with the
+// expression it is about).
+type Error struct {
+	Expression ir.ExpressionHandle
+	Err        error
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("typifier: expression [%d]: %v", e.Expression, e.Err)
+}
+
+// Unwrap returns the reason.
+func (e *Error) Unwrap() error { return e.Err }
+
+// errForward is the reason of an expression that reads, directly or
+// through others, one that cannot be typed before it.
+var errForward = errors.New("reads an expression that cannot be typed before it")
 
 // typed reports a resolution Grow has set; the zero TypeResolution stands
 // for no type yet.

@@ -27,10 +27,6 @@ func TestInlineEmitRangeEnd(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI32(7)}},
 					{Kind: ir.Literal{Value: ir.LiteralI32(13)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 					{Kind: ir.StmtReturn{Value: handlePtr(1)}},
@@ -48,9 +44,6 @@ func TestInlineEmitRangeEnd(t *testing.T) {
 				Name: "main",
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprCallResult{Function: 0}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtCall{
@@ -117,9 +110,6 @@ func TestInlineNamedExpressionsPrefixed(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralI32(42)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-				},
 				NamedExpressions: map[ir.ExpressionHandle]string{
 					0: "result",
 				},
@@ -137,9 +127,6 @@ func TestInlineNamedExpressionsPrefixed(t *testing.T) {
 				Name: "main",
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprCallResult{Function: 0}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtCall{Function: 0, Result: handlePtr(0)}},
@@ -256,11 +243,6 @@ func TestInlineExpressionsArrayContiguous(t *testing.T) {
 					{Kind: ir.ExprFunctionArgument{Index: 1}},
 					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 					{Kind: ir.StmtReturn{Value: handlePtr(2)}},
@@ -274,11 +256,6 @@ func TestInlineExpressionsArrayContiguous(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
 			{Kind: ir.ExprCallResult{Function: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtCall{
@@ -380,13 +357,6 @@ func TestInlineEarlyReturnsInIf(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                    // [3]
 					{Kind: ir.Literal{Value: ir.LiteralI32(-1)}},                   // [4]
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 					{Kind: ir.StmtIf{
@@ -404,10 +374,6 @@ func TestInlineEarlyReturnsInIf(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(42)}},
 			{Kind: ir.ExprCallResult{Function: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtCall{
@@ -476,11 +442,6 @@ func TestInlineEarlyReturnVoid(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 					{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 					{Kind: ir.StmtIf{
@@ -497,9 +458,6 @@ func TestInlineEarlyReturnVoid(t *testing.T) {
 		Name: "main",
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(5)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarI32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtCall{
@@ -552,11 +510,6 @@ func TestInlineTailReturnNoWrap(t *testing.T) {
 					{Kind: ir.ExprFunctionArgument{Index: 1}},
 					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 					{Kind: ir.StmtReturn{Value: handlePtr(2)}},
@@ -571,11 +524,6 @@ func TestInlineTailReturnNoWrap(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
 			{Kind: ir.ExprCallResult{Function: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtCall{
@@ -636,18 +584,15 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 			{Kind: ir.StmtReturn{Value: &binAdd}},
 		},
 	}
-	callee.ExpressionTypes = make([]ir.TypeResolution, len(callee.Expressions))
 	mod.Functions = append(mod.Functions, callee)
 
 	// Entry point: fn main() { let r = add_one(42); }
 	ep := ir.Function{Name: "main"}
 	callerLit := ir.ExpressionHandle(len(ep.Expressions))
 	ep.Expressions = append(ep.Expressions, ir.Expression{Kind: ir.Literal{Value: ir.LiteralI32(42)}})
-	ep.ExpressionTypes = append(ep.ExpressionTypes, ir.TypeResolution{Handle: &i32})
 
 	callResult := ir.ExpressionHandle(len(ep.Expressions))
 	ep.Expressions = append(ep.Expressions, ir.Expression{Kind: ir.ExprCallResult{}})
-	ep.ExpressionTypes = append(ep.ExpressionTypes, ir.TypeResolution{Handle: &i32})
 
 	ep.Body = ir.Block{
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: callerLit, End: callerLit + 1}}},
@@ -725,21 +670,19 @@ func TestInlineEmitsTheCallResult(t *testing.T) {
 	mod := &ir.Module{
 		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
 		Functions: []ir.Function{{
-			Name:            "seven",
-			Result:          &ir.FunctionResult{Type: i32},
-			Expressions:     []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralI32(7)}}},
-			ExpressionTypes: []ir.TypeResolution{{Handle: &i32}},
-			Body:            ir.Block{{Kind: ir.StmtReturn{Value: handlePtr(0)}}},
+			Name:        "seven",
+			Result:      &ir.FunctionResult{Type: i32},
+			Expressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralI32(7)}}},
+			Body:        ir.Block{{Kind: ir.StmtReturn{Value: handlePtr(0)}}},
 		}},
 	}
 	mod.EntryPoints = []ir.EntryPoint{{
 		Name:  "main",
 		Stage: ir.StageCompute,
 		Function: ir.Function{
-			Name:            "main",
-			Expressions:     []ir.Expression{{Kind: ir.ExprCallResult{Function: 0}}},
-			ExpressionTypes: []ir.TypeResolution{{Handle: &i32}},
-			Body:            ir.Block{{Kind: ir.StmtCall{Function: 0, Result: handlePtr(0)}}},
+			Name:        "main",
+			Expressions: []ir.Expression{{Kind: ir.ExprCallResult{Function: 0}}},
+			Body:        ir.Block{{Kind: ir.StmtCall{Function: 0, Result: handlePtr(0)}}},
 		},
 	}}
 

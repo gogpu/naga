@@ -483,9 +483,6 @@ func TestCompile_WorkgroupZeroInit(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{}},
 				},
@@ -524,10 +521,6 @@ func TestCompile_PrivateGlobalVariable(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprLoad{Pointer: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Value: ir.PointerType{Base: tF32, Space: ir.SpacePrivate}},
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -548,7 +541,6 @@ func TestCompile_PrivateGlobalVariable(t *testing.T) {
 
 func TestCompile_ForLoopStatement(t *testing.T) {
 	tI32 := ir.TypeHandle(0)
-	tBool := ir.TypeHandle(1)
 
 	init := ir.ExpressionHandle(0)
 	module := &ir.Module{
@@ -570,15 +562,6 @@ func TestCompile_ForLoopStatement(t *testing.T) {
 					{Kind: ir.ExprBinary{Op: ir.BinaryLess, Left: 2, Right: 3}},
 					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 2, Right: 5}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Value: ir.PointerType{Base: tI32, Space: ir.SpaceFunction}},
-					{Handle: &tI32},
-					{Handle: &tI32},
-					{Handle: &tBool},
-					{Handle: &tI32},
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtLoop{
@@ -630,9 +613,6 @@ func TestCompile_AllowAndForcePointSize(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -690,9 +670,6 @@ func TestCompile_DualSourceBlending(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tStruct}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tStruct},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -747,11 +724,6 @@ func TestCompile_StorageBufferAsEntryParam(t *testing.T) {
 					{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
 					{Kind: ir.ExprLoad{Pointer: 1}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Value: ir.PointerType{Base: tBuf, Space: ir.SpaceStorage}},
-					{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceStorage}},
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -797,9 +769,6 @@ func TestCompile_BindingArrayType(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -840,9 +809,6 @@ func TestCompile_MultipleEntryPoints_Info(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -855,9 +821,6 @@ func TestCompile_MultipleEntryPoints_Info(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -906,9 +869,6 @@ func TestCompile_WorkgroupAtomicZeroInit(t *testing.T) {
 				Name: "cs_main",
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tAtomicI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{}},
@@ -959,10 +919,6 @@ func TestCompile_FakeMissingBindings(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1015,10 +971,6 @@ func TestCompile_PerEntryPointMap(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1101,10 +1053,6 @@ func TestCompile_MultipleFunctionsWithSharedGlobals(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tTex},
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: ptrExpr(1)}},
 				},
@@ -1117,11 +1065,6 @@ func TestCompile_MultipleFunctionsWithSharedGlobals(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 1}},
 					{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tTex},
-					{Handle: &tSamp},
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: ptrExpr(2)}},
 				},
@@ -1133,10 +1076,6 @@ func TestCompile_MultipleFunctionsWithSharedGlobals(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprCallResult{Function: 0}},
 					{Kind: ir.ExprCallResult{Function: 1}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tF32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtCall{Function: 0, Result: ptrExpr(0)}},
@@ -1202,13 +1141,6 @@ func TestCompile_ImageSampleExpression(t *testing.T) {
 						Image: 1, Sampler: 2, Coordinate: 3,
 						Level: ir.SampleLevelAuto{},
 					}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec2},
-					{Handle: &tTex},
-					{Handle: &tSamp},
-					{Handle: &tVec2},
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},

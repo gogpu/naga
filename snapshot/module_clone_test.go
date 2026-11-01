@@ -120,7 +120,7 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 			t.Fatalf("%s: second lowering failed: %v", sh.name, err)
 		}
 		opts := naga.OverrideOptions{Constants: readSPVPipelineConstants(sh.name)}
-		if _, err := naga.ProcessOverrides(module, opts); err != nil {
+		if _, _, err := naga.ProcessOverrides(module, unvalidated, opts); err != nil {
 			continue
 		}
 		if !reflect.DeepEqual(module, want) {
@@ -128,7 +128,7 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 			continue
 		}
 		prepare := func(m *ir.Module) *ir.Module {
-			p, err := naga.ProcessOverrides(m, opts)
+			p, _, err := naga.ProcessOverrides(m, unvalidated, opts)
 			if err != nil {
 				t.Fatalf("%s: %v", sh.name, err)
 			}

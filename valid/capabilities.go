@@ -1,4 +1,4 @@
-package ir
+package valid
 
 // Capabilities represents hardware/API features available to the shader.
 // Mirrors Rust naga valid::Capabilities bitflags.

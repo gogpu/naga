@@ -14,6 +14,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -445,7 +446,7 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := spirvBinary(m, spirv.Options{}); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
@@ -540,7 +541,7 @@ func TestZeroCompileOptions(t *testing.T) {
 	if _, err := Compile(f64Shader); err == nil || !strings.Contains(err.Error(), "validation") {
 		t.Errorf("zero options, f64: err = %v, want a validation error", err)
 	}
-	if _, err := CompileWithOptions(f64Shader, CompileOptions{Capabilities: ir.CapFloat64}); err != nil {
+	if _, err := CompileWithOptions(f64Shader, CompileOptions{Capabilities: valid.CapFloat64}); err != nil {
 		t.Errorf("CapFloat64: %v", err)
 	}
 	if _, err := CompileWithOptions(f64Shader, CompileOptions{SkipValidation: true}); err != nil {

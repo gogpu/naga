@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/internal/testcorpus"
+	"github.com/gogpu/naga/valid"
 )
 
 // Test corpus layout (ADR-006). This file is the only place that knows it.
@@ -35,6 +36,12 @@ var (
 	rustInputDir = filepath.Join(rustCorpusDir, "in", "wgsl")
 	ownInputDir  = filepath.Join(ownCorpusDir, "in")
 )
+
+// unvalidated is the ModuleInfo the snapshot tests give ProcessOverrides:
+// they compile corpus modules they do not validate first, so there is none.
+// ProcessOverrides returns it as is for a module with nothing to process,
+// and a fresh one for a processed module.
+var unvalidated valid.ModuleInfo
 
 // Rust naga output kinds: subdirectories of out/ in both Rust trees.
 const (

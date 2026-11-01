@@ -432,9 +432,6 @@ func TestDebug_PassthroughEmitterIDs(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec4f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},

@@ -1,10 +1,10 @@
-package ir_test
+package valid_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // TestModuleInfoGlobalUses: ModuleInfo records per function and entry point
@@ -43,7 +43,7 @@ fn write_rw(v: u32) { rw[0] = v; }
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := ir.Validate(m, ir.ValidateOptions{})
+	info, err := valid.Validate(m, valid.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,16 +57,16 @@ fn write_rw(v: u32) { rw[0] = v; }
 		return 0
 	}
 	const (
-		r = ir.GlobalUseRead
-		w = ir.GlobalUseWrite
-		q = ir.GlobalUseQuery
+		r = valid.GlobalUseRead
+		w = valid.GlobalUseWrite
+		q = valid.GlobalUseQuery
 	)
-	cs := map[string]ir.GlobalUse{
+	cs := map[string]valid.GlobalUse{
 		"ro": r | q, "rw": w, "counter": r | w, "named": q, "sized": q, "out_tex": w,
 		"tex": 0, "samp": 0, "unused": 0,
 	}
-	fs := map[string]ir.GlobalUse{"tex": r, "samp": r, "ro": 0, "rw": 0, "unused": 0}
-	for i, want := range []map[string]ir.GlobalUse{cs, fs} {
+	fs := map[string]valid.GlobalUse{"tex": r, "samp": r, "ro": 0, "rw": 0, "unused": 0}
+	for i, want := range []map[string]valid.GlobalUse{cs, fs} {
 		ep := m.EntryPoints[i].Name
 		for name, use := range want {
 			if got := info.EntryPoints[i].GlobalUses[global(name)]; got != use {
@@ -80,24 +80,24 @@ fn write_rw(v: u32) { rw[0] = v; }
 }
 
 // TestValidateErrors: an invalid module returns every problem as a
-// ValidationErrors, and errors.As finds each *ValidationError; the zero
-// ValidateOptions allow no optional capability.
+// Errors, and errors.As finds each *Error; the zero
+// Options allow no optional capability.
 func TestValidateErrors(t *testing.T) {
 	m, err := lowerWGSLNoFatal(`var<private> a: f64; var<private> b: i64;
 @compute @workgroup_size(1) fn main() { a = 1.0lf; b = 1li; }`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ir.Validate(m, ir.ValidateOptions{})
-	var all ir.ValidationErrors
+	_, err = valid.Validate(m, valid.Options{})
+	var all valid.Errors
 	if !errors.As(err, &all) || len(all) < 2 {
-		t.Fatalf("err = %v, want a ValidationErrors with f64 and i64", err)
+		t.Fatalf("err = %v, want an Errors with f64 and i64", err)
 	}
-	var one *ir.ValidationError
+	var one *valid.Error
 	if !errors.As(err, &one) {
-		t.Errorf("errors.As(*ValidationError) found nothing in %v", err)
+		t.Errorf("errors.As(*Error) found nothing in %v", err)
 	}
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapFloat64 | ir.CapShaderInt64}); err != nil {
+	if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapFloat64 | valid.CapShaderInt64}); err != nil {
 		t.Errorf("with the capabilities: %v", err)
 	}
 }

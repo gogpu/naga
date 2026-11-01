@@ -139,9 +139,6 @@ func buildUnaryNegateFloatShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 3, 4}}}, // [5]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -165,7 +162,6 @@ func TestEmitUnaryNegateFloat(t *testing.T) {
 // buildUnaryNegateIntShader: negate an integer input.
 func buildUnaryNegateIntShader() *ir.Module {
 	i32 := ir.TypeHandle(0)
-	f32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -193,9 +189,6 @@ func buildUnaryNegateIntShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 4, 5}}}, // [6]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32}, {Handle: &i32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -221,7 +214,6 @@ func TestEmitUnaryNegateInt(t *testing.T) {
 // buildUnaryBitwiseNotShader: ~x for u32.
 func buildUnaryBitwiseNotShader() *ir.Module {
 	u32 := ir.TypeHandle(0)
-	f32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -248,9 +240,6 @@ func buildUnaryBitwiseNotShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 4, 5}}}, // [6]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &u32}, {Handle: &u32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -303,12 +292,6 @@ func buildLogicalNotShader() *ir.Module {
 			{Kind: ir.ExprSelect{Condition: 3, Accept: 0, Reject: 1}},             // [4] select
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{4, 4, 4, 5}}}, // [6]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -370,11 +353,6 @@ func buildScalarSelectShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 5, 4}}}, // [6]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -399,7 +377,6 @@ func TestEmitSelectScalar(t *testing.T) {
 
 // buildSwitchShader: compute shader with switch on global_invocation_id.x.
 func buildSwitchShader() *ir.Module {
-	u32 := ir.TypeHandle(0)
 	vec3u32 := ir.TypeHandle(1)
 
 	mod := &ir.Module{
@@ -417,9 +394,6 @@ func buildSwitchShader() *ir.Module {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] gid
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] gid.x
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32}, {Handle: &u32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -489,11 +463,6 @@ func TestEmitLiteralBool(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -509,8 +478,6 @@ func TestEmitLiteralBool(t *testing.T) {
 }
 
 func TestEmitLiteralI32(t *testing.T) {
-	f32 := ir.TypeHandle(0)
-	i32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -534,9 +501,6 @@ func TestEmitLiteralI32(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -548,8 +512,6 @@ func TestEmitLiteralI32(t *testing.T) {
 }
 
 func TestEmitLiteralU32(t *testing.T) {
-	f32 := ir.TypeHandle(0)
-	u32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -573,9 +535,6 @@ func TestEmitLiteralU32(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &u32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -587,7 +546,6 @@ func TestEmitLiteralU32(t *testing.T) {
 }
 
 func TestEmitLiteralAbstractFloat(t *testing.T) {
-	f32 := ir.TypeHandle(0)
 	vec4 := ir.TypeHandle(1)
 
 	irMod := &ir.Module{
@@ -608,9 +566,6 @@ func TestEmitLiteralAbstractFloat(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [1]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 1, 2}}}, // [3]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -664,7 +619,6 @@ func TestEmitLiteralAbstractInt(t *testing.T) {
 
 func buildIntBinaryShader(op ir.BinaryOperator, kind ir.ScalarKind) *ir.Module {
 	scalar := ir.TypeHandle(0)
-	f32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -695,10 +649,6 @@ func buildIntBinaryShader(op ir.BinaryOperator, kind ir.ScalarKind) *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 4, 5}}}, // [6]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalar}, {Handle: &scalar}, {Handle: &scalar},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -784,8 +734,6 @@ func TestEmitBinaryLogicalOps(t *testing.T) {
 	retBind := ir.Binding(ir.LocationBinding{Location: 0})
 	retH := ir.ExpressionHandle(8)
 
-	boolTy := ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
-
 	fn := ir.Function{
 		Name: "main",
 		Arguments: []ir.FunctionArgument{
@@ -803,11 +751,6 @@ func TestEmitBinaryLogicalOps(t *testing.T) {
 			{Kind: ir.ExprSelect{Condition: 5, Accept: 0, Reject: 1}},             // [6]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [7]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{6, 6, 6, 7}}}, // [8]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32},
-			{Value: boolTy}, {Value: boolTy}, {Value: boolTy}, {Value: boolTy},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 9}}},
@@ -850,9 +793,6 @@ func TestEmitBinaryFloatModulo(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -937,11 +877,6 @@ func TestEmitComparisonOps(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 					{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 4, 5}}}, // [6]
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &f32}, {Handle: &f32},
-					{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-					{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 					{Kind: ir.StmtReturn{Value: &retH}},
@@ -989,11 +924,6 @@ func TestEmitIfElseControlFlow(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 3, 4}}}, // [5]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtIf{
@@ -1023,7 +953,6 @@ func TestEmitIfElseControlFlow(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEmitLoopWithBreak(t *testing.T) {
-	u32 := ir.TypeHandle(0)
 	vec3u := ir.TypeHandle(1)
 
 	irMod := &ir.Module{
@@ -1043,10 +972,6 @@ func TestEmitLoopWithBreak(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},                       // [1] gid.x
 			{Kind: ir.Literal{Value: ir.LiteralU32(10)}},                        // [2] 10u
 			{Kind: ir.ExprBinary{Op: ir.BinaryGreaterEqual, Left: 1, Right: 2}}, // [3] gid.x >= 10
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u}, {Handle: &u32}, {Handle: &u32},
-			{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1110,9 +1035,6 @@ func TestEmitBarrierWorkgroup(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] gid
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] gid.x
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u}, {Handle: &u32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1198,10 +1120,6 @@ func TestEmitLocalVariableStoreLoad(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 4, 5}}}, // [6]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 			{Kind: ir.StmtStore{Pointer: 2, Value: 0}}, // tmp = a
@@ -1247,9 +1165,6 @@ func TestEmitComputeBuiltins(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] gid.x
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}}, // [2] gid.y
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 2}}, // [3] gid.z
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u}, {Handle: &u32}, {Handle: &u32}, {Handle: &u32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1344,9 +1259,6 @@ func buildMathUnaryShader(mathFn ir.MathFunction) *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -1658,7 +1570,6 @@ func TestComponentCountExported(t *testing.T) {
 
 func TestEmitMultipleEntryPointsUsesFirst(t *testing.T) {
 	// Emit takes only the first entry point.
-	f32 := ir.TypeHandle(0)
 	vec4 := ir.TypeHandle(1)
 
 	irMod := &ir.Module{
@@ -1679,9 +1590,6 @@ func TestEmitMultipleEntryPointsUsesFirst(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 2, 0}}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1707,7 +1615,6 @@ func TestEmitMultipleEntryPointsUsesFirst(t *testing.T) {
 
 func TestEmitSplatVec2(t *testing.T) {
 	f32 := ir.TypeHandle(0)
-	vec2 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -1734,9 +1641,6 @@ func TestEmitSplatVec2(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 2, 4}}}, // [5]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &vec2}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -1753,7 +1657,6 @@ func TestEmitSplatVec2(t *testing.T) {
 
 func TestEmitCastFPToSI(t *testing.T) {
 	f32 := ir.TypeHandle(0)
-	i32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -1780,9 +1683,6 @@ func TestEmitCastFPToSI(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &i32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retH}},
@@ -1801,7 +1701,6 @@ func TestEmitCastFPToSI(t *testing.T) {
 
 func TestEmitCastFPToUI(t *testing.T) {
 	f32 := ir.TypeHandle(0)
-	u32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -1827,9 +1726,6 @@ func TestEmitCastFPToUI(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &u32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -1876,7 +1772,6 @@ func TestEmitComputeShaderMetadata(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{{Handle: &vec3u}, {Handle: &u32}},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 			{Kind: ir.StmtReturn{}},
@@ -1929,7 +1824,6 @@ func TestSelectDivOp(t *testing.T) {
 
 func TestEmitVectorBinaryAdd(t *testing.T) {
 	vec3 := ir.TypeHandle(0)
-	f32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -1960,10 +1854,6 @@ func TestEmitVectorBinaryAdd(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 2, Index: 1}},                         // [4] sum.y
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 3, 5}}}, // [6]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3}, {Handle: &vec3}, {Handle: &vec3},
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -2000,9 +1890,7 @@ func TestEmitWithFlagsReturnsFlags(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEmitSwizzleYX(t *testing.T) {
-	f32 := ir.TypeHandle(0)
 	vec4 := ir.TypeHandle(1)
-	vec2 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
 		Types: []ir.Type{
@@ -2030,9 +1918,6 @@ func TestEmitSwizzleYX(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 1, Index: 1}},                         // [3] swizzle.y
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 2, 4}}}, // [5]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec4}, {Handle: &vec2}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -2074,7 +1959,6 @@ func TestComputeBitcodeShaderFlagsBasicCompute(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{{Handle: &vec3u}, {Handle: &u32}},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 			{Kind: ir.StmtReturn{}},

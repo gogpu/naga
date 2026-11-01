@@ -471,9 +471,6 @@ func TestWriteStorageStoreRecursionLimit(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
-		},
 	}
 	setCurrentFunction(t, w, fn)
 
@@ -763,9 +760,6 @@ func TestWriteRayQueryGetIntersection(t *testing.T) {
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
 		},
 	}
 	setCurrentFunction(t, w, fn)
@@ -1104,10 +1098,6 @@ func TestWriteStructMatrixAccessHelpers(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // Access struct member 0 (matCx2)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(2)}, // pointer to struct
-			{Handle: ptrHandle(0)}, // matCx2
-		},
 	}
 
 	w.writeStructMatrixAccessHelpers(fn)
@@ -1410,9 +1400,6 @@ func TestWriteLoadExpression_Simple(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
-		},
 		LocalVars: []ir.LocalVariable{
 			{Type: 0},
 		},
@@ -1491,9 +1478,6 @@ func TestGetGlobalUniformMatrix_NotUniform(t *testing.T) {
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
 		},
 	}
 	setCurrentFunction(t, w, fn)

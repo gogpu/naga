@@ -7,6 +7,7 @@ import (
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -43,7 +44,7 @@ func compileWGSLWithConstants(t *testing.T, src string, opts Options, constants 
 // processOverridesForTest replaces the overrides of module by their values.
 func processOverridesForTest(t *testing.T, module *ir.Module, constants map[string]float64) *ir.Module {
 	t.Helper()
-	processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: constants})
+	processed, _, err := naga.ProcessOverrides(module, valid.ModuleInfo{}, naga.OverrideOptions{Constants: constants})
 	if err != nil {
 		t.Fatalf("ProcessOverrides: %v", err)
 	}

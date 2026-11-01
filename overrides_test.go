@@ -19,6 +19,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -61,7 +62,7 @@ var selectA = &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "a"}
 func TestProcessOverridesDoesNotModifyInput(t *testing.T) {
 	m := lowerSource(t, twoEntryPoints)
 	want := lowerSource(t, twoEntryPoints)
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"n": 9}, EntryPoint: selectA})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"n": 9}, EntryPoint: selectA})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestProcessOverridesDoesNotModifyInput(t *testing.T) {
 func TestProcessOverridesIdentity(t *testing.T) {
 	m := lowerSource(t, `@compute @workgroup_size(1) fn main() {}`)
 	for _, opts := range []naga.OverrideOptions{{}, {EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "main"}}} {
-		out, err := naga.ProcessOverrides(m, opts)
+		out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +106,7 @@ func TestProcessOverridesConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			n := uint32(i + 4)
-			out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"n": float64(n)}, EntryPoint: selectA})
+			out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"n": float64(n)}, EntryPoint: selectA})
 			if err != nil {
 				errs[i] = err
 				return
@@ -154,7 +155,7 @@ func TestProcessOverridesErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			for range 5 { // map order varies between runs
-				_, err := naga.ProcessOverrides(m, tc.opts)
+				_, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, tc.opts)
 				if !errors.Is(err, tc.kind) {
 					t.Fatalf("err = %v, want %v", err, tc.kind)
 				}
@@ -180,12 +181,12 @@ func TestProcessOverridesKeys(t *testing.T) {
 @compute @workgroup_size(1) fn main() { o[0] = w; }
 `)
 	for _, k := range []string{"013", "+13", "w"} {
-		_, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{k: 2}})
+		_, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{k: 2}})
 		if !errors.Is(err, naga.ErrOverrideNotFound) {
 			t.Errorf("key %q: err = %v, want ErrOverrideNotFound (an @id override is named by its id only)", k, err)
 		}
 	}
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"13": 2}})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"13": 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestProcessOverridesKeys(t *testing.T) {
 // used"); Rust checks keys before compacting.
 func TestProcessOverridesKeyOfUnusedOverride(t *testing.T) {
 	m := lowerSource(t, twoEntryPoints)
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"onlyB": 3}, EntryPoint: selectA})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"onlyB": 3}, EntryPoint: selectA})
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
@@ -215,7 +216,7 @@ func TestProcessOverridesKeyOfUnusedOverride(t *testing.T) {
 func TestProcessOverridesEntryPointNotFound(t *testing.T) {
 	m := lowerSource(t, `@compute @workgroup_size(1) fn main() {}`)
 	for _, sel := range []backend.EntryPointSelector{{Stage: ir.StageCompute, Name: "other"}, {Stage: ir.StageVertex, Name: "main"}} {
-		_, err := naga.ProcessOverrides(m, naga.OverrideOptions{EntryPoint: &sel})
+		_, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{EntryPoint: &sel})
 		if !errors.Is(err, backend.ErrEntryPointNotFound) {
 			t.Errorf("selector %+v: err = %v, want ErrEntryPointNotFound", sel, err)
 		}
@@ -231,10 +232,10 @@ override z: i32 = 1;
 @group(0) @binding(0) var<storage, read_write> o: array<i32>;
 @compute @workgroup_size(1) fn main() { o[0] = 1 / (z - 1); }
 `)
-	if _, err := naga.ProcessOverrides(m, naga.OverrideOptions{}); err == nil || !strings.Contains(err.Error(), "Division by zero") {
+	if _, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{}); err == nil || !strings.Contains(err.Error(), "Division by zero") {
 		t.Errorf("z = 1: err = %v, want a division-by-zero error", err)
 	}
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"z": 2}})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"z": 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ override h: f16 = 1.0h;
 @group(0) @binding(0) var<storage, read_write> o: array<f32>;
 @compute @workgroup_size(1) fn main() { o[0] = f32(h); }
 `)
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"h": 0.1}})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"h": 0.1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +263,7 @@ override h: f16 = 1.0h;
 			t.Errorf("missing %q\n%s", want, code)
 		}
 	}
-	if _, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"h": 70000}}); !errors.Is(err, naga.ErrOverrideValueOutOfRange) {
+	if _, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"h": 70000}}); !errors.Is(err, naga.ErrOverrideValueOutOfRange) {
 		t.Errorf("h = 70000: err = %v, want ErrOverrideValueOutOfRange", err)
 	}
 }
@@ -277,7 +278,7 @@ override wg: u32 = 4u;
 // (Rust process_workgroup_size_override); 0 is ErrNegativeWorkgroupSize.
 func TestProcessOverridesWorkgroupSize(t *testing.T) {
 	m := lowerSource(t, workgroupShader)
-	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 8}})
+	out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 8}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +289,7 @@ func TestProcessOverridesWorkgroupSize(t *testing.T) {
 	if ep.WorkgroupSizeOverrides != [3]*ir.ExpressionHandle{} {
 		t.Errorf("WorkgroupSizeOverrides = %v, want all nil after processing", ep.WorkgroupSizeOverrides)
 	}
-	_, err = naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 0}})
+	_, _, err = naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 0}})
 	if !errors.Is(err, naga.ErrNegativeWorkgroupSize) || err.Error() != "workgroup_size override isn't strictly positive" {
 		t.Errorf("wg = 0: err = %v, want ErrNegativeWorkgroupSize with Rust's message", err)
 	}
@@ -358,7 +359,7 @@ override m: u32 = n * 2u;
 		{naga.PipelineConstants{"m": 5}, []string{"constant uint n = 7u;", "constant uint m = 5u;", "o[1] = 12u;"}},
 		{naga.PipelineConstants{"n": 3, "m": 5}, []string{"constant uint n = 3u;", "constant uint m = 5u;", "o[1] = 8u;"}},
 	} {
-		out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: tc.constants})
+		out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: tc.constants})
 		if err != nil {
 			t.Fatalf("%v: %v", tc.constants, err)
 		}
@@ -400,7 +401,7 @@ override n: u32 = 7u;
 			if err := compile(lowerSource(t, src)); !errors.Is(err, ir.ErrUnresolvedOverride) {
 				t.Errorf("%s, %s: err = %v, want ir.ErrUnresolvedOverride", name, backend, err)
 			}
-			processed, err := naga.ProcessOverrides(lowerSource(t, src), naga.OverrideOptions{})
+			processed, _, err := naga.ProcessOverrides(lowerSource(t, src), valid.ModuleInfo{}, naga.OverrideOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -436,7 +437,7 @@ var<workgroup> a: array<u32, SIZE>;
 		{"compound given", "n * 2u", naga.PipelineConstants{"n": 3}, 6},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", tc.size, 1)), naga.OverrideOptions{Constants: tc.constants})
+			m, _, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", tc.size, 1)), valid.ModuleInfo{}, naga.OverrideOptions{Constants: tc.constants})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +473,7 @@ var<workgroup> a: array<u32, SIZE>;
 	}
 	// Rust revalidates: "Override-sized array type [1] does not have a
 	// positive size".
-	_, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", "n", 1)), naga.OverrideOptions{Constants: naga.PipelineConstants{"n": 0}})
+	_, _, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", "n", 1)), valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"n": 0}})
 	if err == nil || !strings.Contains(err.Error(), "does not have a positive size") {
 		t.Errorf("n = 0: err = %v, want an array size error", err)
 	}
@@ -496,8 +497,8 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := lowerSource(t, tc.src)
-			_, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll})
-			var errs ir.ValidationErrors
+			_, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll})
+			var errs valid.Errors
 			if !errors.As(err, &errs) {
 				t.Fatalf("want validation errors, got %v", err)
 			}
@@ -508,14 +509,14 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 			if !found {
 				t.Errorf("validation errors %v, want one containing %q", errs, tc.want)
 			}
-			if _, err := naga.ProcessOverrides(m, naga.OverrideOptions{}); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{}); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("ProcessOverrides: err = %v, want one containing %q", err, tc.want)
 			}
 		})
 	}
 	// The allowed form is valid.
 	ok := lowerSource(t, "override n: u32 = 4;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { a[0] = 1u; let v = a[0]; }\n")
-	if _, err := ir.Validate(ok, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := valid.Validate(ok, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Errorf("workgroup array sized by an override: %v", err)
 	}
 }

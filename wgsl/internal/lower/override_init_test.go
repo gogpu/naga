@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // A var<private> initializer that depends on overrides gets its literal
@@ -150,7 +151,7 @@ fn f() -> bool { return v || p || Q; }
 	if lit, ok := ge[q.Init].Kind.(ir.Literal); !ok || lit.Value != ir.LiteralBool(true) {
 		t.Errorf("Q init = %#v, want Literal(true)", ge[q.Init].Kind)
 	}
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Errorf("validation: %v", err)
 	}
 }

@@ -628,14 +628,10 @@ func TestWriteExpressionToString(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}

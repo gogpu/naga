@@ -342,8 +342,9 @@ linters:
           - revive        # Naming mirrors Rust/SPIR-V spec identifiers
           - unused        # Scaffolding for future Rust parity features
 
-      # IR package - complex type resolution and validation
-      - path: ir/.*\.go
+      # IR package and its validator (valid, moved out of ir) - complex type
+      # resolution and validation
+      - path: (ir|valid)/.*\.go
         linters:
           - gocyclo
           - gocognit

@@ -144,55 +144,6 @@ func BenchmarkExpressionAlloc(b *testing.B) {
 	}
 }
 
-// BenchmarkValidateModule benchmarks IR validation for a synthetically
-// constructed module with representative complexity.
-func BenchmarkValidateModule(b *testing.B) {
-	// Build a minimal valid module
-	m := &Module{
-		Types: []Type{
-			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			{Name: "u32", Inner: ScalarType{Kind: ScalarUint, Width: 4}},
-			{Name: "vec4f", Inner: VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
-		},
-		EntryPoints: []EntryPoint{
-			{
-				Name:  "vs_main",
-				Stage: StageVertex,
-				Function: Function{
-					Name: "vs_main",
-					Arguments: []FunctionArgument{
-						{Name: "idx", Type: 1, Binding: benchBindingPtr(BuiltinBinding{Builtin: BuiltinVertexIndex})},
-					},
-					Result: &FunctionResult{
-						Type:    2,
-						Binding: benchBindingPtr(BuiltinBinding{Builtin: BuiltinPosition}),
-					},
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(0.0)}},
-						{Kind: Literal{Value: LiteralF32(0.0)}},
-						{Kind: Literal{Value: LiteralF32(0.0)}},
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-					},
-					Body: []Statement{
-						{Kind: StmtEmit{Range: Range{Start: 0, End: 4}}},
-					},
-				},
-			},
-		},
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		errs, err := validateErrs(m, CapAll)
-		if err != nil {
-			b.Fatalf("validate failed: %v", err)
-		}
-		runtime.KeepAlive(errs)
-	}
-}
-
 // newExprHandle creates a pointer to an ExpressionHandle (helper for benchmarks).
 func newExprHandle(h ExpressionHandle) *ExpressionHandle {
 	return &h

@@ -1,12 +1,14 @@
-package ir
+package valid
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // containsError checks if any validation error contains the given substring.
-func containsError(errors []ValidationError, substring string) bool {
+func containsError(errors []Error, substring string) bool {
 	for _, e := range errors {
 		if strings.Contains(e.Error(), substring) {
 			return true
@@ -16,7 +18,7 @@ func containsError(errors []ValidationError, substring string) bool {
 }
 
 // expectErrors validates the module and asserts at least one error matches.
-func expectErrors(t *testing.T, module *Module, expectedSubstrings ...string) {
+func expectErrors(t *testing.T, module *ir.Module, expectedSubstrings ...string) {
 	t.Helper()
 	errors, err := validateErrs(module, CapAll)
 	if err != nil {
@@ -35,8 +37,8 @@ func expectErrors(t *testing.T, module *Module, expectedSubstrings ...string) {
 // --- Type validation tests ---
 
 func TestValidateSemantic_TypeNilInner(t *testing.T) {
-	module := &Module{
-		Types: []Type{
+	module := &ir.Module{
+		Types: []ir.Type{
 			{Name: "broken", Inner: nil},
 		},
 	}
@@ -56,9 +58,9 @@ func TestValidateSemantic_ScalarInvalidWidth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			module := &Module{
-				Types: []Type{
-					{Name: "bad_scalar", Inner: ScalarType{Kind: ScalarFloat, Width: tt.width}},
+			module := &ir.Module{
+				Types: []ir.Type{
+					{Name: "bad_scalar", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: tt.width}},
 				},
 			}
 			expectErrors(t, module, "scalar width must be 1, 2, 4, or 8")
@@ -67,11 +69,11 @@ func TestValidateSemantic_ScalarInvalidWidth(t *testing.T) {
 }
 
 func TestValidateSemantic_VectorInvalidScalarWidth(t *testing.T) {
-	module := &Module{
-		Types: []Type{
+	module := &ir.Module{
+		Types: []ir.Type{
 			{
 				Name:  "bad_vec",
-				Inner: VectorType{Size: Vec3, Scalar: ScalarType{Kind: ScalarFloat, Width: 3}},
+				Inner: ir.VectorType{Size: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 3}},
 			},
 		},
 	}
@@ -81,21 +83,21 @@ func TestValidateSemantic_VectorInvalidScalarWidth(t *testing.T) {
 func TestValidateSemantic_MatrixInvalidDimensions(t *testing.T) {
 	tests := []struct {
 		name   string
-		cols   VectorSize
-		rows   VectorSize
+		cols   ir.VectorSize
+		rows   ir.VectorSize
 		errSub string
 	}{
-		{"invalid columns", VectorSize(5), Vec3, "matrix columns must be 2, 3, or 4"},
-		{"invalid rows", Vec4, VectorSize(1), "matrix rows must be 2, 3, or 4"},
-		{"both invalid", VectorSize(0), VectorSize(7), "matrix columns must be 2, 3, or 4"},
+		{"invalid columns", ir.VectorSize(5), ir.Vec3, "matrix columns must be 2, 3, or 4"},
+		{"invalid rows", ir.Vec4, ir.VectorSize(1), "matrix rows must be 2, 3, or 4"},
+		{"both invalid", ir.VectorSize(0), ir.VectorSize(7), "matrix columns must be 2, 3, or 4"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			module := &Module{
-				Types: []Type{
+			module := &ir.Module{
+				Types: []ir.Type{
 					{
 						Name:  "bad_mat",
-						Inner: MatrixType{Columns: tt.cols, Rows: tt.rows, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}},
+						Inner: ir.MatrixType{Columns: tt.cols, Rows: tt.rows, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 					},
 				},
 			}
@@ -105,11 +107,11 @@ func TestValidateSemantic_MatrixInvalidDimensions(t *testing.T) {
 }
 
 func TestValidateSemantic_ArrayCircularReference(t *testing.T) {
-	module := &Module{
-		Types: []Type{
+	module := &ir.Module{
+		Types: []ir.Type{
 			{
 				Name:  "self_ref_array",
-				Inner: ArrayType{Base: TypeHandle(0), Size: ArraySize{Constant: uint32Ptr(4)}, Stride: 4},
+				Inner: ir.ArrayType{Base: ir.TypeHandle(0), Size: ir.ArraySize{Constant: uint32Ptr(4)}, Stride: 4},
 			},
 		},
 	}
@@ -118,14 +120,14 @@ func TestValidateSemantic_ArrayCircularReference(t *testing.T) {
 
 func TestValidateSemantic_StructMembers(t *testing.T) {
 	t.Run("empty member name", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 				{
 					Name: "bad_struct",
-					Inner: StructType{
-						Members: []StructMember{
-							{Name: "", Type: TypeHandle(0)},
+					Inner: ir.StructType{
+						Members: []ir.StructMember{
+							{Name: "", Type: ir.TypeHandle(0)},
 						},
 					},
 				},
@@ -135,15 +137,15 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 	})
 
 	t.Run("duplicate member name", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 				{
 					Name: "dup_struct",
-					Inner: StructType{
-						Members: []StructMember{
-							{Name: "x", Type: TypeHandle(0)},
-							{Name: "x", Type: TypeHandle(0)},
+					Inner: ir.StructType{
+						Members: []ir.StructMember{
+							{Name: "x", Type: ir.TypeHandle(0)},
+							{Name: "x", Type: ir.TypeHandle(0)},
 						},
 					},
 				},
@@ -153,13 +155,13 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 	})
 
 	t.Run("invalid member type", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
+		module := &ir.Module{
+			Types: []ir.Type{
 				{
 					Name: "bad_member_type",
-					Inner: StructType{
-						Members: []StructMember{
-							{Name: "field", Type: TypeHandle(999)},
+					Inner: ir.StructType{
+						Members: []ir.StructMember{
+							{Name: "field", Type: ir.TypeHandle(999)},
 						},
 					},
 				},
@@ -169,13 +171,13 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 	})
 
 	t.Run("circular member reference", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
+		module := &ir.Module{
+			Types: []ir.Type{
 				{
 					Name: "self_ref_struct",
-					Inner: StructType{
-						Members: []StructMember{
-							{Name: "self", Type: TypeHandle(0)},
+					Inner: ir.StructType{
+						Members: []ir.StructMember{
+							{Name: "self", Type: ir.TypeHandle(0)},
 						},
 					},
 				},
@@ -186,11 +188,11 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 }
 
 func TestValidateSemantic_PointerInvalidBase(t *testing.T) {
-	module := &Module{
-		Types: []Type{
+	module := &ir.Module{
+		Types: []ir.Type{
 			{
 				Name:  "bad_ptr",
-				Inner: PointerType{Base: TypeHandle(100), Space: SpaceFunction},
+				Inner: ir.PointerType{Base: ir.TypeHandle(100), Space: ir.SpaceFunction},
 			},
 		},
 	}
@@ -200,9 +202,9 @@ func TestValidateSemantic_PointerInvalidBase(t *testing.T) {
 // --- Constant validation tests ---
 
 func TestValidateSemantic_ConstantInvalidType(t *testing.T) {
-	module := &Module{
-		Constants: []Constant{
-			{Name: "bad_const", Type: TypeHandle(999)},
+	module := &ir.Module{
+		Constants: []ir.Constant{
+			{Name: "bad_const", Type: ir.TypeHandle(999)},
 		},
 	}
 	expectErrors(t, module, "type 999 does not exist")
@@ -212,35 +214,35 @@ func TestValidateSemantic_ConstantInvalidType(t *testing.T) {
 
 func TestValidateSemantic_GlobalVariables(t *testing.T) {
 	t.Run("duplicate name", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			},
-			GlobalVariables: []GlobalVariable{
-				{Name: "gv", Type: TypeHandle(0)},
-				{Name: "gv", Type: TypeHandle(0)},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "gv", Type: ir.TypeHandle(0)},
+				{Name: "gv", Type: ir.TypeHandle(0)},
 			},
 		}
 		expectErrors(t, module, "duplicate global variable name")
 	})
 
 	t.Run("invalid type", func(t *testing.T) {
-		module := &Module{
-			GlobalVariables: []GlobalVariable{
-				{Name: "bad_gv", Type: TypeHandle(999)},
+		module := &ir.Module{
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "bad_gv", Type: ir.TypeHandle(999)},
 			},
 		}
 		expectErrors(t, module, "type 999 does not exist")
 	})
 
 	t.Run("invalid init constant", func(t *testing.T) {
-		initHandle := ConstantHandle(999)
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+		initHandle := ir.ConstantHandle(999)
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			},
-			GlobalVariables: []GlobalVariable{
-				{Name: "bad_init", Type: TypeHandle(0), Init: &initHandle},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "bad_init", Type: ir.TypeHandle(0), Init: &initHandle},
 			},
 		}
 		expectErrors(t, module, "init constant 999 does not exist")
@@ -251,37 +253,37 @@ func TestValidateSemantic_GlobalVariables(t *testing.T) {
 
 func TestValidateSemantic_EntryPoints(t *testing.T) {
 	t.Run("empty name", func(t *testing.T) {
-		module := &Module{
-			EntryPoints: []EntryPoint{
-				{Name: "", Stage: StageFragment, Function: Function{Name: "fn"}},
+		module := &ir.Module{
+			EntryPoints: []ir.EntryPoint{
+				{Name: "", Stage: ir.StageFragment, Function: ir.Function{Name: "fn"}},
 			},
 		}
 		expectErrors(t, module, "has empty name")
 	})
 
 	t.Run("duplicate name", func(t *testing.T) {
-		module := &Module{
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageFragment, Function: Function{Name: "fn0"}},
-				{Name: "main", Stage: StageFragment, Function: Function{Name: "fn1"}},
+		module := &ir.Module{
+			EntryPoints: []ir.EntryPoint{
+				{Name: "main", Stage: ir.StageFragment, Function: ir.Function{Name: "fn0"}},
+				{Name: "main", Stage: ir.StageFragment, Function: ir.Function{Name: "fn1"}},
 			},
 		}
 		expectErrors(t, module, "duplicate entry point name")
 	})
 
 	t.Run("vertex without result", func(t *testing.T) {
-		module := &Module{
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageVertex, Function: Function{Name: "vs", Result: nil}},
+		module := &ir.Module{
+			EntryPoints: []ir.EntryPoint{
+				{Name: "main", Stage: ir.StageVertex, Function: ir.Function{Name: "vs", Result: nil}},
 			},
 		}
 		expectErrors(t, module, "must have a return value")
 	})
 
 	t.Run("compute partial zero workgroup", func(t *testing.T) {
-		module := &Module{
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageCompute, Function: Function{Name: "cs"}, Workgroup: [3]uint32{64, 0, 1}},
+		module := &ir.Module{
+			EntryPoints: []ir.EntryPoint{
+				{Name: "main", Stage: ir.StageCompute, Function: ir.Function{Name: "cs"}, Workgroup: [3]uint32{64, 0, 1}},
 			},
 		}
 		expectErrors(t, module, "workgroup size must be non-zero")
@@ -289,24 +291,24 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 
 	t.Run("vertex with struct position builtin", func(t *testing.T) {
 		// This is a POSITIVE test: struct member has @builtin(position), should pass.
-		posBinding := Binding(BuiltinBinding{Builtin: BuiltinPosition})
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-				{Name: "vec4f", Inner: VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
+		posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+				{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 				{
 					Name: "VertexOutput",
-					Inner: StructType{
-						Members: []StructMember{
-							{Name: "position", Type: TypeHandle(1), Binding: &posBinding},
+					Inner: ir.StructType{
+						Members: []ir.StructMember{
+							{Name: "position", Type: ir.TypeHandle(1), Binding: &posBinding},
 						},
 					},
 				},
 			},
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageVertex, Function: Function{
+			EntryPoints: []ir.EntryPoint{
+				{Name: "main", Stage: ir.StageVertex, Function: ir.Function{
 					Name:   "vs",
-					Result: &FunctionResult{Type: TypeHandle(2)},
+					Result: &ir.FunctionResult{Type: ir.TypeHandle(2)},
 				}},
 			},
 		}
@@ -323,12 +325,12 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 // --- Function validation tests ---
 
 func TestValidateSemantic_FunctionArgInvalidType(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Arguments: []FunctionArgument{
-					{Name: "arg0", Type: TypeHandle(999)},
+				Arguments: []ir.FunctionArgument{
+					{Name: "arg0", Type: ir.TypeHandle(999)},
 				},
 			},
 		},
@@ -337,11 +339,11 @@ func TestValidateSemantic_FunctionArgInvalidType(t *testing.T) {
 }
 
 func TestValidateSemantic_FunctionResultInvalidType(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name:   "fn",
-				Result: &FunctionResult{Type: TypeHandle(999)},
+				Result: &ir.FunctionResult{Type: ir.TypeHandle(999)},
 			},
 		},
 	}
@@ -350,12 +352,12 @@ func TestValidateSemantic_FunctionResultInvalidType(t *testing.T) {
 
 func TestValidateSemantic_LocalVariables(t *testing.T) {
 	t.Run("invalid type", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					LocalVars: []LocalVariable{
-						{Name: "v", Type: TypeHandle(999)},
+					LocalVars: []ir.LocalVariable{
+						{Name: "v", Type: ir.TypeHandle(999)},
 					},
 				},
 			},
@@ -364,16 +366,16 @@ func TestValidateSemantic_LocalVariables(t *testing.T) {
 	})
 
 	t.Run("invalid init expression", func(t *testing.T) {
-		initExpr := ExpressionHandle(999)
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+		initExpr := ir.ExpressionHandle(999)
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			},
-			Functions: []Function{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					LocalVars: []LocalVariable{
-						{Name: "v", Type: TypeHandle(0), Init: &initExpr},
+					LocalVars: []ir.LocalVariable{
+						{Name: "v", Type: ir.TypeHandle(0), Init: &initExpr},
 					},
 				},
 			},
@@ -385,12 +387,12 @@ func TestValidateSemantic_LocalVariables(t *testing.T) {
 // --- Expression validation tests ---
 
 func TestValidateSemantic_ExpressionNilKind(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name:        "fn",
-				Expressions: []Expression{{Kind: nil}},
-				Body:        []Statement{},
+				Expressions: []ir.Expression{{Kind: nil}},
+				Body:        []ir.Statement{},
 			},
 		},
 	}
@@ -398,12 +400,12 @@ func TestValidateSemantic_ExpressionNilKind(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprConstantInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprConstant{Constant: ConstantHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprConstant{Constant: ir.ConstantHandle(999)}},
 				},
 			},
 		},
@@ -412,12 +414,12 @@ func TestValidateSemantic_ExprConstantInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprZeroValueInvalidType(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprZeroValue{Type: TypeHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprZeroValue{Type: ir.TypeHandle(999)}},
 				},
 			},
 		},
@@ -427,12 +429,12 @@ func TestValidateSemantic_ExprZeroValueInvalidType(t *testing.T) {
 
 func TestValidateSemantic_ExprComposeInvalid(t *testing.T) {
 	t.Run("invalid type", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: ExprCompose{Type: TypeHandle(999), Components: nil}},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprCompose{Type: ir.TypeHandle(999), Components: nil}},
 					},
 				},
 			},
@@ -441,16 +443,16 @@ func TestValidateSemantic_ExprComposeInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid component", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "vec2f", Inner: VectorType{Size: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "vec2f", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 			},
-			Functions: []Function{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-						{Kind: ExprCompose{Type: TypeHandle(0), Components: []ExpressionHandle{0, ExpressionHandle(999)}}},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+						{Kind: ir.ExprCompose{Type: ir.TypeHandle(0), Components: []ir.ExpressionHandle{0, ir.ExpressionHandle(999)}}},
 					},
 				},
 			},
@@ -460,12 +462,12 @@ func TestValidateSemantic_ExprComposeInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprAccessInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprAccess{Base: ExpressionHandle(999), Index: ExpressionHandle(998)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprAccess{Base: ir.ExpressionHandle(999), Index: ir.ExpressionHandle(998)}},
 				},
 			},
 		},
@@ -474,12 +476,12 @@ func TestValidateSemantic_ExprAccessInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprAccessIndexInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprAccessIndex{Base: ExpressionHandle(999), Index: 0}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprAccessIndex{Base: ir.ExpressionHandle(999), Index: 0}},
 				},
 			},
 		},
@@ -489,13 +491,13 @@ func TestValidateSemantic_ExprAccessIndexInvalid(t *testing.T) {
 
 func TestValidateSemantic_ExprSplatInvalid(t *testing.T) {
 	t.Run("invalid size", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-						{Kind: ExprSplat{Size: VectorSize(5), Value: ExpressionHandle(0)}},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+						{Kind: ir.ExprSplat{Size: ir.VectorSize(5), Value: ir.ExpressionHandle(0)}},
 					},
 				},
 			},
@@ -504,12 +506,12 @@ func TestValidateSemantic_ExprSplatInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid value expression", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: ExprSplat{Size: Vec3, Value: ExpressionHandle(999)}},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprSplat{Size: ir.Vec3, Value: ir.ExpressionHandle(999)}},
 					},
 				},
 			},
@@ -522,16 +524,16 @@ func TestValidateSemantic_ExprSwizzleInvalid(t *testing.T) {
 	t.Run("invalid size", func(t *testing.T) {
 		// Use size 1 (invalid but <= 4) to avoid index-out-of-bounds in Pattern[4] array.
 		// Size > 4 would panic in the validator's pattern loop before returning the error.
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-						{Kind: ExprSwizzle{
-							Size:    VectorSize(1),
-							Vector:  ExpressionHandle(0),
-							Pattern: [4]SwizzleComponent{SwizzleX, 0, 0, 0},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+						{Kind: ir.ExprSwizzle{
+							Size:    ir.VectorSize(1),
+							Vector:  ir.ExpressionHandle(0),
+							Pattern: [4]ir.SwizzleComponent{ir.SwizzleX, 0, 0, 0},
 						}},
 					},
 				},
@@ -541,15 +543,15 @@ func TestValidateSemantic_ExprSwizzleInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid vector", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: ExprSwizzle{
-							Size:    Vec2,
-							Vector:  ExpressionHandle(999),
-							Pattern: [4]SwizzleComponent{SwizzleX, SwizzleY, 0, 0},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprSwizzle{
+							Size:    ir.Vec2,
+							Vector:  ir.ExpressionHandle(999),
+							Pattern: [4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleY, 0, 0},
 						}},
 					},
 				},
@@ -559,16 +561,16 @@ func TestValidateSemantic_ExprSwizzleInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid pattern component", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-						{Kind: ExprSwizzle{
-							Size:    Vec2,
-							Vector:  ExpressionHandle(0),
-							Pattern: [4]SwizzleComponent{SwizzleX, SwizzleComponent(10), 0, 0},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+						{Kind: ir.ExprSwizzle{
+							Size:    ir.Vec2,
+							Vector:  ir.ExpressionHandle(0),
+							Pattern: [4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleComponent(10), 0, 0},
 						}},
 					},
 				},
@@ -579,13 +581,13 @@ func TestValidateSemantic_ExprSwizzleInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprFunctionArgOutOfRange(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name:      "fn",
-				Arguments: []FunctionArgument{}, // no arguments
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 5}},
+				Arguments: []ir.FunctionArgument{}, // no arguments
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 5}},
 				},
 			},
 		},
@@ -594,12 +596,12 @@ func TestValidateSemantic_ExprFunctionArgOutOfRange(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprGlobalVariableInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprGlobalVariable{Variable: GlobalVariableHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprGlobalVariable{Variable: ir.GlobalVariableHandle(999)}},
 				},
 			},
 		},
@@ -608,13 +610,13 @@ func TestValidateSemantic_ExprGlobalVariableInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprLocalVariableOutOfRange(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name:      "fn",
-				LocalVars: []LocalVariable{}, // no local vars
-				Expressions: []Expression{
-					{Kind: ExprLocalVariable{Variable: 10}},
+				LocalVars: []ir.LocalVariable{}, // no local vars
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprLocalVariable{Variable: 10}},
 				},
 			},
 		},
@@ -623,12 +625,12 @@ func TestValidateSemantic_ExprLocalVariableOutOfRange(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprLoadInvalidPointer(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprLoad{Pointer: ExpressionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(999)}},
 				},
 			},
 		},
@@ -637,12 +639,12 @@ func TestValidateSemantic_ExprLoadInvalidPointer(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprBinaryInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprBinary{Op: BinaryAdd, Left: ExpressionHandle(999), Right: ExpressionHandle(998)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: ir.ExpressionHandle(999), Right: ir.ExpressionHandle(998)}},
 				},
 			},
 		},
@@ -651,12 +653,12 @@ func TestValidateSemantic_ExprBinaryInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprUnaryInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprUnary{Op: UnaryNegate, Expr: ExpressionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprUnary{Op: ir.UnaryNegate, Expr: ir.ExpressionHandle(999)}},
 				},
 			},
 		},
@@ -665,15 +667,15 @@ func TestValidateSemantic_ExprUnaryInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprSelectInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprSelect{
-						Condition: ExpressionHandle(999),
-						Accept:    ExpressionHandle(998),
-						Reject:    ExpressionHandle(997),
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprSelect{
+						Condition: ir.ExpressionHandle(999),
+						Accept:    ir.ExpressionHandle(998),
+						Reject:    ir.ExpressionHandle(997),
 					}},
 				},
 			},
@@ -687,12 +689,12 @@ func TestValidateSemantic_ExprSelectInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprCallResultInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprCallResult{Function: FunctionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprCallResult{Function: ir.FunctionHandle(999)}},
 				},
 			},
 		},
@@ -701,12 +703,12 @@ func TestValidateSemantic_ExprCallResultInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprArrayLengthInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprArrayLength{Array: ExpressionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprArrayLength{Array: ir.ExpressionHandle(999)}},
 				},
 			},
 		},
@@ -715,12 +717,12 @@ func TestValidateSemantic_ExprArrayLengthInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprDerivativeInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprDerivative{Axis: DerivativeX, Control: DerivativeFine, Expr: ExpressionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprDerivative{Axis: ir.DerivativeX, Control: ir.DerivativeFine, Expr: ir.ExpressionHandle(999)}},
 				},
 			},
 		},
@@ -729,12 +731,12 @@ func TestValidateSemantic_ExprDerivativeInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprRelationalInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprRelational{Fun: RelationalIsNan, Argument: ExpressionHandle(999)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprRelational{Fun: ir.RelationalIsNan, Argument: ir.ExpressionHandle(999)}},
 				},
 			},
 		},
@@ -743,17 +745,17 @@ func TestValidateSemantic_ExprRelationalInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprMathInvalid(t *testing.T) {
-	arg1 := ExpressionHandle(998)
-	arg2 := ExpressionHandle(997)
-	arg3 := ExpressionHandle(996)
-	module := &Module{
-		Functions: []Function{
+	arg1 := ir.ExpressionHandle(998)
+	arg2 := ir.ExpressionHandle(997)
+	arg3 := ir.ExpressionHandle(996)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprMath{
-						Fun:  MathClamp,
-						Arg:  ExpressionHandle(999),
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprMath{
+						Fun:  ir.MathClamp,
+						Arg:  ir.ExpressionHandle(999),
 						Arg1: &arg1,
 						Arg2: &arg2,
 						Arg3: &arg3,
@@ -771,12 +773,12 @@ func TestValidateSemantic_ExprMathInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprAsInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprAs{Expr: ExpressionHandle(999), Kind: ScalarFloat}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprAs{Expr: ir.ExpressionHandle(999), Kind: ir.ScalarFloat}},
 				},
 			},
 		},
@@ -787,11 +789,11 @@ func TestValidateSemantic_ExprAsInvalid(t *testing.T) {
 // --- Statement validation tests ---
 
 func TestValidateSemantic_StatementNilKind(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{{Kind: nil}},
+				Body: []ir.Statement{{Kind: nil}},
 			},
 		},
 	}
@@ -799,12 +801,12 @@ func TestValidateSemantic_StatementNilKind(t *testing.T) {
 }
 
 func TestValidateSemantic_ContinueOutsideLoop(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtContinue{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtContinue{}},
 				},
 			},
 		},
@@ -813,18 +815,18 @@ func TestValidateSemantic_ContinueOutsideLoop(t *testing.T) {
 }
 
 func TestValidateSemantic_BreakInContinuingBlock(t *testing.T) {
-	module := &Module{
-		Types: []Type{
-			{Name: "bool", Inner: ScalarType{Kind: ScalarBool, Width: 1}},
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{},
-						Continuing: []Statement{
-							{Kind: StmtBreak{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{},
+						Continuing: []ir.Statement{
+							{Kind: ir.StmtBreak{}},
 						},
 					}},
 				},
@@ -835,15 +837,15 @@ func TestValidateSemantic_BreakInContinuingBlock(t *testing.T) {
 }
 
 func TestValidateSemantic_ContinueInContinuingBlock(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{},
-						Continuing: []Statement{
-							{Kind: StmtContinue{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{},
+						Continuing: []ir.Statement{
+							{Kind: ir.StmtContinue{}},
 						},
 					}},
 				},
@@ -854,15 +856,15 @@ func TestValidateSemantic_ContinueInContinuingBlock(t *testing.T) {
 }
 
 func TestValidateSemantic_ReturnInContinuingBlock(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{},
-						Continuing: []Statement{
-							{Kind: StmtReturn{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{},
+						Continuing: []ir.Statement{
+							{Kind: ir.StmtReturn{}},
 						},
 					}},
 				},
@@ -876,15 +878,15 @@ func TestValidateSemantic_ReturnInContinuingBlock(t *testing.T) {
 // continuing block; Rust naga's validator checks only its stage (valid/
 // function.rs, S::Kill), and so do we.
 func TestValidateSemantic_KillInContinuingBlock(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{},
-						Continuing: []Statement{
-							{Kind: StmtKill{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{},
+						Continuing: []ir.Statement{
+							{Kind: ir.StmtKill{}},
 						},
 					}},
 				},
@@ -896,13 +898,13 @@ func TestValidateSemantic_KillInContinuingBlock(t *testing.T) {
 
 func TestValidateSemantic_EmitRangeInvalid(t *testing.T) {
 	t.Run("start out of range", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name:        "fn",
-					Expressions: []Expression{},
-					Body: []Statement{
-						{Kind: StmtEmit{Range: Range{Start: 5, End: 6}}},
+					Expressions: []ir.Expression{},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 6}}},
 					},
 				},
 			},
@@ -911,15 +913,15 @@ func TestValidateSemantic_EmitRangeInvalid(t *testing.T) {
 	})
 
 	t.Run("end out of range", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 					},
-					Body: []Statement{
-						{Kind: StmtEmit{Range: Range{Start: 0, End: 100}}},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 100}}},
 					},
 				},
 			},
@@ -928,17 +930,17 @@ func TestValidateSemantic_EmitRangeInvalid(t *testing.T) {
 	})
 
 	t.Run("start >= end", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Expressions: []Expression{
-						{Kind: Literal{Value: LiteralF32(1.0)}},
-						{Kind: Literal{Value: LiteralF32(2.0)}},
-						{Kind: Literal{Value: LiteralF32(3.0)}},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+						{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
+						{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},
 					},
-					Body: []Statement{
-						{Kind: StmtEmit{Range: Range{Start: 2, End: 1}}},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 1}}},
 					},
 				},
 			},
@@ -948,15 +950,15 @@ func TestValidateSemantic_EmitRangeInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtIfInvalidCondition(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtIf{
-						Condition: ExpressionHandle(999),
-						Accept:    Block{},
-						Reject:    Block{},
+				Body: []ir.Statement{
+					{Kind: ir.StmtIf{
+						Condition: ir.ExpressionHandle(999),
+						Accept:    ir.Block{},
+						Reject:    ir.Block{},
 					}},
 				},
 			},
@@ -966,14 +968,14 @@ func TestValidateSemantic_StmtIfInvalidCondition(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtStoreInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtStore{
-						Pointer: ExpressionHandle(999),
-						Value:   ExpressionHandle(998),
+				Body: []ir.Statement{
+					{Kind: ir.StmtStore{
+						Pointer: ir.ExpressionHandle(999),
+						Value:   ir.ExpressionHandle(998),
 					}},
 				},
 			},
@@ -987,12 +989,12 @@ func TestValidateSemantic_StmtStoreInvalid(t *testing.T) {
 
 func TestValidateSemantic_StmtCallInvalid(t *testing.T) {
 	t.Run("invalid function", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "fn",
-					Body: []Statement{
-						{Kind: StmtCall{Function: FunctionHandle(999), Arguments: nil}},
+					Body: []ir.Statement{
+						{Kind: ir.StmtCall{Function: ir.FunctionHandle(999), Arguments: nil}},
 					},
 				},
 			},
@@ -1001,17 +1003,17 @@ func TestValidateSemantic_StmtCallInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid argument expression", func(t *testing.T) {
-		module := &Module{
-			Functions: []Function{
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "callee",
 				},
 				{
 					Name: "fn",
-					Body: []Statement{
-						{Kind: StmtCall{
-							Function:  FunctionHandle(0),
-							Arguments: []ExpressionHandle{ExpressionHandle(999)},
+					Body: []ir.Statement{
+						{Kind: ir.StmtCall{
+							Function:  ir.FunctionHandle(0),
+							Arguments: []ir.ExpressionHandle{ir.ExpressionHandle(999)},
 						}},
 					},
 				},
@@ -1021,17 +1023,17 @@ func TestValidateSemantic_StmtCallInvalid(t *testing.T) {
 	})
 
 	t.Run("invalid result expression", func(t *testing.T) {
-		resultExpr := ExpressionHandle(999)
-		module := &Module{
-			Functions: []Function{
+		resultExpr := ir.ExpressionHandle(999)
+		module := &ir.Module{
+			Functions: []ir.Function{
 				{
 					Name: "callee",
 				},
 				{
 					Name: "fn",
-					Body: []Statement{
-						{Kind: StmtCall{
-							Function: FunctionHandle(0),
+					Body: []ir.Statement{
+						{Kind: ir.StmtCall{
+							Function: ir.FunctionHandle(0),
 							Result:   &resultExpr,
 						}},
 					},
@@ -1043,19 +1045,19 @@ func TestValidateSemantic_StmtCallInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_SwitchMultipleDefaults(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: Literal{Value: LiteralI32(1)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 				},
-				Body: []Statement{
-					{Kind: StmtSwitch{
-						Selector: ExpressionHandle(0),
-						Cases: []SwitchCase{
-							{Value: SwitchValueDefault{}, Body: Block{}},
-							{Value: SwitchValueDefault{}, Body: Block{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSwitch{
+						Selector: ir.ExpressionHandle(0),
+						Cases: []ir.SwitchCase{
+							{Value: ir.SwitchValueDefault{}, Body: ir.Block{}},
+							{Value: ir.SwitchValueDefault{}, Body: ir.Block{}},
 						},
 					}},
 				},
@@ -1066,15 +1068,15 @@ func TestValidateSemantic_SwitchMultipleDefaults(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtSwitchInvalidSelector(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtSwitch{
-						Selector: ExpressionHandle(999),
-						Cases: []SwitchCase{
-							{Value: SwitchValueDefault{}, Body: Block{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSwitch{
+						Selector: ir.ExpressionHandle(999),
+						Cases: []ir.SwitchCase{
+							{Value: ir.SwitchValueDefault{}, Body: ir.Block{}},
 						},
 					}},
 				},
@@ -1085,15 +1087,15 @@ func TestValidateSemantic_StmtSwitchInvalidSelector(t *testing.T) {
 }
 
 func TestValidateSemantic_LoopBreakIfInvalid(t *testing.T) {
-	breakIfExpr := ExpressionHandle(999)
-	module := &Module{
-		Functions: []Function{
+	breakIfExpr := ir.ExpressionHandle(999)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body:       Block{},
-						Continuing: Block{},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body:       ir.Block{},
+						Continuing: ir.Block{},
 						BreakIf:    &breakIfExpr,
 					}},
 				},
@@ -1104,17 +1106,17 @@ func TestValidateSemantic_LoopBreakIfInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtImageStoreInvalid(t *testing.T) {
-	arrayIdx := ExpressionHandle(996)
-	module := &Module{
-		Functions: []Function{
+	arrayIdx := ir.ExpressionHandle(996)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtImageStore{
-						Image:      ExpressionHandle(999),
-						Coordinate: ExpressionHandle(998),
+				Body: []ir.Statement{
+					{Kind: ir.StmtImageStore{
+						Image:      ir.ExpressionHandle(999),
+						Coordinate: ir.ExpressionHandle(998),
 						ArrayIndex: &arrayIdx,
-						Value:      ExpressionHandle(997),
+						Value:      ir.ExpressionHandle(997),
 					}},
 				},
 			},
@@ -1129,16 +1131,16 @@ func TestValidateSemantic_StmtImageStoreInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtAtomicInvalid(t *testing.T) {
-	resultExpr := ExpressionHandle(996)
-	module := &Module{
-		Functions: []Function{
+	resultExpr := ir.ExpressionHandle(996)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtAtomic{
-						Pointer: ExpressionHandle(999),
-						Fun:     AtomicAdd{},
-						Value:   ExpressionHandle(998),
+				Body: []ir.Statement{
+					{Kind: ir.StmtAtomic{
+						Pointer: ir.ExpressionHandle(999),
+						Fun:     ir.AtomicAdd{},
+						Value:   ir.ExpressionHandle(998),
 						Result:  &resultExpr,
 					}},
 				},
@@ -1153,14 +1155,14 @@ func TestValidateSemantic_StmtAtomicInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtWorkGroupUniformLoadInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtWorkGroupUniformLoad{
-						Pointer: ExpressionHandle(999),
-						Result:  ExpressionHandle(998),
+				Body: []ir.Statement{
+					{Kind: ir.StmtWorkGroupUniformLoad{
+						Pointer: ir.ExpressionHandle(999),
+						Result:  ir.ExpressionHandle(998),
 					}},
 				},
 			},
@@ -1173,14 +1175,14 @@ func TestValidateSemantic_StmtWorkGroupUniformLoadInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_StmtRayQueryInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtRayQuery{
-						Query: ExpressionHandle(999),
-						Fun:   RayQueryTerminate{},
+				Body: []ir.Statement{
+					{Kind: ir.StmtRayQuery{
+						Query: ir.ExpressionHandle(999),
+						Fun:   ir.RayQueryTerminate{},
 					}},
 				},
 			},
@@ -1190,13 +1192,13 @@ func TestValidateSemantic_StmtRayQueryInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ReturnInvalidValue(t *testing.T) {
-	retVal := ExpressionHandle(999)
-	module := &Module{
-		Functions: []Function{
+	retVal := ir.ExpressionHandle(999)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtReturn{Value: &retVal}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtReturn{Value: &retVal}},
 				},
 			},
 		},
@@ -1207,21 +1209,21 @@ func TestValidateSemantic_ReturnInvalidValue(t *testing.T) {
 // --- Image expression validation tests ---
 
 func TestValidateSemantic_ExprImageSampleInvalid(t *testing.T) {
-	arrIdx := ExpressionHandle(996)
-	offset := ExpressionHandle(995)
-	depthRef := ExpressionHandle(994)
-	module := &Module{
-		Functions: []Function{
+	arrIdx := ir.ExpressionHandle(996)
+	offset := ir.ExpressionHandle(995)
+	depthRef := ir.ExpressionHandle(994)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprImageSample{
-						Image:      ExpressionHandle(999),
-						Sampler:    ExpressionHandle(998),
-						Coordinate: ExpressionHandle(997),
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprImageSample{
+						Image:      ir.ExpressionHandle(999),
+						Sampler:    ir.ExpressionHandle(998),
+						Coordinate: ir.ExpressionHandle(997),
 						ArrayIndex: &arrIdx,
 						Offset:     &offset,
-						Level:      SampleLevelAuto{},
+						Level:      ir.SampleLevelAuto{},
 						DepthRef:   &depthRef,
 					}},
 				},
@@ -1239,17 +1241,17 @@ func TestValidateSemantic_ExprImageSampleInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprImageLoadInvalid(t *testing.T) {
-	arrIdx := ExpressionHandle(996)
-	sample := ExpressionHandle(995)
-	level := ExpressionHandle(994)
-	module := &Module{
-		Functions: []Function{
+	arrIdx := ir.ExpressionHandle(996)
+	sample := ir.ExpressionHandle(995)
+	level := ir.ExpressionHandle(994)
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprImageLoad{
-						Image:      ExpressionHandle(999),
-						Coordinate: ExpressionHandle(998),
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprImageLoad{
+						Image:      ir.ExpressionHandle(999),
+						Coordinate: ir.ExpressionHandle(998),
 						ArrayIndex: &arrIdx,
 						Sample:     &sample,
 						Level:      &level,
@@ -1268,14 +1270,14 @@ func TestValidateSemantic_ExprImageLoadInvalid(t *testing.T) {
 }
 
 func TestValidateSemantic_ExprImageQueryInvalid(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Expressions: []Expression{
-					{Kind: ExprImageQuery{
-						Image: ExpressionHandle(999),
-						Query: ImageQuerySize{},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprImageQuery{
+						Image: ir.ExpressionHandle(999),
+						Query: ir.ImageQuerySize{},
 					}},
 				},
 			},
@@ -1288,9 +1290,9 @@ func TestValidateSemantic_ExprImageQueryInvalid(t *testing.T) {
 
 func TestValidateSemantic_ValidScalarWidths(t *testing.T) {
 	for _, width := range []uint8{1, 2, 4, 8} {
-		module := &Module{
-			Types: []Type{
-				{Name: "s", Inner: ScalarType{Kind: ScalarFloat, Width: width}},
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Name: "s", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: width}},
 			},
 		}
 		errors, err := validateErrs(module, CapAll)
@@ -1304,16 +1306,16 @@ func TestValidateSemantic_ValidScalarWidths(t *testing.T) {
 }
 
 func TestValidateSemantic_ValidBreakInsideLoop(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{
-							{Kind: StmtBreak{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{
+							{Kind: ir.StmtBreak{}},
 						},
-						Continuing: Block{},
+						Continuing: ir.Block{},
 					}},
 				},
 			},
@@ -1329,16 +1331,16 @@ func TestValidateSemantic_ValidBreakInsideLoop(t *testing.T) {
 }
 
 func TestValidateSemantic_ValidContinueInsideLoop(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{
-							{Kind: StmtContinue{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{
+							{Kind: ir.StmtContinue{}},
 						},
-						Continuing: Block{},
+						Continuing: ir.Block{},
 					}},
 				},
 			},
@@ -1355,22 +1357,22 @@ func TestValidateSemantic_ValidContinueInsideLoop(t *testing.T) {
 
 func TestValidateSemantic_NestedLoopBreakContinue(t *testing.T) {
 	// break/continue in inner loop should be valid; outer loop context is irrelevant.
-	module := &Module{
-		Functions: []Function{
+	module := &ir.Module{
+		Functions: []ir.Function{
 			{
 				Name: "fn",
-				Body: []Statement{
-					{Kind: StmtLoop{
-						Body: []Statement{
-							{Kind: StmtLoop{
-								Body: []Statement{
-									{Kind: StmtBreak{}},
-									{Kind: StmtContinue{}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtLoop{
+						Body: []ir.Statement{
+							{Kind: ir.StmtLoop{
+								Body: []ir.Statement{
+									{Kind: ir.StmtBreak{}},
+									{Kind: ir.StmtContinue{}},
 								},
-								Continuing: Block{},
+								Continuing: ir.Block{},
 							}},
 						},
-						Continuing: Block{},
+						Continuing: ir.Block{},
 					}},
 				},
 			},
@@ -1386,9 +1388,9 @@ func TestValidateSemantic_NestedLoopBreakContinue(t *testing.T) {
 }
 
 func TestValidateSemantic_ValidComputeWorkgroup(t *testing.T) {
-	module := &Module{
-		EntryPoints: []EntryPoint{
-			{Name: "main", Stage: StageCompute, Function: Function{Name: "cs"}, Workgroup: [3]uint32{64, 1, 1}},
+	module := &ir.Module{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "main", Stage: ir.StageCompute, Function: ir.Function{Name: "cs"}, Workgroup: [3]uint32{64, 1, 1}},
 		},
 	}
 	errors, err := validateErrs(module, CapAll)

@@ -13,6 +13,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // overrideOpsShader (testdata/overrides/ops.wgsl) stores the value of every
@@ -125,7 +126,7 @@ var overrideOpsCases = []struct {
 // point, as wgpu-hal does per pipeline, and writes GLSL ES 3.1.
 func compileOverrides(t *testing.T, source, entry string, constants naga.PipelineConstants) (string, error) {
 	t.Helper()
-	module, err := naga.ProcessOverrides(lowerWGSL(t, source), naga.OverrideOptions{
+	module, _, err := naga.ProcessOverrides(lowerWGSL(t, source), valid.ModuleInfo{}, naga.OverrideOptions{
 		Constants:  constants,
 		EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: entry},
 	})

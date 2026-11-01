@@ -1,7 +1,7 @@
 // Copyright 2026 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package ir_test
+package valid_test
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -51,8 +52,8 @@ func TestValidateControlFlowAbilities(t *testing.T) {
 				}
 				t.Fatalf("lower: %v", err)
 			}
-			_, err = ir.Validate(mod, ir.ValidateOptions{Capabilities: ir.CapAll})
-			var errs ir.ValidationErrors
+			_, err = valid.Validate(mod, valid.Options{Capabilities: valid.CapAll})
+			var errs valid.Errors
 			if err != nil && !errors.As(err, &errs) {
 				t.Fatal(err)
 			}

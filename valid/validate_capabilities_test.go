@@ -1,8 +1,10 @@
-package ir
+package valid
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // =============================================================================
@@ -11,16 +13,16 @@ import (
 // =============================================================================
 
 // newModuleWithType creates a minimal module containing a single type.
-func newModuleWithType(inner TypeInner) *Module {
-	return &Module{
-		Types: []Type{
+func newModuleWithType(inner ir.TypeInner) *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{
 			{Name: "", Inner: inner},
 		},
 	}
 }
 
 // expectCapErrors validates a module with given caps and expects errors containing substrings.
-func expectCapErrors(t *testing.T, module *Module, caps Capabilities, expectedSubstrings ...string) {
+func expectCapErrors(t *testing.T, module *ir.Module, caps Capabilities, expectedSubstrings ...string) {
 	t.Helper()
 	errors, err := validateErrs(module, caps)
 	if err != nil {
@@ -44,7 +46,7 @@ func expectCapErrors(t *testing.T, module *Module, caps Capabilities, expectedSu
 }
 
 // expectNoCapErrors validates a module with given caps and expects no errors.
-func expectNoCapErrors(t *testing.T, module *Module, caps Capabilities) {
+func expectNoCapErrors(t *testing.T, module *ir.Module, caps Capabilities) {
 	t.Helper()
 	errors, err := validateErrs(module, caps)
 	if err != nil {
@@ -61,28 +63,28 @@ func expectNoCapErrors(t *testing.T, module *Module, caps Capabilities) {
 func TestValidateWithCapabilities_ScalarTypes(t *testing.T) {
 	tests := []struct {
 		name    string
-		inner   TypeInner
+		inner   ir.TypeInner
 		caps    Capabilities
 		wantErr string // empty = no error expected
 	}{
 		// f64 (Float width=8)
-		{"f64 rejected without cap", ScalarType{Kind: ScalarFloat, Width: 8}, 0, "FLOAT64"},
-		{"f64 accepted with cap", ScalarType{Kind: ScalarFloat, Width: 8}, CapFloat64, ""},
-		{"f64 accepted with CapAll", ScalarType{Kind: ScalarFloat, Width: 8}, CapAll, ""},
+		{"f64 rejected without cap", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, 0, "FLOAT64"},
+		{"f64 accepted with cap", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, CapFloat64, ""},
+		{"f64 accepted with CapAll", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, CapAll, ""},
 		// i64 (Sint width=8)
-		{"i64 rejected without cap", ScalarType{Kind: ScalarSint, Width: 8}, 0, "SHADER_INT64"},
-		{"i64 accepted with cap", ScalarType{Kind: ScalarSint, Width: 8}, CapShaderInt64, ""},
+		{"i64 rejected without cap", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, 0, "SHADER_INT64"},
+		{"i64 accepted with cap", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, CapShaderInt64, ""},
 		// u64 (Uint width=8)
-		{"u64 rejected without cap", ScalarType{Kind: ScalarUint, Width: 8}, 0, "SHADER_INT64"},
-		{"u64 accepted with cap", ScalarType{Kind: ScalarUint, Width: 8}, CapShaderInt64, ""},
+		{"u64 rejected without cap", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, 0, "SHADER_INT64"},
+		{"u64 accepted with cap", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, CapShaderInt64, ""},
 		// f16 (Float width=2)
-		{"f16 rejected without cap", ScalarType{Kind: ScalarFloat, Width: 2}, 0, "SHADER_FLOAT16"},
-		{"f16 accepted with cap", ScalarType{Kind: ScalarFloat, Width: 2}, CapShaderFloat16, ""},
+		{"f16 rejected without cap", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, 0, "SHADER_FLOAT16"},
+		{"f16 accepted with cap", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, CapShaderFloat16, ""},
 		// Always-allowed types
-		{"f32 always accepted", ScalarType{Kind: ScalarFloat, Width: 4}, 0, ""},
-		{"i32 always accepted", ScalarType{Kind: ScalarSint, Width: 4}, 0, ""},
-		{"u32 always accepted", ScalarType{Kind: ScalarUint, Width: 4}, 0, ""},
-		{"bool always accepted", ScalarType{Kind: ScalarBool, Width: 1}, 0, ""},
+		{"f32 always accepted", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, 0, ""},
+		{"i32 always accepted", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, 0, ""},
+		{"u32 always accepted", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, 0, ""},
+		{"bool always accepted", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, 0, ""},
 	}
 
 	for _, tt := range tests {
@@ -100,19 +102,19 @@ func TestValidateWithCapabilities_ScalarTypes(t *testing.T) {
 func TestValidateWithCapabilities_VectorTypes(t *testing.T) {
 	tests := []struct {
 		name    string
-		inner   TypeInner
+		inner   ir.TypeInner
 		caps    Capabilities
 		wantErr string
 	}{
-		{"vec4<f64> rejected", VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 8}}, 0, "FLOAT64"},
-		{"vec4<f64> accepted", VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 8}}, CapFloat64, ""},
-		{"vec3<i64> rejected", VectorType{Size: Vec3, Scalar: ScalarType{Kind: ScalarSint, Width: 8}}, 0, "SHADER_INT64"},
-		{"vec3<i64> accepted", VectorType{Size: Vec3, Scalar: ScalarType{Kind: ScalarSint, Width: 8}}, CapShaderInt64, ""},
-		{"vec2<u64> rejected", VectorType{Size: Vec2, Scalar: ScalarType{Kind: ScalarUint, Width: 8}}, 0, "SHADER_INT64"},
-		{"vec2<u64> accepted", VectorType{Size: Vec2, Scalar: ScalarType{Kind: ScalarUint, Width: 8}}, CapShaderInt64, ""},
-		{"vec4<f16> rejected", VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 2}}, 0, "SHADER_FLOAT16"},
-		{"vec4<f16> accepted", VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 2}}, CapShaderFloat16, ""},
-		{"vec4<f32> always accepted", VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}, 0, ""},
+		{"vec4<f64> rejected", ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, 0, "FLOAT64"},
+		{"vec4<f64> accepted", ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, CapFloat64, ""},
+		{"vec3<i64> rejected", ir.VectorType{Size: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, 0, "SHADER_INT64"},
+		{"vec3<i64> accepted", ir.VectorType{Size: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, CapShaderInt64, ""},
+		{"vec2<u64> rejected", ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, 0, "SHADER_INT64"},
+		{"vec2<u64> accepted", ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, CapShaderInt64, ""},
+		{"vec4<f16> rejected", ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, 0, "SHADER_FLOAT16"},
+		{"vec4<f16> accepted", ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, CapShaderFloat16, ""},
+		{"vec4<f32> always accepted", ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, 0, ""},
 	}
 
 	for _, tt := range tests {
@@ -130,15 +132,15 @@ func TestValidateWithCapabilities_VectorTypes(t *testing.T) {
 func TestValidateWithCapabilities_MatrixTypes(t *testing.T) {
 	tests := []struct {
 		name    string
-		inner   TypeInner
+		inner   ir.TypeInner
 		caps    Capabilities
 		wantErr string
 	}{
-		{"mat4x4<f64> rejected", MatrixType{Columns: Vec4, Rows: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 8}}, 0, "FLOAT64"},
-		{"mat4x4<f64> accepted", MatrixType{Columns: Vec4, Rows: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 8}}, CapFloat64, ""},
-		{"mat2x2<f16> rejected", MatrixType{Columns: Vec2, Rows: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 2}}, 0, "SHADER_FLOAT16"},
-		{"mat2x2<f16> accepted", MatrixType{Columns: Vec2, Rows: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 2}}, CapShaderFloat16, ""},
-		{"mat4x4<f32> always accepted", MatrixType{Columns: Vec4, Rows: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}, 0, ""},
+		{"mat4x4<f64> rejected", ir.MatrixType{Columns: ir.Vec4, Rows: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, 0, "FLOAT64"},
+		{"mat4x4<f64> accepted", ir.MatrixType{Columns: ir.Vec4, Rows: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, CapFloat64, ""},
+		{"mat2x2<f16> rejected", ir.MatrixType{Columns: ir.Vec2, Rows: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, 0, "SHADER_FLOAT16"},
+		{"mat2x2<f16> accepted", ir.MatrixType{Columns: ir.Vec2, Rows: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, CapShaderFloat16, ""},
+		{"mat4x4<f32> always accepted", ir.MatrixType{Columns: ir.Vec4, Rows: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, 0, ""},
 	}
 
 	for _, tt := range tests {
@@ -156,16 +158,16 @@ func TestValidateWithCapabilities_MatrixTypes(t *testing.T) {
 func TestValidateWithCapabilities_AtomicTypes(t *testing.T) {
 	tests := []struct {
 		name    string
-		inner   TypeInner
+		inner   ir.TypeInner
 		caps    Capabilities
 		wantErr string
 	}{
-		{"atomic<i64> rejected", AtomicType{Scalar: ScalarType{Kind: ScalarSint, Width: 8}}, 0, "SHADER_INT64"},
-		{"atomic<i64> accepted", AtomicType{Scalar: ScalarType{Kind: ScalarSint, Width: 8}}, CapShaderInt64, ""},
-		{"atomic<u64> rejected", AtomicType{Scalar: ScalarType{Kind: ScalarUint, Width: 8}}, 0, "SHADER_INT64"},
-		{"atomic<u64> accepted", AtomicType{Scalar: ScalarType{Kind: ScalarUint, Width: 8}}, CapShaderInt64, ""},
-		{"atomic<i32> always accepted", AtomicType{Scalar: ScalarType{Kind: ScalarSint, Width: 4}}, 0, ""},
-		{"atomic<u32> always accepted", AtomicType{Scalar: ScalarType{Kind: ScalarUint, Width: 4}}, 0, ""},
+		{"atomic<i64> rejected", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, 0, "SHADER_INT64"},
+		{"atomic<i64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, CapShaderInt64, ""},
+		{"atomic<u64> rejected", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, 0, "SHADER_INT64"},
+		{"atomic<u64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, CapShaderInt64, ""},
+		{"atomic<i32> always accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, 0, ""},
+		{"atomic<u32> always accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, 0, ""},
 	}
 
 	for _, tt := range tests {
@@ -182,13 +184,13 @@ func TestValidateWithCapabilities_AtomicTypes(t *testing.T) {
 
 func TestValidateCapAllAcceptsEveryScalar(t *testing.T) {
 	// CapAll accepts every scalar type.
-	m := &Module{
-		Types: []Type{
-			{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}},
-			{Name: "i64", Inner: ScalarType{Kind: ScalarSint, Width: 8}},
-			{Name: "u64", Inner: ScalarType{Kind: ScalarUint, Width: 8}},
-			{Name: "f16", Inner: ScalarType{Kind: ScalarFloat, Width: 2}},
-			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f64", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}},
+			{Name: "i64", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},
+			{Name: "u64", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}},
+			{Name: "f16", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}},
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
 
@@ -206,10 +208,10 @@ func TestValidateCapAllAcceptsEveryScalar(t *testing.T) {
 
 func TestValidateWithCapabilities_MultipleCaps(t *testing.T) {
 	// Combined capabilities allow multiple type widths.
-	m := &Module{
-		Types: []Type{
-			{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}},
-			{Name: "i64", Inner: ScalarType{Kind: ScalarSint, Width: 8}},
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f64", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}},
+			{Name: "i64", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},
 		},
 	}
 
@@ -241,12 +243,12 @@ func TestValidateWithCapabilities_MultipleCaps(t *testing.T) {
 
 func TestValidateWithCapabilities_NoCaps(t *testing.T) {
 	// With zero capabilities, ALL extended types should be rejected.
-	m := &Module{
-		Types: []Type{
-			{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}},
-			{Name: "i64", Inner: ScalarType{Kind: ScalarSint, Width: 8}},
-			{Name: "u64", Inner: ScalarType{Kind: ScalarUint, Width: 8}},
-			{Name: "f16", Inner: ScalarType{Kind: ScalarFloat, Width: 2}},
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f64", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}},
+			{Name: "i64", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},
+			{Name: "u64", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}},
+			{Name: "f16", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}},
 		},
 	}
 
@@ -267,13 +269,13 @@ func TestValidateWithCapabilities_StructWithF64Member(t *testing.T) {
 	// Struct members reference types by handle — the type itself is validated
 	// in the validateTypes loop, so a struct containing an f64 member type
 	// will produce the error on the f64 type, not on the struct.
-	m := &Module{
-		Types: []Type{
-			{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}}, // type[0]
-			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}}, // type[1]
-			{Name: "MyStruct", Inner: StructType{Members: []StructMember{ // type[2]
-				{Name: "a", Type: TypeHandle(0)}, // f64
-				{Name: "b", Type: TypeHandle(1)}, // f32
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f64", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, // type[0]
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // type[1]
+			{Name: "MyStruct", Inner: ir.StructType{Members: []ir.StructMember{ // type[2]
+				{Name: "a", Type: ir.TypeHandle(0)}, // f64
+				{Name: "b", Type: ir.TypeHandle(1)}, // f32
 			}}},
 		},
 	}

@@ -113,13 +113,6 @@ func TestMarkEverythingDependsOnEverything(t *testing.T) {
 		{Kind: ir.ExprFunctionArgument{Index: 1}},
 		{Kind: ir.ExprCallResult{Function: 0}},
 	}
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &vec4H},
-	}
 	callResult := ir.ExpressionHandle(2)
 	ret := ir.ExpressionHandle(2)
 	fn.Body = []ir.Statement{
@@ -376,8 +369,6 @@ func TestSystemManagedInputsSkipped(t *testing.T) {
 	fn.Expressions = []ir.Expression{
 		{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 	}
-	f32H := ir.TypeHandle(0)
-	fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 	ret := ir.ExpressionHandle(0)
 	fn.Body = []ir.Statement{
 		{Kind: ir.StmtReturn{Value: &ret}},

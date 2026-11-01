@@ -39,9 +39,6 @@ func buildPassthroughVertex() *ir.Module {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec4f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -63,7 +60,6 @@ func buildPassthroughVertex() *ir.Module {
 func buildSimpleTransformVertex() *ir.Module {
 	vec2f32Handle := ir.TypeHandle(0)
 	vec4f32Handle := ir.TypeHandle(1)
-	f32Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -95,14 +91,6 @@ func buildSimpleTransformVertex() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 3, 4}}}, // [5] vec4(pos.x, pos.y, 0.0, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec2f32Handle}, // pos
-			{Handle: &f32Handle},     // pos.x
-			{Handle: &f32Handle},     // pos.y
-			{Handle: &f32Handle},     // 0.0
-			{Handle: &f32Handle},     // 1.0
-			{Handle: &vec4f32Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -127,7 +115,6 @@ func buildSimpleTransformVertex() *ir.Module {
 //	}
 func buildSimpleFragmentShader() *ir.Module {
 	vec4f32Handle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -151,13 +138,6 @@ func buildSimpleFragmentShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2] 0.0
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 2, 3}}}, // [4] vec4(...)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4f32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -213,15 +193,6 @@ func buildBinaryArithmeticVertex() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
 			{Kind: ir.ExprSplat{Value: 2, Size: ir.VectorSize(4)}},                // not used
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 3, 4}}}, // [6] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4f32Handle},
-			{Handle: &vec4f32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -649,14 +620,6 @@ func buildMathBinaryShader(mathFn ir.MathFunction, scalarKind ir.ScalarKind) *ir
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4] 0.0 (padding)
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [5] vec4(r, r, r, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarHandle}, // a
-			{Handle: &scalarHandle}, // b
-			{Handle: &scalarHandle}, // result
-			{Handle: &scalarHandle}, // 1.0
-			{Handle: &scalarHandle}, // 0.0
-			{Handle: &vec4Handle},   // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -710,15 +673,6 @@ func buildMathTernaryShader(mathFn ir.MathFunction) *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                                  // [5] 0.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 4}}},          // [6] vec4(r, r, r, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},  // a
-			{Handle: &f32Handle},  // b
-			{Handle: &f32Handle},  // c
-			{Handle: &f32Handle},  // result
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &vec4Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -739,7 +693,6 @@ func buildMathTernaryShader(mathFn ir.MathFunction) *ir.Module {
 //	}
 func buildDotProductShader(vecSize ir.VectorSize) *ir.Module {
 	vecHandle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
 	vec4Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -774,13 +727,6 @@ func buildDotProductShader(vecSize ir.VectorSize) *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [4] vec4(d, d, d, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vecHandle},  // a
-			{Handle: &vecHandle},  // b
-			{Handle: &f32Handle},  // dot result (scalar)
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -797,7 +743,6 @@ func buildDotProductShader(vecSize ir.VectorSize) *ir.Module {
 func buildCrossProductShader() *ir.Module {
 	vec3Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	f32Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -833,15 +778,6 @@ func buildCrossProductShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 3, 5}}}, // [6] vec4
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3Handle}, // a
-			{Handle: &vec3Handle}, // b
-			{Handle: &vec3Handle}, // cross result
-			{Handle: &f32Handle},  // cross.x
-			{Handle: &f32Handle},  // cross.y
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -857,7 +793,6 @@ func buildCrossProductShader() *ir.Module {
 // buildLengthShader creates a fragment shader with length(vec3).
 func buildLengthShader() *ir.Module {
 	vec3Handle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
 	vec4Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -886,12 +821,6 @@ func buildLengthShader() *ir.Module {
 			{Kind: ir.ExprMath{Fun: ir.MathLength, Arg: 0}},                       // [1] length(v) -> scalar
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4(l, l, l, 1.0)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3Handle}, // v
-			{Handle: &f32Handle},  // length result
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1147,7 +1076,6 @@ func TestEmitMathPow(t *testing.T) {
 // `ExprMath{Fun: MathLdexp, Arg: <f32 arg>, Arg1: <i32 literal>}`.
 func buildMathLdexpShader() *ir.Module {
 	f32Handle := ir.TypeHandle(0)
-	i32Handle := ir.TypeHandle(1)
 	vec4Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
@@ -1179,13 +1107,6 @@ func buildMathLdexpShader() *ir.Module {
 			{Kind: ir.ExprMath{Fun: ir.MathLdexp, Arg: 0, Arg1: &arg1Handle}},     // [2] ldexp(x, 2)
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [4] vec4(r, r, r, 1.0)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},  // x
-			{Handle: &i32Handle},  // 2
-			{Handle: &f32Handle},  // ldexp result
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -1634,7 +1555,6 @@ func findMainFunc(mod *module.Module) *module.Function {
 // The ExprAs is at expression [1] with the given kind and convert width.
 func buildCastShader(srcScalar ir.ScalarType, dstKind ir.ScalarKind, convertWidth *uint8) *ir.Module {
 	srcHandle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
 	vec4Handle := ir.TypeHandle(2)
 
 	// Determine dst scalar for type resolution.
@@ -1645,7 +1565,6 @@ func buildCastShader(srcScalar ir.ScalarType, dstKind ir.ScalarKind, convertWidt
 		dstWidth = srcScalar.Width
 	}
 	dstScalar := ir.ScalarType{Kind: dstKind, Width: dstWidth}
-	dstHandle := ir.TypeHandle(3)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -1677,15 +1596,6 @@ func buildCastShader(srcScalar ir.ScalarType, dstKind ir.ScalarKind, convertWidt
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
 			{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},   // [5] f32(c) - for output
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 2, 3, 4}}}, // [6] vec4(...)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &srcHandle},  // v
-			{Handle: &dstHandle},  // cast(v)
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &f32Handle},  // f32(c)
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -2019,7 +1929,6 @@ func TestEmitAsIntToBool(t *testing.T) {
 func buildIfElseShader() *ir.Module {
 	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -2052,15 +1961,6 @@ func buildIfElseShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5] 1.0 (alpha)
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 5}}}, // [6] vec4(r, r, r, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},  // v
-			{Handle: &f32Handle},  // 0.5
-			{Handle: &boolHandle}, // v > 0.5
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			{Kind: ir.StmtIf{
@@ -2087,7 +1987,6 @@ func buildIfElseShader() *ir.Module {
 func buildIfNoElseShader() *ir.Module {
 	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -2118,14 +2017,6 @@ func buildIfNoElseShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4] 0.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 4}}}, // [5] vec4
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &boolHandle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			{Kind: ir.StmtIf{
@@ -2153,9 +2044,7 @@ func buildIfNoElseShader() *ir.Module {
 //	    // body
 //	}
 func buildSimpleLoopShader() *ir.Module {
-	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -2180,13 +2069,6 @@ func buildSimpleLoopShader() *ir.Module {
 			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] 1.0 > 0.5
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3] 0.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &boolHandle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtLoop{
@@ -2213,9 +2095,7 @@ func buildSimpleLoopShader() *ir.Module {
 
 // buildLoopContinueShader creates a shader with continue in loop body.
 func buildLoopContinueShader() *ir.Module {
-	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -2240,13 +2120,6 @@ func buildLoopContinueShader() *ir.Module {
 			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] cond
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &boolHandle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtLoop{
@@ -2279,9 +2152,7 @@ func buildLoopContinueShader() *ir.Module {
 
 // buildNestedIfLoopShader creates a shader with if inside a loop.
 func buildNestedIfLoopShader() *ir.Module {
-	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -2306,13 +2177,6 @@ func buildNestedIfLoopShader() *ir.Module {
 			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2]
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &boolHandle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtLoop{
@@ -2623,16 +2487,6 @@ func buildLocalVarShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [6] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 5, 5, 6}}}, // [7] vec4(x, x, x, 1.0)
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},     // &x → pointer
-			{Handle: &f32Handle},     // 1.0
-			{Handle: &f32Handle},     // &x
-			{Handle: &f32Handle},     // 2.0
-			{Handle: &f32Handle},     // &x
-			{Handle: &f32Handle},     // load x → f32
-			{Handle: &f32Handle},     // 1.0
-			{Handle: &vec4f32Handle}, // compose
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
@@ -2691,11 +2545,6 @@ func buildMultipleLocalsShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [8] 0.0
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [9] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 7, 8, 9}}}, // [10] vec4(a, b, 0, 1)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle},
-			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle},
-			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &vec4f32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
@@ -2772,24 +2621,6 @@ func buildLocalInLoopShader() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                             // [19] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{18, 18, 18, 19}}}, // [20] vec4(acc, acc, acc, 1.0)
 		},
-		ExpressionTypes: func() []ir.TypeResolution {
-			res := make([]ir.TypeResolution, 21)
-			for i := range res {
-				res[i] = ir.TypeResolution{Handle: &f32Handle}
-			}
-			// Fix types for i32 expressions.
-			res[2] = ir.TypeResolution{Handle: &i32Handle}
-			res[3] = ir.TypeResolution{Handle: &i32Handle}
-			res[4] = ir.TypeResolution{Handle: &i32Handle}
-			res[5] = ir.TypeResolution{Handle: &i32Handle}
-			res[6] = ir.TypeResolution{Handle: &i32Handle}
-			res[13] = ir.TypeResolution{Handle: &i32Handle}
-			res[14] = ir.TypeResolution{Handle: &i32Handle}
-			res[15] = ir.TypeResolution{Handle: &i32Handle}
-			res[16] = ir.TypeResolution{Handle: &i32Handle}
-			res[20] = ir.TypeResolution{Handle: &vec4f32Handle}
-			return res
-		}(),
 		Body: []ir.Statement{
 			// Initialize locals.
 			{Kind: ir.StmtStore{Pointer: 0, Value: 1}}, // acc = 0.0
@@ -3011,8 +2842,6 @@ func TestEmitLocalInLoop(t *testing.T) {
 //	}
 func buildSwizzleShader() *ir.Module {
 	vec4Handle := ir.TypeHandle(0)
-	vec3Handle := ir.TypeHandle(1)
-	f32Handle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -3044,12 +2873,6 @@ func buildSwizzleShader() *ir.Module {
 			}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4 result (simplified)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec4Handle}, // v
-			{Handle: &vec3Handle}, // swizzle
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -3115,13 +2938,6 @@ func buildDerivativeShader(axis ir.DerivativeAxis, control ir.DerivativeControl)
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2] 0.0
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},  // v
-			{Handle: &f32Handle},  // derivative
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -3239,7 +3055,6 @@ func TestEmitDerivativeWidth(t *testing.T) {
 func buildRelationalShader(relFn ir.RelationalFunction) *ir.Module {
 	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
-	boolHandle := ir.TypeHandle(2)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
@@ -3269,14 +3084,6 @@ func buildRelationalShader(relFn ir.RelationalFunction) *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3] 0.0
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},  // v
-			{Handle: &boolHandle}, // relational result
-			{Handle: &f32Handle},  // cast to f32
-			{Handle: &f32Handle},  // 0.0
-			{Handle: &f32Handle},  // 1.0
-			{Handle: &vec4Handle}, // compose
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -3392,10 +3199,6 @@ func TestEmitUnsupportedExpression(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
 			{Kind: ir.ExprArrayLength{Array: 0}},      // [1] arrayLength — not implemented
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -3441,9 +3244,6 @@ func TestEmitUnsupportedStatement(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtRayQuery{}}, // unsupported
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -3487,9 +3287,6 @@ func TestEmitStmtKillSilentSkip(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 			{Kind: ir.StmtKill{}}, // should be silently skipped
@@ -3524,11 +3321,10 @@ func TestMissingComponentIsAnError(t *testing.T) {
 	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
 	retHandle := ir.ExpressionHandle(0)
 	fn := ir.Function{
-		Name:            "main",
-		Arguments:       []ir.FunctionArgument{{Name: "v", Type: f32Handle, Binding: &vBinding}},
-		Result:          &ir.FunctionResult{Type: vec4Handle, Binding: &resultBinding},
-		Expressions:     []ir.Expression{{Kind: ir.ExprFunctionArgument{Index: 0}}},
-		ExpressionTypes: []ir.TypeResolution{{Handle: &f32Handle}},
+		Name:        "main",
+		Arguments:   []ir.FunctionArgument{{Name: "v", Type: f32Handle, Binding: &vBinding}},
+		Result:      &ir.FunctionResult{Type: vec4Handle, Binding: &resultBinding},
+		Expressions: []ir.Expression{{Kind: ir.ExprFunctionArgument{Index: 0}}},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -3591,11 +3387,6 @@ func buildCBVFragmentShader() *ir.Module {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [0] &uniforms
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] &uniforms.color
 			{Kind: ir.ExprLoad{Pointer: 1}},               // [2] uniforms.color
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &structHandle},  // pointer to struct
-			{Handle: &vec4f32Handle}, // pointer to vec4
-			{Handle: &vec4f32Handle}, // loaded vec4
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -3835,14 +3626,6 @@ func TestEmitCBVLoadMultiField(t *testing.T) {
 			{Kind: ir.ExprLoad{Pointer: 3}},                                 // [4] u.intensity (f32)
 			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 2, Right: 4}}, // [5] color * intensity
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &structHandle},  // ptr to struct
-			{Handle: &vec4f32Handle}, // ptr to vec4
-			{Handle: &vec4f32Handle}, // loaded vec4
-			{Handle: &f32Handle},     // ptr to f32
-			{Handle: &f32Handle},     // loaded f32
-			{Handle: &vec4f32Handle}, // mul result
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -3924,12 +3707,6 @@ func TestEmitCBVLoadI32(t *testing.T) {
 			{Kind: ir.ExprLoad{Pointer: 1}},               // [2] p.count (u32)
 			{Kind: ir.ExprZeroValue{Type: vec4f32Handle}}, // [3] fallback zero
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &structHandle},  // ptr to struct
-			{Handle: &u32Handle},     // ptr to u32
-			{Handle: &u32Handle},     // loaded u32
-			{Handle: &vec4f32Handle}, // zero value
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			{Kind: ir.StmtReturn{Value: &zeroExpr}},
@@ -4008,11 +3785,6 @@ func TestEmitCBVLoadRegisterOffset(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}}, // [1] &data.b (offset 16)
 			{Kind: ir.ExprLoad{Pointer: 1}},               // [2] data.b
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &structHandle},  // ptr to struct
-			{Handle: &vec4f32Handle}, // ptr to vec4
-			{Handle: &vec4f32Handle}, // loaded vec4
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -4061,7 +3833,6 @@ func TestEmitImageSample(t *testing.T) {
 	//   @fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	//       return textureSample(tex, samp, uv);
 	//   }
-	f32Handle := ir.TypeHandle(0)
 	vec2f32Handle := ir.TypeHandle(1)
 	vec4f32Handle := ir.TypeHandle(2)
 	imageHandle := ir.TypeHandle(3)
@@ -4105,13 +3876,6 @@ func TestEmitImageSample(t *testing.T) {
 				Coordinate: 0,
 				Level:      ir.SampleLevelAuto{},
 			}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec2f32Handle}, // uv
-			{Handle: &imageHandle},   // tex
-			{Handle: &samplerHandle}, // samp
-			{Handle: &f32Handle},     // uv.x
-			{Handle: &vec4f32Handle}, // sample result
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -4292,12 +4056,6 @@ func buildMinimalComputeShader() *ir.Module {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] &out
 			{Kind: ir.ExprAccess{Base: 2, Index: 1}},      // [3] &out[global_id.x]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},  // global_id
-			{Handle: &u32Handle},      // global_id.x
-			{Handle: &arrayU32Handle}, // &out
-			{Handle: &u32Handle},      // &out[x]
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			{Kind: ir.StmtStore{Pointer: 3, Value: 1}}, // out[x] = global_id.x
@@ -4372,15 +4130,6 @@ func buildComputeWithUAV() *ir.Module {
 			{Kind: ir.ExprLoad{Pointer: 3}},                                 // [4] data[index] (value)
 			{Kind: ir.Literal{Value: ir.LiteralU32(2)}},                     // [5] 2u
 			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 4, Right: 5}}, // [6] value * 2u
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},  // global_id
-			{Handle: &u32Handle},      // global_id.x
-			{Handle: &arrayU32Handle}, // &data
-			{Handle: &u32Handle},      // &data[index]
-			{Handle: &u32Handle},      // data[index]
-			{Handle: &u32Handle},      // 2u
-			{Handle: &u32Handle},      // value * 2u
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -4458,18 +4207,6 @@ func buildComputeMultipleBuiltins() *ir.Module {
 			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 6, Right: 5}}, // [7] g.x+l.x+w.x
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},                 // [8] &out
 			{Kind: ir.ExprAccess{Base: 8, Index: 3}},                   // [9] &out[global_id.x]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},  // global_id
-			{Handle: &vec3u32Handle},  // local_id
-			{Handle: &vec3u32Handle},  // wg_id
-			{Handle: &u32Handle},      // global_id.x
-			{Handle: &u32Handle},      // local_id.x
-			{Handle: &u32Handle},      // wg_id.x
-			{Handle: &u32Handle},      // g.x+l.x
-			{Handle: &u32Handle},      // sum
-			{Handle: &arrayU32Handle}, // &out
-			{Handle: &u32Handle},      // &out[x]
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 10}}},
@@ -4888,14 +4625,6 @@ func buildComputeWithAtomicAdd() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},   // [4] 1u
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [5] atomic result
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},  // global_id
-			{Handle: &u32Handle},      // global_id.x
-			{Handle: &arrayU32Handle}, // &data
-			{Handle: &u32Handle},      // &data[idx]
-			{Handle: &u32Handle},      // 1u
-			{Handle: &u32Handle},      // atomic result
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			{Kind: ir.StmtAtomic{
@@ -5018,15 +4747,6 @@ func TestEmitAtomicCompareExchange(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},                  // [4] 0u (compare value)
 			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},                 // [5] 42u (new value)
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle, Comparison: true}}, // [6] CAS result
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &arrayU32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -5204,16 +4924,6 @@ func TestEmitMultipleAtomicOps(t *testing.T) {
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [5] atomicAdd result
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [6] atomicAnd result
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [7] atomicExchange result
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &arrayU32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -5416,14 +5126,6 @@ func TestEmitAtomicSubtract(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
 			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &arrayU32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			{Kind: ir.StmtAtomic{Pointer: 3, Fun: ir.AtomicSubtract{}, Value: 4, Result: &resultExpr}},
@@ -5489,7 +5191,6 @@ func TestEmitAtomicSubtract(t *testing.T) {
 //	@compute @workgroup_size(1)
 //	fn main() { out[0] = vec2<f32>(1.0, 2.0); }
 func buildComputeWithFloatVec2Store() *ir.Module {
-	f32Handle := ir.TypeHandle(0)
 	vec2f32Handle := ir.TypeHandle(1)
 	arrayVec2Handle := ir.TypeHandle(2)
 
@@ -5522,14 +5223,6 @@ func buildComputeWithFloatVec2Store() *ir.Module {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [3] &out
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},                     // [4] 0u
 			{Kind: ir.ExprAccess{Base: 3, Index: 4}},                        // [5] &out[0]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},                                  // 1.0
-			{Handle: &f32Handle},                                  // 2.0
-			{Handle: &vec2f32Handle},                              // compose
-			{Handle: &arrayVec2Handle},                            // &out
-			{Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0u
-			{Handle: &vec2f32Handle},                              // &out[0]
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -5711,14 +5404,6 @@ func buildComputeWithFloatVec2Load() *ir.Module {
 			{Kind: ir.ExprLoad{Pointer: 2}},             // [3] data[0]
 			{Kind: ir.ExprGlobalVariable{Variable: 1}},  // [4] &out
 			{Kind: ir.ExprAccess{Base: 4, Index: 1}},    // [5] &out[0]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &arrayVec2Handle},                            // &data
-			{Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0u
-			{Handle: &vec2f32Handle},                              // &data[0]
-			{Handle: &vec2f32Handle},                              // data[0]
-			{Handle: &arrayVec2Handle},                            // &out
-			{Handle: &vec2f32Handle},                              // &out[0]
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
@@ -5986,12 +5671,6 @@ func TestSamplerHeapHandleAfterInputLoads(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 1}},                      // [2] samp
 			{Kind: ir.ExprImageSample{Image: 1, Sampler: 2, Coordinate: 0}}, // [3] textureSample
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec2f32Handle},   // uv
-			{Handle: &tex2dHandle},     // tex
-			{Handle: &samplerTyHandle}, // samp
-			{Handle: &vec4f32Handle},   // sample result
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			{Kind: ir.StmtReturn{Value: &sampleExprHandle}},
@@ -6076,7 +5755,6 @@ func buildStructReturnVertex() *ir.Module {
 	vec3Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
 	structHandle := ir.TypeHandle(2)
-	f32Handle := ir.TypeHandle(3)
 
 	locBinding0 := ir.Binding(ir.LocationBinding{Location: 0})
 	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
@@ -6128,17 +5806,6 @@ func buildStructReturnVertex() *ir.Module {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{literal1, literal2, literal0, literal1}}},
 			{Kind: ir.ExprLoad{Pointer: lvH}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3Handle},
-			{Handle: &structHandle},
-			{Handle: &vec3Handle},
-			{Handle: &vec4Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4Handle},
-			{Handle: &structHandle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -6255,12 +5922,6 @@ func TestSingleStoreVectorLocalPromotion(t *testing.T) {
 			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(2)}},                              // [5] load position
 			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{4, 5}}}, // [6]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec3Handle}, {Handle: &vec3Handle},
-			{Handle: &vec4Handle}, {Handle: &vec4Handle},
-			{Handle: &vec3Handle}, {Handle: &vec4Handle},
-			{Handle: &vec4Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(0), Value: ir.ExpressionHandle(1)}},
 			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(2), Value: ir.ExpressionHandle(3)}},
@@ -6303,9 +5964,6 @@ func TestSingleStoreLocalNotInLoop(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle}, {Handle: &f32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtIf{
@@ -6361,12 +6019,6 @@ func TestZeroStoreLocalPromotion(t *testing.T) {
 			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(1)}}, // [5] load zero_vec2
 			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(2)}}, // [6] load zero_vec4
 			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(3)}}, // [7] load zero_struct
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle}, {Handle: &vec2Handle},
-			{Handle: &vec4Handle}, {Handle: &structHandle},
-			{Handle: &f32Handle}, {Handle: &vec2Handle},
-			{Handle: &vec4Handle}, {Handle: &structHandle},
 		},
 		Body: []ir.Statement{
 			// No stores to any local variable
@@ -6438,9 +6090,6 @@ func TestZeroStoreLocalWithInit(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 			{Kind: ir.ExprZeroValue{Type: f32Handle}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle}, {Handle: &f32Handle},
 		},
 		Body: []ir.Statement{},
 	}

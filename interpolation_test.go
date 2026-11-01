@@ -14,6 +14,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -57,7 +58,7 @@ func parseInterpolation(t *testing.T, src string) *ir.Module {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ir.Validate(module, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
 	return module
@@ -157,7 +158,7 @@ func TestInterpolationValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = ir.Validate(module, ir.ValidateOptions{Capabilities: ir.CapAll})
+			_, err = valid.Validate(module, valid.Options{Capabilities: valid.CapAll})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error %v, want %q", err, tc.want)
 			}

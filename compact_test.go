@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
-	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 const compactShader = `
@@ -38,7 +38,7 @@ func TestCompactKeepUnused(t *testing.T) {
 			t.Errorf("Compact(%v): %d functions, %d globals, %d overrides; want %d, %d, %d", tt.keep,
 				len(m.Functions), len(m.GlobalVariables), len(m.Overrides), tt.functions, tt.globals, tt.overds)
 		}
-		if _, err := ir.Validate(m, ir.ValidateOptions{}); err != nil {
+		if _, err := valid.Validate(m, valid.Options{}); err != nil {
 			t.Errorf("Compact(%v): module does not validate: %v", tt.keep, err)
 		}
 	}

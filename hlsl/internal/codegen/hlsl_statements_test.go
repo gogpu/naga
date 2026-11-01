@@ -383,14 +383,10 @@ func TestWriteStatement_Emit(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
 		},
 		NamedExpressions: map[ir.ExpressionHandle]string{
 			0: "value",
@@ -418,14 +414,10 @@ func TestWriteStatement_If(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
 		},
 	}
-	boolHandle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &boolHandle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -450,8 +442,7 @@ func TestWriteStatement_Break(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	err := w.writeStatement(ir.StmtBreak{})
@@ -468,8 +459,7 @@ func TestWriteStatement_Continue(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	err := w.writeStatement(ir.StmtContinue{})
@@ -486,8 +476,7 @@ func TestWriteStatement_Kill(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	err := w.writeStatement(ir.StmtKill{})
@@ -504,8 +493,7 @@ func TestWriteStatement_ReturnVoid(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	err := w.writeStatement(ir.StmtReturn{})
@@ -524,15 +512,11 @@ func TestWriteStatement_ReturnValue(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
 	exprHandle := ir.ExpressionHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -554,8 +538,7 @@ func TestWriteStatement_Barrier(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	tests := []struct {
@@ -590,8 +573,6 @@ func TestWriteStatement_Store(t *testing.T) {
 			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceFunction}},
 		},
 	}
-	ptrHandle := ir.TypeHandle(1)
-	i32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		LocalVars: []ir.LocalVariable{
@@ -600,10 +581,6 @@ func TestWriteStatement_Store(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},    // 0: x (pointer)
 			{Kind: ir.Literal{Value: ir.LiteralI32(42)}}, // 1: 42
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &ptrHandle},
-			{Handle: &i32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -632,14 +609,10 @@ func TestWriteStatement_Switch(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
 	}
-	i32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // 0: selector
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -673,14 +646,10 @@ func TestWriteStatement_Loop(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
 		},
 	}
-	boolHandle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &boolHandle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -708,8 +677,7 @@ func TestWriteBlock(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	block := ir.Block{
@@ -728,8 +696,7 @@ func TestWriteBlockStatement(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
 	setCurrentFunction(t, w, &ir.Function{
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
+		Expressions: []ir.Expression{},
 	})
 
 	stmt := ir.StmtBlock{Block: ir.Block{{Kind: ir.StmtBreak{}}}}
@@ -753,20 +720,12 @@ func TestIsIntegerBinaryOp(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 2: u32
 		},
 	}
-	i32Handle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
-	u32Handle := ir.TypeHandle(2)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
-			{Handle: &f32Handle},
-			{Handle: &u32Handle},
 		},
 	}
 
@@ -807,20 +766,12 @@ func TestIsI32Negate(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},  // 2: i64
 		},
 	}
-	i32Handle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
-	i64Handle := ir.TypeHandle(2)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralI64(1)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
-			{Handle: &f32Handle},
-			{Handle: &i64Handle},
 		},
 	}
 
@@ -850,20 +801,12 @@ func TestWriteUnaryExpression(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 2: u32
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
-	boolHandle := ir.TypeHandle(1)
-	u32Handle := ir.TypeHandle(2)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
 			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &boolHandle},
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -906,19 +849,12 @@ func TestWriteSelectExpression(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},  // 1: bool
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
-	boolHandle := ir.TypeHandle(1)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // 0: condition
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},   // 1: accept
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},   // 2: reject
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &boolHandle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -948,17 +884,11 @@ func TestWriteRelationalExpression(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},                                       // 2: bool
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
-	vec4bHandle := ir.TypeHandle(1)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &vec4bHandle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -1007,14 +937,10 @@ func TestWriteDerivativeExpression(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -1065,14 +991,10 @@ func TestNameExpression(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	f32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
 		},
 	}
 

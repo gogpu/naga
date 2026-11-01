@@ -12,8 +12,6 @@ import (
 // =============================================================================
 
 func TestMSL_IfElse(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
@@ -23,9 +21,6 @@ func TestMSL_IfElse(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tBool},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtIf{
@@ -47,8 +42,6 @@ func TestMSL_IfElse(t *testing.T) {
 }
 
 func TestMSL_IfWithoutElse(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
@@ -58,9 +51,6 @@ func TestMSL_IfWithoutElse(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tBool},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtIf{
@@ -84,8 +74,6 @@ func TestMSL_IfWithoutElse(t *testing.T) {
 // =============================================================================
 
 func TestMSL_Switch(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -95,9 +83,6 @@ func TestMSL_Switch(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtSwitch{
@@ -136,8 +121,6 @@ func TestMSL_Switch(t *testing.T) {
 }
 
 func TestMSL_SwitchU32(t *testing.T) {
-	tU32 := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
@@ -147,9 +130,6 @@ func TestMSL_SwitchU32(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tU32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtSwitch{
@@ -194,8 +174,6 @@ func TestMSL_Loop(t *testing.T) {
 }
 
 func TestMSL_LoopWithContinuing(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
@@ -205,9 +183,6 @@ func TestMSL_LoopWithContinuing(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tBool},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtLoop{
@@ -224,7 +199,6 @@ func TestMSL_LoopWithContinuing(t *testing.T) {
 }
 
 func TestMSL_LoopWithBreakIf(t *testing.T) {
-	tBool := ir.TypeHandle(0)
 	breakIfExpr := ir.ExpressionHandle(0)
 
 	module := &ir.Module{
@@ -236,9 +210,6 @@ func TestMSL_LoopWithBreakIf(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tBool},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtLoop{
@@ -291,9 +262,6 @@ func TestMSL_ReturnValue(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -385,10 +353,6 @@ func TestMSL_Store(t *testing.T) {
 					{Kind: ir.ExprLocalVariable{Variable: 0}},
 					{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Value: ir.PointerType{Base: tF32, Space: ir.SpaceFunction}},
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
 					{Kind: ir.StmtReturn{}},
@@ -435,10 +399,6 @@ func TestMSL_AtomicOperations(t *testing.T) {
 							{Kind: ir.ExprZeroValue{Type: tI32}},
 							{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tI32},
-							{Handle: &tI32},
-						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtAtomic{
 								Pointer: 0,
@@ -472,11 +432,6 @@ func TestMSL_AtomicWithResult(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 					{Kind: ir.ExprZeroValue{Type: tI32}}, // result placeholder
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Handle: &tI32},
-					{Handle: &tI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtAtomic{
 						Pointer: 0,
@@ -508,11 +463,6 @@ func TestMSL_AtomicCompareExchange(t *testing.T) {
 					{Kind: ir.ExprZeroValue{Type: tI32}},
 					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // compare value
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Handle: &tI32},
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtAtomic{
@@ -555,9 +505,6 @@ func TestMSL_FunctionCall(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtCall{
 						Function:  0,
@@ -593,10 +540,6 @@ func TestMSL_FunctionCallWithResult(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 					{Kind: ir.ExprCallResult{Function: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tF32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtCall{
 						Function:  0,
@@ -629,10 +572,6 @@ func TestMSL_WorkGroupUniformLoad(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tI32}},
 					{Kind: ir.ExprZeroValue{Type: tI32}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtWorkGroupUniformLoad{
@@ -670,11 +609,6 @@ func TestMSL_ImageStore(t *testing.T) {
 					{Kind: ir.ExprZeroValue{Type: tI32}},  // coord
 					{Kind: ir.ExprZeroValue{Type: tVec4}}, // value
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Handle: &tI32},
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtImageStore{
 						Image:      0,
@@ -708,12 +642,6 @@ func TestMSL_ImageStoreWithArrayIndex(t *testing.T) {
 					{Kind: ir.ExprZeroValue{Type: tI32}},        // coord
 					{Kind: ir.ExprZeroValue{Type: tVec4}},       // value
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // array index
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
-					{Handle: &tI32},
-					{Handle: &tVec4},
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtImageStore{
@@ -794,9 +722,6 @@ func TestMSL_RayQueryTerminate(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tI32}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtRayQuery{

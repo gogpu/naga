@@ -298,11 +298,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprSplat{Size: ir.Vec2, Value: 0}},
 		}
-		f32H := ir.TypeHandle(0)
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &vec2H},
-		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
 			{Kind: ir.StmtReturn{Value: &ret}},
@@ -334,10 +329,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 				Pattern: [4]ir.SwizzleComponent{ir.SwizzleY, ir.SwizzleX, 0, 0},
 			}},
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &vec2H},
-		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
 			{Kind: ir.StmtReturn{Value: &ret}},
@@ -367,10 +358,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprDerivative{Axis: ir.DerivativeX, Control: ir.DerivativeFine, Expr: 0}},
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &vec2H},
-		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
 			{Kind: ir.StmtReturn{Value: &ret}},
@@ -390,8 +377,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprRelational_collapses_vector", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
-		boolH := ir.TypeHandle(len(mod.Types))
 		mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}})
 
 		fn := ir.Function{
@@ -404,11 +389,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprRelational{Fun: ir.RelationalAny, Argument: 0}},
 			{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &boolH},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(2)
 		fn.Body = []ir.Statement{
@@ -429,8 +409,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprAccess_dynamic_index", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
-
 		fn := ir.Function{
 			Arguments: []ir.FunctionArgument{
 				{Name: "v", Type: vec2H, Binding: &argBinding},
@@ -443,12 +421,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
 			{Kind: ir.ExprAccess{Base: 0, Index: 1}},
-		}
-		u32H := ir.TypeHandle(len(mod.Types))
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &u32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(2)
 		fn.Body = []ir.Statement{
@@ -470,8 +442,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprMath_multi_arg", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
-
 		argA := ir.Binding(ir.LocationBinding{Location: 0})
 		argB := ir.Binding(ir.LocationBinding{Location: 1})
 		outBind := ir.Binding(ir.LocationBinding{Location: 0})
@@ -488,11 +458,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprFunctionArgument{Index: 1}},
 			{Kind: ir.ExprMath{Fun: ir.MathMin, Arg: 0, Arg1: &arg1}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(2)
 		fn.Body = []ir.Statement{
@@ -531,16 +496,10 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			Result: &ir.FunctionResult{Type: vec2H, Binding: &outBind},
 		}
 		// select(v, v, true) -> just v (both branches same).
-		boolH := ir.TypeHandle(len(mod.Types) - 1) // reuse from earlier
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
 			{Kind: ir.ExprSelect{Accept: 0, Reject: 0, Condition: 1}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &boolH},
-			{Handle: &vec2H},
 		}
 		ret := ir.ExpressionHandle(2)
 		fn.Body = []ir.Statement{
@@ -561,17 +520,12 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprImageQuery_returns_empty", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		fn := ir.Function{
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBinding},
 		}
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.ExprImageQuery{Image: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
@@ -586,17 +540,12 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprArrayLength_returns_empty", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		fn := ir.Function{
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBinding},
 		}
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.ExprArrayLength{Array: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
@@ -610,15 +559,11 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprGlobalVariable_returns_empty", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		fn := ir.Function{
 			Result: &ir.FunctionResult{Type: 0, Binding: &outBinding},
 		}
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
@@ -632,7 +577,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprCallResult_triggers_giveUp", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		argBind := ir.Binding(ir.LocationBinding{Location: 0})
 		fn := ir.Function{
 			Arguments: []ir.FunctionArgument{
@@ -643,10 +587,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprCallResult{Function: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		callResult := ir.ExpressionHandle(1)
 		ret := ir.ExpressionHandle(1)
@@ -666,7 +606,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprImageSample_with_depthref", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		argBind := ir.Binding(ir.LocationBinding{Location: 0})
 		outBind := ir.Binding(ir.LocationBinding{Location: 0})
 		fn := ir.Function{
@@ -681,12 +620,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},                                           // 1: texture
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                                        // 2: depth ref
 			{Kind: ir.ExprImageSample{Image: 1, Sampler: 1, Coordinate: 0, DepthRef: &depthRef}}, // 3
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &f32H},
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(3)
 		fn.Body = []ir.Statement{
@@ -707,7 +640,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("ExprImageLoad_with_array_index", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		argBind := ir.Binding(ir.LocationBinding{Location: 0})
 		outBind := ir.Binding(ir.LocationBinding{Location: 0})
 		fn := ir.Function{
@@ -722,13 +654,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},                             // 1: texture
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},                            // 2: array index
 			{Kind: ir.ExprImageLoad{Image: 1, Coordinate: 0, ArrayIndex: &arrIdx}}, // 3
-		}
-		u32H := ir.TypeHandle(len(mod.Types) - 1) // reuse any existing type handle
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &vec2H},
-			{Handle: &f32H},
-			{Handle: &u32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(3)
 		fn.Body = []ir.Statement{
@@ -766,10 +691,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}}, // m[1] = second column
 		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &mat2H},
-			{Handle: &vec2H},
-		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
 			{Kind: ir.StmtReturn{Value: &ret}},
@@ -797,7 +718,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		mod.Types = append(mod.Types, ir.Type{
 			Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &arrSize}},
 		})
-		f32H := ir.TypeHandle(0)
 		argBind := ir.Binding(ir.LocationBinding{Location: 0})
 		outBind := ir.Binding(ir.LocationBinding{Location: 0})
 		fn := ir.Function{
@@ -809,10 +729,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &arrTyH},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{
@@ -830,7 +746,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 	})
 
 	t.Run("unknown_expression_kind_triggers_giveUp", func(t *testing.T) {
-		f32H := ir.TypeHandle(0)
 		argBind := ir.Binding(ir.LocationBinding{Location: 0})
 		outBind := ir.Binding(ir.LocationBinding{Location: 0})
 		fn := ir.Function{
@@ -842,10 +757,6 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		fn.Expressions = []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 			{Kind: ir.ExprAtomicResult{Ty: 0}}, // triggers empty taint path
-		}
-		fn.ExpressionTypes = []ir.TypeResolution{
-			{Handle: &f32H},
-			{Handle: &f32H},
 		}
 		ret := ir.ExpressionHandle(1)
 		fn.Body = []ir.Statement{

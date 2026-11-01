@@ -1034,17 +1034,7 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 	// Used let bindings are already emitted through the normal baking mechanism.
 	l.registerUnusedLetBindings()
 
-	// Interim (ADR-010 B4): ir.Validate's arrayLength check is the one reader
-	// of Function.ExpressionTypes left, and package ir cannot import the
-	// typifier; the field goes once the validator types expressions.
-	types := l.typifierOf(fn)
-	if err := types.Grow(l.module, fn, ir.ExpressionHandle(len(fn.Expressions))); err != nil {
-		return fmt.Errorf("function %s: %w", f.Name, err)
-	}
-	fn.ExpressionTypes = make([]ir.TypeResolution, len(fn.Expressions))
-	for h := range fn.Expressions {
-		fn.ExpressionTypes[h] = types.Get(ir.ExpressionHandle(h))
-	}
+	// The function's types were the lowerer's own; the IR carries none.
 	delete(l.exprTypes, fn)
 
 	// Check if this is an entry point

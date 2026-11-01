@@ -108,7 +108,7 @@ func TestDxilDxcGolden(t *testing.T) {
 			skipCount++
 			continue
 		}
-		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{})
+		processed, _, err := naga.ProcessOverrides(module, unvalidated, naga.OverrideOptions{})
 		if err != nil {
 			skipCount++
 			continue

@@ -6,9 +6,9 @@ import (
 
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
-	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -487,7 +487,7 @@ func BenchmarkValidate(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				info, vErr := ir.Validate(module, ir.ValidateOptions{Capabilities: ir.CapAll})
+				info, vErr := valid.Validate(module, valid.Options{Capabilities: valid.CapAll})
 				if vErr != nil {
 					b.Fatalf("validate failed: %v", vErr)
 				}

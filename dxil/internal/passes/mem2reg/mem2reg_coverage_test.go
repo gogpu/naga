@@ -868,8 +868,7 @@ func TestInitialValueOfWithoutInit(t *testing.T) {
 	mod := &ir.Module{}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
 	fn := &ir.Function{
-		LocalVars:       []ir.LocalVariable{{Name: "x", Type: i32}},
-		ExpressionTypes: []ir.TypeResolution{},
+		LocalVars: []ir.LocalVariable{{Name: "x", Type: i32}},
 	}
 
 	ctx := &promotionContext{

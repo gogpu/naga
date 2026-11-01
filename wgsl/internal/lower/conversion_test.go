@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 var (
@@ -166,7 +167,7 @@ func TestBitcastConcretizesOperand(t *testing.T) {
 			if !found {
 				t.Fatal("no bitcast (As without Convert) in g")
 			}
-			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Errorf("validation: %v", err)
 			}
 		})

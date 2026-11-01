@@ -184,10 +184,6 @@ func TestMSL_SamplerType(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tSampler},
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -259,10 +255,6 @@ func TestMSL_LocalVariableType(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(3.14)}},
 					{Kind: ir.ExprLocalVariable{Variable: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Value: ir.PointerType{Base: tF32, Space: ir.SpaceFunction}},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -325,9 +317,6 @@ func TestMSL_FragmentEntryPoint(t *testing.T) {
 					Expressions: []ir.Expression{
 						{Kind: ir.ExprZeroValue{Type: tVec4}},
 					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tVec4},
-					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtReturn{Value: &retExpr}},
 					},
@@ -373,10 +362,6 @@ func TestMSL_GlobalVariableAsEntryParam(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -601,9 +586,6 @@ func TestMSL_VertexEntryPointWithInputs(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -654,9 +636,6 @@ func TestMSL_FragmentEntryPointWithInputs(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec2},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
@@ -746,9 +725,6 @@ func TestMSL_VertexStructOutput(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: outStructIdx}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &outStructIdx},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},

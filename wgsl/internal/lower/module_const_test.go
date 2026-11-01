@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // geShape prints a global expression tree compactly: literals with their
@@ -101,7 +102,7 @@ func TestModuleConstFromAbstract(t *testing.T) {
 					t.Errorf("type [%d] %v is abstract; compact must remove abstract types", i, ty.Inner)
 				}
 			}
-			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Errorf("validation: %v", err)
 			}
 		})

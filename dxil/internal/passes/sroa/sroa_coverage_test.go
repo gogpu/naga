@@ -45,7 +45,6 @@ func TestNestedStoreInIfDisqualifies(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // [3] condition
 			{Kind: ir.ExprLoad{Pointer: 0}},                 // [4] full load
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 5),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			// Store to field inside if → disqualifies
@@ -96,7 +95,6 @@ func TestNestedStoreInLoopDisqualifies(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}, // [2] value
 			{Kind: ir.ExprLoad{Pointer: 0}},               // [3] full load
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 4),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			{Kind: ir.StmtLoop{
@@ -146,7 +144,6 @@ func TestNestedStoreInSwitchDisqualifies(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},   // [3] selector
 			{Kind: ir.ExprLoad{Pointer: 0}},               // [4]
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 5),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			{Kind: ir.StmtSwitch{
@@ -197,7 +194,6 @@ func TestNestedStoreInBlockDisqualifies(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}, // [2]
 			{Kind: ir.ExprLoad{Pointer: 0}},               // [3]
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 4),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 			{Kind: ir.StmtBlock{Block: ir.Block{
@@ -301,7 +297,6 @@ func TestClassifyStmtsAtomicDisqualifies(t *testing.T) {
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 2),
 		Body: ir.Block{
 			{Kind: ir.StmtAtomic{Pointer: 0, Fun: ir.AtomicAdd{}, Value: 1}},
 		},
@@ -340,7 +335,6 @@ func TestClassifyStmtsRecursesIntoControlFlow(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // [1]
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},     // [2]
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 3),
 		Body: ir.Block{
 			// Call with local handle inside nested control flow.
 			{Kind: ir.StmtIf{
@@ -400,7 +394,6 @@ func TestFullStructStoreNonComposeDisqualifies(t *testing.T) {
 			{Kind: ir.ExprLocalVariable{Variable: 0}}, // [0]
 			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [1] non-compose value
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 2),
 		Body: ir.Block{
 			// Full struct store with non-compose value.
 			{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
@@ -445,7 +438,6 @@ func TestFullStructStoreWithComposeIsAllowed(t *testing.T) {
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4}}}, // [5]
 			{Kind: ir.ExprLoad{Pointer: 0}},                                 // [6] full load
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 7),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 			// Full struct store with Compose — allowed.
@@ -487,8 +479,7 @@ func TestClassifyFieldIndexOutOfBounds(t *testing.T) {
 			{Kind: ir.ExprLocalVariable{Variable: 0}},      // [0]
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 99}}, // [1] out of bounds!
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 2),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -522,8 +513,7 @@ func TestF16MemberDisqualifies(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -557,8 +547,7 @@ func TestF16VectorMemberDisqualifies(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -598,8 +587,7 @@ func TestNestedStructMemberDisqualifies(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -632,8 +620,7 @@ func TestMemberTypeOutOfBounds(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -671,7 +658,6 @@ func TestAllUsesInTopLevelRejectsNestedLoad(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // [3]
 			{Kind: ir.ExprLoad{Pointer: 0}},                 // [4] full load
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 5),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 			{Kind: ir.StmtStore{Pointer: 1, Value: 2}},
@@ -717,8 +703,7 @@ func TestNoUsesAtAllSkipped(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}}, // declared but never used
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -744,8 +729,7 @@ func TestLocalVarIndexOutOfBounds(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 99}}, // out of bounds
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	// Should not panic.
@@ -772,8 +756,7 @@ func TestLocalTypeOutOfBounds(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -812,7 +795,6 @@ func TestMarkNestedUsesRecursesDeep(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},     // [4]
 			{Kind: ir.ExprLoad{Pointer: 0}},                 // [5]
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 6),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 			// Store deeply nested.

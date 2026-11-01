@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -25,17 +26,22 @@ func Module(c *Case) (*ir.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	var caps ir.Capabilities
+	var caps valid.Capabilities
 	if slices.Contains(c.Spec.Requires, requireF16) {
-		caps |= ir.CapShaderFloat16
+		caps |= valid.CapShaderFloat16
 	}
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: caps}); err != nil {
+	info, err := valid.Validate(m, valid.Options{Capabilities: caps})
+	if err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
-	return naga.ProcessOverrides(m, naga.OverrideOptions{
+	m, _, err = naga.ProcessOverrides(m, info, naga.OverrideOptions{
 		Constants:  c.Spec.Constants,
 		EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: c.Spec.Entry},
 	})
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // CheckModule checks that spec describes the shader m, a module from Module:

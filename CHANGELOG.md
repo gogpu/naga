@@ -93,14 +93,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ask for SPIR-V 1.3, and `naga.Compile` now writes SPIR-V 1.0, Rust naga's default; a shader that needs a newer
   version (subgroup operations need 1.3) is an error until `SPIRV.Version` gives one. gg's 25 production shaders
   compile and pass spirv-val at the zero options.
-- **Breaking: `ir.Validate(module, ValidateOptions) (ModuleInfo, error)`** (ADR-010 N2, S-A) replaces `ir.Validate`
-  and `ir.ValidateWithCapabilities`, which returned `([]ValidationError, error)`. Problems come back as one error, an
-  `ir.ValidationErrors` holding all of them (`errors.As` finds each `*ValidationError`). The zero `ValidateOptions`
-  allows no optional capability: `ir.Validate` used to allow every one (`CapAll`), so a caller that validated f64,
-  i64 or f16 shaders now passes the device's capabilities. The new `ModuleInfo` gives, per function and entry point,
-  the `GlobalUses` of every global (`GlobalUseRead`, `Write`, `Query`, `Atomic`, Rust naga's `valid::GlobalUse`), callees
-  included: what a WebGPU implementation needs for the workgroup storage limit and bind group layout checks.
-- **Breaking: IR names and widths follow Rust naga** (ADR-010 N1, N6, N7, N8): `ir.Capabilities` is `uint64`, as
+- **Breaking: validation is its own package, `valid`** (ADR-010 N2, S-A, B4), as Rust naga's `valid` module:
+  `valid.Validate(module, valid.Options) (valid.ModuleInfo, error)` replaces `ir.Validate` and
+  `ir.ValidateWithCapabilities`, which returned `([]ValidationError, error)`. `ir` is the data model only; the
+  validator types expressions with the same internal typifier as the backends, which `ir` cannot import.
+  Problems come back as one error, a `valid.Errors` holding all of them (`errors.As` finds each `*valid.Error`). The
+  zero `valid.Options` allows no optional capability: `ir.Validate` used to allow every one (`CapAll`), so a caller
+  that validated f64, i64 or f16 shaders now passes the device's capabilities. The new `valid.ModuleInfo` gives, per
+  function and entry point, the `GlobalUses` of every global (`GlobalUseRead`, `Write`, `Query`, `Atomic`, Rust
+  naga's `valid::GlobalUse`), callees included: what a WebGPU implementation needs for the workgroup storage limit and
+  bind group layout checks. Moved from `ir`: `Capabilities` with every `Cap*` and `CapAll`, `ModuleInfo`,
+  `FunctionInfo`, `GlobalUse`; renamed: `ValidateOptions` → `valid.Options`, `ValidationError` → `valid.Error`,
+  `ValidationErrors` → `valid.Errors`. `naga.CompileOptions.Capabilities` is a `valid.Capabilities`.
+  `Function.ExpressionTypes` is removed.
+- **Breaking: `naga.ProcessOverrides(module, info, OverrideOptions) (*ir.Module, valid.ModuleInfo, error)`**, as Rust
+  naga's `process_overrides`: it takes the `ModuleInfo` of the caller's validation and returns the module's info.
+  With nothing to do (no overrides, and no entry point to pick out of several) it returns the module and that info as
+  they are; otherwise it validates the specialised module again, structure only (every capability allowed, as Rust),
+  and returns its new info: capabilities are checked by the caller's `valid.Validate`.
+- **Breaking: IR names and widths follow Rust naga** (ADR-010 N1, N6, N7, N8): `valid.Capabilities` is `uint64`, as
   Rust's bits go above 31, and `CapAll` sets every bit; `MathQuantizeF16` is `MathQuantizeToF16` and
   `BuiltinClipDistance` is `BuiltinClipDistances`; `ExprLocalVariable.Variable` is a `LocalVariableHandle` and
   `Function.Body` an `ir.Block`; the exported `ir.Validator` type, never usable from outside, is unexported.
@@ -150,8 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Location(source) ir.SourceLocation{Line, Column, Offset, Length}` (Rust's `Span::location`; columns count bytes).
   The root package keeps `Compile`, `CompileWithOptions` (its parse error now reads `wgsl:<line>:<column>: <message>`
   and wraps the `*wgsl.ParseError`), `ProcessOverrides` and their types; removed are `naga.Parse`, `Lower`,
-  `LowerWithSource`, `LowerWithCapabilities` (use `wgsl.Parse` and `ir.Validate`), `GenerateSPIRV` (`spirv.Compile`),
-  `Validate` (`ir.Validate`) and the `Cap*` constants (`ir.Cap*`).
+  `LowerWithSource`, `LowerWithCapabilities` (use `wgsl.Parse` and `valid.Validate`), `GenerateSPIRV` (`spirv.Compile`),
+  `Validate` (`valid.Validate`) and the `Cap*` constants (`valid.Cap*`).
 - **Breaking: error categories every backend shares** (ADR-010 N9). The new `backend.ErrUnsupported` is wrapped by
   every refusal of what a target cannot express: an option value a backend refuses, a shader model or GLSL version
   below what the shader needs (`*backend.ShaderModelError`, `*glsl.MissingFeaturesError`), a built-in without a name
@@ -205,7 +216,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GLSL refuses `first` sampling (Rust's `FirstSamplingNotSupported`), `per_vertex` and `per_primitive`. DXIL refuses
   `per_vertex` and `per_primitive` (P2-DXIL-074), and SPIR-V and MSL refuse `per_primitive` (no mesh shaders yet).
   **Behaviour:** an integer `@location` input of a fragment shader or output of a vertex shader must be
-  `@interpolate(flat)`, as WGSL requires; it was made flat silently, and `ir.Validate` now rejects it with Rust's
+  `@interpolate(flat)`, as WGSL requires; it was made flat silently, and `valid.Validate` now rejects it with Rust's
   message, as it rejects the other interpolation/sampling combinations Rust's validator rejects. Output for shaders
   without `@interpolate` is unchanged.
 - **Breaking: a constant is its init expression, as Rust** (ADR-010 B5). `ir.Constant` is `{Name, Type, Init}`;

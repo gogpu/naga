@@ -2206,9 +2206,6 @@ func TestSafeRemapFunctionTypes(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprZeroValue{Type: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: func() *ir.TypeHandle { h := ir.TypeHandle(1); return &h }()},
-		},
 	}
 
 	safeRemapFunctionTypes(f, remap)
@@ -2226,26 +2223,19 @@ func TestSafeRemapFunctionTypes(t *testing.T) {
 	if zv.Type != 1 {
 		t.Errorf("zero value type = %d, want 1", zv.Type)
 	}
-	if f.ExpressionTypes[0].Handle == nil || *f.ExpressionTypes[0].Handle != 0 {
-		t.Errorf("expression type handle = %v, want 0", f.ExpressionTypes[0].Handle)
-	}
 }
 
 func TestSafeRemapFunctionTypes_SentinelHandle(t *testing.T) {
 	remap := []ir.TypeHandle{1, 0}
 	sentinel := ^ir.TypeHandle(0)
 
-	f := &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &sentinel},
-		},
-	}
+	f := &ir.Function{Expressions: []ir.Expression{{Kind: ir.ExprZeroValue{Type: sentinel}}}}
 
 	safeRemapFunctionTypes(f, remap)
 
 	// Sentinel should remain unchanged
-	if f.ExpressionTypes[0].Handle == nil || *f.ExpressionTypes[0].Handle != sentinel {
-		t.Errorf("sentinel handle should remain unchanged, got %v", f.ExpressionTypes[0].Handle)
+	if zv := f.Expressions[0].Kind.(ir.ExprZeroValue); zv.Type != sentinel {
+		t.Errorf("sentinel handle should remain unchanged, got %v", zv.Type)
 	}
 }
 
@@ -2593,10 +2583,6 @@ func TestRemapFunctionTypes(t *testing.T) {
 			{Kind: ir.ExprZeroValue{Type: 1}},
 			{Kind: ir.ExprCompose{Type: 2}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: func() *ir.TypeHandle { h := ir.TypeHandle(0); return &h }()},
-			{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-		},
 	}
 
 	remapFunctionTypes(f, remap)
@@ -2620,27 +2606,5 @@ func TestRemapFunctionTypes(t *testing.T) {
 	comp := f.Expressions[1].Kind.(ir.ExprCompose)
 	if comp.Type != 1 {
 		t.Errorf("compose type = %d, want 1", comp.Type)
-	}
-	// ExpressionTypes handle remapped
-	if f.ExpressionTypes[0].Handle == nil || *f.ExpressionTypes[0].Handle != 2 {
-		t.Errorf("expression type handle = %v, want 2", f.ExpressionTypes[0].Handle)
-	}
-}
-
-func TestRemapFunctionTypes_AbstractTypeRemoved(t *testing.T) {
-	sentinel := ^ir.TypeHandle(0)
-	remap := []ir.TypeHandle{sentinel, 0} // type 0 was abstract (removed), type 1 -> 0
-
-	f := &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: func() *ir.TypeHandle { h := ir.TypeHandle(0); return &h }()}, // references removed type
-		},
-	}
-
-	remapFunctionTypes(f, remap)
-
-	// Handle for removed abstract type should be set to nil
-	if f.ExpressionTypes[0].Handle != nil {
-		t.Errorf("expected nil handle for removed abstract type, got %v", f.ExpressionTypes[0].Handle)
 	}
 }
