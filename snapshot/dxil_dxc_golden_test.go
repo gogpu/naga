@@ -230,7 +230,9 @@ func writeDxcGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile str
 	tmpBlob.Close()
 	defer os.Remove(tmpBlob.Name())
 
-	cmd := exec.Command(dxc, "-T", stageDxcProfile(ep.Stage), "-E", ep.Name,
+	// -HV 2018 as wgpu-hal (dx12/shader_compilation.rs): naga writes HLSL 2018,
+	// e.g. a vector ?: for select(), which HLSL 2021 rejects.
+	cmd := exec.Command(dxc, "-T", stageDxcProfile(ep.Stage), "-E", ep.Name, "-HV", "2018",
 		"-Vd", "-Fo", tmpBlob.Name(), tmpHLSL.Name())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

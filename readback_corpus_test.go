@@ -315,8 +315,10 @@ func compileCorpusHLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry st
 		name = n
 	}
 	// wgpu compiles this HLSL with FXC, which is not a command-line tool
-	// here; dxc at the lowest DXIL model still rejects broken source.
-	return runTool(t, v.dxc, "case.hlsl", []byte(src), "-T", "cs_6_0", "-E", name)
+	// here; dxc at the lowest DXIL model still rejects broken source. -HV 2018
+	// as wgpu-hal passes it to DXC (dx12/shader_compilation.rs): naga writes
+	// HLSL 2018.
+	return runTool(t, v.dxc, "case.hlsl", []byte(src), "-T", "cs_6_0", "-E", name, "-HV", "2018")
 }
 
 func compileCorpusDXIL(_ *testing.T, v *corpusValidators, m *ir.Module, _ string) error {
