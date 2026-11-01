@@ -94,7 +94,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckReadZeroSkipWrite
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckReadZeroSkipWrite
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "_buffer_sizes")
 	mustContainMSL(t, code, "?")
@@ -114,7 +114,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "_buffer_sizes")
 	mustContainMSL(t, code, "metal::min(")
@@ -485,7 +485,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "Container")
 	mustContainMSL(t, code, "data")

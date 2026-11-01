@@ -49,7 +49,7 @@ const (
 func (w *Writer) collectOobLocalTypes(fn *ir.Function) {
 	w.oobLocals = make(map[ir.TypeHandle]string)
 
-	if !w.options.BoundsCheckPolicies.Contains(BoundsCheckReadZeroSkipWrite) {
+	if !policiesContain(w.options.BoundsCheckPolicies, backend.BoundsCheckReadZeroSkipWrite) {
 		return
 	}
 

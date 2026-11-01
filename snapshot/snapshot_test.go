@@ -1152,26 +1152,6 @@ func parsePipelineConstants(content string) map[string]float64 {
 	return result
 }
 
-// mslBoundsCheckPolicies converts the shader's [bounds_check_policies] to msl
-// options (image_load is msl's Image policy).
-func mslBoundsCheckPolicies(p rustBoundsCheckPolicies) msl.BoundsCheckPolicies {
-	conv := func(v rustBoundsCheckPolicy) msl.BoundsCheckPolicy {
-		switch v {
-		case rustRestrict:
-			return msl.BoundsCheckRestrict
-		case rustReadZeroSkipWrite:
-			return msl.BoundsCheckReadZeroSkipWrite
-		}
-		return msl.BoundsCheckUnchecked
-	}
-	return msl.BoundsCheckPolicies{
-		Index:        conv(p.index),
-		Buffer:       conv(p.buffer),
-		Image:        conv(p.imageLoad),
-		BindingArray: conv(p.bindingArray),
-	}
-}
-
 // parseMSLVersion parses "lang_version = [major, minor]" from a line.
 func parseMSLVersion(line string) msl.Version {
 	parts := strings.SplitN(line, "=", 2)
@@ -2411,7 +2391,7 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	opts.FakeMissingBindings = true // default for tests without explicit config
 	// Rust naga defaults to Unchecked for all bounds check policies.
 	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
-	opts.BoundsCheckPolicies = msl.BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backendBoundsCheckPolicies(rustBoundsCheckPolicies{})
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
@@ -2426,7 +2406,7 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	lines := strings.Split(content, "\n")
 
 	// Parse [bounds_check_policies] section (top-level, not under [msl]).
-	opts.BoundsCheckPolicies = mslBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
+	opts.BoundsCheckPolicies = backendBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
 
 	// Parse [msl] section top-level fields.
 	inMSLSection := false

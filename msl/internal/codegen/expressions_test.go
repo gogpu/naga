@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -556,7 +557,7 @@ func TestMSL_Vec2EmptyConstructorWithTypeAnnotation(t *testing.T) {
 	// Compile to MSL
 	opts := DefaultOptions()
 	opts.LangVersion = Version1_0
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{}
 	code, _, compileErr := Compile(module, opts)
 	if compileErr != nil {
 		t.Fatal("MSL compile error:", compileErr)
@@ -599,7 +600,7 @@ fn test() {
 
 	opts := DefaultOptions()
 	opts.LangVersion = Version1_0
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{}
 	code, _, compileErr := Compile(module, opts)
 	if compileErr != nil {
 		t.Fatal("MSL compile error:", compileErr)
@@ -648,7 +649,7 @@ fn test() {
 
 	opts := DefaultOptions()
 	opts.LangVersion = Version1_0
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{}
 	code, _, compileErr := Compile(module, opts)
 	if compileErr != nil {
 		t.Fatal("MSL compile error:", compileErr)
@@ -690,7 +691,7 @@ func TestMSL_AbstractTypesVarFull(t *testing.T) {
 
 	opts := DefaultOptions()
 	opts.LangVersion = Version1_0
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{}
 	opts.FakeMissingBindings = true
 	code, _, compileErr := Compile(module, opts)
 	if compileErr != nil {
@@ -802,7 +803,7 @@ fn main() {
 
 	opts := DefaultOptions()
 	opts.LangVersion = Version1_0
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{}
 	code, _, compileErr := Compile(module, opts)
 	if compileErr != nil {
 		t.Fatal("MSL compile error:", compileErr)

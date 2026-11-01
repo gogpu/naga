@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -186,7 +187,7 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		// insideRZSW prevents nested wrapping for inner chain expressions.
 		if !w.insideRZSW {
 			policy := w.chooseBoundsCheckPolicy(k.Base)
-			if policy == BoundsCheckReadZeroSkipWrite {
+			if policy == backend.BoundsCheckReadZeroSkipWrite {
 				if check, ok := w.buildRZSWBoundsCheck(handle); ok {
 					w.write("%s ? ", check)
 					w.insideRZSW = true
@@ -207,7 +208,7 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		// insideRZSW prevents nested wrapping for inner chain expressions.
 		if !w.insideRZSW {
 			policy := w.chooseBoundsCheckPolicy(k.Base)
-			if policy == BoundsCheckReadZeroSkipWrite {
+			if policy == backend.BoundsCheckReadZeroSkipWrite {
 				if check, ok := w.buildRZSWBoundsCheck(handle); ok {
 					w.write("%s ? ", check)
 					w.insideRZSW = true
@@ -658,12 +659,8 @@ func (w *Writer) writeAccess(access ir.ExprAccess) error {
 // Uses currentAccessPolicy if set (from writeLoad), otherwise determines policy
 // from the base expression's address space (for direct value accesses).
 func (w *Writer) writeAccessIndex_restricted(baseHandle ir.ExpressionHandle, indexHandle ir.ExpressionHandle) error {
-	policy := w.currentAccessPolicy
-	if policy == BoundsCheckUnchecked {
-		// Not inside a writeLoad — determine policy from base expression.
-		policy = w.chooseBoundsCheckPolicy(baseHandle)
-	}
-	if policy == BoundsCheckRestrict {
+	policy := w.accessPolicy(baseHandle)
+	if policy == backend.BoundsCheckRestrict {
 		if maxIndex, needsRestrict := w.accessNeedsRestrict(baseHandle, indexHandle); needsRestrict {
 			return w.writeRestrictedIndex(indexHandle, maxIndex)
 		}
@@ -790,11 +787,8 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 						return err
 					}
 					w.write("[")
-					policy := w.currentAccessPolicy
-					if policy == BoundsCheckUnchecked {
-						policy = w.chooseBoundsCheckPolicy(access.Base)
-					}
-					if policy == BoundsCheckRestrict {
+					policy := w.accessPolicy(access.Base)
+					if policy == backend.BoundsCheckRestrict {
 						if info, ok := w.resolveRuntimeArrayInfo(access.Base); ok {
 							w.write("metal::min(unsigned(%d), (_buffer_sizes.size%d - %d - %d) / %d)",
 								access.Index, info.globalIdx, info.memberOffset, info.elemStride, info.elemStride)
@@ -925,11 +919,8 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 		}
 	}
 	if isArray {
-		policy := w.currentAccessPolicy
-		if policy == BoundsCheckUnchecked {
-			policy = w.chooseBoundsCheckPolicy(access.Base)
-		}
-		if policy == BoundsCheckRestrict {
+		policy := w.accessPolicy(access.Base)
+		if policy == backend.BoundsCheckRestrict {
 			if info, ok := w.resolveRuntimeArrayInfo(access.Base); ok {
 				// Runtime-sized array: metal::min(unsigned(index), (_buffer_sizes.sizeN - offset - stride) / stride)
 				w.write("[metal::min(unsigned(%d), (_buffer_sizes.size%d - %d - %d) / %d)]",
@@ -1163,15 +1154,15 @@ func (w *Writer) writeLoad(load ir.ExprLoad) error {
 	policy := w.chooseBoundsCheckPolicy(load.Pointer)
 
 	// Set the policy for the access chain traversal.
-	prevPolicy := w.currentAccessPolicy
-	w.currentAccessPolicy = policy
-	defer func() { w.currentAccessPolicy = prevPolicy }()
+	prevPolicy, prevHas := w.currentAccessPolicy, w.hasAccessPolicy
+	w.currentAccessPolicy, w.hasAccessPolicy = policy, true
+	defer func() { w.currentAccessPolicy, w.hasAccessPolicy = prevPolicy, prevHas }()
 
 	// ReadZeroSkipWrite: wrap in ternary if pointer chain has array access.
-	if policy == BoundsCheckReadZeroSkipWrite {
+	if policy == backend.BoundsCheckReadZeroSkipWrite {
 		if check, ok := w.buildRZSWBoundsCheck(load.Pointer); ok {
 			w.write("%s ? ", check)
-			w.currentAccessPolicy = BoundsCheckUnchecked // inner access is unchecked
+			w.currentAccessPolicy = backend.BoundsCheckUnchecked // inner access is unchecked
 			prevRZSW := w.insideRZSW
 			w.insideRZSW = true
 			if err := w.writeUncheckedLoad(load.Pointer); err != nil {
@@ -2785,12 +2776,12 @@ func (w *Writer) writeImageLoad(load ir.ExprImageLoad, handle ir.ExpressionHandl
 		return nil
 	}
 
-	policy := w.options.BoundsCheckPolicies.Image
+	policy := w.options.BoundsCheckPolicies.ImageLoad
 
 	switch policy {
-	case BoundsCheckRestrict:
+	case backend.BoundsCheckRestrict:
 		return w.writeImageLoadRestrict(load, handle, imgType)
-	case BoundsCheckReadZeroSkipWrite:
+	case backend.BoundsCheckReadZeroSkipWrite:
 		return w.writeImageLoadRZSW(load, imgType)
 	default:
 		return w.writeImageLoadUnchecked(load, imgType)
@@ -3714,9 +3705,20 @@ func (w *Writer) getPointerAddressSpace(handle ir.ExpressionHandle) (ir.AddressS
 	return 0, false
 }
 
+// accessPolicy returns the bounds check policy for an access to base: the
+// policy writeLoad set for the chain, or, outside a load or when the chain is
+// Unchecked (the inner chain of a ReadZeroSkipWrite ternary), the policy of
+// base itself.
+func (w *Writer) accessPolicy(base ir.ExpressionHandle) backend.BoundsCheckPolicy {
+	if w.hasAccessPolicy && w.currentAccessPolicy != backend.BoundsCheckUnchecked {
+		return w.currentAccessPolicy
+	}
+	return w.chooseBoundsCheckPolicy(base)
+}
+
 // chooseBoundsCheckPolicy selects the appropriate bounds check policy for a pointer expression.
 // Matches Rust naga's BoundsCheckPolicies::choose_policy.
-func (w *Writer) chooseBoundsCheckPolicy(handle ir.ExpressionHandle) BoundsCheckPolicy {
+func (w *Writer) chooseBoundsCheckPolicy(handle ir.ExpressionHandle) backend.BoundsCheckPolicy {
 	ty := w.getExpressionType(handle)
 	if _, ok := ty.(ir.BindingArrayType); ok {
 		return w.options.BoundsCheckPolicies.BindingArray

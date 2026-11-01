@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
@@ -262,10 +263,11 @@ type Writer struct {
 	// with at least one location-bound member (i.e., actual varyings to pass).
 	hasVaryings bool
 
-	// currentAccessPolicy is the bounds check policy active for the current access chain.
-	// Set by writeLoad before traversing the pointer access chain, reset after.
-	// BoundsCheckUnchecked (zero value) means no special handling needed.
-	currentAccessPolicy BoundsCheckPolicy
+	// currentAccessPolicy is the bounds check policy active for the current
+	// access chain, set by writeLoad (hasAccessPolicy) before it traverses the
+	// pointer access chain and reset after. See accessPolicy.
+	currentAccessPolicy backend.BoundsCheckPolicy
+	hasAccessPolicy     bool
 
 	// insideRZSW is true when we're inside a RZSW ternary or if-check.
 	// Prevents nested RZSW wrapping for inner access chain expressions.
@@ -519,7 +521,7 @@ func (w *Writer) writeModule() error {
 
 	// 1b. Determine if DefaultConstructible helper struct is needed.
 	// Matches Rust naga: emitted when any bounds check policy uses ReadZeroSkipWrite.
-	w.needsDefaultConstructible = w.options.BoundsCheckPolicies.Contains(BoundsCheckReadZeroSkipWrite)
+	w.needsDefaultConstructible = policiesContain(w.options.BoundsCheckPolicies, backend.BoundsCheckReadZeroSkipWrite)
 
 	// 1c. Scan globals for runtime-sized arrays → _mslBufferSizes struct members
 	w.scanBufferSizeGlobals()

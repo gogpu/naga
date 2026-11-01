@@ -38,52 +38,22 @@ func (v Version) Less(other Version) bool {
 	return v.Minor < other.Minor
 }
 
-// BoundsCheckPolicy controls how out-of-bounds accesses are handled.
-type BoundsCheckPolicy uint8
-
-const (
-	// BoundsCheckUnchecked performs no bounds checking.
-	// Out-of-bounds accesses have undefined behavior.
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-
-	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads
-	// and skips out-of-bounds writes.
-	BoundsCheckReadZeroSkipWrite
-
-	// BoundsCheckRestrict clamps indices to valid range.
-	BoundsCheckRestrict
-)
-
-// BoundsCheckPolicies configures bounds checking for different access types.
-type BoundsCheckPolicies struct {
-	// Index applies to array, vector, and matrix indexing.
-	Index BoundsCheckPolicy
-
-	// Buffer applies to buffer (storage/uniform) accesses.
-	Buffer BoundsCheckPolicy
-
-	// Image applies to texture read/write operations.
-	Image BoundsCheckPolicy
-
-	// BindingArray applies to binding array (texture array) indexing.
-	BindingArray BoundsCheckPolicy
+// policiesContain reports whether policy is one of p's Index, Buffer and
+// ImageLoad policies (Rust naga's BoundsCheckPolicies::contains, which also
+// leaves out BindingArray); it decides whether helpers such as
+// DefaultConstructible are needed.
+func policiesContain(p backend.BoundsCheckPolicies, policy backend.BoundsCheckPolicy) bool {
+	return p.Index == policy || p.Buffer == policy || p.ImageLoad == policy
 }
 
-// Contains returns true if any of the policy fields equals the given policy.
-// This matches Rust naga's BoundsCheckPolicies::contains method,
-// used to determine if helper structs like DefaultConstructible are needed.
-// Note: BindingArray is intentionally excluded, matching the Rust implementation.
-func (p BoundsCheckPolicies) Contains(policy BoundsCheckPolicy) bool {
-	return p.Index == policy || p.Buffer == policy || p.Image == policy
-}
-
-// DefaultBoundsCheckPolicies returns conservative bounds check policies.
-func DefaultBoundsCheckPolicies() BoundsCheckPolicies {
-	return BoundsCheckPolicies{
-		Index:        BoundsCheckReadZeroSkipWrite,
-		Buffer:       BoundsCheckReadZeroSkipWrite,
-		Image:        BoundsCheckReadZeroSkipWrite,
-		BindingArray: BoundsCheckReadZeroSkipWrite,
+// DefaultBoundsCheckPolicies returns ReadZeroSkipWrite on every field, the
+// policies of DefaultOptions.
+func DefaultBoundsCheckPolicies() backend.BoundsCheckPolicies {
+	return backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckReadZeroSkipWrite,
+		Buffer:       backend.BoundsCheckReadZeroSkipWrite,
+		ImageLoad:    backend.BoundsCheckReadZeroSkipWrite,
+		BindingArray: backend.BoundsCheckReadZeroSkipWrite,
 	}
 }
 
@@ -216,7 +186,7 @@ type Options struct {
 	InlineSamplers []InlineSampler
 
 	// BoundsCheckPolicies controls bounds checking behavior.
-	BoundsCheckPolicies BoundsCheckPolicies
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
 	// threadgroup variables they use: Polyfill (zero) or None; Native is an
@@ -375,6 +345,12 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	options.AllowAndForcePointSize = options.AllowAndForcePointSize || pipeline.AllowAndForcePointSize
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
 		return "", TranslationInfo{}, fmt.Errorf("msl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
+	p := options.BoundsCheckPolicies
+	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
+		if policy > backend.BoundsCheckUnchecked {
+			return "", TranslationInfo{}, fmt.Errorf("msl: BoundsCheckPolicies: %v is not supported", policy)
+		}
 	}
 
 	// Overrides must have been replaced by naga.ProcessOverrides.

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -747,10 +748,10 @@ struct Out { v: f32 };
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{
-		Index:  BoundsCheckRestrict,
-		Buffer: BoundsCheckRestrict,
-		Image:  BoundsCheckRestrict,
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:     backend.BoundsCheckRestrict,
+		Buffer:    backend.BoundsCheckRestrict,
+		ImageLoad: backend.BoundsCheckRestrict,
 	}
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "metal::min(")
@@ -771,10 +772,10 @@ struct Out { v: f32 };
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{
-		Index:  BoundsCheckUnchecked,
-		Buffer: BoundsCheckUnchecked,
-		Image:  BoundsCheckUnchecked,
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:     backend.BoundsCheckUnchecked,
+		Buffer:    backend.BoundsCheckUnchecked,
+		ImageLoad: backend.BoundsCheckUnchecked,
 	}
 	code := compileWGSLWithOpts(t, src, opts)
 	// Unchecked means no bounds checking code emitted.

@@ -3,6 +3,8 @@ package codegen
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // Issue #95: a scalar select() used as an operand of a binary operator was
@@ -76,9 +78,9 @@ fn main(@builtin(local_invocation_index) i: u32) {
 
 	policies := []struct {
 		name string
-		p    BoundsCheckPolicies
+		p    backend.BoundsCheckPolicies
 	}{
-		{"Unchecked", BoundsCheckPolicies{}},
+		{"Unchecked", backend.BoundsCheckPolicies{}},
 		{"ReadZeroSkipWrite", DefaultBoundsCheckPolicies()},
 	}
 

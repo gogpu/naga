@@ -37,26 +37,42 @@ func TestVersion_Less(t *testing.T) {
 	}
 }
 
-func TestBoundsCheckPolicies_Contains(t *testing.T) {
+func TestPoliciesContain(t *testing.T) {
+	// set returns Unchecked on every field but the one named.
+	set := func(field string, p backend.BoundsCheckPolicy) backend.BoundsCheckPolicies {
+		u := backend.BoundsCheckUnchecked
+		policies := backend.BoundsCheckPolicies{Index: u, Buffer: u, ImageLoad: u, BindingArray: u}
+		switch field {
+		case "index":
+			policies.Index = p
+		case "buffer":
+			policies.Buffer = p
+		case "image":
+			policies.ImageLoad = p
+		case "binding_array":
+			policies.BindingArray = p
+		}
+		return policies
+	}
+	r, z := backend.BoundsCheckRestrict, backend.BoundsCheckReadZeroSkipWrite
 	tests := []struct {
 		name   string
-		policy BoundsCheckPolicies
-		check  BoundsCheckPolicy
+		policy backend.BoundsCheckPolicies
+		check  backend.BoundsCheckPolicy
 		want   bool
 	}{
-		{"index_matches", BoundsCheckPolicies{Index: BoundsCheckRestrict}, BoundsCheckRestrict, true},
-		{"buffer_matches", BoundsCheckPolicies{Buffer: BoundsCheckReadZeroSkipWrite}, BoundsCheckReadZeroSkipWrite, true},
-		{"image_matches", BoundsCheckPolicies{Image: BoundsCheckUnchecked}, BoundsCheckUnchecked, true},
-		{"binding_array_ignored", BoundsCheckPolicies{BindingArray: BoundsCheckRestrict}, BoundsCheckRestrict, false},
-		{"no_match", BoundsCheckPolicies{Index: BoundsCheckUnchecked, Buffer: BoundsCheckUnchecked, Image: BoundsCheckUnchecked}, BoundsCheckRestrict, false},
-		{"all_match", BoundsCheckPolicies{Index: BoundsCheckRestrict, Buffer: BoundsCheckRestrict, Image: BoundsCheckRestrict}, BoundsCheckRestrict, true},
+		{"index_matches", set("index", r), r, true},
+		{"buffer_matches", set("buffer", z), z, true},
+		{"image_matches", set("image", r), r, true},
+		{"binding_array_ignored", set("binding_array", r), r, false},
+		{"no_match", set("", r), r, false},
+		{"all_match", backend.BoundsCheckPolicies{}, r, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.policy.Contains(tt.check)
-			if got != tt.want {
-				t.Errorf("Contains(%v) = %v, want %v", tt.check, got, tt.want)
+			if got := policiesContain(tt.policy, tt.check); got != tt.want {
+				t.Errorf("policiesContain(%v) = %v, want %v", tt.check, got, tt.want)
 			}
 		})
 	}
@@ -64,16 +80,16 @@ func TestBoundsCheckPolicies_Contains(t *testing.T) {
 
 func TestDefaultBoundsCheckPolicies(t *testing.T) {
 	p := DefaultBoundsCheckPolicies()
-	if p.Index != BoundsCheckReadZeroSkipWrite {
+	if p.Index != backend.BoundsCheckReadZeroSkipWrite {
 		t.Errorf("Index = %v, want ReadZeroSkipWrite", p.Index)
 	}
-	if p.Buffer != BoundsCheckReadZeroSkipWrite {
+	if p.Buffer != backend.BoundsCheckReadZeroSkipWrite {
 		t.Errorf("Buffer = %v, want ReadZeroSkipWrite", p.Buffer)
 	}
-	if p.Image != BoundsCheckReadZeroSkipWrite {
-		t.Errorf("Image = %v, want ReadZeroSkipWrite", p.Image)
+	if p.ImageLoad != backend.BoundsCheckReadZeroSkipWrite {
+		t.Errorf("ImageLoad = %v, want ReadZeroSkipWrite", p.ImageLoad)
 	}
-	if p.BindingArray != BoundsCheckReadZeroSkipWrite {
+	if p.BindingArray != backend.BoundsCheckReadZeroSkipWrite {
 		t.Errorf("BindingArray = %v, want ReadZeroSkipWrite", p.BindingArray)
 	}
 }

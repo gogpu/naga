@@ -544,10 +544,10 @@ struct Data { arr: array<f32, 16> };
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies = BoundsCheckPolicies{
-		Index:  BoundsCheckReadZeroSkipWrite,
-		Buffer: BoundsCheckReadZeroSkipWrite,
-		Image:  BoundsCheckReadZeroSkipWrite,
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:     backend.BoundsCheckReadZeroSkipWrite,
+		Buffer:    backend.BoundsCheckReadZeroSkipWrite,
+		ImageLoad: backend.BoundsCheckReadZeroSkipWrite,
 	}
 	code := compileWGSLWithOpts(t, src, opts)
 	// RZSW should emit bounds check for the store.

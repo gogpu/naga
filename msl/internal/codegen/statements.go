@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -207,7 +208,7 @@ func (w *Writer) writeEmit(emit ir.StmtEmit) error {
 // This variable is then used in the restrict-mode read call for both coordinate
 // clamping and the level argument.
 func (w *Writer) writeImageLoadClampedLodIfNeeded(handle ir.ExpressionHandle) error {
-	if w.options.BoundsCheckPolicies.Image != BoundsCheckRestrict {
+	if w.options.BoundsCheckPolicies.ImageLoad != backend.BoundsCheckRestrict {
 		return nil
 	}
 	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
@@ -639,14 +640,14 @@ func (w *Writer) countStmtExprRefs(stmts []ir.Statement, refCounts []int) {
 // once in the actual access) so they need to be baked into temporaries.
 // Matches Rust naga's find_checked_indexes.
 func (w *Writer) findGuardedIndices(fn *ir.Function) {
-	if !w.options.BoundsCheckPolicies.Contains(BoundsCheckReadZeroSkipWrite) {
+	if !policiesContain(w.options.BoundsCheckPolicies, backend.BoundsCheckReadZeroSkipWrite) {
 		return
 	}
 	for i := range fn.Expressions {
 		expr := &fn.Expressions[i]
 		switch k := expr.Kind.(type) {
 		case ir.ExprAccess:
-			if w.chooseBoundsCheckPolicy(k.Base) == BoundsCheckReadZeroSkipWrite {
+			if w.chooseBoundsCheckPolicy(k.Base) == backend.BoundsCheckReadZeroSkipWrite {
 				if w.accessNeedsCheck(k.Base, k.Index) {
 					w.guardedIndices[k.Index] = struct{}{}
 				}
@@ -1155,7 +1156,7 @@ func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
 func (w *Writer) writeStore(store ir.StmtStore) error {
 	// Check RZSW policy first — stores skip if out of bounds.
 	policy := w.chooseBoundsCheckPolicy(store.Pointer)
-	if policy == BoundsCheckReadZeroSkipWrite {
+	if policy == backend.BoundsCheckReadZeroSkipWrite {
 		if check, ok := w.buildRZSWBoundsCheck(store.Pointer); ok {
 			w.WriteIndent()
 			w.write("if (%s) {\n", check)
@@ -1725,7 +1726,7 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 	// Matches Rust naga's put_bounds_checks for atomic operations.
 	policy := w.chooseBoundsCheckPolicy(atomic.Pointer)
 	checked := false
-	if policy == BoundsCheckReadZeroSkipWrite {
+	if policy == backend.BoundsCheckReadZeroSkipWrite {
 		checked = w.writeAtomicBoundsChecks(atomic.Pointer)
 		if checked {
 			w.write(" ? ")
@@ -1929,13 +1930,13 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 
 	// Use writeLoad pattern: write the pointer's access chain directly.
 	policy := w.chooseBoundsCheckPolicy(load.Pointer)
-	prevPolicy := w.currentAccessPolicy
-	w.currentAccessPolicy = policy
-	if err := w.writeExpression(load.Pointer); err != nil {
-		w.currentAccessPolicy = prevPolicy
+	prevPolicy, prevHas := w.currentAccessPolicy, w.hasAccessPolicy
+	w.currentAccessPolicy, w.hasAccessPolicy = policy, true
+	err := w.writeExpression(load.Pointer)
+	w.currentAccessPolicy, w.hasAccessPolicy = prevPolicy, prevHas
+	if err != nil {
 		return err
 	}
-	w.currentAccessPolicy = prevPolicy
 	w.write(";\n")
 
 	// Second barrier
