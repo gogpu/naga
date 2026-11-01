@@ -264,6 +264,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Validator: two entry points may put their own resource at one binding.** Any two globals with the same
+  `@group`/`@binding` in a module were rejected; as Rust naga, a collision is now checked per entry point, among the
+  globals it uses, callees included ("Entry point main at Compute is invalid: Bindings for [1] conflict with other
+  resource"). Shaders Rust accepts, among them the corpus's `image` and `shadow`, validate now; a new test validates
+  the whole corpus.
 - **DXIL output is the same on every run.** Promoting locals to SSA values walked the variables in map order where it
   creates phis and zero values, so a shader with several promoted locals (gg's `flatten.wgsl` and `path_count.wgsl`)
   got its phis in a different order on each compile; every order was equivalent, but the bytes changed and pipeline

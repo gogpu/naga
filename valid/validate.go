@@ -3,6 +3,7 @@ package valid
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
@@ -115,7 +116,35 @@ func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 	if len(v.errors) > 0 {
 		return ModuleInfo{}, Errors(v.errors)
 	}
-	return analyzeModule(module), nil
+	info := analyzeModule(module)
+	v.validateEntryPointBindings(info)
+	if len(v.errors) > 0 {
+		return ModuleInfo{}, Errors(v.errors)
+	}
+	return info, nil
+}
+
+// validateEntryPointBindings rejects two resources at one @group/@binding
+// among the globals one entry point uses, callees included, as Rust naga's
+// EntryPointError::BindingCollision (valid/interface.rs). Separate entry
+// points may reuse a binding: each is its own pipeline.
+func (v *validator) validateEntryPointBindings(info ModuleInfo) {
+	for i := range v.module.EntryPoints {
+		ep := &v.module.EntryPoints[i]
+		seen := make(map[ir.ResourceBinding]bool)
+		for h, use := range info.EntryPoints[i].GlobalUses {
+			gv := &v.module.GlobalVariables[h]
+			if use == 0 || gv.Binding == nil {
+				continue
+			}
+			if seen[*gv.Binding] {
+				stage := ep.Stage.String()
+				v.addError(fmt.Sprintf("Entry point %s at %s is invalid: Bindings for [%d] conflict with other resource",
+					ep.Name, strings.ToUpper(stage[:1])+stage[1:], h))
+			}
+			seen[*gv.Binding] = true
+		}
+	}
 }
 
 // validateModule validates the complete module.
@@ -280,7 +309,6 @@ func (v *validator) validateConstants() {
 
 // validateGlobalVariables checks all global variables.
 func (v *validator) validateGlobalVariables() {
-	bindings := make(map[string]bool) // Track binding uniqueness (group:binding)
 	names := make(map[string]bool)
 
 	for i, gv := range v.module.GlobalVariables {
@@ -308,15 +336,6 @@ func (v *validator) validateGlobalVariables() {
 			v.addError(fmt.Sprintf("global variable %q: Storage address space doesn't support write-only access", gv.Name))
 		case gv.Space != ir.SpaceStorage && gv.Access != 0:
 			v.addError(fmt.Sprintf("global variable %q: only a storage variable has an access", gv.Name))
-		}
-
-		if gv.Binding != nil {
-			key := fmt.Sprintf("%d:%d", gv.Binding.Group, gv.Binding.Binding)
-			if bindings[key] {
-				v.addError(fmt.Sprintf("global variable %q: duplicate binding @group(%d) @binding(%d)",
-					gv.Name, gv.Binding.Group, gv.Binding.Binding))
-			}
-			bindings[key] = true
 		}
 
 		if gv.Init != nil {
