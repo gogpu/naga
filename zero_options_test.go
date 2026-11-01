@@ -527,6 +527,24 @@ func TestZeroSPIRVAdjustCoordinateSpace(t *testing.T) {
 	}
 }
 
+// TestDefaultOptionsAreZero: every backend's DefaultOptions is its zero
+// Options (ADR-009 row 12), so the two can never drift apart again: msl's
+// gave ReadZeroSkipWrite after the zero became Restrict, spirv's 1.1 with
+// native f16 inputs and outputs.
+func TestDefaultOptionsAreZero(t *testing.T) {
+	for name, pair := range map[string][2]any{
+		"spirv": {spirv.DefaultOptions(), spirv.Options{}},
+		"msl":   {msl.DefaultOptions(), msl.Options{}},
+		"glsl":  {glsl.DefaultOptions(), glsl.Options{}},
+		"hlsl":  {hlsl.DefaultOptions(), hlsl.Options{}},
+		"dxil":  {dxil.DefaultOptions(), dxil.Options{}},
+	} {
+		if !reflect.DeepEqual(pair[0], pair[1]) {
+			t.Errorf("%s.DefaultOptions() = %+v, want the zero Options", name, pair[0])
+		}
+	}
+}
+
 // TestZeroCompileOptions: the zero CompileOptions is DefaultOptions, and it
 // validates the module with the core capabilities, as Rust naga's CLI does:
 // f64 needs CapFloat64, and SkipValidation compiles without the check.

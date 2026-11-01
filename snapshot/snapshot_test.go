@@ -73,9 +73,12 @@ func compileToIR(t *testing.T, name, source string) *ir.Module {
 
 // readRustSPVConfig reads a Rust TOML config file and returns SPIR-V options.
 func readRustSPVConfig(shaderName string) spirv.Options {
-	opts := spirv.DefaultOptions()
-	opts.BoundsCheckPolicies = uncheckedPolicies() // Rust default, also without a TOML file
-	opts.FakeMissingBindings = true                // Rust default
+	// Rust's test defaults (naga-test SpirvOutParameters), also without a
+	// TOML file: SPIR-V 1.1, native f16 inputs and outputs, Unchecked,
+	// fake_missing_bindings.
+	opts := spirv.Options{Version: spirv.Version1_1, UseStorageInputOutput16: true}
+	opts.BoundsCheckPolicies = uncheckedPolicies()
+	opts.FakeMissingBindings = true
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)

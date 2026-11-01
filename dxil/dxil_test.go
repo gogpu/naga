@@ -31,8 +31,9 @@ func TestCompile_NoEntryPoints(t *testing.T) {
 
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
-	if opts.ShaderModel != (backend.ShaderModel{Major: 6, Minor: 0}) {
-		t.Errorf("default shader model: got %v, want 6.0", opts.ShaderModel)
+	// The zero shader model is 6.0 (normalizeShaderModel).
+	if opts.ShaderModel != (backend.ShaderModel{}) {
+		t.Errorf("default shader model: got %v, want the zero value", opts.ShaderModel)
 	}
 	// Retail hash is the portable default. BYPASS requires AgilitySDK
 	// 1.615+ with developer mode on the host and is rejected at

@@ -172,7 +172,10 @@ func TestGoldenInventory(t *testing.T) {
 // spirv-val over the whole corpus (TestSpirvValBinary) and by the bounds
 // tests of the spirv package.
 func goldenSPIRV(module *ir.Module, shader string) (string, error) {
-	opts := spirv.DefaultOptions()
+	// The goldens are SPIR-V 1.1 with native f16 inputs and outputs, the
+	// options they were first written with; the zero value is 1.0 and the
+	// f32 polyfill.
+	opts := spirv.Options{Version: spirv.Version1_1, UseStorageInputOutput16: true}
 	opts.BoundsCheckPolicies = uncheckedPolicies()
 	binary, err := spirvBinary(module, opts)
 	// A shader that needs a newer version than the default (subgroup
@@ -196,6 +199,7 @@ func goldenSPIRV(module *ir.Module, shader string) (string, error) {
 func goldenGLSL(module *ir.Module, _ string) (string, error) {
 	optionsFor := func(ep *ir.EntryPoint) glsl.Options {
 		opts := glsl.DefaultOptions()
+		opts.LangVersion = glsl.Version330 // the zero version, which compile retries with 4.30
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 		opts.BoundsCheckPolicies = uncheckedPolicies()
 		if ep.Stage == ir.StageCompute || usesStorageBuffer(module, &ep.Function) {
@@ -289,6 +293,13 @@ func goldenHLSL(module *ir.Module, shader string) (string, error) {
 func goldenMSL(module *ir.Module, _ string) (string, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
+	// The goldens check ReadZeroSkipWrite, wgpu-hal Metal's policies.
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckReadZeroSkipWrite,
+		Buffer:       backend.BoundsCheckReadZeroSkipWrite,
+		ImageLoad:    backend.BoundsCheckReadZeroSkipWrite,
+		BindingArray: backend.BoundsCheckReadZeroSkipWrite,
+	}
 	opts.FakeMissingBindings = true
 	// Rust's empty per_entry_point_map: placeholders for every resource, as
 	// the Rust snapshots of the same shaders have them.

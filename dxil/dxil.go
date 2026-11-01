@@ -181,12 +181,10 @@ type FragmentEntryPoint struct {
 	Function *ir.Function
 }
 
-// DefaultOptions returns the default DXIL compilation options.
+// DefaultOptions returns the zero Options, the safe defaults: shader model
+// 6.0, the retail validator hash, Restrict bounds checks.
 func DefaultOptions() Options {
-	return Options{
-		ShaderModel:   backend.ShaderModel{Major: 6, Minor: 0},
-		UseBypassHash: false, // retail hash — portable, no dev-mode requirement
-	}
+	return Options{}
 }
 
 // convertBindingMap converts the public dxil.BindingMap to the internal

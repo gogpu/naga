@@ -263,16 +263,18 @@ type ImmediateItem struct {
 	SizeBytes uint32
 }
 
-// DefaultOptions returns sensible default options for GLSL generation.
+// DefaultOptions returns the zero Options, the safe defaults: GLSL 3.30,
+// Restrict bounds checks, gl_Position converted to GL clip space.
 func DefaultOptions() Options {
-	return Options{
-		LangVersion: Version330,
-	}
+	return Options{}
 }
 
 // Compile generates GLSL source code from an IR module.
 // Returns the GLSL source as a string, translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
+	if options.LangVersion == (Version{}) {
+		options.LangVersion = Version330
+	}
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
