@@ -279,32 +279,46 @@ func TestScalarizedWorkgroupDynamicIndex(t *testing.T) {
 	t.Fatal("no store")
 }
 
-// TestWorkgroupVectorKeepsEveryComponent (P1-DXIL-066): a workgroup vector
-// used only whole or through a run-time index is a global of all its
-// components. v0.20.4 and v0.20.5 made it one scalar global: every
-// component's store went to it and the index was dropped, valid DXIL that
-// read back the wrong values. Every access goes through a GEP of the array.
+// TestWorkgroupVectorKeepsEveryComponent (P1-DXIL-066): a workgroup vector,
+// alone or as an array element, used only whole or through a run-time
+// component index, keeps every component in its global. v0.20.4 and v0.20.5
+// kept one scalar per vector: a vec3 was an i32 global, array<vec4<f32>, 4>
+// a [4 x float]; a whole store wrote only .x and the index was dropped,
+// valid DXIL that read back the wrong values. Every access goes through a
+// GEP of the array.
 func TestWorkgroupVectorKeepsEveryComponent(t *testing.T) {
-	mod, fn := emitMainModule(t, workgroupCompositeSource("var<workgroup> v: vec3<u32>;",
-		"v = vec3<u32>(1u, 2u, 3u); v[dst[0]] = 7u; dst[1] = v[dst[2]];"))
-	var gv *module.GlobalVar
-	for _, g := range mod.GlobalVars {
-		if g.AddrSpace == 3 {
-			gv = g
-		}
+	tests := []struct {
+		name, decls, body string
+		scalars           uint64
+	}{
+		{"vector", "var<workgroup> v: vec3<u32>;",
+			"v = vec3<u32>(1u, 2u, 3u); v[dst[0]] = 7u; dst[1] = v[dst[2]];", 3},
+		{"array of vectors", "var<workgroup> tile: array<vec4<f32>, 4>;",
+			"tile[i] = vec4<f32>(f32(i)); workgroupBarrier(); let t = tile[3u - i]; dst[i] = u32(t[dst[0]]);", 16},
 	}
-	if gv == nil {
-		t.Fatal("no workgroup global")
-	}
-	if gv.VarType.Kind != module.TypeArray || gv.VarType.ElemCount != 3 {
-		t.Fatalf("workgroup vec3 is a %v global, want [3 x i32]", gv.VarType)
-	}
-	for _, bb := range fn.BasicBlocks {
-		for _, instr := range bb.Instructions {
-			if (instr.Kind == module.InstrStore || instr.Kind == module.InstrLoad) && instr.Operands[0] == gv.ValueID {
-				t.Errorf("a %v of the whole workgroup array, want each through a GEP", instr.Kind)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mod, fn := emitMainModule(t, workgroupCompositeSource(tt.decls, tt.body))
+			var gv *module.GlobalVar
+			for _, g := range mod.GlobalVars {
+				if g.AddrSpace == 3 {
+					gv = g
+				}
 			}
-		}
+			if gv == nil {
+				t.Fatal("no workgroup global")
+			}
+			if gv.VarType.Kind != module.TypeArray || uint64(gv.VarType.ElemCount) != tt.scalars {
+				t.Fatalf("workgroup global is a %v, want an array of %d scalars", gv.VarType, tt.scalars)
+			}
+			for _, bb := range fn.BasicBlocks {
+				for _, instr := range bb.Instructions {
+					if (instr.Kind == module.InstrStore || instr.Kind == module.InstrLoad) && instr.Operands[0] == gv.ValueID {
+						t.Errorf("a %v of the whole workgroup array, want each through a GEP", instr.Kind)
+					}
+				}
+			}
+		})
 	}
 }
 
