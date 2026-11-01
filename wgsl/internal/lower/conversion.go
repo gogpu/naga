@@ -665,7 +665,7 @@ func (l *Lowerer) convertMathArgs(fun ir.MathFunction, args []ir.ExpressionHandl
 	m := mathArgConverter{l: l, args: args}
 	switch fun {
 	case ir.MathPack4x8snorm, ir.MathPack4x8unorm, ir.MathPack2x16snorm, ir.MathPack2x16unorm,
-		ir.MathPack2x16float, ir.MathQuantizeF16:
+		ir.MathPack2x16float, ir.MathQuantizeToF16:
 		return m.to(0, scalarF32)
 	case ir.MathPack4xI8, ir.MathPack4xI8Clamp:
 		return m.to(0, scalarI32)

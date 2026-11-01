@@ -1785,7 +1785,7 @@ func TestGLSL_QuantizeToF16_Scalar(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
 			},
 			ExpressionTypes: []ir.TypeResolution{
 				{Handle: &tF32},
@@ -1817,7 +1817,7 @@ func TestGLSL_QuantizeToF16_Vec2(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tVec2}},
-				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
 			},
 			ExpressionTypes: []ir.TypeResolution{
 				{Handle: &tVec2},
@@ -1848,7 +1848,7 @@ func TestGLSL_QuantizeToF16_Vec3(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tVec3}},
-				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
 			},
 			ExpressionTypes: []ir.TypeResolution{
 				{Handle: &tVec3},
@@ -1881,7 +1881,7 @@ func TestGLSL_QuantizeToF16_Vec4(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tVec4}},
-				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
 			},
 			ExpressionTypes: []ir.TypeResolution{
 				{Handle: &tVec4},

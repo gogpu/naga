@@ -2537,7 +2537,7 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 	case ir.BuiltinBarycentric:
 		b.addCapability(CapabilityFragmentBarycentricKHR)
 		b.addExtension("SPV_KHR_fragment_shader_barycentric")
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		b.addCapability(CapabilityClipDistance)
 	case ir.BuiltinPrimitiveIndex:
 		b.addCapability(CapabilityGeometry)
@@ -2593,7 +2593,7 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 		return BuiltInSubgroupSize
 	case ir.BuiltinSubgroupInvocationID:
 		return BuiltInSubgroupLocalInvID
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return BuiltInClipDistance
 	case ir.BuiltinPrimitiveIndex:
 		return BuiltInPrimitiveID
@@ -7489,7 +7489,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		nativeOpcode = OpTranspose
 
 	// QuantizeToF16: native SPIR-V instruction
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		useNativeOpcode = true
 		nativeOpcode = OpQuantizeToF16
 

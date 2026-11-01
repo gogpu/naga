@@ -1622,7 +1622,7 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 		}
 		// ClipDistance: emit "out float gl_ClipDistance[N];" declaration.
 		// Matches Rust naga: re-declare gl_ClipDistance with the array size from the type.
-		if b.Builtin == ir.BuiltinClipDistance && isOutput {
+		if b.Builtin == ir.BuiltinClipDistances && isOutput {
 			if int(typeHandle) < len(w.module.Types) {
 				if arr, ok := w.module.Types[typeHandle].Inner.(ir.ArrayType); ok {
 					if arr.Size.Constant != nil {
@@ -2003,7 +2003,7 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 				if m.Arg1 != nil {
 					w.needBakeExpression[*m.Arg1] = struct{}{}
 				}
-			case ir.MathQuantizeF16:
+			case ir.MathQuantizeToF16:
 				w.needBakeExpression[m.Arg] = struct{}{}
 			case ir.MathExtractBits:
 				if m.Arg1 != nil {
@@ -2960,7 +2960,7 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 		return "gl_SubgroupSize"
 	case ir.BuiltinSubgroupInvocationID:
 		return "gl_SubgroupInvocationID"
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return "gl_ClipDistance"
 	default:
 		return "gl_UNKNOWN"

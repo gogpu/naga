@@ -131,7 +131,7 @@ func TestRunStructDecomposition(t *testing.T) {
 			continue
 		}
 		expectedVar := uint32(i) + 1 // new vars start at index 1
-		if lv.Variable != expectedVar {
+		if uint32(lv.Variable) != expectedVar {
 			t.Errorf("component %d: expected Variable=%d, got %d", i, expectedVar, lv.Variable)
 		}
 	}

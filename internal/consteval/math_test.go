@@ -205,7 +205,7 @@ func TestMathErrors(t *testing.T) {
 func TestRustMathNames(t *testing.T) {
 	for fun, want := range map[ir.MathFunction]string{
 		ir.MathAbs: "Abs", ir.MathAtan2: "Atan2", ir.MathDot4U8Packed: "Dot4U8Packed",
-		ir.MathSmoothStep: "SmoothStep", ir.MathQuantizeF16: "QuantizeToF16",
+		ir.MathSmoothStep: "SmoothStep", ir.MathQuantizeToF16: "QuantizeToF16",
 		ir.MathFirstLeadingBit: "FirstLeadingBit", ir.MathUnpack4xU8: "Unpack4xU8",
 	} {
 		if got := rustMathName(fun); got != want {

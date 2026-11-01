@@ -77,7 +77,7 @@ func (z *workgroupZeroer) zero(ptr ir.ExpressionHandle, ty ir.TypeHandle) ir.Blo
 func (z *workgroupZeroer) zeroArray(ptr ir.ExpressionHandle, t ir.ArrayType) ir.Block {
 	init := z.literal(0)
 	z.fn.LocalVars = append(z.fn.LocalVars, ir.LocalVariable{Name: "__zero_init_index", Type: z.u32, Init: &init})
-	counter := z.add(ir.ExprLocalVariable{Variable: uint32(len(z.fn.LocalVars) - 1)}, z.pointer(z.u32, ir.SpaceFunction)) //nolint:gosec // local count fits uint32
+	counter := z.add(ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(len(z.fn.LocalVars) - 1)}, z.pointer(z.u32, ir.SpaceFunction)) //nolint:gosec // local count fits uint32
 
 	i, emitI := z.emitted(ir.ExprLoad{Pointer: counter}, z.value(z.u32))
 	inBounds, emitInBounds := z.emitted(ir.ExprBinary{Op: ir.BinaryLess, Left: i, Right: z.literal(*t.Size.Constant)}, z.boolean())

@@ -44,7 +44,7 @@ func TestGlslBuiltIn(t *testing.T) {
 		{"subgroup_id", ir.BuiltinSubgroupID, false, "gl_SubgroupID"},
 		{"subgroup_size", ir.BuiltinSubgroupSize, false, "gl_SubgroupSize"},
 		{"subgroup_invocation_id", ir.BuiltinSubgroupInvocationID, false, "gl_SubgroupInvocationID"},
-		{"clip_distance", ir.BuiltinClipDistance, false, "gl_ClipDistance"},
+		{"clip_distance", ir.BuiltinClipDistances, false, "gl_ClipDistance"},
 		{"unknown_builtin", ir.BuiltinValue(255), false, "gl_UNKNOWN"},
 	}
 

@@ -590,7 +590,7 @@ func (w *Writer) writeGlobalVariable(g ir.ExprGlobalVariable) (string, error) {
 
 // writeLocalVariable writes a local variable reference.
 func (w *Writer) writeLocalVariable(l ir.ExprLocalVariable) (string, error) {
-	if name, ok := w.localNames[l.Variable]; ok {
+	if name, ok := w.localNames[uint32(l.Variable)]; ok {
 		return name, nil
 	}
 	return fmt.Sprintf("local_%d", l.Variable), nil
@@ -923,7 +923,7 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 		return fmt.Sprintf("naga_frexp(%s)", args[0]), nil
 	case ir.MathLdexp:
 		return fmt.Sprintf("ldexp(%s)", argStr), nil
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		// QuantizeToF16 must split by vector size, processing pairs of components
 		// via packHalf2x16/unpackHalf2x16. Matches Rust naga behavior.
 		vecSize, isVec := w.getExprVectorSize(m.Arg)

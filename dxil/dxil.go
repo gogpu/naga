@@ -1533,7 +1533,7 @@ func sigInterpModeForBuiltin(b ir.BuiltinValue, stage ir.ShaderStage, isOutput b
 	switch b {
 	case ir.BuiltinPosition:
 		return 4 // NoPerspective
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return 2 // Linear (perspective)
 	default:
 		// VertexID, InstanceID, FrontFacing, etc. don't actually appear
@@ -1570,7 +1570,7 @@ func psvSemanticForBuiltin(b ir.BuiltinValue) (psvSemantic, bool) {
 		return psvSemantic{Kind: 12, Name: "SV_SampleIndex"}, true
 	case ir.BuiltinSampleMask:
 		return psvSemantic{Kind: 14, Name: "SV_Coverage"}, true
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return psvSemantic{Kind: 6, Name: "SV_ClipDistance"}, true
 	case ir.BuiltinPrimitiveIndex:
 		return psvSemantic{Kind: 10, Name: "SV_PrimitiveID"}, true

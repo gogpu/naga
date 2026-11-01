@@ -24,8 +24,8 @@ func TestMathSpecOnly(t *testing.T) {
 		{"smoothstep reversed edges", ir.MathSmoothStep, []Value{af(1), af(0), af(0.25)}, af(0.84375)},
 		{"ldexp", ir.MathLdexp, []Value{af(1.5), Scalar(aint(3))}, af(12)},
 		{"ldexp f32 negative exponent", ir.MathLdexp, []Value{f32s(1), i32s(-149)}, f32s(math.SmallestNonzeroFloat32)},
-		{"quantizeToF16", ir.MathQuantizeF16, []Value{f32s(0.1)}, f32s(0.0999755859375)},
-		{"quantizeToF16 vector", ir.MathQuantizeF16, []Value{f32v(1, 2049)}, f32v(1, 2048)},
+		{"quantizeToF16", ir.MathQuantizeToF16, []Value{f32s(0.1)}, f32s(0.0999755859375)},
+		{"quantizeToF16 vector", ir.MathQuantizeToF16, []Value{f32v(1, 2049)}, f32v(1, 2048)},
 		// floor(0.5 + 127 * clamp(e, -1, 1)) per byte, low byte first.
 		{"pack4x8snorm", ir.MathPack4x8snorm, []Value{vec4f(1, -1, 0.5, 2)}, u32s(0x7F40817F)},
 		{"pack4x8unorm", ir.MathPack4x8unorm, []Value{vec4f(1, 0, 0.5, -1)}, u32s(0x008000FF)},
@@ -59,8 +59,8 @@ func TestMathSpecOnlyErrors(t *testing.T) {
 		// Spec: e2 > bias + 1 is a shader-creation error (f32 bias 127).
 		{"ldexp exponent above bias+1", ir.MathLdexp, []Value{f32s(1), i32s(129)}, ErrOutOfDomain},
 		{"ldexp overflow", ir.MathLdexp, []Value{f32s(2), i32s(128)}, ErrOverflow},
-		{"quantizeToF16 out of range", ir.MathQuantizeF16, []Value{f32s(65520)}, ErrOverflow},
-		{"quantizeToF16 of abstract", ir.MathQuantizeF16, []Value{af(1)}, ErrInvalidOperand},
+		{"quantizeToF16 out of range", ir.MathQuantizeToF16, []Value{f32s(65520)}, ErrOverflow},
+		{"quantizeToF16 of abstract", ir.MathQuantizeToF16, []Value{af(1)}, ErrInvalidOperand},
 		{"pack2x16float out of range", ir.MathPack2x16float, []Value{f32v(1, 70000)}, ErrOverflow},
 		{"unpack2x16float of infinity", ir.MathUnpack2x16float, []Value{u32s(0x7C00)}, ErrOverflow},
 		{"pack4x8snorm of vec2", ir.MathPack4x8snorm, []Value{f32v(1, 2)}, ErrInvalidOperand},
@@ -114,7 +114,7 @@ func TestRustEvaluates(t *testing.T) {
 	notInRust := map[ir.MathFunction]bool{
 		ir.MathModf: true, ir.MathFrexp: true, ir.MathLdexp: true, ir.MathOuter: true,
 		ir.MathMix: true, ir.MathSmoothStep: true, ir.MathInverse: true, ir.MathTranspose: true,
-		ir.MathDeterminant: true, ir.MathQuantizeF16: true,
+		ir.MathDeterminant: true, ir.MathQuantizeToF16: true,
 	}
 	for fun := ir.MathPack4x8snorm; fun <= ir.MathUnpack4xU8; fun++ {
 		notInRust[fun] = true

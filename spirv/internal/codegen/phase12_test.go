@@ -217,7 +217,7 @@ func makeBuiltinBinding(builtin ir.BuiltinValue) *ir.Binding {
 // SECTION 1: Capability detection tests
 // =============================================================================
 
-// TestCapability_BuiltinClipDistance verifies that using BuiltinClipDistance
+// TestCapability_BuiltinClipDistance verifies that using BuiltinClipDistances
 // in a struct member triggers CapabilityClipDistance.
 func TestCapability_BuiltinClipDistance(t *testing.T) {
 	module := &ir.Module{
@@ -236,7 +236,7 @@ func TestCapability_BuiltinClipDistance(t *testing.T) {
 			{Name: "VertexOutput", Inner: ir.StructType{
 				Members: []ir.StructMember{
 					{Name: "position", Type: 2, Offset: 0, Binding: makeBuiltinBinding(ir.BuiltinPosition)},
-					{Name: "clip_distance", Type: 1, Offset: 16, Binding: makeBuiltinBinding(ir.BuiltinClipDistance)},
+					{Name: "clip_distance", Type: 1, Offset: 16, Binding: makeBuiltinBinding(ir.BuiltinClipDistances)},
 				},
 				Span: 20,
 			}},

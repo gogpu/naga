@@ -785,7 +785,7 @@ func mathFuncStr(f ir.MathFunction) string {
 		ir.MathStep: "Step", ir.MathSmoothStep: "SmoothStep",
 		ir.MathSqrt: "Sqrt", ir.MathInverseSqrt: "InverseSqrt",
 		ir.MathInverse: "Inverse", ir.MathTranspose: "Transpose",
-		ir.MathDeterminant: "Determinant", ir.MathQuantizeF16: "QuantizeToF16",
+		ir.MathDeterminant: "Determinant", ir.MathQuantizeToF16: "QuantizeToF16",
 		ir.MathCountTrailingZeros: "CountTrailingZeros",
 		ir.MathCountLeadingZeros:  "CountLeadingZeros",
 		ir.MathCountOneBits:       "CountOneBits", ir.MathReverseBits: "ReverseBits",

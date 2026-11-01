@@ -14,7 +14,7 @@ var specOnlyFuncs = map[ir.MathFunction]func([]Value) (Value, error){
 	ir.MathMix:             mathMix,
 	ir.MathSmoothStep:      mathSmoothStep,
 	ir.MathLdexp:           mathLdexp,
-	ir.MathQuantizeF16:     mathQuantizeToF16,
+	ir.MathQuantizeToF16:   mathQuantizeToF16,
 	ir.MathPack4x8snorm:    packNorm(4, 127, true),
 	ir.MathPack4x8unorm:    packNorm(4, 255, false),
 	ir.MathPack2x16snorm:   packNorm(2, 32767, true),

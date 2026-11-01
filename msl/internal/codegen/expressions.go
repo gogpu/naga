@@ -1138,7 +1138,7 @@ func (w *Writer) writeGlobalVariable(global ir.ExprGlobalVariable) error {
 
 // writeLocalVariable writes a local variable reference.
 func (w *Writer) writeLocalVariable(local ir.ExprLocalVariable) error {
-	if name, ok := w.localNames[local.Variable]; ok {
+	if name, ok := w.localNames[uint32(local.Variable)]; ok {
 		w.write("%s", name)
 		return nil
 	}
@@ -1844,7 +1844,7 @@ func (w *Writer) writeMath(mathExpr ir.ExprMath) error {
 		w.write(")")
 		return nil
 
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		return w.writeQuantizeF16(mathExpr)
 
 	case ir.MathFirstTrailingBit:
@@ -2186,7 +2186,7 @@ func mathFunctionName(fun ir.MathFunction) string {
 		return "" // handled by writeFrexp
 	case ir.MathLdexp:
 		return "" // handled specially
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		return "" // handled by writeQuantizeF16
 	default:
 		return fmt.Sprintf("unknown_math_%d", fun)

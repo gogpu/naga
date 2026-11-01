@@ -1154,7 +1154,7 @@ func (w *Writer) writeGlobalVariableExpression(e ir.ExprGlobalVariable) error {
 
 // writeLocalVariableExpression writes a reference to a local variable.
 func (w *Writer) writeLocalVariableExpression(e ir.ExprLocalVariable) error {
-	name := w.localNames[e.Variable]
+	name := w.localNames[uint32(e.Variable)]
 	if name == "" {
 		name = fmt.Sprintf("local_%d", e.Variable)
 	}
@@ -1672,7 +1672,7 @@ func (w *Writer) writeRelationalExpression(e ir.ExprRelational) error {
 func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 	// Special case: QuantizeToF16 wraps with f16tof32(f32tof16(expr))
 	// Matches Rust naga's Function::QuantizeToF16 handling.
-	if e.Fun == ir.MathQuantizeF16 {
+	if e.Fun == ir.MathQuantizeToF16 {
 		w.Out.WriteString("f16tof32(f32tof16(")
 		if err := w.writeExpression(e.Arg); err != nil {
 			return fmt.Errorf("quantize arg: %w", err)
@@ -2279,7 +2279,7 @@ func mathFunctionToHLSL(fun ir.MathFunction) (string, error) {
 		return "transpose", nil
 	case ir.MathDeterminant:
 		return "determinant", nil
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		return "f16tof32", nil // Requires appropriate conversion
 
 	// Bit manipulation functions

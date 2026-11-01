@@ -171,7 +171,7 @@ func (ExprGlobalVariable) expressionKind() {}
 // ExprLocalVariable references a local variable.
 // Produces a pointer to the variable's value.
 type ExprLocalVariable struct {
-	Variable uint32 // Index into Function.LocalVars
+	Variable LocalVariableHandle // Index into Function.LocalVars
 }
 
 func (ExprLocalVariable) expressionKind() {}
@@ -571,17 +571,17 @@ const (
 	MathRefract      // Refract vector
 
 	// Computational functions
-	MathSign        // Sign of value (-1, 0, or 1)
-	MathFma         // Fused multiply-add
-	MathMix         // Linear interpolation
-	MathStep        // Step function
-	MathSmoothStep  // Smooth step function
-	MathSqrt        // Square root
-	MathInverseSqrt // Inverse square root
-	MathInverse     // Matrix inverse
-	MathTranspose   // Matrix transpose
-	MathDeterminant // Matrix determinant
-	MathQuantizeF16 // Round to 16-bit float precision
+	MathSign          // Sign of value (-1, 0, or 1)
+	MathFma           // Fused multiply-add
+	MathMix           // Linear interpolation
+	MathStep          // Step function
+	MathSmoothStep    // Smooth step function
+	MathSqrt          // Square root
+	MathInverseSqrt   // Inverse square root
+	MathInverse       // Matrix inverse
+	MathTranspose     // Matrix transpose
+	MathDeterminant   // Matrix determinant
+	MathQuantizeToF16 // Round to 16-bit float precision
 
 	// Bit manipulation functions
 	MathCountTrailingZeros // Count trailing zero bits

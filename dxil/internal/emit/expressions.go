@@ -95,7 +95,7 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprLocalVariable:
 		// Single-store locals bypass alloca -- their loads resolve to the
 		// stored value directly. Return a sentinel to prevent alloca creation.
-		if _, isSingle := e.singleStoreLocals[ek.Variable]; isSingle {
+		if _, isSingle := e.singleStoreLocals[uint32(ek.Variable)]; isSingle {
 			return 0, nil
 		}
 		valueID, err = e.emitLocalVariableExpr(fn, ek)
@@ -635,9 +635,9 @@ func (e *Emitter) tryLocalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex,
 	localVar := &fn.LocalVars[lv.Variable]
 	irType := e.ir.Types[localVar.Type]
 	if st, isSt := irType.Inner.(ir.StructType); isSt {
-		return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
+		return e.emitStructGEP(baseID, uint32(lv.Variable), st, int(ai.Index))
 	}
-	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+	if arrayTy, hasArr := e.localVarArrayTypes[uint32(lv.Variable)]; hasArr {
 		// When the IR element type is a vector (or matrix), the DXIL alloca is
 		// flattened: array<vec4<f32>, 4> becomes [16 x float]. A simple GEP at
 		// index ai.Index would point to element 0 of the vector, not element
@@ -669,11 +669,11 @@ func (e *Emitter) tryLocalVarArrayAccess(
 	if !ok {
 		return -1, nil
 	}
-	arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]
+	arrayTy, hasArr := e.localVarArrayTypes[uint32(lv.Variable)]
 	if !hasArr {
 		return -1, nil
 	}
-	scaledIdx := e.scaleIndexForVecArray(fn, lv.Variable, indexID)
+	scaledIdx := e.scaleIndexForVecArray(fn, uint32(lv.Variable), indexID)
 	return e.emitArrayGEP(baseID, arrayTy, scaledIdx)
 }
 
@@ -798,11 +798,11 @@ func (e *Emitter) tryFlatGEPLocalVarNested(fn *ir.Function, baseExpr ir.Expressi
 		case ir.ExprLocalVariable:
 			// Reached the root local variable. Verify it has a flattened
 			// array type registered (set by emitArrayLocalVariable).
-			arrayTy, hasArr := e.localVarArrayTypes[k.Variable]
+			arrayTy, hasArr := e.localVarArrayTypes[uint32(k.Variable)]
 			if !hasArr {
 				return -1, false
 			}
-			basePtrID, hasBase := e.localVarPtrs[k.Variable]
+			basePtrID, hasBase := e.localVarPtrs[uint32(k.Variable)]
 			if !hasBase || basePtrID < 0 {
 				return -1, false
 			}
@@ -1020,7 +1020,7 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// emitting the base expression, otherwise emitLocalVariable would
 	// allocate an alloca we no longer need.
 	if lv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLocalVariable); ok {
-		if _, isConstVec := e.localConstVecArrays[lv.Variable]; isConstVec {
+		if _, isConstVec := e.localConstVecArrays[uint32(lv.Variable)]; isConstVec {
 			// Trigger index emission so the index value ID is ready
 			// when emitLoad synthesizes the select chain.
 			if _, err := e.emitExpression(fn, acc.Index); err != nil {
@@ -2705,7 +2705,7 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathCountLeadingZeros(fn, mathExpr)
 	case ir.MathFirstLeadingBit:
 		return e.emitMathFirstLeadingBit(fn, mathExpr)
-	case ir.MathQuantizeF16:
+	case ir.MathQuantizeToF16:
 		return e.emitMathQuantizeF16(fn, mathExpr)
 	case ir.MathInverse:
 		return 0, fmt.Errorf("MathInverse (matrix) not yet implemented in DXIL backend")
@@ -4264,7 +4264,7 @@ func (e *Emitter) tryLoadInitOnly(fn *ir.Function, load ir.ExprLoad) (int, bool,
 	if !ok {
 		return 0, false, nil
 	}
-	initHandle, isInitOnly := e.initOnlyLocals[lv.Variable]
+	initHandle, isInitOnly := e.initOnlyLocals[uint32(lv.Variable)]
 	if !isInitOnly {
 		return 0, false, nil
 	}
@@ -4304,7 +4304,7 @@ func (e *Emitter) tryLoadZeroStore(fn *ir.Function, load ir.ExprLoad) (int, bool
 	if !ok {
 		return 0, false, nil
 	}
-	tyHandle, isZero := e.zeroStoreLocals[lv.Variable]
+	tyHandle, isZero := e.zeroStoreLocals[uint32(lv.Variable)]
 	if !isZero {
 		return 0, false, nil
 	}
@@ -4324,7 +4324,7 @@ func (e *Emitter) tryLoadSingleStore(fn *ir.Function, load ir.ExprLoad) (int, bo
 	if !ok {
 		return 0, false, nil
 	}
-	valueHandle, isSingleStore := e.singleStoreLocals[lv.Variable]
+	valueHandle, isSingleStore := e.singleStoreLocals[uint32(lv.Variable)]
 	if !isSingleStore {
 		return 0, false, nil
 	}
@@ -4353,7 +4353,7 @@ func (e *Emitter) tryLoadFromConstVecArray(fn *ir.Function, load ir.ExprLoad) (i
 	if !ok {
 		return 0, false, nil
 	}
-	table, ok := e.localConstVecArrays[lv.Variable]
+	table, ok := e.localConstVecArrays[uint32(lv.Variable)]
 	if !ok {
 		return 0, false, nil
 	}
@@ -4409,7 +4409,7 @@ func (e *Emitter) localVectorDynamicAccess(fn *ir.Function, ptr ir.ExpressionHan
 	if _, err := e.emitExpression(fn, acc.Base); err != nil { // creates the allocas
 		return nil, 0, true, err
 	}
-	compPtrs, ok := e.localVarComponentPtrs[lv.Variable]
+	compPtrs, ok := e.localVarComponentPtrs[uint32(lv.Variable)]
 	if !ok {
 		return nil, 0, false, nil
 	}
@@ -4533,14 +4533,14 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	// Check if this is a vector load from a local variable with per-component allocas.
 	// This check is AFTER emitting the pointer so that allocas are created.
 	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+		if compPtrs, hasComps := e.localVarComponentPtrs[uint32(lv.Variable)]; hasComps {
 			return e.emitVectorLoad(fn, compPtrs, load.Pointer)
 		}
 
 		// Check if this is a struct load from a local variable.
 		// DXIL does not support aggregate (struct) loads — decompose into
 		// per-member GEP + scalar load, tracking components for downstream use.
-		if dxilStructTy, hasStruct := e.localVarStructTypes[lv.Variable]; hasStruct {
+		if dxilStructTy, hasStruct := e.localVarStructTypes[uint32(lv.Variable)]; hasStruct {
 			return e.emitStructLoad(ptr, dxilStructTy)
 		}
 	}
@@ -4666,11 +4666,11 @@ func (e *Emitter) tryLoadVectorFromFlatArray(
 	if !isVec {
 		return 0, false
 	}
-	arrayTy, hasArr := e.localVarArrayTypes[lvHandle.Variable]
+	arrayTy, hasArr := e.localVarArrayTypes[uint32(lvHandle.Variable)]
 	if !hasArr {
 		return 0, false
 	}
-	basePtrID, hasBase := e.localVarPtrs[lvHandle.Variable]
+	basePtrID, hasBase := e.localVarPtrs[uint32(lvHandle.Variable)]
 	if !hasBase || basePtrID < 0 {
 		return 0, false
 	}
@@ -5051,7 +5051,7 @@ func (e *Emitter) resolveStructFieldRoot(fn *ir.Function, ai ir.ExprAccessIndex)
 		if int(ai.Index) >= len(st.Members) {
 			return 0, 0, false
 		}
-		return lv.Variable, flatMemberOffset(e.ir, st, int(ai.Index)), true
+		return uint32(lv.Variable), flatMemberOffset(e.ir, st, int(ai.Index)), true
 	}
 
 	// Nested: base is another AccessIndex. Recurse to find the parent's root
@@ -5152,7 +5152,7 @@ func (e *Emitter) resolvePointerAddrSpace(fn *ir.Function, ptrHandle ir.Expressi
 // components.
 func (e *Emitter) emitLocalVariableExpr(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
 	ptr, err := e.emitLocalVariable(fn, lv)
-	if comps, ok := e.localVarComponentPtrs[lv.Variable]; ok {
+	if comps, ok := e.localVarComponentPtrs[uint32(lv.Variable)]; ok {
 		e.pendingComponents = comps
 	}
 	return ptr, err
@@ -5168,7 +5168,7 @@ func (e *Emitter) emitLocalVariableExpr(fn *ir.Function, lv ir.ExprLocalVariable
 // Reference: Mesa nir_to_dxil.c emit_scratch() — dxil_emit_alloca(mod, type, 1, 16)
 func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
 	// Return cached alloca pointer if already emitted.
-	if ptr, ok := e.localVarPtrs[lv.Variable]; ok {
+	if ptr, ok := e.localVarPtrs[uint32(lv.Variable)]; ok {
 		return ptr, nil
 	}
 
@@ -5181,12 +5181,12 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 
 	// For struct types, allocate the full struct (GEP will be used for member access).
 	if _, isSt := irType.Inner.(ir.StructType); isSt {
-		return e.emitStructLocalVariable(lv.Variable, localVar, irType)
+		return e.emitStructLocalVariable(uint32(lv.Variable), localVar, irType)
 	}
 
 	// For array types, allocate the full array (GEP will be used for element access).
 	if _, isArr := irType.Inner.(ir.ArrayType); isArr {
-		return e.emitArrayLocalVariable(lv.Variable, localVar, irType)
+		return e.emitArrayLocalVariable(uint32(lv.Variable), localVar, irType)
 	}
 
 	// Determine number of components and scalar type.
@@ -5231,9 +5231,9 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 		componentPtrs[i] = valueID
 	}
 
-	e.localVarPtrs[lv.Variable] = componentPtrs[0]
+	e.localVarPtrs[uint32(lv.Variable)] = componentPtrs[0]
 	if numComponents > 1 {
-		e.localVarComponentPtrs[lv.Variable] = componentPtrs
+		e.localVarComponentPtrs[uint32(lv.Variable)] = componentPtrs
 	}
 	return componentPtrs[0], nil
 }
@@ -5537,7 +5537,7 @@ func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle
 			return nil, fmt.Errorf("local variable %d out of range", pk.Variable)
 		}
 		// For struct local vars, return the cached flattened type to match the alloca.
-		if cachedTy, ok := e.localVarStructTypes[pk.Variable]; ok {
+		if cachedTy, ok := e.localVarStructTypes[uint32(pk.Variable)]; ok {
 			return cachedTy, nil
 		}
 		lv := &fn.LocalVars[pk.Variable]
@@ -5629,9 +5629,9 @@ func (e *Emitter) resolveNestedFromLocalVar(fn *ir.Function, parentAI ir.ExprAcc
 	}
 
 	innerFlat := flatMemberOffset(e.ir, innerSt, int(childAI.Index))
-	allocaID := e.localVarPtrs[lv.Variable]
+	allocaID := e.localVarPtrs[uint32(lv.Variable)]
 	return nestedStructResult{
-		varIdx:     lv.Variable,
+		varIdx:     uint32(lv.Variable),
 		allocaID:   allocaID,
 		flatOffset: parentFlat + innerFlat,
 	}, true
@@ -6801,7 +6801,7 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccessIndex(fn *ir.Function, ai ir.Expr
 
 	switch lt := localTy.(type) {
 	case ir.ArrayType:
-		arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]
+		arrayTy, hasArr := e.localVarArrayTypes[uint32(lv.Variable)]
 		if !hasArr {
 			return 0, false, fmt.Errorf("inline-loadindex: array type cache missing for var %d", lv.Variable)
 		}
@@ -6814,7 +6814,7 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccessIndex(fn *ir.Function, ai ir.Expr
 		}), true, nil
 
 	case ir.StructType:
-		structTy, hasSt := e.localVarStructTypes[lv.Variable]
+		structTy, hasSt := e.localVarStructTypes[uint32(lv.Variable)]
 		if !hasSt {
 			return 0, false, nil // struct alloca shape not cached — fall through to default path
 		}
@@ -6929,7 +6929,7 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 	if err != nil {
 		return 0, false, fmt.Errorf("inline-load-of-localvar access: %w", err)
 	}
-	arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]
+	arrayTy, hasArr := e.localVarArrayTypes[uint32(lv.Variable)]
 	if !hasArr {
 		return 0, false, fmt.Errorf("inline-load-of-localvar: array type cache missing for var %d", lv.Variable)
 	}

@@ -141,9 +141,9 @@ func classify(mod *ir.Module, fn *ir.Function) map[uint32]*candidateInfo {
 			}
 		}
 		hh := ir.ExpressionHandle(h)
-		lvHandleMap[hh] = lv.Variable
-		if _, exists := candidates[lv.Variable]; !exists {
-			candidates[lv.Variable] = &candidateInfo{
+		lvHandleMap[hh] = uint32(lv.Variable)
+		if _, exists := candidates[uint32(lv.Variable)]; !exists {
+			candidates[uint32(lv.Variable)] = &candidateInfo{
 				eligible:      true,
 				st:            st,
 				lvHandle:      hh,
@@ -416,7 +416,7 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 	for i := range info.st.Members {
 		h := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits
 		fn.Expressions = append(fn.Expressions, ir.Expression{
-			Kind: ir.ExprLocalVariable{Variable: fieldVarMap[uint32(i)]},
+			Kind: ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(fieldVarMap[uint32(i)])},
 		})
 		// Keep ExpressionTypes parallel.
 		if len(fn.ExpressionTypes) == int(h) {
@@ -435,7 +435,7 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 	for fieldIdx, handles := range info.accessHandles {
 		newVarIdx := fieldVarMap[fieldIdx]
 		for _, h := range handles {
-			fn.Expressions[h].Kind = ir.ExprLocalVariable{Variable: newVarIdx}
+			fn.Expressions[h].Kind = ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(newVarIdx)}
 		}
 		// No need for the separate ExprLocalVariable expression we
 		// created in Step 2 for this field — the rewritten AccessIndex
@@ -481,7 +481,7 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 		// Insert a StmtEmit covering the new load expressions into the
 		// body. Find the StmtEmit that contains loadH and insert a new
 		// emit range for the per-field loads right before it.
-		bodySlice := fn.Body
+		bodySlice := []ir.Statement(fn.Body)
 		insertEmitForRange(&bodySlice, loadH, ir.Range{Start: newExprStart, End: newExprEnd})
 		fn.Body = ir.Block(bodySlice)
 	}
@@ -501,7 +501,7 @@ func splitComposeStores(fn *ir.Function, block ir.Block, varIdx uint32, fieldPtr
 		}
 		lv, isLV := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable)
 		compose, isCompose := fn.Expressions[store.Value].Kind.(ir.ExprCompose)
-		if !isLV || lv.Variable != varIdx || !isCompose {
+		if !isLV || uint32(lv.Variable) != varIdx || !isCompose {
 			out = append(out, st)
 			continue
 		}
