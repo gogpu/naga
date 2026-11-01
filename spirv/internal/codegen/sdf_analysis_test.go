@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 	"testing"
 
@@ -113,23 +112,8 @@ func TestSDFCircleSPIRV(t *testing.T) {
 
 	t.Logf("Successfully compiled SDF circle shader: %d bytes (%d words)", len(spirvBytes), len(spirvBytes)/4)
 
-	// Write binary .spv file
-	if err := os.MkdirAll("../tmp", 0o755); err != nil {
-		t.Fatalf("mkdir tmp: %v", err)
-	}
-	if err := os.WriteFile("../tmp/sdf_circle.spv", spirvBytes, 0o644); err != nil {
-		t.Fatalf("write spv: %v", err)
-	}
-	t.Logf("Wrote SPIR-V binary to tmp/sdf_circle.spv")
-
-	// Disassemble and dump
+	// Print the full disassembly (a test writes nothing into the source tree).
 	disasm := disassembleSPIRV(spirvBytes)
-	if err := os.WriteFile("../tmp/sdf_circle_disasm.txt", []byte(disasm), 0o644); err != nil {
-		t.Fatalf("write disasm: %v", err)
-	}
-	t.Logf("Wrote SPIR-V disassembly to tmp/sdf_circle_disasm.txt")
-
-	// Print the full disassembly
 	t.Log("\n=== SPIR-V DISASSEMBLY ===\n")
 	t.Log(disasm)
 
