@@ -126,7 +126,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 		if strings.HasPrefix(trimmed, "ray_query_initialization_tracking") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
-				opts.RayQueryInitTracking = strings.TrimSpace(parts[1]) == "true"
+				opts.SkipRayQueryInitTracking = strings.TrimSpace(parts[1]) != "true"
 			}
 		}
 		// Parse version = [major, minor]
@@ -277,7 +277,6 @@ func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
 		ImageLoad:    backend.BoundsCheckUnchecked,
 		BindingArray: backend.BoundsCheckUnchecked,
 	}
-	opts.ForceLoopBounding = true
 	if err := readHLSLConfig(opts, shaderName); err != nil {
 		return nil, err
 	}
@@ -2447,7 +2446,7 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 		if strings.HasPrefix(trimmed, "force_loop_bounding") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
-				opts.ForceLoopBounding = strings.TrimSpace(parts[1]) == "true"
+				opts.SkipLoopBounding = strings.TrimSpace(parts[1]) != "true"
 			}
 		}
 	}

@@ -269,3 +269,65 @@ func TestZeroBoundsCheckPoliciesAreRestrict(t *testing.T) {
 		})
 	}
 }
+
+// loopShader has a loop whose exit the compiler cannot prove.
+const loopShader = `
+@group(0) @binding(0) var<storage, read_write> data: array<u32, 4>;
+@compute @workgroup_size(1)
+fn main() {
+    var i = 0u;
+    loop {
+        if data[i & 3u] == 7u { break; }
+        i += 1u;
+    }
+}`
+
+// The zero value bounds loops, as Rust naga's default force_loop_bounding:
+// true does and wgpu-hal passes: an infinite loop is undefined behavior that
+// hangs or loses the device.
+func TestZeroOptionsBoundLoops(t *testing.T) {
+	module := func(t *testing.T) *ir.Module {
+		t.Helper()
+		ast, err := Parse(loopShader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := LowerWithSource(ast, loopShader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	for name, compile := range map[string]func(*ir.Module) (string, error){
+		"msl": func(m *ir.Module) (string, error) {
+			code, _, err := msl.Compile(m, msl.Options{})
+			return code, err
+		},
+		"hlsl": func(m *ir.Module) (string, error) {
+			code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true})
+			return code, err
+		},
+	} {
+		code, err := compile(module(t))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(code, "loop_bound") {
+			t.Errorf("%s, zero Options: loop not bounded:\n%s", name, code)
+		}
+	}
+
+	// SPIR-V: the zero value adds the counter, so the module is longer than
+	// with SkipLoopBounding.
+	bounded, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(module(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipped, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, SkipLoopBounding: true}).Compile(module(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bounded) <= len(skipped) {
+		t.Errorf("spirv: zero Options (%d bytes) not longer than SkipLoopBounding (%d bytes): loop not bounded", len(bounded), len(skipped))
+	}
+}

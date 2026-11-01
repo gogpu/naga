@@ -313,8 +313,11 @@ type Options struct {
 	// makes Compile fail.
 	BoundsCheckPolicies backend.BoundsCheckPolicies
 
-	// ForceLoopBounding adds maximum iteration limits to loops.
-	ForceLoopBounding bool
+	// SkipLoopBounding leaves loops as they are. By default every loop gets
+	// a decrementing 64-bit counter that breaks out of it, so an infinite
+	// loop, undefined behavior that can hang the device, ends. Rust naga's
+	// force_loop_bounding defaults to true, and wgpu-hal passes true.
+	SkipLoopBounding bool
 
 	// DynamicStorageBufferOffsetsTargets maps group indices to their bind targets
 	// for dynamic storage buffer offset constant buffers.
@@ -608,7 +611,6 @@ func DefaultOptions() *Options {
 			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
 		},
 		FakeMissingBindings: true,
-		ForceLoopBounding:   true,
 	}
 }
 
@@ -809,7 +811,7 @@ func toCodegenOptions(o *Options) *codegen.Options {
 		FakeMissingBindings:                o.FakeMissingBindings,
 		ZeroInitializeWorkgroupMemory:      o.ZeroInitializeWorkgroupMemory,
 		BoundsCheckPolicies:                o.BoundsCheckPolicies,
-		ForceLoopBounding:                  o.ForceLoopBounding,
+		ForceLoopBounding:                  !o.SkipLoopBounding,
 		DynamicStorageBufferOffsetsTargets: dynamicOffsets,
 		SpecialConstantsBinding:            specialBinding,
 		EntryPoint:                         o.EntryPoint,

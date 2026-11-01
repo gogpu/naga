@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ZeroInitWorkgroupNative` (`OpConstantNull` initializers) is SPIR-V only and an error elsewhere;
   `ZeroInitWorkgroupNone` leaves the memory as it is. Replaces the `msl` and `hlsl` bools of that name, whose zero
   value skipped the zeroing WebGPU requires, and `glsl`/`dxil` `SkipWorkgroupMemoryZeroInit`.
+- **Breaking: safety switches are on at the zero value.** `ForceLoopBounding` (spirv, msl, hlsl) becomes
+  `SkipLoopBounding` and spirv `RayQueryInitTracking` becomes `SkipRayQueryInitTracking`: loops are bounded and ray
+  queries tracked unless the caller opts out, as Rust naga's defaults and wgpu-hal have them. An Options literal that
+  left `ForceLoopBounding` unset now bounds loops. `spirv.UseStorageInputOutput16` stays an opt-in (zero = f32
+  polyfill), since it needs device support.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
