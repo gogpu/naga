@@ -100,12 +100,16 @@ func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function)
 	return emitMainModuleOpts(t, src, DefaultOptions())
 }
 
-// emitMainModuleOpts is emitMainModule with the binding options of opts.
+// emitMainModuleOpts is emitMainModule with the binding options of opts. It
+// runs Compile's passes before the emitter, in Compile's order.
 func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module, *module.Function) {
 	t.Helper()
 	irMod, err := prepareModule(lowerSource(t, src))
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
+	}
+	if err := prepareEntryPoint(irMod, &irMod.EntryPoints[0], opts); err != nil {
+		t.Fatalf("prepare entry point: %v", err)
 	}
 	if err := lowerForEmit(irMod, opts); err != nil {
 		t.Fatalf("passes: %v", err)
