@@ -19,7 +19,7 @@ func TestMapBuiltinToSemantic(t *testing.T) {
 		{"FrontFacing", ir.BuiltinFrontFacing, "SV_IsFrontFace", SVIsFrontFace},
 		{"FragDepth", ir.BuiltinFragDepth, "SV_Depth", SVDepth},
 		{"SampleIndex", ir.BuiltinSampleIndex, "SV_SampleIndex", SVSampleIndex},
-		{"ClipDistance", ir.BuiltinClipDistance, "SV_ClipDistance", SVClipDistance},
+		{"ClipDistance", ir.BuiltinClipDistances, "SV_ClipDistance", SVClipDistance},
 	}
 
 	for _, tt := range tests {

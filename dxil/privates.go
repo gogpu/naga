@@ -50,7 +50,7 @@ func privatesToLocals(m *ir.Module, fn *ir.Function) error {
 			fn.LocalVars = append(fn.LocalVars, lv)
 			locals[g.Variable] = idx
 		}
-		fn.Expressions[h].Kind = ir.ExprLocalVariable{Variable: idx}
+		fn.Expressions[h].Kind = ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(idx)}
 	}
 	if len(locals) == 0 {
 		return nil

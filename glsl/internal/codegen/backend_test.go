@@ -1678,7 +1678,7 @@ func TestScanNeedBakeExpressions_SingleUseNotBaked(t *testing.T) {
 }
 
 func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
-	// MathQuantizeF16 forces its argument to be baked regardless of ref count.
+	// MathQuantizeToF16 forces its argument to be baked regardless of ref count.
 	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -1689,8 +1689,8 @@ func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},        // [0]
-			{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}}, // [1]
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},          // [0]
+			{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}}, // [1]
 		},
 		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &tF32},
@@ -1703,9 +1703,9 @@ func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
 
 	w.scanNeedBakeExpressions(fn)
 
-	// MathQuantizeF16 forces baking of its argument
+	// MathQuantizeToF16 forces baking of its argument
 	if _, ok := w.needBakeExpression[0]; !ok {
-		t.Error("MathQuantizeF16 argument should be force-baked")
+		t.Error("MathQuantizeToF16 argument should be force-baked")
 	}
 }
 

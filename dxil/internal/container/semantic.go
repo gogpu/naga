@@ -41,7 +41,7 @@ func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 		return SemanticMapping{"SV_Depth", 0, SVDepth}
 	case ir.BuiltinSampleIndex:
 		return SemanticMapping{"SV_SampleIndex", 0, SVSampleIndex}
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return SemanticMapping{"SV_ClipDistance", 0, SVClipDistance}
 	case ir.BuiltinPrimitiveIndex:
 		return SemanticMapping{"SV_PrimitiveID", 0, SVPrimitiveID}

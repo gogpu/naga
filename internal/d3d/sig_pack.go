@@ -224,7 +224,7 @@ func SigElementInfoForBinding(
 				ColCount: 4,
 				Rows:     1,
 			}
-		case ir.BuiltinClipDistance:
+		case ir.BuiltinClipDistances:
 			if rows < 1 {
 				rows = 1
 			}

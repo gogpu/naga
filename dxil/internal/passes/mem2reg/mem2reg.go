@@ -95,7 +95,7 @@ func Run(mod *ir.Module, fn *ir.Function) error {
 	// cases without touching control flow and produces ExprAlias
 	// rewrites. After this pass, vars whose stores/loads spanned
 	// multiple blocks remain unpromoted with their alloca path.
-	promoteBlocks(ctx, &fn.Body)
+	promoteBlocks(ctx, (*[]ir.Statement)(&fn.Body))
 
 	// Phase B: structured-CFG SSA construction for remaining
 	// multi-block scalar candidates. Inserts ExprPhi at if/switch

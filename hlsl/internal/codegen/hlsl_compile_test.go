@@ -1099,7 +1099,7 @@ fn make_point() -> Point {
 }
 
 // =============================================================================
-// Quantize Expression Tests — covers MathQuantizeF16 special path
+// Quantize Expression Tests — covers MathQuantizeToF16 special path
 // =============================================================================
 
 func TestCompile_QuantizeToF16(t *testing.T) {

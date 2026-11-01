@@ -86,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ask for SPIR-V 1.3, and `naga.Compile` now writes SPIR-V 1.0, Rust naga's default; a shader that needs a newer
   version (subgroup operations need 1.3) is an error until `SPIRV.Version` gives one. gg's 25 production shaders
   compile and pass spirv-val at the zero options.
+- **Breaking: IR names and widths follow Rust naga** (ADR-010 N1, N6, N7, N8): `ir.Capabilities` is `uint64`, as
+  Rust's bits go above 31, and `CapAll` sets every bit; `MathQuantizeF16` is `MathQuantizeToF16` and
+  `BuiltinClipDistance` is `BuiltinClipDistances`; `ExprLocalVariable.Variable` is a `LocalVariableHandle` and
+  `Function.Body` an `ir.Block`; the exported `ir.Validator` type, never usable from outside, is unexported.
 - **Breaking: every `DefaultOptions()` is the zero `Options`.** They had drifted from the safe zero values:
   `msl.DefaultOptions` gave `ReadZeroSkipWrite` everywhere (now `Restrict`), `spirv.DefaultOptions` SPIR-V 1.1 with
   native f16 inputs and outputs (now 1.0 and the f32 polyfill; native f16 IO needs `SHADER_F16` and device support, so

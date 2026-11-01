@@ -2473,7 +2473,7 @@ func builtinToDXILSemantic(b ir.BuiltinValue) (int64, string) {
 		return 12, "SV_SampleIndex"
 	case ir.BuiltinSampleMask:
 		return 14, "SV_Coverage"
-	case ir.BuiltinClipDistance:
+	case ir.BuiltinClipDistances:
 		return 6, "SV_ClipDistance"
 	case ir.BuiltinPrimitiveIndex:
 		return 10, "SV_PrimitiveID"
@@ -2633,7 +2633,7 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 		if carries {
 			if b.Builtin == ir.BuiltinPosition {
 				info.interpMode = 4 // NoPerspective
-			} else if b.Builtin == ir.BuiltinClipDistance {
+			} else if b.Builtin == ir.BuiltinClipDistances {
 				info.interpMode = 2 // Linear
 			} else {
 				info.interpMode = 0 // VertexID, InstanceID, etc — not actually emitted in carrier directions

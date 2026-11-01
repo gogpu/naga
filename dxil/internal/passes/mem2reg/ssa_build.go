@@ -41,7 +41,7 @@ import (
 // loop body.
 func promoteStructured(ctx *promotionContext) {
 	walker := newPhiWalker(ctx)
-	walker.walkBlock(&ctx.fn.Body)
+	walker.walkBlock((*[]ir.Statement)(&ctx.fn.Body))
 }
 
 // phiWalker carries the rename-pass state through the structured-CFG

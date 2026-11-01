@@ -1137,7 +1137,7 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 		Result:    &ir.FunctionResult{Type: vec4, Binding: &retBinding},
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
-			{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},                  // [1] quantizeToF16(v)
+			{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},                // [1] quantizeToF16(v)
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4
 		},

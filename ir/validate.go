@@ -27,8 +27,8 @@ func (e ValidationError) Error() string {
 	return e.Message
 }
 
-// Validator validates IR modules.
-type Validator struct {
+// validator validates IR modules.
+type validator struct {
 	module       *Module
 	capabilities Capabilities
 	errors       []ValidationError
@@ -75,13 +75,13 @@ func ValidateWithCapabilities(module *Module, caps Capabilities) ([]ValidationEr
 		return nil, fmt.Errorf("module is nil")
 	}
 
-	v := &Validator{
+	v := &validator{
 		module:       module,
 		capabilities: caps,
 		errors:       make([]ValidationError, 0),
 	}
 
-	v.ValidateModule()
+	v.validateModule()
 
 	if len(v.errors) > 0 {
 		return v.errors, nil
@@ -89,8 +89,8 @@ func ValidateWithCapabilities(module *Module, caps Capabilities) ([]ValidationEr
 	return nil, nil
 }
 
-// ValidateModule validates the complete module.
-func (v *Validator) ValidateModule() {
+// validateModule validates the complete module.
+func (v *validator) validateModule() {
 	// Validate types
 	v.validateTypes()
 
@@ -108,7 +108,7 @@ func (v *Validator) ValidateModule() {
 }
 
 // validateTypes checks all type definitions.
-func (v *Validator) validateTypes() {
+func (v *validator) validateTypes() {
 	for i, typ := range v.module.Types {
 		v.validateType(TypeHandle(i), &typ)
 	}
@@ -120,7 +120,7 @@ func (v *Validator) validateTypes() {
 // Width=8 (64-bit) requires CapFloat64 (for f64) or CapShaderInt64 (for i64/u64).
 // Width=2 (16-bit) requires CapShaderFloat16 (for f16).
 // Width=4 and width=1 (bool) are always allowed.
-func (v *Validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, context string) {
+func (v *validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, context string) {
 	switch {
 	case scalar.Width == 8 && scalar.Kind == ScalarFloat:
 		if !v.capabilities.Contains(CapFloat64) {
@@ -142,7 +142,7 @@ func (v *Validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, 
 }
 
 // validateType validates a single type.
-func (v *Validator) validateType(handle TypeHandle, typ *Type) {
+func (v *validator) validateType(handle TypeHandle, typ *Type) {
 	if typ.Inner == nil {
 		v.addError(fmt.Sprintf("type %d has nil inner type", handle))
 		return
@@ -231,7 +231,7 @@ func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 }
 
 // validateConstants checks all constants.
-func (v *Validator) validateConstants() {
+func (v *validator) validateConstants() {
 	for i, c := range v.module.Constants {
 		if !v.isValidTypeHandle(c.Type) {
 			v.addError(fmt.Sprintf("constant %d (%s): type %d does not exist", i, c.Name, c.Type))
@@ -240,7 +240,7 @@ func (v *Validator) validateConstants() {
 }
 
 // validateGlobalVariables checks all global variables.
-func (v *Validator) validateGlobalVariables() {
+func (v *validator) validateGlobalVariables() {
 	bindings := make(map[string]bool) // Track binding uniqueness (group:binding)
 	names := make(map[string]bool)
 
@@ -278,7 +278,7 @@ func (v *Validator) validateGlobalVariables() {
 }
 
 // validateFunctions checks all functions.
-func (v *Validator) validateFunctions() {
+func (v *validator) validateFunctions() {
 	names := make(map[string]bool)
 
 	for i := range v.module.Functions {
@@ -302,7 +302,7 @@ func (v *Validator) validateFunctions() {
 }
 
 // validateFunction validates a single function.
-func (v *Validator) validateFunction(fn *Function) {
+func (v *validator) validateFunction(fn *Function) {
 	// Validate arguments
 	for i, arg := range fn.Arguments {
 		if !v.isValidTypeHandle(arg.Type) {
@@ -342,7 +342,7 @@ func (v *Validator) validateFunction(fn *Function) {
 }
 
 // validateExpression validates a single expression.
-func (v *Validator) validateExpression(handle ExpressionHandle, expr *Expression) {
+func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression) {
 	if expr.Kind == nil {
 		v.addErrorInExpression(handle, "expression has nil kind")
 		return
@@ -559,7 +559,7 @@ func (v *Validator) validateExpression(handle ExpressionHandle, expr *Expression
 }
 
 // validateBlock validates a block of statements.
-func (v *Validator) validateBlock(block Block) {
+func (v *validator) validateBlock(block Block) {
 	for i, stmt := range block {
 		v.validateStatement(i, &stmt)
 	}
@@ -567,7 +567,7 @@ func (v *Validator) validateBlock(block Block) {
 
 // validateBlockWith validates a block whose statements may leave it as
 // flow allows.
-func (v *Validator) validateBlockWith(block Block, flow controlFlowAbility) {
+func (v *validator) validateBlockWith(block Block, flow controlFlowAbility) {
 	saved := v.context.flow
 	v.context.flow = flow
 	v.validateBlock(block)
@@ -575,7 +575,7 @@ func (v *Validator) validateBlockWith(block Block, flow controlFlowAbility) {
 }
 
 // validateStatement validates a single statement.
-func (v *Validator) validateStatement(index int, stmt *Statement) {
+func (v *validator) validateStatement(index int, stmt *Statement) {
 	if stmt.Kind == nil {
 		v.addErrorInStatement(index, "statement has nil kind")
 		return
@@ -725,7 +725,7 @@ func (v *Validator) validateStatement(index int, stmt *Statement) {
 }
 
 // validateEntryPoints checks all entry points.
-func (v *Validator) validateEntryPoints() {
+func (v *validator) validateEntryPoints() {
 	names := make(map[string]bool)
 
 	for i, ep := range v.module.EntryPoints {
@@ -780,7 +780,7 @@ func (v *Validator) validateEntryPoints() {
 // This can be either:
 // 1. Direct binding on result: fn() -> @builtin(position) vec4<f32>
 // 2. Struct member binding: fn() -> Struct { @builtin(position) pos: vec4<f32> }
-func (v *Validator) hasPositionBuiltin(result *FunctionResult) bool {
+func (v *validator) hasPositionBuiltin(result *FunctionResult) bool {
 	// Case 1: Direct binding on result
 	if result.Binding != nil && isPositionBuiltin(*result.Binding) {
 		return true
@@ -797,7 +797,7 @@ func isPositionBuiltin(binding Binding) bool {
 }
 
 // structHasPositionBuiltin checks if a struct type has a member with @builtin(position).
-func (v *Validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
+func (v *validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
 	if int(typeHandle) >= len(v.module.Types) {
 		return false
 	}
@@ -815,37 +815,37 @@ func (v *Validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
 
 // Helper methods for validation
 
-func (v *Validator) isValidTypeHandle(handle TypeHandle) bool {
+func (v *validator) isValidTypeHandle(handle TypeHandle) bool {
 	return int(handle) < len(v.module.Types)
 }
 
-func (v *Validator) isValidConstantHandle(handle ConstantHandle) bool {
+func (v *validator) isValidConstantHandle(handle ConstantHandle) bool {
 	return int(handle) < len(v.module.Constants)
 }
 
-func (v *Validator) isValidGlobalVariableHandle(handle GlobalVariableHandle) bool {
+func (v *validator) isValidGlobalVariableHandle(handle GlobalVariableHandle) bool {
 	return int(handle) < len(v.module.GlobalVariables)
 }
 
-func (v *Validator) isValidFunctionHandle(handle FunctionHandle) bool {
+func (v *validator) isValidFunctionHandle(handle FunctionHandle) bool {
 	return int(handle) < len(v.module.Functions)
 }
 
-func (v *Validator) isValidExpressionHandle(handle ExpressionHandle) bool {
+func (v *validator) isValidExpressionHandle(handle ExpressionHandle) bool {
 	if v.context.function == nil {
 		return false
 	}
 	return int(handle) < len(v.context.function.Expressions)
 }
 
-func (v *Validator) addError(msg string) {
+func (v *validator) addError(msg string) {
 	v.errors = append(v.errors, ValidationError{
 		Message:   msg,
 		Statement: -1,
 	})
 }
 
-func (v *Validator) addErrorInFunction(msg string) {
+func (v *validator) addErrorInFunction(msg string) {
 	v.errors = append(v.errors, ValidationError{
 		Message:   msg,
 		Function:  v.context.functionName,
@@ -853,7 +853,7 @@ func (v *Validator) addErrorInFunction(msg string) {
 	})
 }
 
-func (v *Validator) addErrorInExpression(handle ExpressionHandle, msg string) {
+func (v *validator) addErrorInExpression(handle ExpressionHandle, msg string) {
 	v.errors = append(v.errors, ValidationError{
 		Message:    msg,
 		Function:   v.context.functionName,
@@ -862,7 +862,7 @@ func (v *Validator) addErrorInExpression(handle ExpressionHandle, msg string) {
 	})
 }
 
-func (v *Validator) addErrorInStatement(index int, msg string) {
+func (v *validator) addErrorInStatement(index int, msg string) {
 	v.errors = append(v.errors, ValidationError{
 		Message:   msg,
 		Function:  v.context.functionName,
@@ -872,7 +872,7 @@ func (v *Validator) addErrorInStatement(index int, msg string) {
 
 // containsPendingArray reports a type that is, or holds, an array sized by
 // an override.
-func (v *Validator) containsPendingArray(h TypeHandle, depth int) bool {
+func (v *validator) containsPendingArray(h TypeHandle, depth int) bool {
 	if depth > 32 || !v.isValidTypeHandle(h) {
 		return false
 	}
@@ -891,7 +891,7 @@ func (v *Validator) containsPendingArray(h TypeHandle, depth int) bool {
 
 // isSizedArrayPointer reports a pointer, in the function being validated,
 // to an array that is not runtime-sized.
-func (v *Validator) isSizedArrayPointer(h ExpressionHandle) bool {
+func (v *validator) isSizedArrayPointer(h ExpressionHandle) bool {
 	fn := v.context.function
 	if fn == nil || int(h) >= len(fn.ExpressionTypes) {
 		return false

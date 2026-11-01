@@ -1002,7 +1002,7 @@ func (w *Writer) clipDistanceCount(m epStructMember) uint32 {
 	if m.binding == nil || int(m.ty) >= len(w.module.Types) {
 		return 0
 	}
-	if b, ok := (*m.binding).(ir.BuiltinBinding); !ok || b.Builtin != ir.BuiltinClipDistance {
+	if b, ok := (*m.binding).(ir.BuiltinBinding); !ok || b.Builtin != ir.BuiltinClipDistances {
 		return 0
 	}
 	if arr, ok := w.module.Types[m.ty].Inner.(ir.ArrayType); ok && arr.Size.Constant != nil {

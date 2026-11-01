@@ -679,7 +679,7 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 	localPtrs := make(map[ExpressionHandle]uint32)
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ExprLocalVariable); ok {
-			localPtrs[ExpressionHandle(h)] = lv.Variable
+			localPtrs[ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 

@@ -372,7 +372,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		// the local-var's type in function space", matching what the
 		// typifier (ir/resolve.go ExprLocalVariable case) computes.
 		slotPtrHandle := ExpressionHandle(len(caller.Expressions))
-		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: slot}})
+		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: LocalVariableHandle(slot)}})
 		caller.ExpressionTypes = append(caller.ExpressionTypes, TypeResolution{
 			Value: PointerType{Base: argType, Space: SpaceFunction},
 		})
@@ -409,7 +409,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 
 		// ExprLocalVariable for the slot pointer: type is pointer-to-T.
 		slotPtrHandle := ExpressionHandle(len(caller.Expressions))
-		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: argLocalSlots[i]}})
+		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: LocalVariableHandle(argLocalSlots[i])}})
 		caller.ExpressionTypes = append(caller.ExpressionTypes, TypeResolution{
 			Value: PointerType{Base: argType, Space: SpaceFunction},
 		})
@@ -475,7 +475,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 			// pre-allocated argLoadExprs[i] slot.
 			newKind = caller.Expressions[argLoadExprs[k.Index]].Kind
 		case ExprLocalVariable:
-			newKind = ExprLocalVariable{Variable: k.Variable + localOffset}
+			newKind = ExprLocalVariable{Variable: k.Variable + LocalVariableHandle(localOffset)}
 		default:
 			newKind = remapExprHandles(origKind, exprRefs)
 		}
@@ -528,7 +528,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		// Expression for the return-slot pointer: type is pointer-to-T.
 		slotPtrHandle := ExpressionHandle(len(caller.Expressions))
 		retPtr = &slotPtrHandle
-		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: slotIdx}})
+		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: LocalVariableHandle(slotIdx)}})
 		caller.ExpressionTypes = append(caller.ExpressionTypes, TypeResolution{
 			Value: PointerType{Base: retType, Space: SpaceFunction},
 		})
@@ -874,7 +874,7 @@ func (l *returnLowering) ensureFlag() {
 		Name: "_inline_returned_" + l.calleeName,
 		Type: l.boolTy,
 	})
-	l.flagPtr = l.addExpression(ExprLocalVariable{Variable: idx},
+	l.flagPtr = l.addExpression(ExprLocalVariable{Variable: LocalVariableHandle(idx)},
 		TypeResolution{Value: PointerType{Base: l.boolTy, Space: SpaceFunction}})
 }
 

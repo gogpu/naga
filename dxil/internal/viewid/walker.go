@@ -234,7 +234,7 @@ func (s *analysisState) rootLocalVar(ptr ir.ExpressionHandle) (uint32, []pathSte
 			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 				path[i], path[j] = path[j], path[i]
 			}
-			return k.Variable, path, true
+			return uint32(k.Variable), path, true
 		case ir.ExprAccessIndex:
 			path = append(path, pathStep{isStatic: true, staticIdx: k.Index})
 			cursor = k.Base

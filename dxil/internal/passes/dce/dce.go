@@ -913,7 +913,7 @@ func buildLocalPtrMap(fn *ir.Function) map[ir.ExpressionHandle]uint32 {
 	m := make(map[ir.ExpressionHandle]uint32, len(fn.LocalVars))
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
-			m[ir.ExpressionHandle(h)] = lv.Variable
+			m[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 	return m
@@ -936,7 +936,7 @@ func resolveLocalVar(fn *ir.Function, h ir.ExpressionHandle) (uint32, bool) {
 		}
 		switch k := fn.Expressions[h].Kind.(type) {
 		case ir.ExprLocalVariable:
-			return k.Variable, true
+			return uint32(k.Variable), true
 		case ir.ExprAccessIndex:
 			h = k.Base
 		case ir.ExprAccess:

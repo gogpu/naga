@@ -94,7 +94,7 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 				}
 			}
 		}
-		lvExpr := ir.ExprLocalVariable{Variable: uint32(i)}
+		lvExpr := ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(i)}
 		if _, err := e.emitLocalVariable(fn, lvExpr); err != nil {
 			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)
 		}
@@ -124,7 +124,7 @@ func (e *Emitter) structMemberAccessed(fn *ir.Function, v uint32) bool {
 		default:
 			continue
 		}
-		if lv, ok := fn.Expressions[base].Kind.(ir.ExprLocalVariable); ok && lv.Variable == v {
+		if lv, ok := fn.Expressions[base].Kind.(ir.ExprLocalVariable); ok && uint32(lv.Variable) == v {
 			return true
 		}
 	}
@@ -146,8 +146,8 @@ func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
 	lvHandle := make(map[uint32]ir.ExpressionHandle, len(fn.LocalVars))
 	for h := range fn.Expressions {
 		if lv, ok := fn.Expressions[h].Kind.(ir.ExprLocalVariable); ok {
-			if _, seen := lvHandle[lv.Variable]; !seen {
-				lvHandle[lv.Variable] = ir.ExpressionHandle(h)
+			if _, seen := lvHandle[uint32(lv.Variable)]; !seen {
+				lvHandle[uint32(lv.Variable)] = ir.ExpressionHandle(h)
 			}
 		}
 	}
@@ -350,7 +350,7 @@ func localsStoredTo(fn *ir.Function) map[uint32]bool {
 	lvHandles := make(map[ir.ExpressionHandle]uint32)
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
-			lvHandles[ir.ExpressionHandle(h)] = lv.Variable
+			lvHandles[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 	stored := make(map[uint32]bool)
@@ -422,7 +422,7 @@ func buildLocalVarHandleMap(fn *ir.Function) map[ir.ExpressionHandle]uint32 {
 	lvHandles := make(map[ir.ExpressionHandle]uint32)
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
-			lvHandles[ir.ExpressionHandle(h)] = lv.Variable
+			lvHandles[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 	return lvHandles
@@ -578,7 +578,7 @@ func (e *Emitter) analyzeOutputPromotableLocals(fn *ir.Function) {
 	var lvHandle ir.ExpressionHandle
 	foundLV := false
 	for h, expr := range fn.Expressions {
-		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok && lv.Variable == retVarIdx {
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok && uint32(lv.Variable) == retVarIdx {
 			lvHandle = ir.ExpressionHandle(h)
 			foundLV = true
 			break
@@ -619,7 +619,7 @@ func findReturnLoadVar(fn *ir.Function) (uint32, bool) {
 		if !ok {
 			return 0, false
 		}
-		return lv.Variable, true
+		return uint32(lv.Variable), true
 	}
 	return 0, false
 }
@@ -682,7 +682,7 @@ func collectFieldAccessHandles(fn *ir.Function, varIdx uint32) map[ir.Expression
 	for h, expr := range fn.Expressions {
 		if ai, ok := expr.Kind.(ir.ExprAccessIndex); ok {
 			if inner, ok2 := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable); ok2 {
-				if inner.Variable == varIdx {
+				if uint32(inner.Variable) == varIdx {
 					aiHandles[ir.ExpressionHandle(h)] = int(ai.Index)
 				}
 			}
@@ -697,7 +697,7 @@ func classifyOutputStore(fn *ir.Function, sk ir.StmtStore, varIdx uint32,
 	aiHandles map[ir.ExpressionHandle]int, memberStored map[int]bool) bool {
 	// Whole-variable store -> not promotable.
 	if lv, ok := fn.Expressions[sk.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if lv.Variable == varIdx {
+		if uint32(lv.Variable) == varIdx {
 			return false
 		}
 	}
@@ -763,7 +763,7 @@ func resolveLocalVarEmit(fn *ir.Function, h ir.ExpressionHandle) (uint32, bool) 
 		}
 		switch k := fn.Expressions[h].Kind.(type) {
 		case ir.ExprLocalVariable:
-			return k.Variable, true
+			return uint32(k.Variable), true
 		case ir.ExprAccessIndex:
 			h = k.Base
 		case ir.ExprAccess:
@@ -792,7 +792,7 @@ func liveLocalVars(fn *ir.Function) map[uint32]bool {
 	lvHandle := make(map[ir.ExpressionHandle]uint32)
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
-			lvHandle[ir.ExpressionHandle(h)] = lv.Variable
+			lvHandle[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 	live := make(map[uint32]bool)
@@ -1651,8 +1651,8 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 	// Output-promoted path: skip alloca/GEP/load entirely and emit
 	// storeOutput directly from the recorded value expressions.
 	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if e.outputPromotedLocals[lv.Variable] {
-			return e.emitPromotedStructReturn(fn, lv.Variable, st)
+		if e.outputPromotedLocals[uint32(lv.Variable)] {
+			return e.emitPromotedStructReturn(fn, uint32(lv.Variable), st)
 		}
 	}
 
@@ -1665,7 +1665,7 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 	// Get the LLVM struct type from the local variable.
 	var structTy *module.Type
 	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if cachedTy, hasCached := e.localVarStructTypes[lv.Variable]; hasCached {
+		if cachedTy, hasCached := e.localVarStructTypes[uint32(lv.Variable)]; hasCached {
 			structTy = cachedTy
 		}
 	}
@@ -1872,11 +1872,11 @@ func (e *Emitter) tryOutputPromotedStore(fn *ir.Function, store ir.StmtStore) bo
 	if !ok {
 		return false
 	}
-	if !e.outputPromotedLocals[lv.Variable] {
+	if !e.outputPromotedLocals[uint32(lv.Variable)] {
 		return false
 	}
 	e.outputPromotedStores[outputStoreKey{
-		varIdx:    lv.Variable,
+		varIdx:    uint32(lv.Variable),
 		memberIdx: int(ai.Index),
 	}] = store.Value
 	return true
@@ -1916,7 +1916,7 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// Single-store local: the value is already recorded in singleStoreLocals
 	// by the analysis. Skip the store -- the load will resolve directly.
 	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if _, isSingle := e.singleStoreLocals[lv.Variable]; isSingle {
+		if _, isSingle := e.singleStoreLocals[uint32(lv.Variable)]; isSingle {
 			return nil
 		}
 	}
@@ -2119,13 +2119,13 @@ func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtSt
 	flatIdx += compIdx
 
 	// Look up the struct's per-component alloca pointers.
-	dxilStructTy, hasTy := e.localVarStructTypes[lv.Variable]
+	dxilStructTy, hasTy := e.localVarStructTypes[uint32(lv.Variable)]
 	if !hasTy {
 		return false, nil
 	}
 
 	// Ensure the local var alloca was created.
-	allocaID, hasAlloca := e.localVarPtrs[lv.Variable]
+	allocaID, hasAlloca := e.localVarPtrs[uint32(lv.Variable)]
 	if !hasAlloca {
 		return false, nil
 	}
@@ -2184,7 +2184,7 @@ func (e *Emitter) tryEmitLocalVariableStore(fn *ir.Function, store ir.StmtStore)
 		return false, nil
 	}
 
-	if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+	if compPtrs, hasComps := e.localVarComponentPtrs[uint32(lv.Variable)]; hasComps {
 		localVar := &fn.LocalVars[lv.Variable]
 		elemDXILTy, resolveErr := typeToDXIL(e.mod, e.ir, e.ir.Types[localVar.Type].Inner)
 		if resolveErr != nil {
@@ -2197,12 +2197,12 @@ func (e *Emitter) tryEmitLocalVariableStore(fn *ir.Function, store ir.StmtStore)
 		localVar := &fn.LocalVars[lv.Variable]
 		irType := e.ir.Types[localVar.Type]
 		if st, isSt := irType.Inner.(ir.StructType); isSt {
-			return true, e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
+			return true, e.emitStructStore(fn, uint32(lv.Variable), irType, st, store.Value)
 		}
 	}
 
-	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
-		return true, e.emitArrayStore(fn, lv.Variable, arrayTy, store.Value)
+	if arrayTy, hasArr := e.localVarArrayTypes[uint32(lv.Variable)]; hasArr {
+		return true, e.emitArrayStore(fn, uint32(lv.Variable), arrayTy, store.Value)
 	}
 
 	return false, nil
@@ -2252,9 +2252,9 @@ func (e *Emitter) tryStructMemberAggregateStore(fn *ir.Function, store ir.StmtSt
 
 	// Output-promoted local: record the store for later storeOutput emission
 	// at return time, skip the alloca/GEP/store chain entirely.
-	if e.outputPromotedLocals[lv.Variable] {
+	if e.outputPromotedLocals[uint32(lv.Variable)] {
 		e.outputPromotedStores[outputStoreKey{
-			varIdx:    lv.Variable,
+			varIdx:    uint32(lv.Variable),
 			memberIdx: int(ai.Index),
 		}] = store.Value
 		return true, nil
@@ -2282,7 +2282,7 @@ func (e *Emitter) tryStructMemberAggregateStore(fn *ir.Function, store ir.StmtSt
 	if err != nil {
 		return false, fmt.Errorf("struct member aggregate store alloca: %w", err)
 	}
-	dxilStructTy, hasTy := e.localVarStructTypes[lv.Variable]
+	dxilStructTy, hasTy := e.localVarStructTypes[uint32(lv.Variable)]
 	if !hasTy {
 		return false, nil
 	}
@@ -2319,7 +2319,7 @@ func (e *Emitter) tryStructMemberAggregateStore(fn *ir.Function, store ir.StmtSt
 // emitArrayStore decomposes an array value into per-element stores using GEP.
 // For each array element, emits GEP [N x T]*, i32 0, i32 idx → store.
 func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module.Type, valueHandle ir.ExpressionHandle) error {
-	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(varIdx)})
 	if err != nil {
 		return fmt.Errorf("array store alloca: %w", err)
 	}
@@ -2358,7 +2358,7 @@ func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module
 // Recursively flattens nested structs and vectors into individual scalar stores.
 func (e *Emitter) emitStructStore(fn *ir.Function, varIdx uint32, _ ir.Type, st ir.StructType, valueHandle ir.ExpressionHandle) error {
 	// Ensure the alloca exists.
-	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(varIdx)})
 	if err != nil {
 		return fmt.Errorf("struct store alloca: %w", err)
 	}

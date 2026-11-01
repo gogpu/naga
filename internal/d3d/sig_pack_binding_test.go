@@ -87,7 +87,7 @@ func TestSigElementInfoForBinding_ClipDistance(t *testing.T) {
 		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
 		ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &three}},
 	)
-	info := SigElementInfoForBinding(mod, ir.BuiltinBinding{Builtin: ir.BuiltinClipDistance}, 1, ir.StageVertex, true, nil)
+	info := SigElementInfoForBinding(mod, ir.BuiltinBinding{Builtin: ir.BuiltinClipDistances}, 1, ir.StageVertex, true, nil)
 	if info.Kind != SigPackBuiltinScalarArray {
 		t.Fatalf("Kind = %v, want SigPackBuiltinScalarArray", info.Kind)
 	}

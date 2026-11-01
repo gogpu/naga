@@ -1057,14 +1057,14 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 
 	// Lower function body
 	if f.Body != nil {
-		if err := l.lowerBlock(f.Body, &fn.Body); err != nil {
+		if err := l.lowerBlock(f.Body, (*[]ir.Statement)(&fn.Body)); err != nil {
 			return fmt.Errorf("function %s body: %w", f.Name, err)
 		}
 	}
 
 	// Rust naga calls proc::ensure_block_returns after lowering the body.
 	// This ensures every control flow path ends with a Return statement.
-	ensureBlockReturns(&fn.Body)
+	ensureBlockReturns((*[]ir.Statement)(&fn.Body))
 
 	// Check for unused local variables
 	l.checkUnusedVariables(f.Name)
@@ -1379,7 +1379,7 @@ func (l *Lowerer) lowerLocalVar(v *parser.VarDecl, target *[]ir.Statement) error
 	// (covering init expressions), adds LocalVariable outside emit range,
 	// then block.extend(emitter.finish()) adds any remaining emit.
 	exprHandle, err := l.interruptEmitter(ir.Expression{
-		Kind: ir.ExprLocalVariable{Variable: localIdx},
+		Kind: ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(localIdx)},
 	})
 	if err != nil {
 		return err
@@ -2941,7 +2941,7 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 		Init: nil,
 	})
 	pointer, err := l.interruptEmitter(ir.Expression{
-		Kind: ir.ExprLocalVariable{Variable: uint32(localIdx)},
+		Kind: ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(localIdx)},
 	})
 	if err != nil {
 		return 0, err
@@ -2992,7 +2992,7 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 	// Result: create a NEW LocalVariable reference for the Load.
 	// Rust naga creates a separate expression for each reference to a local var.
 	loadPointer, err := l.interruptEmitter(ir.Expression{
-		Kind: ir.ExprLocalVariable{Variable: uint32(localIdx)},
+		Kind: ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(localIdx)},
 	})
 	if err != nil {
 		return 0, err
@@ -4945,7 +4945,7 @@ var mathFuncTable = map[string]ir.MathFunction{
 	"inverse": ir.MathInverse,
 
 	// Precision
-	"quantizeToF16": ir.MathQuantizeF16,
+	"quantizeToF16": ir.MathQuantizeToF16,
 
 	// Vector/matrix operations
 	"outerProduct": ir.MathOuter,
@@ -4972,7 +4972,7 @@ func isFloatOnlyMathFunc(f ir.MathFunction) bool {
 		ir.MathLength, ir.MathDistance, ir.MathNormalize,
 		ir.MathFaceForward, ir.MathReflect, ir.MathRefract,
 		ir.MathModf, ir.MathFrexp, ir.MathLdexp,
-		ir.MathQuantizeF16:
+		ir.MathQuantizeToF16:
 		return true
 	default:
 		return false
@@ -5809,7 +5809,7 @@ var builtinTable = map[string]ir.BuiltinValue{
 	"vertices":               ir.BuiltinVertices,
 	"primitive_count":        ir.BuiltinPrimitiveCount,
 	"primitives":             ir.BuiltinPrimitives,
-	"clip_distances":         ir.BuiltinClipDistance,
+	"clip_distances":         ir.BuiltinClipDistances,
 }
 
 func (l *Lowerer) builtin(name string) ir.BuiltinValue {

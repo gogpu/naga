@@ -486,7 +486,7 @@ func TestStructHasPositionBuiltin(t *testing.T) {
 		},
 	}
 
-	v := &Validator{module: m}
+	v := &validator{module: m}
 
 	if !v.structHasPositionBuiltin(TypeHandle(1)) {
 		t.Error("Expected struct with @builtin(position) to return true")

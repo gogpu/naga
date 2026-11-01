@@ -631,7 +631,7 @@ func TestSelectBlockCandidatesRejectsPartialMatch(t *testing.T) {
 		uses:      uses,
 		localPtrs: buildLocalPtrMap(fn),
 	}
-	localStores, localLoads := countLocalUses(ctx, &fn.Body)
+	localStores, localLoads := countLocalUses(ctx, (*[]ir.Statement)(&fn.Body))
 	candidates := selectBlockCandidates(ctx, localStores, localLoads)
 	if len(candidates) != 0 {
 		t.Fatal("variable with stores in different blocks should not be a block candidate")

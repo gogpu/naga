@@ -178,6 +178,9 @@ type (
 	ConstantHandle       uint32
 	OverrideHandle       uint32
 	ExpressionHandle     uint32
+	// LocalVariableHandle indexes Function.LocalVars (Rust's
+	// Handle<LocalVariable>).
+	LocalVariableHandle uint32
 )
 
 // Type represents a type in the IR.
@@ -606,7 +609,7 @@ type Function struct {
 	LocalVars       []LocalVariable
 	Expressions     []Expression
 	ExpressionTypes []TypeResolution // Type of each expression (parallel to Expressions)
-	Body            []Statement
+	Body            Block
 
 	// NamedExpressions maps expression handles to user-given names.
 	// This is used for let bindings and phony assignments (_ = expr).
@@ -682,7 +685,7 @@ const (
 	BuiltinVertices
 	BuiltinPrimitiveCount
 	BuiltinPrimitives
-	BuiltinClipDistance
+	BuiltinClipDistances
 )
 
 // LocationBinding represents a location binding.

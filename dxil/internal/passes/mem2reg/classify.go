@@ -80,7 +80,7 @@ func classifyLocals(mod *ir.Module, fn *ir.Function) []localUseInfo {
 	emitted := collectEmittedHandles(fn)
 
 	classifyExpressions(fn, localPtrs, uses, emitted)
-	classifyStatements(&fn.Body, localPtrs, uses)
+	classifyStatements((*[]ir.Statement)(&fn.Body), localPtrs, uses)
 
 	// Build per-variable fast-lookup load sets.
 	for v := range uses {
@@ -110,7 +110,7 @@ func buildLocalPtrMap(fn *ir.Function) localPtr {
 	m := make(localPtr, len(fn.LocalVars))
 	for h, expr := range fn.Expressions {
 		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
-			m[ir.ExpressionHandle(h)] = lv.Variable
+			m[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 	return m
