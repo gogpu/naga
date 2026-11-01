@@ -378,9 +378,8 @@ func TestOutputMemberAttribute(t *testing.T) {
 	opts := DefaultOptions()
 	opts.LangVersion = Version2_4
 	w := &Writer{
-		module:             &ir.Module{},
-		options:            &opts,
-		minRequiredVersion: Version1_0,
+		module:  &ir.Module{},
+		options: &opts,
 	}
 
 	tests := []struct {

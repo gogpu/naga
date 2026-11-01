@@ -460,6 +460,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	if err := w.checkVaryings(ep); err != nil {
 		return err
 	}
+	if err := w.checkInterfaceVersion(ep); err != nil {
+		return err
+	}
 	// Blank line before each entry point (matches Rust naga: writeln!(self.out)?)
 	w.WriteLine("")
 
@@ -639,7 +642,6 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			if builtin, ok := (*arg.Binding).(ir.BuiltinBinding); ok && !isVarying(arg.Binding) {
 				attr := builtinInputAttribute(builtin.Builtin, ep.Stage)
 				if attr != "" {
-					w.requireBuiltinVersion(builtin.Builtin)
 					argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)})
 					argType := w.writeTypeName(arg.Type, StorageAccess(0))
 					w.writeEntryPointParam(paramCount, fmt.Sprintf("%s %s %s", argType, argName, attr))
@@ -679,7 +681,6 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			if attr == "" {
 				continue
 			}
-			w.requireBuiltinVersion(builtin.Builtin)
 			key := nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}
 			memberName := w.flattenedMemberNames[key]
 			memberType := w.writeTypeName(member.Type, StorageAccess(0))
@@ -717,6 +718,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// This assigns sequential per-type indices across all bind groups,
 	// preventing collisions when multiple groups share binding numbers.
 	w.computeResourceMap(ep.Name)
+	if err := w.checkGlobalsVersion(ep, epUsedGlobals); err != nil {
+		return err
+	}
 	if err := w.checkBindTargets(ep, epUsedGlobals); err != nil {
 		return err
 	}
@@ -971,7 +975,6 @@ func isVarying(b *ir.Binding) bool {
 // varyingAttribute returns the [[stage_in]] struct attribute of a varying.
 func (w *Writer) varyingAttribute(b ir.Binding, stage ir.ShaderStage, ty ir.TypeHandle) string {
 	if bb, ok := b.(ir.BuiltinBinding); ok {
-		w.requireBuiltinVersion(bb.Builtin)
 		return builtinInputAttribute(bb.Builtin, stage)
 	}
 	return locationInputAttribute(b.(ir.LocationBinding), stage, w.typeScalarKind(ty))
@@ -1791,9 +1794,6 @@ func (w *Writer) writeBindingAttribute(binding ir.Binding) string {
 func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage) string {
 	switch b := binding.(type) {
 	case ir.BuiltinBinding:
-		if b.Invariant {
-			w.requireVersion(Version2_1)
-		}
 		return builtinOutputAttribute(b)
 	case ir.LocationBinding:
 		switch stage {
@@ -1807,26 +1807,12 @@ func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage)
 		case ir.StageFragment:
 			// Fragment outputs use color() with optional dual-source index()
 			if b.BlendSrc != nil {
-				w.requireVersion(Version1_2) // dual source blending requires Metal 1.2
 				return fmt.Sprintf("[[color(%d) index(%d)]]", b.Location, *b.BlendSrc)
 			}
 			return fmt.Sprintf("[[color(%d)]]", b.Location)
 		}
 	}
 	return ""
-}
-
-// requireBuiltinVersion bumps the minimum required Metal version based on
-// which builtin is used. Matches Rust naga version requirements:
-//   - BuiltinBarycentric requires Metal 2.3+
-//   - BuiltinViewIndex requires Metal 2.2+ (we use 2.3 to match Rust naga snapshot output)
-func (w *Writer) requireBuiltinVersion(builtin ir.BuiltinValue) {
-	switch builtin {
-	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:
-		w.requireVersion(Version2_3)
-	case ir.BuiltinViewIndex:
-		w.requireVersion(Version2_3)
-	}
 }
 
 // builtinInputAttribute returns the MSL attribute for a built-in input.
@@ -1951,9 +1937,9 @@ func perVertexValues(varyings, member string) string {
 }
 
 // checkVaryings refuses a per-primitive location, which only mesh shading
-// has and this backend does not write. A per-vertex input needs MSL 4.0:
-// Rust refuses a lower version (PerVertexNotSupported); this backend raises
-// the version instead, as for every feature (requireVersion).
+// has and this backend does not write. A per-vertex input
+// (metal::vertex_value) needs MSL 4.0 and is refused below it, as Rust's
+// PerVertexNotSupported (writer.rs).
 func (w *Writer) checkVaryings(ep *ir.EntryPoint) error {
 	check := func(b *ir.Binding) error {
 		if b == nil {
@@ -1967,7 +1953,7 @@ func (w *Writer) checkVaryings(ep *ir.EntryPoint) error {
 			return unsupported.Errorf("msl: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
 		}
 		if isPerVertex(b) {
-			w.requireVersion(Version{Major: 4}) // metal::vertex_value
+			return w.requireVersion(Version4_0, "@interpolate(per_vertex)")
 		}
 		return nil
 	}

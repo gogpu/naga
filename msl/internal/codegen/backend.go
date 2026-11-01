@@ -22,10 +22,12 @@ var (
 	Version1_2 = Version{Major: 1, Minor: 2}
 	Version2_0 = Version{Major: 2, Minor: 0}
 	Version2_1 = Version{Major: 2, Minor: 1}
+	Version2_2 = Version{Major: 2, Minor: 2}
 	Version2_3 = Version{Major: 2, Minor: 3}
 	Version2_4 = Version{Major: 2, Minor: 4}
 	Version3_0 = Version{Major: 3, Minor: 0}
 	Version3_1 = Version{Major: 3, Minor: 1}
+	Version4_0 = Version{Major: 4, Minor: 0}
 )
 
 // String returns the version as "major.minor".

@@ -198,7 +198,7 @@ struct T { a: f32, b: u32, c: u64, d: f64 }
 // match usage").
 // TestRawBufferShaderModelRefused: a storage buffer whose element has more than
 // four components is written with raw buffer operations (SM 6.2), so below
-// 6.2 Compile refuses with a ShaderModelError that names our code generation
+// 6.2 Compile refuses with a VersionError that names our code generation
 // (P1-DXIL-072), where it raised the model silently; DXC writes bufferLoad
 // there.
 func TestRawBufferShaderModelRefused(t *testing.T) {
@@ -208,10 +208,10 @@ struct S { a: u32, b: u32, c: u32, d: u32, e: u32 }
 @compute @workgroup_size(1) fn main() { s[1] = s[0]; }
 `)
 	_, _, err := Compile(m, DefaultOptions())
-	var smErr *backend.ShaderModelError
-	if !errors.As(err, &smErr) || smErr.Required != (backend.ShaderModel{Major: 6, Minor: 2}) ||
-		!strings.Contains(smErr.Feature, "P1-DXIL-072") {
-		t.Fatalf("SM 6.0: err = %v, want a ShaderModelError requiring 6.2 for the raw buffer operations", err)
+	var vErr *backend.VersionError
+	if !errors.As(err, &vErr) || vErr.Space != backend.VersionShaderModel ||
+		vErr.Required != (backend.Version{Major: 6, Minor: 2}) || !strings.Contains(vErr.Feature, "P1-DXIL-072") {
+		t.Fatalf("SM 6.0: err = %v, want a shader model VersionError requiring 6.2 for the raw buffer operations", err)
 	}
 	if _, _, err := Compile(m, Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 2}}); err != nil {
 		t.Errorf("SM 6.2: %v", err)

@@ -27,10 +27,10 @@ struct S { a: f16, b: vec2<f16>, c: f32 }
 }
 `
 	// 16-bit types need SM 6.2: the zero model, 6.0, is refused, not raised.
-	var smErr *backend.ShaderModelError
-	if _, _, err := Compile(lowerForTest(t, src), DefaultOptions()); !errors.As(err, &smErr) ||
-		smErr.Required != (backend.ShaderModel{Major: 6, Minor: 2}) {
-		t.Fatalf("SM 6.0: err = %v, want a ShaderModelError requiring 6.2", err)
+	var vErr *backend.VersionError
+	if _, _, err := Compile(lowerForTest(t, src), DefaultOptions()); !errors.As(err, &vErr) ||
+		vErr.Space != backend.VersionShaderModel || vErr.Required != (backend.Version{Major: 6, Minor: 2}) {
+		t.Fatalf("SM 6.0: err = %v, want a shader model VersionError requiring 6.2", err)
 	}
 	blob, _, err := Compile(lowerForTest(t, src), Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 2}})
 	if err != nil {

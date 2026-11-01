@@ -456,11 +456,12 @@ func TestPerVertex(t *testing.T) {
 			t.Errorf("MSL lacks %q:\n%s", s, code)
 		}
 	}
-	// Rust refuses a version below 4.0 (PerVertexNotSupported); the msl
-	// backend raises the version for every feature that needs one.
-	code, _, err = msl.Compile(module, msl.Options{LangVersion: msl.Version3_1})
-	if err != nil || !strings.HasPrefix(code, "// language: metal4.0\n") {
-		t.Errorf("MSL 3.1: error %v, want the version raised to 4.0:\n%s", err, code)
+	// Below 4.0 the msl backend refuses it, as Rust (PerVertexNotSupported);
+	// it never raises the version.
+	_, _, err = msl.Compile(module, msl.Options{LangVersion: msl.Version3_1})
+	if vErr := (*backend.VersionError)(nil); !errors.As(err, &vErr) || vErr.Space != backend.VersionMSL ||
+		vErr.Required != (backend.Version{Major: 4}) {
+		t.Errorf("MSL 3.1: error %v, want an MSL VersionError for 4.0", err)
 	}
 
 	code, _, err = hlsl.Compile(module, hlsl.Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 1}})
@@ -475,9 +476,10 @@ func TestPerVertex(t *testing.T) {
 			t.Errorf("HLSL lacks %q:\n%s", s, code)
 		}
 	}
-	var smErr *backend.ShaderModelError
-	if _, _, err := hlsl.Compile(module, hlsl.Options{ShaderModel: backend.ShaderModel{Major: 6}}); !errors.As(err, &smErr) {
-		t.Errorf("HLSL 6.0: error %v, want a ShaderModelError", err)
+	var vErr *backend.VersionError
+	if _, _, err := hlsl.Compile(module, hlsl.Options{ShaderModel: backend.ShaderModel{Major: 6}}); !errors.As(err, &vErr) ||
+		vErr.Space != backend.VersionShaderModel {
+		t.Errorf("HLSL 6.0: error %v, want a shader model VersionError", err)
 	}
 
 	if _, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version450}); !errors.Is(err, backend.ErrUnsupported) {
@@ -551,7 +553,9 @@ func TestPerPrimitive(t *testing.T) {
 	}
 	for name, compile := range map[string]func() error{
 		"spirv": func() error { _, err := spirvBinary(module, spirv.Options{}); return err },
-		"msl":   func() error { _, _, err := msl.Compile(module, msl.Options{}); return err },
+		// At MSL 3.0: below it Rust's uses_mesh_shaders, which counts a
+		// per_primitive location, refuses the version first.
+		"msl": func() error { _, _, err := msl.Compile(module, msl.Options{LangVersion: msl.Version3_0}); return err },
 		"glsl": func() error {
 			_, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version450})
 			return err

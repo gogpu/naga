@@ -295,11 +295,6 @@ type Writer struct {
 	// Matches Rust naga's per-function GlobalUse::WRITE analysis.
 	perFuncWriteUsage map[int]map[uint32]struct{}
 
-	// minRequiredVersion tracks the minimum Metal version required by features used
-	// in the shader. Bumped when builtins like barycentric_coord or amplification_id
-	// are encountered. The final header version is max(options.LangVersion, minRequiredVersion).
-	minRequiredVersion Version
-
 	// unnamedCount tracks the number of unnamed variables allocated for subgroup operations
 	// and other unnamed results. Used by allocateUnnamedVar().
 	unnamedCount int
@@ -495,28 +490,14 @@ func (w *Writer) String() string {
 	return s + "\n"
 }
 
-// requireVersion bumps the minimum required Metal version if the given
-// version is higher than the current minimum. This is called when features
-// requiring specific Metal versions are encountered (e.g., barycentric_coord
-// requires Metal 2.3).
-func (w *Writer) requireVersion(v Version) {
-	if w.minRequiredVersion.Less(v) {
-		w.minRequiredVersion = v
-	}
-}
-
-// effectiveVersion returns the Metal version to emit in the header.
-// It is the maximum of the user-requested version and the minimum
-// required version based on shader features.
-func (w *Writer) effectiveVersion() Version {
-	if w.options.LangVersion.Less(w.minRequiredVersion) {
-		return w.minRequiredVersion
-	}
-	return w.options.LangVersion
-}
-
 // writeModule generates MSL code for the entire module.
 func (w *Writer) writeModule() error {
+	// 0. Refuse what the module needs of a newer MSL, as Rust does right
+	// after the header.
+	if err := w.checkModuleVersion(); err != nil {
+		return err
+	}
+
 	// 1. Register all names
 	if err := w.registerNames(); err != nil {
 		return err
@@ -820,16 +801,14 @@ func (w *Writer) scanRayQueryTypes() {
 	for _, typ := range w.module.Types {
 		if _, ok := typ.Inner.(ir.RayQueryType); ok {
 			w.needsRayQuery = true
-			w.requireVersion(Version2_4)
 			return
 		}
 	}
 }
 
 // writeRayQueryStruct emits the _RayQuery struct and _map_intersection_type helper.
-// Matches Rust naga output for Metal 2.4+ ray tracing shaders.
-// NOTE: requireVersion(Version2_4) is called in scanRayQueryTypes, not here,
-// so the header version is correct when writeHeader is called before this method.
+// Matches Rust naga output for Metal 2.4+ ray tracing shaders; a lower
+// Options.LangVersion was refused by checkModuleVersion.
 func (w *Writer) writeRayQueryStruct() {
 	if !w.needsRayQuery {
 		return
@@ -1339,11 +1318,11 @@ func (w *Writer) funcNeedsBufferSizes(handle ir.FunctionHandle) bool {
 	return false
 }
 
-// writeHeader writes the MSL file header.
-// Must be called after functions/entry points are processed so that
-// effectiveVersion() reflects any features that require a higher Metal version.
+// writeHeader writes the MSL file header with Options.LangVersion, which
+// the backend never raises: a feature of a newer MSL is refused instead
+// (lang_version.go).
 func (w *Writer) writeHeader() {
-	v := w.effectiveVersion()
+	v := w.options.LangVersion
 	w.WriteLine("// language: metal%d.%d", v.Major, v.Minor)
 	w.WriteLine("#include <metal_stdlib>")
 	w.WriteLine("#include <simd/simd.h>")

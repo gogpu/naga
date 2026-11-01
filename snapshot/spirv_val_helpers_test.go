@@ -1,9 +1,10 @@
 package snapshot_test
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
 	"github.com/gogpu/naga/wgsl"
@@ -38,7 +39,7 @@ func generateSPIRVBinary(name string, module *ir.Module) ([]byte, error) {
 	// A shader that needs a newer version than the default (subgroup
 	// operations need 1.3), which the backend refuses to raise, takes the
 	// one its Rust parameters give.
-	if err != nil && strings.Contains(err.Error(), "need SPIR-V") {
+	if vErr := (*backend.VersionError)(nil); errors.As(err, &vErr) && vErr.Space == backend.VersionSPIRV {
 		opts.Version = rust.Version
 		spvBytes, err = spirvBinary(module, opts)
 	}
