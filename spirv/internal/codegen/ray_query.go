@@ -390,7 +390,18 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 		}
 	}
 
-	riPtrTypeID := b.emitPointerType(StorageClassFunction, riTypeID)
+	// The intersection variable takes the layout-free struct where Function
+	// variables do (layoutFree, SPIR-V 1.5 on, so OpCopyLogical exists); the
+	// function returns the decorated one.
+	riVarTypeID := riTypeID
+	if b.layoutFree(StorageClassFunction) && b.module.SpecialTypes.RayIntersection != nil {
+		var err error
+		riVarTypeID, err = b.emitTypeWithoutLayout(*b.module.SpecialTypes.RayIntersection)
+		if err != nil {
+			panic(fmt.Sprintf("spirv: failed to emit RayIntersection type: %v", err))
+		}
+	}
+	riPtrTypeID := b.emitPointerType(StorageClassFunction, riVarTypeID)
 
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
@@ -426,7 +437,7 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	block := NewBlock(labelID)
 
 	// Create null-initialized intersection variable
-	blankIntersection := b.builder.AddConstantNull(riTypeID)
+	blankIntersection := b.builder.AddConstantNull(riVarTypeID)
 	blankIntersectionID := b.builder.AllocID()
 	fb.Variables = append(fb.Variables, Instruction{
 		Opcode: OpVariable,
@@ -599,7 +610,12 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 
 	// Final block: load and return
 	loadedIntersectionID := b.builder.AllocID()
-	finalBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{riTypeID, loadedIntersectionID, blankIntersectionID}})
+	finalBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{riVarTypeID, loadedIntersectionID, blankIntersectionID}})
+	if riVarTypeID != riTypeID {
+		decorated := b.builder.AllocID()
+		finalBlock.Push(Instruction{Opcode: OpCopyLogical, Words: []uint32{riTypeID, decorated, loadedIntersectionID}})
+		loadedIntersectionID = decorated
+	}
 	fb.Consume(finalBlock, Instruction{Opcode: OpReturnValue, Words: []uint32{loadedIntersectionID}})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)

@@ -787,12 +787,13 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		}
 
 	case ir.PointerType:
-		baseID, err := b.emitType(inner.Base)
+		storageClass, err := addressSpaceToStorageClass(inner.Space)
 		if err != nil {
 			return 0, err
 		}
-
-		storageClass, err := addressSpaceToStorageClass(inner.Space)
+		// A pointer into a layout-free variable points to its layout-free
+		// type (a ptr<function> parameter takes a local's pointer).
+		baseID, err := b.layoutTypeID(inner.Base, !b.layoutFree(storageClass))
 		if err != nil {
 			return 0, err
 		}
@@ -1834,11 +1835,10 @@ func (b *Backend) emitGlobals() error {
 			continue
 		}
 
-		// Get the variable type.
-		// Workgroup variables must NOT have layout decorations (ArrayStride, Offset,
-		// MatrixStride) per VUID-StandaloneSpirv-None-10684. Use layout-free types.
+		// Get the variable type: layout-free where Vulkan forbids layout
+		// decorations (layoutFree).
 		var varType uint32
-		if global.Space == ir.SpaceWorkGroup {
+		if sc, scErr := addressSpaceToStorageClass(global.Space); scErr == nil && b.layoutFree(sc) {
 			var err error
 			varType, err = b.emitTypeWithoutLayout(global.Type)
 			if err != nil {
@@ -1957,6 +1957,11 @@ func (b *Backend) emitGlobals() error {
 		initID, hasInit, err := b.globalVarInitID(&global)
 		if err != nil {
 			return err
+		}
+		if hasInit && b.layoutFree(storageClass) {
+			if initID, err = b.layoutFreeConstant(global.Type, initID); err != nil {
+				return fmt.Errorf("global variable %q: %w", global.Name, err)
+			}
 		}
 		zeroed := global.Space == ir.SpacePrivate ||
 			(global.Space == ir.SpaceWorkGroup && b.options.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupNative)
@@ -3411,7 +3416,7 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 	// Populated for local vars whose type is RayQuery.
 	rayQueryLocalTrackers := make(map[int]rayQueryTrackerIDs)
 	for i, localVar := range fn.LocalVars {
-		varType, err := b.emitType(localVar.Type)
+		varType, err := b.layoutTypeID(localVar.Type, !b.layoutFree(StorageClassFunction))
 		if err != nil {
 			return err
 		}
@@ -3772,7 +3777,9 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 			if err != nil {
 				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
 			}
-			b.builder.AddStore(localVarIDs[i], initID)
+			if err := emitter.storeToLocal(localVarIDs[i], *localVar.Init, initID); err != nil {
+				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+			}
 			continue
 		}
 		if varInfo[i].isDirectCall {
@@ -3792,7 +3799,9 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 		if err != nil {
 			return fmt.Errorf("local var %q init: %w", localVar.Name, err)
 		}
-		b.builder.AddStore(localVarIDs[i], initID)
+		if err := emitter.storeToLocal(localVarIDs[i], *localVar.Init, initID); err != nil {
+			return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+		}
 	}
 
 	// 5b. Workgroup variable zero-initialization polyfill.
@@ -4048,7 +4057,7 @@ func (b *Backend) resolveTypeResolution(res ir.TypeResolution) (uint32, error) {
 // resolveTypeForStorageClass resolves a type resolution, using layout-free types
 // for Workgroup storage class per VUID-StandaloneSpirv-None-10684.
 func (b *Backend) resolveTypeForStorageClass(res ir.TypeResolution, storageClass StorageClass) (uint32, error) {
-	if storageClass == StorageClassWorkgroup && res.Handle != nil {
+	if b.layoutFree(storageClass) && res.Handle != nil {
 		return b.emitTypeWithoutLayout(*res.Handle)
 	}
 	if storageClass == StorageClassUniform && res.Handle != nil {
@@ -4360,6 +4369,13 @@ func (e *ExpressionEmitter) emitLocalVarValue(kind ir.ExprLocalVariable) (uint32
 		return 0, fmt.Errorf("local variable index out of range: %d", kind.Variable)
 	}
 	varType := e.function.LocalVars[kind.Variable].Type
+	if e.backend.layoutFree(StorageClassFunction) && e.backend.typeNeedsLayoutDecoration(varType) {
+		layoutFreeID, err := e.backend.emitTypeWithoutLayout(varType)
+		if err != nil {
+			return 0, err
+		}
+		return e.backend.copyLayout(varType, e.backend.builder.AddLoad(layoutFreeID, ptrID), true)
+	}
 	typeID, err := e.backend.emitType(varType)
 	if err != nil {
 		return 0, err
@@ -4437,7 +4453,8 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 	// immediately, so all downstream uses (OpFunctionCall, OpStore, OpComposite*)
 	// see the correct decorated type. This is the single conversion point —
 	// all Workgroup layout-free values are converted to decorated on load.
-	if gv.Space == ir.SpaceWorkGroup && e.backend.typeNeedsLayoutDecoration(gv.Type) {
+	if sc, scErr := addressSpaceToStorageClass(gv.Space); scErr == nil && e.backend.layoutFree(sc) &&
+		e.backend.typeNeedsLayoutDecoration(gv.Type) {
 		layoutFreeTypeID, err := e.backend.emitTypeWithoutLayout(gv.Type)
 		if err != nil {
 			return 0, err
@@ -4606,6 +4623,10 @@ func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle
 		if arg.Binding != nil {
 			return StorageClassInput, nil
 		}
+		// A pointer argument points into its own address space.
+		if pt, ok := e.backend.module.Types[arg.Type].Inner.(ir.PointerType); ok {
+			return addressSpaceToStorageClass(pt.Space)
+		}
 		return StorageClassFunction, nil
 	case ir.ExprAccess:
 		return e.getExpressionStorageClass(k.Base)
@@ -4626,17 +4647,15 @@ func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle
 // IDs differ even though the types are logically equivalent. OpCopyLogical (SPIR-V 1.4+)
 // converts between them. Returns the (possibly converted) value ID.
 func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.ExpressionHandle, valueID uint32) (uint32, error) {
-	valueSC, err := e.getExpressionStorageClass(valueExpr)
-	if err != nil {
-		return 0, err
-	}
 	pointerSC, err := e.getExpressionStorageClass(pointerExpr)
 	if err != nil {
 		return 0, err
 	}
 
-	valueIsWG := valueSC == StorageClassWorkgroup
-	pointerIsWG := pointerSC == StorageClassWorkgroup
+	// A value is always of the decorated type: a load through a layout-free
+	// pointer converts at once (emitLoad).
+	valueIsWG := false
+	pointerIsWG := e.backend.layoutFree(pointerSC)
 
 	// Only need conversion when crossing the Workgroup boundary.
 	if valueIsWG == pointerIsWG {
@@ -4710,6 +4729,22 @@ func (e *ExpressionEmitter) unwrapToValueTypeHandle(res ir.TypeResolution) *ir.T
 		}
 	}
 	return nil
+}
+
+// layoutFree reports whether variables of storage class sc take layout-free
+// types: Vulkan forbids ArrayStride, Offset and MatrixStride on the types of
+// Workgroup variables (without workgroupMemoryExplicitLayout), and from
+// SPIR-V 1.5 on those of Function and Private variables
+// (VUID-StandaloneSpirv-None-10684; the SPIR-V spec allows them there only
+// in 1.4 and earlier). Rust naga decorates them all (gfx-rs/wgpu#7696).
+func (b *Backend) layoutFree(sc StorageClass) bool {
+	switch sc {
+	case StorageClassWorkgroup:
+		return true
+	case StorageClassFunction, StorageClassPrivate:
+		return !versionLess(b.options.Version, Version1_5)
+	}
+	return false
 }
 
 // typeNeedsLayoutDecoration returns true if the type has layout decorations
@@ -4836,6 +4871,57 @@ func (b *Backend) layoutCopyFunction(h ir.TypeHandle, toDecorated bool) (uint32,
 	fb.Consume(block, Instruction{Opcode: OpReturnValue, Words: []uint32{resultID}})
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	return functionID, nil
+}
+
+// decoratedHandle returns the IR type whose decorated SPIR-V type is id,
+// the smallest such handle so that the output does not depend on map order.
+func (b *Backend) decoratedHandle(id uint32) (ir.TypeHandle, bool) {
+	found, best := false, ir.TypeHandle(0)
+	for h, tid := range b.typeIDs {
+		if tid == id && (!found || h < best) {
+			found, best = true, h
+		}
+	}
+	return best, found
+}
+
+// layoutFreeConstant returns constant id, of the decorated type of h, written
+// again with h's layout-free type, for the initializer of a variable that
+// takes layout-free types (layoutFree): an OpVariable's initializer has the
+// variable's type.
+func (b *Backend) layoutFreeConstant(h ir.TypeHandle, id uint32) (uint32, error) {
+	if !b.typeNeedsLayoutDecoration(h) {
+		return id, nil
+	}
+	dst, err := b.emitTypeWithoutLayout(h)
+	if err != nil {
+		return 0, err
+	}
+	for _, null := range b.nullConstantIDs {
+		if null == id {
+			return b.constantNull(dst), nil
+		}
+	}
+	parts, ok := b.builder.compositeConstituents[id]
+	if !ok {
+		return 0, fmt.Errorf("constant %d of type %d is not a composite", id, h)
+	}
+	out := make([]uint32, len(parts))
+	for i, part := range parts {
+		var member ir.TypeHandle
+		switch t := b.module.Types[h].Inner.(type) {
+		case ir.ArrayType:
+			member = t.Base
+		case ir.StructType:
+			member = t.Members[i].Type
+		default:
+			return 0, fmt.Errorf("constant of type %T between layouts", t)
+		}
+		if out[i], err = b.layoutFreeConstant(member, part); err != nil {
+			return 0, err
+		}
+	}
+	return b.builder.AddConstantComposite(dst, out...), nil
 }
 
 // copyLayoutToDecorated converts value, loaded from Workgroup memory as the
@@ -4990,7 +5076,7 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		}
 
 		// Convert layout-free → decorated after loading from Workgroup.
-		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
+		if e.backend.layoutFree(storageClass) && accessElementTypeID != elementTypeID {
 			if loadID, err = e.backend.copyLayoutToDecorated(accessElementTypeID, loadID); err != nil {
 				return 0, err
 			}
@@ -5280,7 +5366,7 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 		}
 
 		// Convert layout-free → decorated after loading from Workgroup.
-		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
+		if e.backend.layoutFree(storageClass) && accessElementTypeID != elementTypeID {
 			return e.backend.copyLayoutToDecorated(accessElementTypeID, loadID)
 		}
 
@@ -5317,7 +5403,7 @@ func (e *ExpressionEmitter) spillToInternalVariable(base ir.ExpressionHandle) er
 	if _, alreadySpilled := e.spilledComposites[base]; !alreadySpilled {
 		// Create new Function-space variable for the base type.
 		baseType, _ := ir.ResolveExpressionType(e.backend.module, e.function, base)
-		baseTypeID, err := e.backend.resolveTypeResolution(baseType)
+		baseTypeID, err := e.backend.resolveTypeForStorageClass(baseType, StorageClassFunction)
 		if err != nil {
 			return err
 		}
@@ -5344,7 +5430,9 @@ func (e *ExpressionEmitter) spillToInternalVariable(base ir.ExpressionHandle) er
 		}
 	}
 	spillVarID := e.spilledComposites[base]
-	e.backend.builder.AddStore(spillVarID, baseID)
+	if err := e.storeToLocal(spillVarID, base, baseID); err != nil {
+		return err
+	}
 
 	// Mark base as spilled
 	e.spilledAccesses[base] = true
@@ -5374,7 +5462,19 @@ func (e *ExpressionEmitter) maybeAccessSpilledComposite(
 	// Tip of chain: one access chain from the spill variable with every index,
 	// bounds-checked by the Index policy (the composite is a value), and the
 	// load of the final value (Rust write_checked_load on the spilled access).
-	ptrTypeID := e.backend.emitPointerType(StorageClassFunction, resultTypeID)
+	// The spill variable takes layout-free types where locals do; a
+	// composite element is loaded as such and converted back.
+	accessTypeID, layoutHandle, convert := resultTypeID, ir.TypeHandle(0), false
+	if e.backend.layoutFree(StorageClassFunction) {
+		if h, ok := e.backend.decoratedHandle(resultTypeID); ok && e.backend.typeNeedsLayoutDecoration(h) {
+			lf, err := e.backend.emitTypeWithoutLayout(h)
+			if err != nil {
+				return 0, err
+			}
+			accessTypeID, layoutHandle, convert = lf, h, true
+		}
+	}
+	ptrTypeID := e.backend.emitPointerType(StorageClassFunction, accessTypeID)
 	links, root := e.chainLinks(access, true)
 	spillVarID, ok := e.spilledComposites[root]
 	if !ok {
@@ -5386,7 +5486,11 @@ func (e *ExpressionEmitter) maybeAccessSpilledComposite(
 	}
 	pointer := e.buildAccessChain(ptrTypeID, spillVarID, indices, condition)
 	return e.withAccess(pointer, resultTypeID, func(ptr uint32) (uint32, error) {
-		return e.backend.builder.AddLoad(resultTypeID, ptr), nil
+		loaded := e.backend.builder.AddLoad(accessTypeID, ptr)
+		if convert {
+			return e.backend.copyLayout(layoutHandle, loaded, true)
+		}
+		return loaded, nil
 	})
 }
 
@@ -5755,8 +5859,8 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 	// Single conversion point: immediately convert layout-free → decorated after
 	// loading from Workgroup. All downstream uses (OpFunctionCall, OpStore,
 	// OpCompositeExtract, etc.) see the correct decorated type.
-	if storageClass == StorageClassWorkgroup {
-		decoratedType, err := e.dereferencePointerTypeForStorageClass(pointerType, StorageClassFunction)
+	if e.backend.layoutFree(storageClass) {
+		decoratedType, err := e.dereferencePointerType(pointerType)
 		if err != nil {
 			return 0, err
 		}
@@ -5771,7 +5875,7 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 // dereferencePointerTypeForStorageClass extracts the base type, using layout-free types
 // for Workgroup storage class per VUID-StandaloneSpirv-None-10684.
 func (e *ExpressionEmitter) dereferencePointerTypeForStorageClass(res ir.TypeResolution, storageClass StorageClass) (uint32, error) {
-	if storageClass == StorageClassWorkgroup {
+	if e.backend.layoutFree(storageClass) {
 		var inner ir.TypeInner
 		if res.Handle != nil {
 			if int(*res.Handle) < len(e.backend.module.Types) {
@@ -10068,9 +10172,20 @@ func (b *Backend) emitU32Constant(val uint32) (uint32, error) {
 // variable for an OpFunctionCall. After the call, we must write-back from the
 // temp to the original location (copy-out).
 type spilledPointerArg struct {
-	tempVarID     uint32 // OpVariable in Function storage
-	originalPtrID uint32 // original OpAccessChain result (or similar)
-	pointeeTypeID uint32 // the pointee type (for OpLoad)
+	tempVarID                          uint32 // OpVariable in Function storage
+	originalPtrID                      uint32 // original OpAccessChain result (or similar)
+	pointeeTypeID                      uint32 // the pointee type of the temporary (for OpLoad)
+	pointee                            ir.TypeHandle
+	tempLayoutFree, originalLayoutFree bool
+}
+
+// relayout converts value, of IR type h, from the layout of memory that is
+// layout-free or not (fromLayoutFree) to the other's (toLayoutFree).
+func (b *Backend) relayout(h ir.TypeHandle, value uint32, fromLayoutFree, toLayoutFree bool) (uint32, error) {
+	if fromLayoutFree == toLayoutFree || !b.typeNeedsLayoutDecoration(h) {
+		return value, nil
+	}
+	return b.copyLayout(h, value, !toLayoutFree)
 }
 
 // isMemoryObjectDeclaration returns true if the expression produces a SPIR-V
@@ -10145,8 +10260,19 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 			// If not (e.g. OpAccessChain from array indexing), we must spill
 			// to a temporary variable per the SPIR-V spec.
 			if !e.isMemoryObjectDeclaration(arg) {
-				// Get the pointee type ID
-				pointeeTypeID, typeErr := e.backend.emitType(ptrType.Base)
+				// The pointee types of the temporary and of the original,
+				// each laid out as its storage class takes it (layoutFree).
+				tempLF := e.backend.layoutFree(StorageClassFunction)
+				origSC, scErr := addressSpaceToStorageClass(ptrType.Space)
+				if scErr != nil {
+					return scErr
+				}
+				origLF := e.backend.layoutFree(origSC)
+				pointeeTypeID, typeErr := e.backend.layoutTypeID(ptrType.Base, !tempLF)
+				if typeErr != nil {
+					return fmt.Errorf("call spill pointee type: %w", typeErr)
+				}
+				origTypeID, typeErr := e.backend.layoutTypeID(ptrType.Base, !origLF)
 				if typeErr != nil {
 					return fmt.Errorf("call spill pointee type: %w", typeErr)
 				}
@@ -10161,14 +10287,21 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 				e.funcBuilder.Variables = append(e.funcBuilder.Variables, ib.Build(OpVariable))
 
 				// Copy-in: OpLoad from original, OpStore to temp
-				loadedValue := e.backend.builder.AddLoad(pointeeTypeID, argID)
+				loadedValue, relayoutErr := e.backend.relayout(ptrType.Base,
+					e.backend.builder.AddLoad(origTypeID, argID), origLF, tempLF)
+				if relayoutErr != nil {
+					return relayoutErr
+				}
 				e.backend.builder.AddStore(tempVarID, loadedValue)
 
 				// Track for write-back after the call
 				spills = append(spills, spilledPointerArg{
-					tempVarID:     tempVarID,
-					originalPtrID: argID,
-					pointeeTypeID: pointeeTypeID,
+					tempVarID:          tempVarID,
+					originalPtrID:      argID,
+					pointeeTypeID:      pointeeTypeID,
+					pointee:            ptrType.Base,
+					tempLayoutFree:     tempLF,
+					originalLayoutFree: origLF,
 				})
 
 				// Use temp variable as the argument
@@ -10210,7 +10343,11 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	// Copy-out (write-back): for each spilled pointer argument, load from
 	// the temp variable and store back to the original location.
 	for _, spill := range spills {
-		wb := e.backend.builder.AddLoad(spill.pointeeTypeID, spill.tempVarID)
+		wb, err := e.backend.relayout(spill.pointee,
+			e.backend.builder.AddLoad(spill.pointeeTypeID, spill.tempVarID), spill.tempLayoutFree, spill.originalLayoutFree)
+		if err != nil {
+			return err
+		}
 		e.backend.builder.AddStore(spill.originalPtrID, wb)
 	}
 
@@ -10225,13 +10362,34 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	return nil
 }
 
+// storeToLocal stores value, the value of expression h, to the local
+// variable ptr, converting it to the variable's layout-free type when locals
+// take one (layoutFree).
+func (e *ExpressionEmitter) storeToLocal(ptr uint32, h ir.ExpressionHandle, value uint32) error {
+	if e.backend.layoutFree(StorageClassFunction) {
+		res, err := ir.ResolveExpressionType(e.backend.module, e.function, h)
+		if err != nil {
+			return err
+		}
+		if t := res.Handle; t != nil && e.backend.typeNeedsLayoutDecoration(*t) {
+			if value, err = e.backend.copyLayout(*t, value, false); err != nil {
+				return err
+			}
+		}
+	}
+	e.backend.builder.AddStore(ptr, value)
+	return nil
+}
+
 // processDeferredStores handles deferred local variable stores after a call result
 // is available. Handles both direct (var x = func()) and complex (var x = func() - 0.5)
 // deferred stores.
 func (e *ExpressionEmitter) processDeferredStores(resultHandle ir.ExpressionHandle, resultID uint32) error {
 	// Direct: local var is initialized with this call result directly.
 	if varPtrID, ok := e.deferredCallStores[resultHandle]; ok {
-		e.backend.builder.AddStore(varPtrID, resultID)
+		if err := e.storeToLocal(varPtrID, resultHandle, resultID); err != nil {
+			return err
+		}
 		delete(e.deferredCallStores, resultHandle)
 	}
 
@@ -10245,7 +10403,9 @@ func (e *ExpressionEmitter) processDeferredStores(resultHandle ir.ExpressionHand
 		if err != nil {
 			return fmt.Errorf("deferred complex store: %w", err)
 		}
-		e.backend.builder.AddStore(s.varPtrID, initID)
+		if err := e.storeToLocal(s.varPtrID, s.initExpr, initID); err != nil {
+			return err
+		}
 	}
 	delete(e.deferredComplexStores, resultHandle)
 	return nil
