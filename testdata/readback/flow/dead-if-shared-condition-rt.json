@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "an if and a switch with nothing observable share their condition with a live if: invocations 2 and 3 write dst[0] = 7: [7, fill] (P1-DXIL-061: DXIL refused to compile it)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 2, "fill": "0xDEADBEEF",
+     "expect": [[7, "fill"]]}
+  ]
+}

@@ -47,6 +47,37 @@ func Run(mod *ir.Module, fn *ir.Function) {
 		return
 	}
 
+	// Liveness, then the ifs and switches with nothing live in them go, as
+	// DXC runs CFGSimplification before DCE (DxilLinker.cpp:1282-1284).
+	// An if's condition is live as long as the if is there, as LLVM's ADCE
+	// keeps every terminator (ADCE.cpp:61). Liveness is computed afresh once
+	// a construct goes, so a condition shared with a construct that stays
+	// stays live; taking liveness back from a condition instead missed
+	// statement uses (P1-DXIL-061). Removing a construct can leave another
+	// with nothing live, so this repeats until nothing more goes.
+	live, deadLocals := liveness(mod, fn)
+	for {
+		body, dropped := dropDeadControlFlow(fn, fn.Body, deadLocals, live, buildLocalPtrMap(fn))
+		if !dropped {
+			break
+		}
+		fn.Body = body
+		live, deadLocals = liveness(mod, fn)
+	}
+
+	// Sweep dead statements and shrink emit ranges.
+	// Even when no dead locals exist, the sweep still shrinks emit ranges
+	// for dead expressions. Without this, shaders that compute into
+	// only let-bindings (zero locals, zero outputs) retain all dead
+	// instructions in the DXIL body, diverging from DXC which runs
+	// LLVM DCE and strips them.
+	fn.Body = sweepBlock(fn, fn.Body, deadLocals, live)
+}
+
+// liveness returns which expressions of fn are live and which locals are
+// dead: everything a side-effecting root reaches, through the locals and
+// pure calls that feed it.
+func liveness(mod *ir.Module, fn *ir.Function) ([]bool, map[uint32]bool) {
 	// Phase 1: mark expressions reachable from side-effecting roots.
 	live := markLive(mod, fn)
 
@@ -87,24 +118,7 @@ func Run(mod *ir.Module, fn *ir.Function) {
 			break
 		}
 	}
-
-	// Phase 2c: unmark control-flow conditions whose sub-blocks
-	// contain no live content. After phases 1-2b, the live array
-	// reflects full liveness. A StmtIf whose branches have only
-	// dead stores and dead emits is itself dead; unmarking its
-	// condition lets the sweep phase drop it entirely and
-	// transitively kills the condition's sub-expressions
-	// (e.g., threadId loads feeding an if that does nothing).
-	localPtrs := buildLocalPtrMap(fn)
-	unmarkDeadControlFlow(fn, fn.Body, deadLocals, live, localPtrs)
-
-	// Phase 3: sweep dead statements and shrink emit ranges.
-	// Even when no dead locals exist, the sweep still shrinks emit ranges
-	// for dead expressions. Without this, shaders that compute into
-	// only let-bindings (zero locals, zero outputs) retain all dead
-	// instructions in the DXIL body, diverging from DXC which runs
-	// LLVM DCE and strips them.
-	fn.Body = sweepBlock(fn, fn.Body, deadLocals, live)
+	return live, deadLocals
 }
 
 func countLive(live []bool) int {
@@ -362,11 +376,10 @@ func markStmtRoots(
 		mark(sk.Argument)
 		mark(sk.Result)
 
-	// Control flow — recurse into sub-blocks and mark conditions.
-	// Conditions are marked unconditionally here to ensure local
-	// stores inside branches are correctly tracked. Dead control
-	// flow (empty branches) is eliminated in the sweep phase after
-	// full liveness is computed.
+	// Control flow — recurse into sub-blocks and mark conditions: a
+	// construct's condition is live while the construct is there, as
+	// LLVM's ADCE keeps every terminator. dropDeadControlFlow removes the
+	// constructs with nothing live in them, and liveness is computed again.
 	case ir.StmtIf:
 		mark(sk.Condition)
 		markBlockRoots(mod, fn, sk.Accept, localPtrs, mark)
@@ -398,56 +411,66 @@ func markStmtRoots(
 	}
 }
 
-// unmarkDeadControlFlow walks the body and for each StmtIf whose
-// accept and reject blocks will be empty after sweeping, unmarks the
-// condition expression and all its transitive sub-expressions. This
-// lets the sweep phase drop the entire if-statement and its condition
-// computation (e.g., threadId loads for an empty-body if).
-//
-// The check uses blockWillBeEmpty, which simulates what the sweep
-// phase would produce for a block using the already-computed live
-// array and dead locals.
-func unmarkDeadControlFlow(
+// dropDeadControlFlow returns block without the ifs and switches that
+// will be empty once swept, inner ones first, and whether it dropped any.
+// A construct whose branches feed a live phi after it stays (feedsLivePhi).
+// Loops stay: removing a loop is a question of its termination, not of
+// its content.
+func dropDeadControlFlow(
 	fn *ir.Function,
 	block ir.Block,
 	deadLocals map[uint32]bool,
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
-) {
+) (ir.Block, bool) {
+	out := make(ir.Block, 0, len(block))
+	dropped := false
+	nested := func(b ir.Block) ir.Block {
+		b, d := dropDeadControlFlow(fn, b, deadLocals, live, localPtrs)
+		dropped = dropped || d
+		return b
+	}
 	for i := range block {
-		switch sk := block[i].Kind.(type) {
+		st := block[i]
+		switch sk := st.Kind.(type) {
 		case ir.StmtIf:
-			// Recurse first so nested dead control flow is handled.
-			unmarkDeadControlFlow(fn, sk.Accept, deadLocals, live, localPtrs)
-			unmarkDeadControlFlow(fn, sk.Reject, deadLocals, live, localPtrs)
-
+			sk.Accept, sk.Reject = nested(sk.Accept), nested(sk.Reject)
 			if blockWillBeEmpty(fn, sk.Accept, deadLocals, live, localPtrs) &&
 				blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs) &&
 				!feedsLivePhi(fn, block, i, live) {
-				// Both branches dead — unmark the condition.
-				unmarkExpr(fn, sk.Condition, live)
+				dropped = true
+				continue
 			}
+			st.Kind = sk
 
 		case ir.StmtSwitch:
+			cases := make([]ir.SwitchCase, len(sk.Cases))
 			allEmpty := true
-			for ci := range sk.Cases {
-				unmarkDeadControlFlow(fn, sk.Cases[ci].Body, deadLocals, live, localPtrs)
-				if !blockWillBeEmpty(fn, sk.Cases[ci].Body, deadLocals, live, localPtrs) {
+			for ci, c := range sk.Cases {
+				c.Body = nested(c.Body)
+				cases[ci] = c
+				if !blockWillBeEmpty(fn, c.Body, deadLocals, live, localPtrs) {
 					allEmpty = false
 				}
 			}
 			if allEmpty && !feedsLivePhi(fn, block, i, live) {
-				unmarkExpr(fn, sk.Selector, live)
+				dropped = true
+				continue
 			}
+			sk.Cases = cases
+			st.Kind = sk
 
 		case ir.StmtLoop:
-			unmarkDeadControlFlow(fn, sk.Body, deadLocals, live, localPtrs)
-			unmarkDeadControlFlow(fn, sk.Continuing, deadLocals, live, localPtrs)
+			sk.Body, sk.Continuing = nested(sk.Body), nested(sk.Continuing)
+			st.Kind = sk
 
 		case ir.StmtBlock:
-			unmarkDeadControlFlow(fn, sk.Block, deadLocals, live, localPtrs)
+			sk.Block = nested(sk.Block)
+			st.Kind = sk
 		}
+		out = append(out, st)
 	}
+	return out, dropped
 }
 
 // feedsLivePhi reports whether the emits right after block[i] hold a live
@@ -469,47 +492,10 @@ func feedsLivePhi(fn *ir.Function, block ir.Block, i int, live []bool) bool {
 	return false
 }
 
-// unmarkExpr unmarks an expression and all sub-expressions that are
-// only live because of the given handle. It only unmarks expressions
-// that have no other live consumer.
-func unmarkExpr(fn *ir.Function, h ir.ExpressionHandle, live []bool) {
-	if int(h) >= len(live) || !live[h] {
-		return
-	}
-	// Only unmark if no other live expression references this one.
-	if hasOtherLiveConsumer(fn, h, live) {
-		return
-	}
-	live[h] = false
-	visitExprHandles(fn.Expressions[h].Kind, func(sub ir.ExpressionHandle) {
-		unmarkExpr(fn, sub, live)
-	})
-}
-
-// hasOtherLiveConsumer checks if any live expression references h.
-// Used to ensure we don't unmark expressions that feed into other
-// live computations beyond the dead control flow.
-func hasOtherLiveConsumer(fn *ir.Function, target ir.ExpressionHandle, live []bool) bool {
-	for h, expr := range fn.Expressions {
-		if !live[h] || ir.ExpressionHandle(h) == target {
-			continue
-		}
-		found := false
-		visitExprHandles(expr.Kind, func(sub ir.ExpressionHandle) {
-			if sub == target {
-				found = true
-			}
-		})
-		if found {
-			return true
-		}
-	}
-	return false
-}
-
 // blockWillBeEmpty predicts whether a block will be empty after
-// the sweep phase runs. A block is empty if all its statements
-// will be removed: dead stores, dead emit ranges, and dead control flow.
+// the sweep phase runs: all its statements are dead stores and dead emit
+// ranges. dropDeadControlFlow has removed the dead ifs and switches in it
+// first, so one that is still there stays.
 func blockWillBeEmpty(
 	fn *ir.Function,
 	block ir.Block,
@@ -543,20 +529,10 @@ func stmtSurvivesSweep(
 	case ir.StmtEmit:
 		newRange := shrinkEmitRange(sk.Range, live)
 		return newRange.Start < newRange.End
-	case ir.StmtIf:
-		acceptEmpty := blockWillBeEmpty(fn, sk.Accept, deadLocals, live, localPtrs)
-		rejectEmpty := blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs)
-		return !(acceptEmpty && rejectEmpty && !live[sk.Condition])
-	case ir.StmtSwitch:
-		allEmpty := true
-		for ci := range sk.Cases {
-			if !blockWillBeEmpty(fn, sk.Cases[ci].Body, deadLocals, live, localPtrs) {
-				allEmpty = false
-			}
-		}
-		return !(allEmpty && !live[sk.Selector])
 	default:
-		return true // conservatively keep
+		// Ifs and switches still here stay (see blockWillBeEmpty); the
+		// others are kept conservatively.
+		return true
 	}
 }
 
@@ -668,9 +644,7 @@ func doSweepBlock(
 			result = append(result, ir.Statement{Kind: ir.StmtEmit{Range: newRange}})
 
 		case ir.StmtIf:
-			if swept, keep := sweepIf(fn, sk, deadLocals, live, localPtrs); keep {
-				result = append(result, swept)
-			}
+			result = append(result, sweepIf(fn, sk, deadLocals, live, localPtrs))
 
 		case ir.StmtLoop:
 			if swept, keep := sweepLoop(fn, sk, deadLocals, live, localPtrs); keep {
@@ -678,9 +652,7 @@ func doSweepBlock(
 			}
 
 		case ir.StmtSwitch:
-			if swept, keep := sweepSwitch(fn, sk, deadLocals, live, localPtrs); keep {
-				result = append(result, swept)
-			}
+			result = append(result, sweepSwitch(fn, sk, deadLocals, live, localPtrs))
 
 		case ir.StmtCall:
 			if sweepCallIsLive(sk, live) {
@@ -701,27 +673,20 @@ func doSweepBlock(
 	return result
 }
 
-// sweepIf recursively sweeps an if-statement's branches and reports
-// whether the statement should be kept. It eliminates the entire
-// if-statement when both branches are empty after sweeping AND the
-// condition expression has no side effects (DXC's ADCE does the same).
+// sweepIf sweeps an if-statement's branches. The if itself stays:
+// dropDeadControlFlow already removed the ifs with nothing live in them.
 func sweepIf(
 	fn *ir.Function,
 	sk ir.StmtIf,
 	deadLocals map[uint32]bool,
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
-) (ir.Statement, bool) {
-	accept := doSweepBlock(fn, sk.Accept, deadLocals, live, localPtrs)
-	reject := doSweepBlock(fn, sk.Reject, deadLocals, live, localPtrs)
-	if len(accept) == 0 && len(reject) == 0 && !live[sk.Condition] {
-		return ir.Statement{}, false
-	}
+) ir.Statement {
 	return ir.Statement{Kind: ir.StmtIf{
 		Condition: sk.Condition,
-		Accept:    accept,
-		Reject:    reject,
-	}}, true
+		Accept:    doSweepBlock(fn, sk.Accept, deadLocals, live, localPtrs),
+		Reject:    doSweepBlock(fn, sk.Reject, deadLocals, live, localPtrs),
+	}}
 }
 
 // sweepLoop recursively sweeps a loop's body and continuing block and
@@ -819,36 +784,28 @@ func blockOnlyHasTerminators(block ir.Block) bool {
 	return true
 }
 
-// sweepSwitch sweeps a StmtSwitch and returns the swept statement.
-// Returns (stmt, true) if the switch survives, (_, false) if eliminated.
+// sweepSwitch sweeps a StmtSwitch's cases. The switch itself stays:
+// dropDeadControlFlow already removed the switches with nothing live in
+// them.
 func sweepSwitch(
 	fn *ir.Function,
 	sk ir.StmtSwitch,
 	deadLocals map[uint32]bool,
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
-) (ir.Statement, bool) {
+) ir.Statement {
 	newCases := make([]ir.SwitchCase, len(sk.Cases))
-	allEmpty := true
 	for ci := range sk.Cases {
 		newCases[ci] = ir.SwitchCase{
 			Value:       sk.Cases[ci].Value,
 			Body:        doSweepBlock(fn, sk.Cases[ci].Body, deadLocals, live, localPtrs),
 			FallThrough: sk.Cases[ci].FallThrough,
 		}
-		if len(newCases[ci].Body) > 0 {
-			allEmpty = false
-		}
-	}
-	// Eliminate switch when all case bodies are empty and
-	// the selector is dead (no side effects feed it).
-	if allEmpty && !live[sk.Selector] {
-		return ir.Statement{}, false
 	}
 	return ir.Statement{Kind: ir.StmtSwitch{
 		Selector: sk.Selector,
 		Cases:    newCases,
-	}}, true
+	}}
 }
 
 // shrinkEmitRange returns a new Range that excludes leading and
