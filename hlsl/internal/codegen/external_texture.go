@@ -19,9 +19,10 @@ func (w *Writer) isExternalTexture(ty ir.TypeHandle) bool {
 }
 
 // resolveExternalTextureBinding resolves the external texture bind target for a resource binding.
-// Returns nil if the binding is not in the external_texture_binding_map.
+// Without an entry it records a missing-binding error and returns nil,
+// unless FakeMissingBindings gives Rust naga's fake targets.
 func (w *Writer) resolveExternalTextureBinding(rb *ir.ResourceBinding) *ExternalTextureBindTarget {
-	if w.options.ExternalTextureBindingMap == nil || rb == nil {
+	if rb == nil {
 		return nil
 	}
 	key := ResourceBinding{Group: rb.Group, Binding: rb.Binding}
@@ -39,6 +40,12 @@ func (w *Writer) resolveExternalTextureBinding(rb *ir.ResourceBinding) *External
 			Params: BindTarget{Register: 3},
 		}
 		return &target
+	}
+	// Its three planes and parameters have no counterpart at the WGSL
+	// binding, so a missing entry is an error even with a nil map.
+	if w.bindingErr == nil {
+		w.bindingErr = NewError(ErrMissingBinding,
+			fmt.Sprintf("external texture at group %d, binding %d has no entry in ExternalTextureBindingMap", rb.Group, rb.Binding))
 	}
 	return nil
 }

@@ -3,7 +3,11 @@
 
 package codegen
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/gogpu/naga/backend"
+)
 
 // ErrorKind categorizes HLSL compilation errors.
 type ErrorKind uint8
@@ -80,6 +84,15 @@ func (e *Error) Error() string {
 		return fmt.Sprintf("hlsl %s at [%d:%d]: %s", e.Kind, e.Span.Start, e.Span.End, e.Message)
 	}
 	return fmt.Sprintf("hlsl %s: %s", e.Kind, e.Message)
+}
+
+// Unwrap returns the shared category of the error, so that callers can
+// match it with errors.Is: backend.ErrMissingBinding for a missing binding.
+func (e *Error) Unwrap() error {
+	if e.Kind == ErrMissingBinding {
+		return backend.ErrMissingBinding
+	}
+	return nil
 }
 
 // NewError creates a new HLSL error without span information.

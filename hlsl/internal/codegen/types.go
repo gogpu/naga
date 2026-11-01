@@ -522,16 +522,16 @@ func (w *Writer) writeSamplerIndexBuffer(group uint32) {
 
 	bufName := w.namer.call(fmt.Sprintf("nagaGroup%dSamplerIndexArray", group))
 
-	// Look up the bind target for this group's index buffer
-	var bt BindTarget
-	if w.options.SamplerBufferBindingMap != nil {
-		if target, ok := w.options.SamplerBufferBindingMap[group]; ok {
-			bt = target
-		} else if w.options.FakeMissingBindings {
-			bt = BindTarget{Space: 255, Register: group}
-		}
-	} else if w.options.FakeMissingBindings {
-		bt = BindTarget{Space: 255, Register: group}
+	// Look up the bind target for this group's index buffer: its entry, or,
+	// with a nil map or FakeMissingBindings, Rust naga's fake target
+	// register(t<group>, space255). A non-nil map without the group is an
+	// error.
+	bt := BindTarget{Space: 255, Register: group}
+	if target, ok := w.options.SamplerBufferBindingMap[group]; ok {
+		bt = target
+	} else if w.options.SamplerBufferBindingMap != nil && !w.options.FakeMissingBindings && w.bindingErr == nil {
+		w.bindingErr = NewError(ErrMissingBinding,
+			fmt.Sprintf("the sampler index buffer of group %d has no entry in SamplerBufferBindingMap", group))
 	}
 
 	w.WriteLine("StructuredBuffer<uint> %s : register(t%d, space%d);", bufName, bt.Register, bt.Space)

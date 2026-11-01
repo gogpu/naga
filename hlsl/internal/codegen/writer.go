@@ -79,6 +79,10 @@ type Writer struct {
 	module  *ir.Module
 	options *Options
 
+	// bindingErr is the first resource a non-nil binding map left out
+	// without FakeMissingBindings; Compile returns it.
+	bindingErr error
+
 	// Name management
 	names map[nameKey]string
 	namer *namer
@@ -559,8 +563,9 @@ func (w *Writer) getBindTarget(binding *ir.ResourceBinding) BindTarget {
 		return target
 	}
 
-	// Auto-generate binding if allowed
-	if w.options.FakeMissingBindings {
+	// A nil map, or FakeMissingBindings, puts the resource at its WGSL group
+	// and binding (Rust naga's fake_missing_bindings).
+	if w.options.BindingMap == nil || w.options.FakeMissingBindings {
 		space := uint8(0)
 		if binding.Group <= 255 {
 			space = uint8(binding.Group)
@@ -571,6 +576,10 @@ func (w *Writer) getBindTarget(binding *ir.ResourceBinding) BindTarget {
 		}
 	}
 
+	if w.bindingErr == nil {
+		w.bindingErr = NewError(ErrMissingBinding,
+			fmt.Sprintf("group %d, binding %d has no entry in BindingMap", binding.Group, binding.Binding))
+	}
 	return DefaultBindTarget()
 }
 

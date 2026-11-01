@@ -224,6 +224,39 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 	return nil
 }
 
+// checkNumWorkgroups refuses an entry point that reads num_workgroups
+// without SpecialConstantsBinding: HLSL has no system value for it, and the
+// value comes from the special constants buffer. Rust naga writes it as
+// SV_GroupID then, the workgroup's ID instead of the count; that is never
+// right, so FakeMissingBindings does not allow it either.
+func checkNumWorkgroups(module *ir.Module, options *Options) error {
+	if options.SpecialConstantsBinding != nil {
+		return nil
+	}
+	isNumWorkgroups := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bi, ok := (*b).(ir.BuiltinBinding)
+		return ok && bi.Builtin == ir.BuiltinNumWorkGroups
+	}
+	for _, ep := range module.EntryPoints {
+		for _, arg := range ep.Function.Arguments {
+			found := isNumWorkgroups(arg.Binding)
+			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for _, m := range st.Members {
+					found = found || isNumWorkgroups(m.Binding)
+				}
+			}
+			if found {
+				return NewError(ErrMissingBinding, fmt.Sprintf(
+					"entry point %q reads num_workgroups, which needs SpecialConstantsBinding", ep.Name))
+			}
+		}
+	}
+	return nil
+}
+
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
 func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, error) {
@@ -244,6 +277,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	if err := checkBoundsCheckPolicies(options.BoundsCheckPolicies); err != nil {
 		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
+	if err := checkNumWorkgroups(module, options); err != nil {
+		return "", nil, err
+	}
 
 	// Create writer
 	w := newWriter(module, options)
@@ -251,6 +287,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	// Generate HLSL code
 	if err := w.writeModule(); err != nil {
 		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
+	if w.bindingErr != nil {
+		return "", nil, w.bindingErr
 	}
 
 	info := &TranslationInfo{
