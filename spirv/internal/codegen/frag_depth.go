@@ -97,6 +97,28 @@ func (b *Backend) declareFragDepthRange(epIdx int, ep *ir.EntryPoint, output *en
 	return nil
 }
 
+// flipPositionY negates the y of output variable varID, just stored, when it
+// is a Position output and Options.AdjustCoordinateSpace is set: Rust naga's
+// write_epilogue_position_y_flip (back/spv/block.rs), for a Vulkan device
+// that ignores a negative viewport height.
+func (e *ExpressionEmitter) flipPositionY(varID uint32) error {
+	b := e.backend
+	if !b.options.AdjustCoordinateSpace || !b.positionVars[varID] {
+		return nil
+	}
+	f32TypeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	if err != nil {
+		return err
+	}
+	index, err := e.u32Constant(1)
+	if err != nil {
+		return err
+	}
+	y := b.builder.AddAccessChain(b.emitPointerType(StorageClassOutput, f32TypeID), varID, index)
+	b.builder.AddStore(y, b.builder.AddUnaryOp(OpFNegate, f32TypeID, b.builder.AddLoad(f32TypeID, y)))
+	return nil
+}
+
 // clampFragDepth returns value, about to be stored to output variable varID,
 // clamped to the range in the push constants when varID is a FragDepth
 // output of an entry point that clamps it, as WebGPU clamps frag_depth to

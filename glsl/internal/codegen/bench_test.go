@@ -159,8 +159,7 @@ func BenchmarkGLSLEmitES(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			module := glslParseToIR(b, bc.source)
 			opts := Options{
-				LangVersion:        VersionES300,
-				ForceHighPrecision: true,
+				LangVersion: VersionES300,
 			}
 
 			b.ReportAllocs()
@@ -197,8 +196,7 @@ func BenchmarkGLSLVersions(b *testing.B) {
 	for _, vv := range versions {
 		b.Run(vv.name, func(b *testing.B) {
 			opts := Options{
-				LangVersion:        vv.version,
-				ForceHighPrecision: true,
+				LangVersion: vv.version,
 			}
 
 			b.ReportAllocs()

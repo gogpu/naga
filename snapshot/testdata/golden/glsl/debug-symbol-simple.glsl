@@ -20,6 +20,7 @@ void main() {
     VertexOutput _e8 = out_;
     gl_Position = _e8.clip_position;
     _vs2fs_location0 = _e8.color;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

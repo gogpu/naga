@@ -590,20 +590,27 @@ func parseBindTargetFull(btContent string) hlsl.BindTarget {
 // glslConfig holds parsed GLSL options from a Rust naga TOML config.
 type glslConfig struct {
 	version             glsl.Version // defaults to ES 310 (Rust default)
-	writerFlags         glsl.WriterFlags
+	writerFlags         rustGLSLWriterFlags
 	excludeList         map[string]bool // entry points to skip
 	boundsCheckPolicies backend.BoundsCheckPolicies
 	bindingMap          map[glsl.BindingMapKey]uint8
 }
 
+// rustGLSLWriterFlags is the part of Rust naga's glsl::WriterFlags the tests
+// set; Rust's default is adjustCoordinateSpace alone.
+type rustGLSLWriterFlags struct {
+	adjustCoordinateSpace, forcePointSize, textureShadowLod bool
+}
+
 // toOptions converts the parsed config to glsl.Options.
 func (c glslConfig) toOptions() glsl.Options {
 	return glsl.Options{
-		LangVersion:         c.version,
-		WriterFlags:         c.writerFlags,
-		ForceHighPrecision:  true,
-		BoundsCheckPolicies: c.boundsCheckPolicies,
-		BindingMap:          c.bindingMap,
+		LangVersion:               c.version,
+		SkipAdjustCoordinateSpace: !c.writerFlags.adjustCoordinateSpace,
+		ForcePointSize:            c.writerFlags.forcePointSize,
+		TextureShadowLod:          c.writerFlags.textureShadowLod,
+		BoundsCheckPolicies:       c.boundsCheckPolicies,
+		BindingMap:                c.bindingMap,
 	}
 }
 
@@ -611,8 +618,8 @@ func (c glslConfig) toOptions() glsl.Options {
 // Returns Rust defaults (ES 310, ADJUST_COORDINATE_SPACE) if no TOML file exists.
 func readGLSLConfig(shaderName string) (glslConfig, error) {
 	cfg := glslConfig{
-		version:             glsl.Version{Major: 3, Minor: 10, ES: true}, // Rust default: ES 310
-		writerFlags:         glsl.WriterFlagAdjustCoordinateSpace,        // Rust default
+		version:             glsl.Version{Major: 3, Minor: 10, ES: true},      // Rust default: ES 310
+		writerFlags:         rustGLSLWriterFlags{adjustCoordinateSpace: true}, // Rust default
 		excludeList:         make(map[string]bool),
 		boundsCheckPolicies: glslBoundsCheckPolicies(rustBoundsCheckPolicies{}), // Rust default: Unchecked
 	}
@@ -647,15 +654,11 @@ func readGLSLConfig(shaderName string) (glslConfig, error) {
 	reFlags := regexp.MustCompile(`writer_flags\s*=\s*"([^"]*)"`)
 	if m := reFlags.FindStringSubmatch(glslSection); m != nil {
 		flagStr := m[1]
-		cfg.writerFlags = 0 // Reset default if explicitly set
-		if strings.Contains(flagStr, "ADJUST_COORDINATE_SPACE") {
-			cfg.writerFlags |= glsl.WriterFlagAdjustCoordinateSpace
-		}
-		if strings.Contains(flagStr, "FORCE_POINT_SIZE") {
-			cfg.writerFlags |= glsl.WriterFlagForcePointSize
-		}
-		if strings.Contains(flagStr, "TEXTURE_SHADOW_LOD") {
-			cfg.writerFlags |= glsl.WriterFlagTextureShadowLod
+		// An explicit value replaces the default.
+		cfg.writerFlags = rustGLSLWriterFlags{
+			adjustCoordinateSpace: strings.Contains(flagStr, "ADJUST_COORDINATE_SPACE"),
+			forcePointSize:        strings.Contains(flagStr, "FORCE_POINT_SIZE"),
+			textureShadowLod:      strings.Contains(flagStr, "TEXTURE_SHADOW_LOD"),
 		}
 	}
 

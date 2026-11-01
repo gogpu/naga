@@ -339,7 +339,7 @@ func compileCorpusGLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry st
 	var errs []error
 	sel := &backend.EntryPointSelector{Stage: ir.StageCompute, Name: entry}
 	for _, version := range glslVersions {
-		src, _, err := glsl.Compile(m, glsl.Options{LangVersion: version, EntryPoint: sel, ForceHighPrecision: true})
+		src, _, err := glsl.Compile(m, glsl.Options{LangVersion: version, EntryPoint: sel})
 		if err == nil && v.glslang != "" {
 			err = runTool(t, v.glslang, "case.comp", []byte(src))
 		}

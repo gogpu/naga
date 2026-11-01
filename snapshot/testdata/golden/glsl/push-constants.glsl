@@ -23,6 +23,7 @@ void main() {
     uint vi = uint(gl_VertexID);
     float _e9 = _immediates_binding_vs.position_clip;
     gl_Position = vec4(((float(ii) * float(vi)) * pos), 0.0, _e9);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

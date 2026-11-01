@@ -29,6 +29,7 @@ void main() {
     VertexOutput _tmp_return = VertexOutput(vec4(1.0), float(tmp));
     gl_Position = _tmp_return.position;
     _vs2fs_location1 = _tmp_return._varying;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 
@@ -134,6 +135,7 @@ void main() {
     uint index = 2u;
     uint _e8 = index;
     gl_Position = vec4(float(in1_.index), float(in2_.index), float(_e8), 0.0);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

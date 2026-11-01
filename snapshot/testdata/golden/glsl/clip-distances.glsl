@@ -11,6 +11,7 @@ void main() {
     VertexOutput _e4 = out_;
     gl_Position = _e4.position;
     gl_ClipDistance = _e4.clip_distances;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

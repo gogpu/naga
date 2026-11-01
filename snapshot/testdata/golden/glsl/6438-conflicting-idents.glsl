@@ -14,6 +14,7 @@ void main() {
     OurVertexShaderOutput _e6 = vsOutput;
     gl_Position = _e6.position;
     _vs2fs_location0 = _e6.texcoord;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

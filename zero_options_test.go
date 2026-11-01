@@ -503,3 +503,42 @@ func TestZeroShaderModel(t *testing.T) {
 		t.Errorf("dxil 5.1: err = %v", err)
 	}
 }
+
+// TestZeroSPIRVAdjustCoordinateSpace: the zero value leaves Position as the
+// entry point writes it (Vulkan flips y with a negative viewport height);
+// AdjustCoordinateSpace negates its y after the store, as Rust naga's
+// write_epilogue_position_y_flip. The field used to be accepted and ignored.
+func TestZeroSPIRVAdjustCoordinateSpace(t *testing.T) {
+	const opFNegate = 127
+	for _, adjust := range []bool{false, true} {
+		bin, err := spirv.NewBackend(spirv.Options{EntryPoint: selVS, AdjustCoordinateSpace: adjust}).Compile(entryPointModule(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ops, _ := spirvOps(t, bin)
+		want := 0
+		if adjust {
+			want = 1
+		}
+		if got := countOp(ops, opFNegate); got != want {
+			t.Errorf("AdjustCoordinateSpace %v: %d OpFNegate, want %d", adjust, got, want)
+		}
+	}
+}
+
+// TestZeroGLSLAdjustCoordinateSpace: GL clip space differs from WebGPU's, so
+// the zero value converts gl_Position (Rust naga's default
+// ADJUST_COORDINATE_SPACE, which wgpu-hal's GLES backend always sets); the
+// zero WriterFlags used to leave it unconverted.
+func TestZeroGLSLAdjustCoordinateSpace(t *testing.T) {
+	const adjust = "gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);"
+	for _, skip := range []bool{false, true} {
+		src, _, err := glsl.Compile(entryPointModule(t), glsl.Options{EntryPoint: selVS, SkipAdjustCoordinateSpace: skip})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(src, adjust) == skip {
+			t.Errorf("SkipAdjustCoordinateSpace %v: adjusted = %v:\n%s", skip, !skip, src)
+		}
+	}
+}

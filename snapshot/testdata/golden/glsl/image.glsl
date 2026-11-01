@@ -104,6 +104,7 @@ void main() {
     uvec2 dim_2s_ms = uvec2(textureSize(_group_0_binding_8_vs).xy);
     uint sum = ((((((((((dim_1d + dim_2d.y) + dim_2d_lod.y) + dim_2d_array.y) + dim_2d_array_lod.y) + dim_cube.y) + dim_cube_lod.y) + dim_cube_array.y) + dim_cube_array_lod.y) + dim_3d.z) + dim_3d_lod.z);
     gl_Position = vec4(float(sum));
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 
@@ -138,6 +139,7 @@ void main() {
     uint num_samples_aa = uint(textureSamples(_group_0_binding_8_vs));
     uint sum = (((((((num_layers_2d + num_layers_cube) + num_samples_aa) + num_levels_2d) + num_levels_2d_array) + num_levels_3d) + num_levels_cube) + num_levels_cube_array);
     gl_Position = vec4(float(sum));
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

@@ -590,43 +590,6 @@ func TestNamer_SpecialChars(t *testing.T) {
 }
 
 // =============================================================================
-// WriterFlags Tests
-// =============================================================================
-
-func TestWriterFlags(t *testing.T) {
-	// Ensure flag values are distinct
-	flags := []WriterFlags{
-		WriterFlagNone,
-		WriterFlagExplicitTypes,
-		WriterFlagDebugInfo,
-		WriterFlagMinify,
-		WriterFlagAdjustCoordinateSpace,
-		WriterFlagForcePointSize,
-		WriterFlagTextureShadowLod,
-	}
-
-	for i, f1 := range flags {
-		for j, f2 := range flags {
-			if i != j && f1 == f2 && f1 != WriterFlagNone {
-				t.Errorf("flags %d and %d have same value: %d", i, j, f1)
-			}
-		}
-	}
-
-	// Test combining flags
-	combined := WriterFlagAdjustCoordinateSpace | WriterFlagForcePointSize
-	if combined&WriterFlagAdjustCoordinateSpace == 0 {
-		t.Error("combined flags should include AdjustCoordinateSpace")
-	}
-	if combined&WriterFlagForcePointSize == 0 {
-		t.Error("combined flags should include ForcePointSize")
-	}
-	if combined&WriterFlagDebugInfo != 0 {
-		t.Error("combined flags should not include DebugInfo")
-	}
-}
-
-// =============================================================================
 // BoundsCheckPolicy Tests
 // =============================================================================
 

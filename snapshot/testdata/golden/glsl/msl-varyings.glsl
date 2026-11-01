@@ -18,6 +18,7 @@ void main() {
     VertexOutput out_ = VertexOutput(vec4(0.0));
     VertexOutput _e3 = out_;
     gl_Position = _e3.position;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

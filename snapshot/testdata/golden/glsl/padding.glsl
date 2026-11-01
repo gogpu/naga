@@ -26,6 +26,7 @@ void main() {
     float _e8 = _group_0_binding_1_vs.b;
     float _e12 = _group_0_binding_2_vs.b;
     gl_Position = (((vec4(1.0) * _e4) * _e8) * _e12);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

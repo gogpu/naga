@@ -195,7 +195,9 @@ type Backend struct {
 	// without push constants of their own, fragDepthRangeEPs the entry points
 	// that use it, and fragDepthRangeGlobals the push constant globals that
 	// carry the range of the entry points that have them.
-	fragDepthVars         map[uint32]bool
+	fragDepthVars map[uint32]bool
+	// positionVars are the Position output variables (flipPositionY).
+	positionVars          map[uint32]bool
 	fragDepthRanges       map[uint32]fragDepthRangeAt
 	fragDepthRange        uint32
 	fragDepthRangeEPs     map[int]bool
@@ -248,6 +250,7 @@ func NewBackend(options Options) *Backend {
 		matCx2ColumnIDs:       make(map[ir.TypeHandle]uint32),
 		nullConstantIDs:       make(map[uint32]uint32, 4),
 		fragDepthVars:         make(map[uint32]bool),
+		positionVars:          make(map[uint32]bool),
 		fragDepthRanges:       make(map[uint32]fragDepthRangeAt),
 		fragDepthRangeEPs:     make(map[int]bool),
 		fragDepthRangeGlobals: make(map[ir.GlobalVariableHandle]bool),
@@ -299,6 +302,7 @@ func (b *Backend) Reset() {
 	clear(b.matCx2ColumnIDs)
 	clear(b.nullConstantIDs)
 	clear(b.fragDepthVars)
+	clear(b.positionVars)
 	clear(b.fragDepthRanges)
 	clear(b.fragDepthRangeEPs)
 	clear(b.fragDepthRangeGlobals)
@@ -2323,6 +2327,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 						b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
 					}
 					b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
+					b.positionVars[varID] = binding.Builtin == ir.BuiltinPosition
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 					b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -2384,6 +2389,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 								b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
 							}
 							b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
+							b.positionVars[varID] = binding.Builtin == ir.BuiltinPosition
 						case ir.LocationBinding:
 							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 							b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -6587,6 +6593,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 						} else {
 							e.backend.builder.AddStore(varID, memberValue)
 						}
+						if err := e.flipPositionY(varID); err != nil {
+							return err
+						}
 					}
 				} else if e.output.singleVarID != 0 {
 					// Single output variable
@@ -6617,6 +6626,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 						e.backend.builder.AddStore(elemPtr, storeValue)
 					} else {
 						e.backend.builder.AddStore(e.output.singleVarID, storeValue)
+					}
+					if err := e.flipPositionY(e.output.singleVarID); err != nil {
+						return err
 					}
 				}
 				e.consumeBlock(Instruction{Opcode: OpReturn})

@@ -147,12 +147,8 @@ func TestDefaultOptions(t *testing.T) {
 		t.Errorf("Expected LangVersion Version330, got %v", opts.LangVersion)
 	}
 
-	if !opts.ForceHighPrecision {
-		t.Error("Expected ForceHighPrecision to be true")
-	}
-
-	if opts.WriterFlags != WriterFlagNone {
-		t.Errorf("Expected WriterFlags to be None, got %v", opts.WriterFlags)
+	if opts.SkipAdjustCoordinateSpace || opts.ForcePointSize || opts.TextureShadowLod {
+		t.Errorf("DefaultOptions sets a writer flag: %+v", opts)
 	}
 }
 
@@ -1215,12 +1211,12 @@ func TestFeatureDetection_TextureShadowLod(t *testing.T) {
 		},
 	}
 	w := newWriter(module, &Options{
-		LangVersion: Version{Major: 3, Minor: 20, ES: true},
-		WriterFlags: WriterFlagTextureShadowLod,
+		LangVersion:      Version{Major: 3, Minor: 20, ES: true},
+		TextureShadowLod: true,
 	})
 	w.collectFeatures()
 	if !w.features.contains(FeatureTextureShadowLod) {
-		t.Error("WriterFlagTextureShadowLod should request FeatureTextureShadowLod")
+		t.Error("TextureShadowLod should request FeatureTextureShadowLod")
 	}
 }
 
@@ -1233,19 +1229,19 @@ func TestCoordinateAdjustInStructReturn(t *testing.T) {
 		},
 	}
 
-	w := newWriter(&ir.Module{}, &Options{WriterFlags: WriterFlagAdjustCoordinateSpace})
+	w := newWriter(&ir.Module{}, &Options{})
 	w.writeCoordinateAdjustIfNeeded(info)
 	output := w.String()
 	if !strings.Contains(output, "gl_Position.yz") {
 		t.Errorf("expected coordinate adjust, got: %q", output)
 	}
 
-	// No adjust when flag not set
-	w2 := newWriter(&ir.Module{}, &Options{})
+	// No adjust with SkipAdjustCoordinateSpace
+	w2 := newWriter(&ir.Module{}, &Options{SkipAdjustCoordinateSpace: true})
 	w2.writeCoordinateAdjustIfNeeded(info)
 	output2 := w2.String()
 	if strings.Contains(output2, "gl_Position.yz") {
-		t.Error("should not adjust when flag not set")
+		t.Error("should not adjust with SkipAdjustCoordinateSpace")
 	}
 }
 
@@ -1257,8 +1253,8 @@ func TestForcePointSizeInReturn(t *testing.T) {
 	}
 	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
 	w := newWriter(module, &Options{
-		LangVersion: Version{Major: 3, Minor: 0, ES: true},
-		WriterFlags: WriterFlagForcePointSize,
+		LangVersion:    Version{Major: 3, Minor: 0, ES: true},
+		ForcePointSize: true,
 	})
 	w.inEntryPoint = true
 	w.entryPointResult = &ir.FunctionResult{Type: 0, Binding: &posBinding}

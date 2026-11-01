@@ -18,6 +18,7 @@ void main() {
     _vs2fs_location2 = _tmp_return.unused_value2_;
     _vs2fs_location0 = _tmp_return.unused_value;
     _vs2fs_location3 = _tmp_return.value2_;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

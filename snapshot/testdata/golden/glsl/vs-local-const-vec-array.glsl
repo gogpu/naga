@@ -5,6 +5,7 @@ void main() {
     vec2 positions[3] = vec2[3](vec2(0.0, 0.5), vec2(-0.5, -0.5), vec2(0.5, -0.5));
     vec2 _e13 = positions[idx];
     gl_Position = vec4(_e13, 0.0, 1.0);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

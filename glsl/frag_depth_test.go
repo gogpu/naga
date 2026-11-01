@@ -46,9 +46,8 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 		for _, version := range []glsl.Version{glsl.Version330, glsl.VersionES300} {
 			for _, clamp := range []*backend.ClampFragDepth{nil, {Offset: 0}} {
 				got, info, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
-					LangVersion:        version,
-					ForceHighPrecision: true,
-					ClampFragDepth:     clamp,
+					LangVersion:    version,
+					ClampFragDepth: clamp,
 				})
 				if err != nil {
 					t.Fatalf("%s, %v, clamp %v: %v", name, version, clamp, err)

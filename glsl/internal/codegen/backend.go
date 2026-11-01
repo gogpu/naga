@@ -145,38 +145,6 @@ func (v Version) SupportsStorageBuffers() bool {
 	return v.Major > 4 || (v.Major == 4 && v.Minor >= 30)
 }
 
-// WriterFlags control output formatting.
-type WriterFlags uint32
-
-const (
-	// WriterFlagNone uses default settings.
-	WriterFlagNone WriterFlags = 0
-
-	// WriterFlagExplicitTypes forces explicit type annotations.
-	WriterFlagExplicitTypes WriterFlags = 1 << iota
-
-	// WriterFlagDebugInfo adds source comments for debugging.
-	WriterFlagDebugInfo
-
-	// WriterFlagMinify removes unnecessary whitespace.
-	WriterFlagMinify
-
-	// WriterFlagAdjustCoordinateSpace adds gl_Position coordinate adjustment
-	// at the end of vertex shaders to convert from Vulkan/WebGPU conventions
-	// (Y-down, Z in [0,1]) to OpenGL conventions (Y-up, Z in [-1,1]).
-	// Matches Rust naga's WriterFlags::ADJUST_COORDINATE_SPACE.
-	// Emits: gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
-	WriterFlagAdjustCoordinateSpace
-
-	// WriterFlagForcePointSize emits gl_PointSize = 1.0 in vertex shaders.
-	// Required for WebGL compatibility.
-	WriterFlagForcePointSize
-
-	// WriterFlagTextureShadowLod enables GL_EXT_texture_shadow_lod extension
-	// for sampling cube/array shadow textures with explicit LOD.
-	WriterFlagTextureShadowLod
-)
-
 // Options configures GLSL code generation.
 type Options struct {
 	// LangVersion is the target GLSL version.
@@ -186,24 +154,18 @@ type Options struct {
 	// EntryPoint selects the entry point to compile; nil selects the first.
 	EntryPoint *backend.EntryPointSelector
 
-	// SamplerBindingBase adds offset to sampler binding indices.
-	SamplerBindingBase uint32
+	// SkipAdjustCoordinateSpace leaves gl_Position as written; by default a
+	// vertex entry point ends with
+	// gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
+	// (Rust naga's WriterFlags::ADJUST_COORDINATE_SPACE).
+	SkipAdjustCoordinateSpace bool
 
-	// TextureBindingBase adds offset to texture binding indices.
-	TextureBindingBase uint32
+	// ForcePointSize writes gl_PointSize = 1.0 in vertex entry points
+	// (FORCE_POINT_SIZE).
+	ForcePointSize bool
 
-	// UniformBindingBase adds offset to uniform buffer binding indices.
-	UniformBindingBase uint32
-
-	// StorageBindingBase adds offset to storage buffer binding indices.
-	StorageBindingBase uint32
-
-	// WriterFlags control output formatting.
-	WriterFlags WriterFlags
-
-	// ForceHighPrecision forces highp precision for all float types (ES only).
-	// If false, uses default precision qualifiers.
-	ForceHighPrecision bool
+	// TextureShadowLod enables GL_EXT_texture_shadow_lod (TEXTURE_SHADOW_LOD).
+	TextureShadowLod bool
 
 	// BoundsCheckPolicies controls bounds checking for resource accesses.
 	// Matches Rust naga's proc::BoundsCheckPolicies.
@@ -238,8 +200,7 @@ type BindingMapKey struct {
 // DefaultOptions returns sensible default options for GLSL generation.
 func DefaultOptions() Options {
 	return Options{
-		LangVersion:        Version330,
-		ForceHighPrecision: true,
+		LangVersion: Version330,
 	}
 }
 

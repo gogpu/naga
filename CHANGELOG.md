@@ -75,6 +75,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is an error wrapping `backend.ErrMissingBinding`, `FakeMissingBindings` or not: HLSL wrote `register(b0)` silently,
   which can take the caller's own b0, and DXIL gave the buffer a synthetic register that the PSV0 resource table left
   out. The dead `msl.EntryPointResources.PushConstantBuffer` is removed (`ImmediatesBuffer` is the field).
+- **Breaking: GLSL writer flags are named fields, and GL clip space is converted at the zero value.**
+  `glsl.Options.WriterFlags` and the `glsl.WriterFlag*` constants are replaced by `SkipAdjustCoordinateSpace`,
+  `ForcePointSize` and `TextureShadowLod`. A vertex entry point now converts `gl_Position` to GL clip space by
+  default, as Rust naga's default flags and wgpu-hal's GLES backend do; the zero `WriterFlags` left it unconverted.
+  Removed, as they had no effect: `ExplicitTypes`, `DebugInfo`, `Minify`, the `Sampler`/`Texture`/`Uniform`/
+  `StorageBindingBase` offsets and `ForceHighPrecision` (ES output always declares `precision highp float;`).
+- **Breaking: `spirv.Options.AdjustCoordinateSpace` works, and `Validation` is removed.** The field was accepted and
+  ignored; it now negates the y of every `Position` output after the store, as Rust naga's `ADJUST_COORDINATE_SPACE`.
+  The zero value leaves positions as they are (Vulkan flips y with a negative viewport height; wgpu-hal sets the flag
+  only for devices that ignore one, although Rust's `Options::default()` has it on). `Validation` did nothing.
 - **Breaking: msl vertex pulling is one option.** `msl.Options.VertexPulling *msl.VertexPullingOptions{VertexBuffers}`
   replaces `VertexPullingTransform` and `VertexBufferMappings`; `msl.PipelineOptions` and `msl.CompileWithPipeline`
   are removed (`EntryPoint` and `AllowAndForcePointSize` live in `msl.Options`).

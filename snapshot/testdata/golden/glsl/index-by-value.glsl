@@ -27,6 +27,7 @@ void main() {
     float _e14 = index_let_matrix(1, 2);
     vec4 _e15 = index_let_array_1d(vi);
     gl_Position = _e15;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

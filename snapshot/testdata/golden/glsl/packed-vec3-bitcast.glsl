@@ -15,6 +15,7 @@ void main() {
     vec3 position = vec3((in_.chunk - ivec3(5)));
     VertexOutput _e7 = out_;
     gl_Position = _e7.clip_position;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

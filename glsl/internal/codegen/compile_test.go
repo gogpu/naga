@@ -57,7 +57,6 @@ fn vs_main(@location(0) pos: vec4<f32>) -> @builtin(position) vec4<f32> {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version330,
-		WriterFlags: WriterFlagAdjustCoordinateSpace,
 	})
 
 	glslMustContain(t, output, "#version 330 core")
@@ -74,8 +73,8 @@ fn vs_main(@location(0) pos: vec4<f32>) -> @builtin(position) vec4<f32> {
 }
 `
 	output := wgslToGLSL(t, source, Options{
-		LangVersion: Version330,
-		WriterFlags: WriterFlagForcePointSize,
+		LangVersion:    Version330,
+		ForcePointSize: true,
 	})
 
 	glslMustContain(t, output, "gl_PointSize = 1.0;")
@@ -446,8 +445,7 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 `
 	output := wgslToGLSL(t, source, Options{
-		LangVersion:        VersionES300,
-		ForceHighPrecision: true,
+		LangVersion: VersionES300,
 	})
 	glslMustContain(t, output, "#version 300 es")
 	glslMustContain(t, output, "precision highp float;")
@@ -1620,11 +1618,10 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 `
 	output := wgslToGLSL(t, source, Options{
-		LangVersion:        VersionES300,
-		ForceHighPrecision: false,
+		LangVersion: VersionES300,
 	})
 	glslMustContain(t, output, "#version 300 es")
-	// With ForceHighPrecision=false, should still have some precision qualifier
+	// ES output always declares a float precision
 	glslMustContain(t, output, "precision")
 }
 
@@ -1855,8 +1852,8 @@ fn vs_main(@location(0) pos: vec3<f32>, @location(1) col: vec3<f32>) -> VS_Out {
 }
 `
 	output := wgslToGLSL(t, source, Options{
-		LangVersion: Version330,
-		WriterFlags: WriterFlagAdjustCoordinateSpace | WriterFlagForcePointSize,
+		LangVersion:    Version330,
+		ForcePointSize: true,
 	})
 	glslMustContain(t, output, "gl_Position.yz")
 	glslMustContain(t, output, "gl_PointSize = 1.0;")
