@@ -1980,7 +1980,8 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 	}
 
 	// Phase 3: Math-specific forced baking (matches Rust's explicit inserts)
-	for _, expr := range fn.Expressions {
+	for i, expr := range fn.Expressions {
+		handle := ir.ExpressionHandle(i)
 		switch m := expr.Kind.(type) {
 		case ir.ExprBinary:
 			// Integer % is written as left - right * (left / right), which
@@ -2006,8 +2007,35 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 				if m.Arg1 != nil {
 					w.needBakeExpression[*m.Arg1] = struct{}{}
 				}
-			case ir.MathQuantizeToF16:
+			case ir.MathQuantizeToF16,
+				ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp,
+				ir.MathUnpack4xI8, ir.MathUnpack4xU8:
+				// Their expansions read the argument four times.
 				w.needBakeExpression[m.Arg] = struct{}{}
+			case ir.MathDot:
+				// An integer dot is expanded per component.
+				if w.isIntegerScalar(w.fnExprType(fn, handle)) {
+					w.needBakeExpression[m.Arg] = struct{}{}
+					if m.Arg1 != nil {
+						w.needBakeExpression[*m.Arg1] = struct{}{}
+					}
+				}
+			case ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm:
+				if !w.options.LangVersion.supportsPack4x8() {
+					w.needBakeExpression[m.Arg] = struct{}{}
+				}
+			case ir.MathUnpack2x16snorm:
+				if !w.options.LangVersion.supportsPack2x16snorm() {
+					w.needBakeExpression[m.Arg] = struct{}{}
+				}
+			case ir.MathUnpack2x16unorm:
+				if !w.options.LangVersion.supportsPack2x16unorm() {
+					w.needBakeExpression[m.Arg] = struct{}{}
+				}
+			case ir.MathCountLeadingZeros:
+				if w.isSintScalarOrVector(w.fnExprType(fn, handle)) {
+					w.needBakeExpression[m.Arg] = struct{}{}
+				}
 			case ir.MathExtractBits:
 				if m.Arg1 != nil {
 					w.needBakeExpression[*m.Arg1] = struct{}{}
@@ -2019,6 +2047,23 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 			}
 		}
 	}
+}
+
+// isIntegerScalar reports a signed or unsigned integer scalar type.
+func (w *Writer) isIntegerScalar(res ir.TypeResolution) bool {
+	s, ok := w.resolutionInner(res).(ir.ScalarType)
+	return ok && (s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint)
+}
+
+// isSintScalarOrVector reports a signed integer scalar or vector type.
+func (w *Writer) isSintScalarOrVector(res ir.TypeResolution) bool {
+	switch t := w.resolutionInner(res).(type) {
+	case ir.ScalarType:
+		return t.Kind == ir.ScalarSint
+	case ir.VectorType:
+		return t.Scalar.Kind == ir.ScalarSint
+	}
+	return false
 }
 
 // writeHelperFunctions writes any needed polyfill functions.
