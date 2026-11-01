@@ -90,7 +90,12 @@ type Options struct {
 	// Validation enables output validation.
 	Validation bool
 
-	// UseStorageInputOutput16 enables StorageInputOutput16 capability for f16.
+	// UseStorageInputOutput16 passes f16 entry point inputs and outputs as
+	// f16 with the StorageInputOutput16 capability. The zero value converts
+	// them to and from f32, which every device accepts; the capability needs
+	// SHADER_F16 and device support, so it is an opt-in. Rust naga's
+	// use_storage_input_output_16 defaults to true; wgpu-hal passes whether
+	// the device supports it.
 	UseStorageInputOutput16 bool
 
 	// ForcePointSize adds a BuiltIn PointSize output variable with value 1.0.
@@ -99,8 +104,11 @@ type Options struct {
 	// AdjustCoordinateSpace flips the Y coordinate of Position outputs.
 	AdjustCoordinateSpace bool
 
-	// ForceLoopBounding inserts a decrementing counter to prevent infinite loops.
-	ForceLoopBounding bool
+	// SkipLoopBounding leaves loops as they are. By default every loop gets
+	// a decrementing 64-bit counter that breaks out of it, so an infinite
+	// loop, undefined behavior that can hang the device, ends. Rust naga's
+	// force_loop_bounding defaults to true, and wgpu-hal passes true.
+	SkipLoopBounding bool
 
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
@@ -118,8 +126,13 @@ type Options struct {
 	// CapabilitiesAvailable limits which capabilities may be used.
 	CapabilitiesAvailable map[Capability]struct{}
 
-	// RayQueryInitTracking enables initialization tracking for ray queries.
-	RayQueryInitTracking bool
+	// SkipRayQueryInitTracking leaves out the state variable every ray query
+	// gets to prevent misuse: by default rayQueryInitialize checks its ray
+	// (tmin <= tmax and the like) and skips the query when it is invalid, and
+	// rayQueryProceed does nothing on a query that was not initialized. Rust
+	// naga's ray_query_initialization_tracking defaults to true, and
+	// wgpu-hal passes true.
+	SkipRayQueryInitTracking bool
 
 	// BindingMap maps WGSL @group/@binding to the SPIR-V DescriptorSet and
 	// Binding decorations, and can give a binding array its size. A resource
@@ -181,8 +194,6 @@ func DefaultOptions() Options {
 		Debug:                   false,
 		Validation:              true,
 		UseStorageInputOutput16: true,
-		ForceLoopBounding:       true,
-		RayQueryInitTracking:    true,
 	}
 }
 
@@ -925,10 +936,10 @@ func toCodegenOptions(o Options) codegen.Options {
 		UseStorageInputOutput16: o.UseStorageInputOutput16,
 		ForcePointSize:          o.ForcePointSize,
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
-		ForceLoopBounding:       o.ForceLoopBounding,
+		ForceLoopBounding:       !o.SkipLoopBounding,
 		BoundsCheckPolicies:     o.BoundsCheckPolicies,
 		CapabilitiesAvailable:   o.CapabilitiesAvailable,
-		RayQueryInitTracking:    o.RayQueryInitTracking,
+		RayQueryInitTracking:    !o.SkipRayQueryInitTracking,
 		BindingMap:              toCodegenBindingMap(o.BindingMap),
 		RequireBindings:         o.RequireBindings,
 

@@ -198,8 +198,11 @@ type Options struct {
 	// has no way to ask for it.
 	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
-	// ForceLoopBounding adds loop iteration limits to prevent infinite loops.
-	ForceLoopBounding bool
+	// SkipLoopBounding leaves loops as they are. By default every loop gets
+	// a decrementing 64-bit counter that breaks out of it, so an infinite
+	// loop, undefined behavior that can hang the device, ends. Rust naga's
+	// force_loop_bounding defaults to true, and wgpu-hal passes true.
+	SkipLoopBounding bool
 
 	// FakeMissingBindings generates placeholder bindings for resources
 	// that are referenced but not in the PerEntryPointMap.
@@ -343,7 +346,6 @@ func DefaultOptions() Options {
 	return Options{
 		LangVersion:         Version2_1,
 		BoundsCheckPolicies: DefaultBoundsCheckPolicies(),
-		ForceLoopBounding:   true,
 	}
 }
 
@@ -412,7 +414,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		InlineSamplers:                inlineSamplers,
 		BoundsCheckPolicies:           o.BoundsCheckPolicies,
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
-		ForceLoopBounding:             o.ForceLoopBounding,
+		ForceLoopBounding:             !o.SkipLoopBounding,
 		FakeMissingBindings:           o.FakeMissingBindings,
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
 		VertexPullingTransform:        o.VertexPullingTransform,
