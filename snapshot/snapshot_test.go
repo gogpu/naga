@@ -2398,6 +2398,10 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
 	opts.FakeMissingBindings = true // default for tests without explicit config
+	// Rust always has a per_entry_point_map, empty by default: a non-nil map
+	// here, so missing resources get Rust's placeholders instead of the
+	// automatic slots of a nil map.
+	opts.PerEntryPointMap = map[string]msl.EntryPointResources{}
 	// Rust naga defaults to Unchecked for all bounds check policies.
 	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
 	opts.BoundsCheckPolicies = backendBoundsCheckPolicies(rustBoundsCheckPolicies{})

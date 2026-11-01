@@ -373,4 +373,23 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	if err := spirvWith(nil, false); err != nil {
 		t.Errorf("spirv, nil map: %v", err)
 	}
+
+	mslWith := func(m map[string]msl.EntryPointResources, fake bool) error {
+		_, _, err := msl.Compile(bindingModule(t), msl.Options{PerEntryPointMap: m, FakeMissingBindings: fake})
+		return err
+	}
+	slot := uint8(0)
+	mslPartial := map[string]msl.EntryPointResources{"main": {Resources: map[ir.ResourceBinding]msl.BindTarget{{Group: 0, Binding: 0}: {Buffer: &slot}}}}
+	if err := mslWith(mslPartial, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("msl, partial map: err = %v, want backend.ErrMissingBinding", err)
+	}
+	if err := mslWith(map[string]msl.EntryPointResources{}, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("msl, map without the entry point: err = %v, want backend.ErrMissingBinding", err)
+	}
+	if err := mslWith(mslPartial, true); err != nil {
+		t.Errorf("msl, partial map, FakeMissingBindings: %v", err)
+	}
+	if err := mslWith(nil, false); err != nil {
+		t.Errorf("msl, nil map: %v", err)
+	}
 }

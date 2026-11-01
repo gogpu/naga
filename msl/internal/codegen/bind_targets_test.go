@@ -1,9 +1,11 @@
 package codegen
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -51,7 +53,19 @@ func TestPerEntryPointMapMissingBindTarget(t *testing.T) {
 	if _, err := compile("main", nil, nil, true); err != nil {
 		t.Errorf("FakeMissingBindings: %v", err)
 	}
-	if _, err := compile("other", nil, nil, false); err != nil {
-		t.Errorf("an entry point the map has no entry for: %v", err)
+	// An entry point the map has no entry for has no bind targets: an
+	// error, as for a missing resource (ADR-009 §6 row 5).
+	if _, err := compile("other", nil, nil, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("an entry point the map has no entry for: err = %v, want backend.ErrMissingBinding", err)
 	}
+	if _, err := compile("main", map[ir.ResourceBinding]BindTarget{}, slot(1), false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("missing resource: err = %v, want backend.ErrMissingBinding", err)
+	}
+	// A nil map numbers the resources automatically.
+	opts := DefaultOptions()
+	code, _, err = Compile(module, opts)
+	if err != nil {
+		t.Fatalf("nil map: %v", err)
+	}
+	mustContainMSL(t, code, "[[texture(0)]]")
 }

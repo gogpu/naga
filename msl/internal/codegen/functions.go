@@ -1547,23 +1547,15 @@ func (w *Writer) writePassThroughParam(handle uint32) {
 }
 
 // computeResourceMap builds the Metal binding index map for the current entry point.
-// If PerEntryPointMap has an explicit mapping for epName, it is used directly.
-// Otherwise, sequential indices per resource type (buffer, texture, sampler) are
-// assigned across all globals sorted by (group, binding), matching the approach
-// used by Rust wgpu-hal's Metal device.
+// A non-nil PerEntryPointMap gives it: the entry point's entry, or none, in
+// which case checkBindTargets refuses the resources it uses unless
+// FakeMissingBindings writes placeholders for them. A nil PerEntryPointMap
+// numbers the resources automatically: sequential indices per resource type
+// (buffer, texture, sampler) across all globals sorted by (group, binding),
+// the approach of Rust wgpu-hal's Metal device.
 func (w *Writer) computeResourceMap(epName string) {
-	// Check for explicit mapping first.
 	if w.options.PerEntryPointMap != nil {
-		if epRes, ok := w.options.PerEntryPointMap[epName]; ok {
-			w.currentResourceMap = epRes.Resources
-			return
-		}
-	}
-
-	// When FakeMissingBindings is enabled and no explicit map, use empty map.
-	// Resources will get [[user(fake0)]] attributes in formatGlobalResourceParam.
-	if w.options.FakeMissingBindings {
-		w.currentResourceMap = nil
+		w.currentResourceMap = w.options.PerEntryPointMap[epName].Resources
 		return
 	}
 
@@ -1635,13 +1627,15 @@ func (w *Writer) computeResourceMap(epName string) {
 // checkBindTargets reports, as Rust naga does, a resource the entry point
 // uses that its PerEntryPointMap entry lacks or holds as another kind of
 // resource, and a sizes or immediates buffer the entry point needs that the
-// entry doesn't place. An entry point without an entry has its resources
-// numbered automatically, and FakeMissingBindings writes placeholders.
+// entry doesn't place; an entry point a non-nil map has no entry for has
+// none of them. The errors wrap backend.ErrMissingBinding. A nil
+// PerEntryPointMap numbers the resources automatically, and
+// FakeMissingBindings writes placeholders for the missing ones.
 func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) error {
-	epRes, mapped := w.options.PerEntryPointMap[ep.Name]
-	if !mapped || w.options.FakeMissingBindings {
+	if w.options.PerEntryPointMap == nil || w.options.FakeMissingBindings {
 		return nil
 	}
+	epRes := w.options.PerEntryPointMap[ep.Name]
 	needsSizes := w.doVertexPulling(ep)
 	for h := range w.module.GlobalVariables {
 		if _, ok := used[uint32(h)]; !ok {
@@ -1653,7 +1647,7 @@ func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) e
 		case ir.SpaceUniform, ir.SpaceStorage, ir.SpaceHandle:
 		case ir.SpaceImmediate:
 			if epRes.ImmediatesBuffer == nil {
-				return fmt.Errorf("msl: entry point %q has no immediates buffer", ep.Name)
+				return fmt.Errorf("msl: %w: entry point %q has no immediates buffer", backend.ErrMissingBinding, ep.Name)
 			}
 			continue
 		default:
@@ -1676,12 +1670,12 @@ func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) e
 			ok = ok && target.Buffer != nil
 		}
 		if !ok {
-			return fmt.Errorf("msl: entry point %q has no bind target for %s at @group(%d) @binding(%d)",
+			return fmt.Errorf("msl: %w: entry point %q has no bind target for %s at @group(%d) @binding(%d)", backend.ErrMissingBinding,
 				ep.Name, global.Name, global.Binding.Group, global.Binding.Binding)
 		}
 	}
 	if needsSizes && epRes.SizesBuffer == nil {
-		return fmt.Errorf("msl: entry point %q has no sizes buffer", ep.Name)
+		return fmt.Errorf("msl: %w: entry point %q has no sizes buffer", backend.ErrMissingBinding, ep.Name)
 	}
 	return nil
 }
