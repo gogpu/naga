@@ -115,6 +115,13 @@ type Options struct {
 	// written with textureGrad.
 	TextureShadowLod bool
 
+	// DrawParameters says the device has GL_ARB_shader_draw_parameters
+	// (Rust's DRAW_PARAMETERS): instance_index adds gl_BaseInstanceARB
+	// instead of the naga_vs_first_instance uniform the host sets, and
+	// draw_index is gl_DrawIDARB, so it works below GLSL 4.60. Without it,
+	// draw_index needs GLSL 4.60; GLSL ES has no draw index.
+	DrawParameters bool
+
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
 	// which WebGPU requires; Rust naga's default is Unchecked. Per field:
@@ -348,6 +355,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		SkipAdjustCoordinateSpace: o.SkipAdjustCoordinateSpace,
 		ForcePointSize:            o.ForcePointSize,
 		TextureShadowLod:          o.TextureShadowLod,
+		DrawParameters:            o.DrawParameters,
 		BoundsCheckPolicies:       o.BoundsCheckPolicies,
 		BindingMap:                bindingMap,
 		FakeMissingBindings:       o.FakeMissingBindings,

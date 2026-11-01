@@ -362,6 +362,11 @@ func (w *Writer) writeModifierForType(binding *ir.Binding, ty ir.TypeHandle) {
 		if b.Builtin == ir.BuiltinPosition && b.Invariant {
 			fmt.Fprintf(&w.Out, "precise ")
 		}
+		// Rust naga: Barycentric { perspective: false } is a noperspective
+		// SV_Barycentrics.
+		if b.Builtin == ir.BuiltinBarycentricNoPerspective {
+			fmt.Fprintf(&w.Out, "noperspective ")
+		}
 	case ir.LocationBinding:
 		if b.Interpolation != nil {
 			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {

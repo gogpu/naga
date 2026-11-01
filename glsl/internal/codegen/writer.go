@@ -1617,7 +1617,7 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 	// Handle builtins — check for invariant and clip distance
 	if b, ok := (*binding).(ir.BuiltinBinding); ok {
 		if b.Invariant && isOutput {
-			builtinName := glslBuiltIn(b.Builtin, isOutput)
+			builtinName := w.builtInName(b.Builtin, isOutput)
 			w.WriteLine("invariant %s;", builtinName)
 		}
 		// ClipDistance: emit "out float gl_ClipDistance[N];" declaration.
@@ -2305,7 +2305,7 @@ func (w *Writer) writeStructArgIO(argIdx uint32, typeHandle ir.TypeHandle, quali
 				glslName: name,
 			}
 		case ir.BuiltinBinding:
-			builtinName := glslBuiltIn(b.Builtin, isOutput)
+			builtinName := w.builtInName(b.Builtin, isOutput)
 			info.members[memberIdx] = epStructMemberInfo{
 				isBuiltin:   true,
 				builtinName: builtinName,
@@ -2389,7 +2389,7 @@ func (w *Writer) writeResultIO(fn *ir.Function, qualifier string, isVertexOutput
 				glslName: name,
 			}
 		case ir.BuiltinBinding:
-			builtinName := glslBuiltIn(b.Builtin, true)
+			builtinName := w.builtInName(b.Builtin, true)
 			info.members[memberIdx] = epStructMemberInfo{
 				isBuiltin:   true,
 				builtinName: builtinName,
@@ -2520,7 +2520,7 @@ func (w *Writer) writeEntryPointArgLocals(ep *ir.EntryPoint) {
 		if arg.Binding != nil {
 			switch b := (*arg.Binding).(type) {
 			case ir.BuiltinBinding:
-				initValue = glslBuiltIn(b.Builtin, false)
+				initValue = w.builtInName(b.Builtin, false)
 				// ViewIndex: WebGL uses gl_ViewID_OVR, non-WebGL uses uint(gl_ViewIndex)
 				if b.Builtin == ir.BuiltinViewIndex && !w.options.LangVersion.isWebGL() {
 					initValue = "uint(gl_ViewIndex)"
@@ -2597,7 +2597,7 @@ func (w *Writer) setupEntryPointIO(ep *ir.EntryPoint) {
 					glslName: w.lookupVaryingName(b.Location, ep.Stage, false),
 				}
 			case ir.BuiltinBinding:
-				builtinName := glslBuiltIn(b.Builtin, false)
+				builtinName := w.builtInName(b.Builtin, false)
 				info.members[memberIdx] = epStructMemberInfo{
 					isBuiltin:   true,
 					builtinName: builtinName,
@@ -2633,7 +2633,7 @@ func (w *Writer) setupEntryPointIO(ep *ir.EntryPoint) {
 				glslName: w.lookupVaryingNameWithBlend(b.Location, b.BlendSrc, ep.Stage, true),
 			}
 		case ir.BuiltinBinding:
-			builtinName := glslBuiltIn(b.Builtin, true)
+			builtinName := w.builtInName(b.Builtin, true)
 			info.members[memberIdx] = epStructMemberInfo{
 				isBuiltin:   true,
 				builtinName: builtinName,
@@ -2711,10 +2711,9 @@ func (w *Writer) writeFirstInstanceBinding() {
 	if ep == nil || ep.Stage != ir.StageVertex {
 		return
 	}
-	if !w.features.contains(FeatureInstanceIndex) {
+	if !w.features.contains(FeatureInstanceIndex) || w.options.DrawParameters {
 		return
 	}
-	// TODO: check for WriterFlagDrawParameters when added
 	w.WriteLine("uniform uint naga_vs_first_instance;")
 	w.WriteLine("")
 }
@@ -2913,6 +2912,20 @@ func (w *Writer) getArraySuffix(handle ir.TypeHandle) string {
 	return "[]" + w.getArraySuffix(arr.Base)
 }
 
+// builtInName is glslBuiltIn with the names Options.DrawParameters changes.
+func (w *Writer) builtInName(builtin ir.BuiltinValue, isOutput bool) string {
+	if w.options.DrawParameters {
+		switch builtin {
+		case ir.BuiltinInstanceIndex:
+			return "(uint(gl_InstanceID) + uint(gl_BaseInstanceARB))"
+		case ir.BuiltinDrawIndex:
+			// Rust writes gl_DrawID, which the extension does not declare.
+			return "gl_DrawIDARB"
+		}
+	}
+	return glslBuiltIn(builtin, isOutput)
+}
+
 // glslBuiltIn returns the GLSL built-in variable name for a builtin value.
 func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 	switch builtin {
@@ -2948,6 +2961,10 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 		return "gl_ViewID_OVR" // overridden per-version in writeEntryPointArgLocals
 	case ir.BuiltinBarycentric:
 		return "gl_BaryCoordEXT"
+	case ir.BuiltinBarycentricNoPerspective:
+		return "gl_BaryCoordNoPerspEXT"
+	case ir.BuiltinDrawIndex:
+		return "gl_DrawID"
 	case ir.BuiltinPointSize:
 		return "gl_PointSize"
 	case ir.BuiltinPrimitiveIndex:

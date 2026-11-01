@@ -132,12 +132,20 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 		return "SV_GroupID" // Placeholder - will be replaced
 	case ir.BuiltinViewIndex:
 		return "SV_ViewID"
-	case ir.BuiltinBarycentric:
+	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:
 		return "SV_Barycentrics"
 	case ir.BuiltinPrimitiveIndex:
 		return "SV_PrimitiveID"
+	case ir.BuiltinMeshTaskSize, ir.BuiltinCullPrimitive, ir.BuiltinPointIndex, ir.BuiltinLineIndices,
+		ir.BuiltinTriangleIndices, ir.BuiltinVertexCount, ir.BuiltinVertices, ir.BuiltinPrimitiveCount,
+		ir.BuiltinPrimitives:
+		// Known wrong for mesh outputs (BUG-HLSL-BUILTIN-SEMANTIC-001, a
+		// recorded deviation): Rust writes them apart.
+		return semanticSVPosition
 	default:
-		return semanticSVPosition // Safe fallback
+		// No semantic (draw_index among them, as in Rust naga):
+		// checkBuiltins refuses the entry point; it was SV_Position.
+		return ""
 	}
 }
 

@@ -549,7 +549,7 @@ func (w *Writer) writeFunctionArgument(a ir.ExprFunctionArgument) (string, error
 		arg := &w.currentFunction.Arguments[a.Index]
 		if arg.Binding != nil {
 			if b, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
-				return glslBuiltIn(b.Builtin, false), nil
+				return w.builtInName(b.Builtin, false), nil
 			}
 		}
 	}

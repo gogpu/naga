@@ -42,11 +42,20 @@ const (
 	FeatureSubgroupOperations    Features = 1 << 24
 	FeatureTextureAtomics        Features = 1 << 25
 	FeatureShaderBarycentrics    Features = 1 << 26
+	// FeatureDrawIndex is gl_DrawID, core in GLSL 4.60 and on older desktop
+	// versions gl_DrawIDARB of GL_ARB_shader_draw_parameters. Rust naga has
+	// no such feature: it writes gl_DrawID at every version, which no GLSL
+	// below 4.60 declares.
+	FeatureDrawIndex Features = 1 << 27
 )
 
 // featuresManager collects and writes required features.
 type featuresManager struct {
 	required Features
+	// drawParameters is Options.DrawParameters: the host has
+	// GL_ARB_shader_draw_parameters, which brings FeatureDrawIndex to every
+	// desktop version.
+	drawParameters bool
 	// forImageLoadChecks are the features only the ImageLoad bounds checks
 	// asked for, so the error for a missing one can name the policy.
 	forImageLoadChecks Features
@@ -84,6 +93,7 @@ var featureNames = []struct {
 	{FeatureSubgroupOperations, "SUBGROUP_OPERATIONS"},
 	{FeatureTextureAtomics, "TEXTURE_ATOMICS"},
 	{FeatureShaderBarycentrics, "SHADER_BARYCENTRICS"},
+	{FeatureDrawIndex, "DRAW_INDEX"},
 }
 
 // String returns the names of the features joined by " | ", as Rust naga's
@@ -142,6 +152,11 @@ func (fm *featuresManager) checkAvailability(v Version) error {
 	core(FeatureTextureLevels, 130)
 	coreES(FeatureImageSize, 430, 310)
 	coreES(FeatureTextureShadowLod, 200, 300)
+	if !fm.drawParameters {
+		core(FeatureDrawIndex, 460)
+	} else if v.ES {
+		missing |= fm.required & FeatureDrawIndex // the ARB extension is desktop GLSL only
+	}
 	if missing == 0 {
 		return nil
 	}
@@ -258,6 +273,10 @@ func (fm *featuresManager) writeExtensions(w *Writer) {
 		w.WriteLine("#extension GL_EXT_blend_func_extended : require")
 	}
 
+	if fm.contains(FeatureInstanceIndex) && fm.drawParameters {
+		w.WriteLine("#extension GL_ARB_shader_draw_parameters : require")
+	}
+
 	if fm.contains(FeatureTextureShadowLod) {
 		w.WriteLine("#extension GL_EXT_texture_shadow_lod : require")
 	}
@@ -295,6 +314,7 @@ func (w *Writer) collectFeatures() {
 	}
 
 	// Writer flags can request features
+	w.features.drawParameters = w.options.DrawParameters
 	if w.options.TextureShadowLod {
 		w.features.request(FeatureTextureShadowLod)
 	}
@@ -400,8 +420,12 @@ func (w *Writer) checkVaryingBinding(binding *ir.Binding, typeHandle ir.TypeHand
 		if b.Builtin == ir.BuiltinSampleIndex {
 			w.features.request(FeatureSampleVariables)
 		}
-		if b.Builtin == ir.BuiltinBarycentric {
+		if b.Builtin == ir.BuiltinBarycentric || b.Builtin == ir.BuiltinBarycentricNoPerspective {
 			w.features.request(FeatureShaderBarycentrics)
+		}
+		if b.Builtin == ir.BuiltinDrawIndex {
+			w.features.request(FeatureInstanceIndex) // Rust: INSTANCE_INDEX for DrawIndex too
+			w.features.request(FeatureDrawIndex)
 		}
 		if b.Builtin == ir.BuiltinViewIndex {
 			w.features.request(FeatureMultiView)

@@ -2359,7 +2359,7 @@ var spvBuiltins = map[uint32]string{
 	28: "GlobalInvocationId", 29: "LocalInvocationIndex",
 	36: "SubgroupSize", 38: "NumSubgroups", 40: "SubgroupId", 41: "SubgroupLocalInvocationId",
 	42: "VertexIndex", 43: "InstanceIndex",
-	4440: "ViewIndex", 5286: "BaryCoordKHR",
+	4426: "DrawIndex", 4440: "ViewIndex", 5286: "BaryCoordKHR", 5287: "BaryCoordNoPerspKHR",
 }
 
 var spvExecutionModes = map[uint32]string{

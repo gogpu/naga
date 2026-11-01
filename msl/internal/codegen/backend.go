@@ -332,6 +332,39 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	return CompileWithPipeline(module, options, PipelineOptions{})
 }
 
+// checkBuiltins refuses a written entry point whose interface uses a built-in
+// Metal has no attribute for (draw_index: Rust naga's UnsupportedBuiltIn).
+func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
+	refused := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bi, ok := (*b).(ir.BuiltinBinding)
+		return ok && bi.Builtin == ir.BuiltinDrawIndex
+	}
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		if sel != nil && (sel.Name != ep.Name || sel.Stage != ep.Stage) {
+			continue
+		}
+		var bindings []*ir.Binding
+		for _, arg := range ep.Function.Arguments {
+			bindings = append(bindings, arg.Binding)
+			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for j := range st.Members {
+					bindings = append(bindings, st.Members[j].Binding)
+				}
+			}
+		}
+		for _, b := range bindings {
+			if refused(b) {
+				return fmt.Errorf("msl: entry point %q: built-in draw_index is not supported", ep.Name)
+			}
+		}
+	}
+	return nil
+}
+
 // CompileWithPipeline generates MSL source code with pipeline-specific options.
 func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOptions) (string, TranslationInfo, error) {
 	// Apply defaults for zero values
@@ -356,6 +389,9 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	module, err := ir.ResolvePendingArraySizes(module)
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
+	}
+	if err := checkBuiltins(module, pipeline.EntryPoint); err != nil {
+		return "", TranslationInfo{}, err
 	}
 
 	// Create writer

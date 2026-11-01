@@ -232,8 +232,8 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 
 // checkShaderModel refuses what Options.ShaderModel cannot express, as Rust
 // naga's ShaderModelTooLow (back/hlsl/writer.rs): a mesh or task entry point
-// below 6.5, and the view index (SV_ViewID) below 6.1, with a
-// *backend.ShaderModelError.
+// below 6.5, and the view index (SV_ViewID) or barycentrics (SV_Barycentrics)
+// below 6.1, with a *backend.ShaderModelError.
 func checkShaderModel(module *ir.Module, options *Options) error {
 	tooLow := func(feature string, required ShaderModel) error {
 		return fmt.Errorf("hlsl: %w", &backend.ShaderModelError{
@@ -250,22 +250,79 @@ func checkShaderModel(module *ir.Module, options *Options) error {
 		if (ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask) && options.ShaderModel < ShaderModel6_5 {
 			return tooLow("a mesh or task shader", ShaderModel6_5)
 		}
-		usesViewIndex := func(b *ir.Binding) bool {
+		// SV_ViewID and SV_Barycentrics are shader model 6.1 semantics; Rust
+		// checks only the view index and writes SV_Barycentrics at any model.
+		feature := func(b *ir.Binding) string {
 			if b == nil {
-				return false
+				return ""
 			}
 			bi, ok := (*b).(ir.BuiltinBinding)
-			return ok && bi.Builtin == ir.BuiltinViewIndex
+			switch {
+			case !ok:
+				return ""
+			case bi.Builtin == ir.BuiltinViewIndex:
+				return "the view index"
+			case bi.Builtin == ir.BuiltinBarycentric, bi.Builtin == ir.BuiltinBarycentricNoPerspective:
+				return "barycentrics"
+			}
+			return ""
 		}
 		for _, arg := range ep.Function.Arguments {
-			found := usesViewIndex(arg.Binding)
+			bindings := []*ir.Binding{arg.Binding}
 			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
-				for _, m := range st.Members {
-					found = found || usesViewIndex(m.Binding)
+				for j := range st.Members {
+					bindings = append(bindings, st.Members[j].Binding)
 				}
 			}
-			if found && options.ShaderModel < ShaderModel6_1 {
-				return tooLow("the view index", ShaderModel6_1)
+			for _, b := range bindings {
+				if f := feature(b); f != "" && options.ShaderModel < ShaderModel6_1 {
+					return tooLow(f, ShaderModel6_1)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkBuiltins refuses an entry point whose interface uses a built-in HLSL
+// has no semantic for (draw_index, point_size: Rust naga's "Unsupported
+// builtin"); the old fallback wrote SV_Position for them.
+func checkBuiltins(module *ir.Module, options *Options) error {
+	check := func(ep *ir.EntryPoint, b *ir.Binding) error {
+		// Subgroup built-ins map to wave intrinsics, never to a semantic.
+		if b == nil || isSubgroupBuiltinBinding(b) {
+			return nil
+		}
+		if bi, ok := (*b).(ir.BuiltinBinding); ok && BuiltInToSemantic(bi.Builtin) == "" {
+			return NewError(ErrUnsupportedFeature, fmt.Sprintf("entry point %q: built-in %d has no HLSL semantic", ep.Name, bi.Builtin))
+		}
+		return nil
+	}
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		if !selects(options.EntryPoint, ep) {
+			continue
+		}
+		var bindings []*ir.Binding
+		for _, arg := range ep.Function.Arguments {
+			bindings = append(bindings, arg.Binding)
+			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for j := range st.Members {
+					bindings = append(bindings, st.Members[j].Binding)
+				}
+			}
+		}
+		if res := ep.Function.Result; res != nil {
+			bindings = append(bindings, res.Binding)
+			if st, ok := module.Types[res.Type].Inner.(ir.StructType); ok {
+				for j := range st.Members {
+					bindings = append(bindings, st.Members[j].Binding)
+				}
+			}
+		}
+		for _, b := range bindings {
+			if err := check(ep, b); err != nil {
+				return err
 			}
 		}
 	}
@@ -338,6 +395,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
 	if err := checkShaderModel(module, options); err != nil {
+		return "", nil, err
+	}
+	if err := checkBuiltins(module, options); err != nil {
 		return "", nil, err
 	}
 	if err := checkNumWorkgroups(module, options); err != nil {

@@ -475,6 +475,9 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	}
 
 	// 10.5. Entry point interface variables (builtins, locations)
+	if err := b.checkBuiltins(); err != nil {
+		return nil, err
+	}
 	if err := b.emitEntryPointInterfaceVars(); err != nil {
 		return nil, err
 	}
@@ -2539,9 +2542,13 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 	case ir.BuiltinViewIndex:
 		b.addCapability(CapabilityMultiView)
 		b.addExtension("SPV_KHR_multiview")
-	case ir.BuiltinBarycentric:
+	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:
 		b.addCapability(CapabilityFragmentBarycentricKHR)
 		b.addExtension("SPV_KHR_fragment_shader_barycentric")
+	case ir.BuiltinDrawIndex:
+		// Rust naga: SPV_KHR_shader_draw_parameters + DrawParameters.
+		b.addCapability(CapabilityDrawParameters)
+		b.addExtension("SPV_KHR_shader_draw_parameters")
 	case ir.BuiltinClipDistances:
 		b.addCapability(CapabilityClipDistance)
 	case ir.BuiltinPrimitiveIndex:
@@ -2600,15 +2607,71 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 		return BuiltInSubgroupLocalInvID
 	case ir.BuiltinClipDistances:
 		return BuiltInClipDistance
+	case ir.BuiltinPointSize:
+		return BuiltInPointSize
 	case ir.BuiltinPrimitiveIndex:
 		return BuiltInPrimitiveID
 	case ir.BuiltinBarycentric:
 		return BuiltInBaryCoordKHR
+	case ir.BuiltinBarycentricNoPerspective:
+		return BuiltInBaryCoordNoPerspKHR
+	case ir.BuiltinDrawIndex:
+		return BuiltInDrawIndex
 	case ir.BuiltinViewIndex:
 		return BuiltInViewIndex
 	default:
-		return BuiltInPosition // Fallback
+		// Never a silent stand-in (it was Position): checkBuiltins refuses
+		// an entry point that uses a built-in without a mapping.
+		return builtInUnmapped
 	}
+}
+
+// builtInUnmapped is builtinToSPIRV's result for a built-in it cannot write.
+const builtInUnmapped BuiltIn = ^BuiltIn(0)
+
+// checkBuiltins refuses an entry point the backend writes whose interface
+// uses a built-in builtinToSPIRV cannot map.
+func (b *Backend) checkBuiltins() error {
+	check := func(ep *ir.EntryPoint, binding *ir.Binding, sc StorageClass) error {
+		if binding == nil {
+			return nil
+		}
+		if bi, ok := (*binding).(ir.BuiltinBinding); ok && builtinToSPIRV(bi.Builtin, sc) == builtInUnmapped {
+			return fmt.Errorf("spirv: entry point %q: built-in %d is not supported", ep.Name, bi.Builtin)
+		}
+		return nil
+	}
+	for i := range b.module.EntryPoints {
+		ep := &b.module.EntryPoints[i]
+		if !b.writesEntryPoint(i) || ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask {
+			continue
+		}
+		for _, arg := range ep.Function.Arguments {
+			if err := check(ep, arg.Binding, StorageClassInput); err != nil {
+				return err
+			}
+			if st, ok := b.module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for _, m := range st.Members {
+					if err := check(ep, m.Binding, StorageClassInput); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if res := ep.Function.Result; res != nil {
+			if err := check(ep, res.Binding, StorageClassOutput); err != nil {
+				return err
+			}
+			if st, ok := b.module.Types[res.Type].Inner.(ir.StructType); ok {
+				for _, m := range st.Members {
+					if err := check(ep, m.Binding, StorageClassOutput); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // emitEntryPoints emits all entry points with their execution modes.
