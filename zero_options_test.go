@@ -54,10 +54,10 @@ func zeroInitBackends() map[string]zeroInitBackend {
 	return map[string]zeroInitBackend{
 		"spirv": {
 			compile: func(m *ir.Module, mode backend.ZeroInitializeWorkgroupMemoryMode) ([]byte, error) {
-				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, ZeroInitializeWorkgroupMemory: mode}).Compile(m)
+				return spirvBinary(m, spirv.Options{Version: spirv.Version1_3, ZeroInitializeWorkgroupMemory: mode})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
+				return spirvBinary(m, spirv.Options{Version: spirv.Version1_3})
 			},
 		},
 		"msl": {
@@ -69,9 +69,9 @@ func zeroInitBackends() map[string]zeroInitBackend {
 		},
 		"hlsl": {
 			compile: func(m *ir.Module, mode backend.ZeroInitializeWorkgroupMemoryMode) ([]byte, error) {
-				return text(hlsl.Compile(m, &hlsl.Options{ZeroInitializeWorkgroupMemory: mode}))
+				return text(hlsl.Compile(m, hlsl.Options{ZeroInitializeWorkgroupMemory: mode}))
 			},
-			withZero: func(m *ir.Module) ([]byte, error) { return text(hlsl.Compile(m, &hlsl.Options{})) },
+			withZero: func(m *ir.Module) ([]byte, error) { return text(hlsl.Compile(m, hlsl.Options{})) },
 			marker:   "all(__local_invocation_id == uint3(0u, 0u, 0u))",
 		},
 		"glsl": {
@@ -85,10 +85,10 @@ func zeroInitBackends() map[string]zeroInitBackend {
 		},
 		"dxil": {
 			compile: func(m *ir.Module, mode backend.ZeroInitializeWorkgroupMemoryMode) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{ZeroInitializeWorkgroupMemory: mode})
+				return dxilBlob(m, dxil.Options{ZeroInitializeWorkgroupMemory: mode})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{})
+				return dxilBlob(m, dxil.Options{})
 			},
 		},
 	}
@@ -189,10 +189,10 @@ func boundsBackends() map[string]boundsBackend {
 	return map[string]boundsBackend{
 		"spirv": {
 			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
-				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, BoundsCheckPolicies: p}).Compile(m)
+				return spirvBinary(m, spirv.Options{Version: spirv.Version1_3, BoundsCheckPolicies: p})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
+				return spirvBinary(m, spirv.Options{Version: spirv.Version1_3})
 			},
 		},
 		"msl": {
@@ -217,20 +217,20 @@ func boundsBackends() map[string]boundsBackend {
 		},
 		"hlsl": {
 			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
-				code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: p})
+				code, _, err := hlsl.Compile(m, hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: p})
 				return []byte(code), err
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true})
+				code, _, err := hlsl.Compile(m, hlsl.Options{FakeMissingBindings: true})
 				return []byte(code), err
 			},
 		},
 		"dxil": {
 			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{BoundsCheckPolicies: p})
+				return dxilBlob(m, dxil.Options{BoundsCheckPolicies: p})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{})
+				return dxilBlob(m, dxil.Options{})
 			},
 		},
 	}
@@ -305,7 +305,7 @@ func TestZeroOptionsBoundLoops(t *testing.T) {
 			return code, err
 		},
 		"hlsl": func(m *ir.Module) (string, error) {
-			code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true})
+			code, _, err := hlsl.Compile(m, hlsl.Options{FakeMissingBindings: true})
 			return code, err
 		},
 	} {
@@ -320,11 +320,11 @@ func TestZeroOptionsBoundLoops(t *testing.T) {
 
 	// SPIR-V: the zero value adds the counter, so the module is longer than
 	// with SkipLoopBounding.
-	bounded, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(module(t))
+	bounded, err := spirvBinary(module(t), spirv.Options{Version: spirv.Version1_3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	skipped, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, SkipLoopBounding: true}).Compile(module(t))
+	skipped, err := spirvBinary(module(t), spirv.Options{Version: spirv.Version1_3, SkipLoopBounding: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func bindingModule(t *testing.T) *ir.Module {
 // documented identity mapping and never an error.
 func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	spirvWith := func(m map[spirv.ResourceBinding]spirv.BindingInfo, fake bool) error {
-		_, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, BindingMap: m, FakeMissingBindings: fake}).Compile(bindingModule(t))
+		_, err := spirvBinary(bindingModule(t), spirv.Options{Version: spirv.Version1_3, BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
 	partial := map[spirv.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
@@ -409,7 +409,7 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	}
 
 	hlslWith := func(m map[hlsl.ResourceBinding]hlsl.BindTarget, fake bool) error {
-		_, _, err := hlsl.Compile(bindingModule(t), &hlsl.Options{BindingMap: m, FakeMissingBindings: fake})
+		_, _, err := hlsl.Compile(bindingModule(t), hlsl.Options{BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
 	hlslPartial := map[hlsl.ResourceBinding]hlsl.BindTarget{{Group: 0, Binding: 0}: {}}
@@ -424,7 +424,7 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	}
 
 	dxilWith := func(m dxil.BindingMap, fake bool) error {
-		_, err := dxil.Compile(bindingModule(t), dxil.Options{BindingMap: m, FakeMissingBindings: fake})
+		_, _, err := dxil.Compile(bindingModule(t), dxil.Options{BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
 	dxilPartial := dxil.BindingMap{{Group: 0, Binding: 0}: {}}
@@ -444,7 +444,7 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 // newer one is an error, never a silently raised version (Rust's
 // SpirvVersionTooLow).
 func TestZeroSPIRVVersion(t *testing.T) {
-	spv, err := spirv.NewBackend(spirv.Options{}).Compile(zeroOptionsModule(t))
+	spv, err := spirvBinary(zeroOptionsModule(t), spirv.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,10 +463,10 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := spirv.NewBackend(spirv.Options{}).Compile(m); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
+	if _, err := spirvBinary(m, spirv.Options{}); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
 		t.Errorf("subgroups at the zero version: err = %v, want need SPIR-V 1.3", err)
 	}
-	spv, err = spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
+	spv, err = spirvBinary(m, spirv.Options{Version: spirv.Version1_3})
 	if err != nil || spv[5] != 3 {
 		t.Errorf("subgroups at 1.3: err = %v", err)
 	}
@@ -476,7 +476,7 @@ func TestZeroSPIRVVersion(t *testing.T) {
 // default), 6.0 for DXIL; a model the backend cannot write is an error.
 func TestZeroShaderModel(t *testing.T) {
 	hlslCode := func(sm backend.ShaderModel) (string, error) {
-		code, _, err := hlsl.Compile(zeroOptionsModule(t), &hlsl.Options{ShaderModel: sm})
+		code, _, err := hlsl.Compile(zeroOptionsModule(t), hlsl.Options{ShaderModel: sm})
 		return code, err
 	}
 	zero, err := hlslCode(backend.ShaderModel{})
@@ -490,15 +490,15 @@ func TestZeroShaderModel(t *testing.T) {
 		t.Errorf("hlsl 7.0: err = %v", err)
 	}
 
-	dxilZero, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{})
+	dxilZero, _, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dxil60, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 0}})
+	dxil60, _, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 0}})
 	if err != nil || !bytes.Equal(dxilZero, dxil60) {
 		t.Errorf("dxil: zero shader model differs from 6.0 (err %v)", err)
 	}
-	if _, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 5, Minor: 1}}); err == nil ||
+	if _, _, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 5, Minor: 1}}); err == nil ||
 		!strings.Contains(err.Error(), "shader model 5.1 is not supported") {
 		t.Errorf("dxil 5.1: err = %v", err)
 	}
@@ -511,7 +511,7 @@ func TestZeroShaderModel(t *testing.T) {
 func TestZeroSPIRVAdjustCoordinateSpace(t *testing.T) {
 	const opFNegate = 127
 	for _, adjust := range []bool{false, true} {
-		bin, err := spirv.NewBackend(spirv.Options{EntryPoint: selVS, AdjustCoordinateSpace: adjust}).Compile(entryPointModule(t))
+		bin, err := spirvBinary(entryPointModule(t), spirv.Options{EntryPoint: selVS, AdjustCoordinateSpace: adjust})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -15,7 +15,7 @@ import (
 )
 
 func TestCompile_NilModule(t *testing.T) {
-	_, err := Compile(nil, DefaultOptions())
+	_, _, err := Compile(nil, DefaultOptions())
 	if err == nil {
 		t.Fatal("expected error for nil module")
 	}
@@ -23,7 +23,7 @@ func TestCompile_NilModule(t *testing.T) {
 
 func TestCompile_NoEntryPoints(t *testing.T) {
 	irMod := &ir.Module{}
-	_, err := Compile(irMod, DefaultOptions())
+	_, _, err := Compile(irMod, DefaultOptions())
 	if err == nil {
 		t.Fatal("expected error for module with no entry points")
 	}
@@ -256,7 +256,7 @@ func TestCompile_PassthroughVertex(t *testing.T) {
 	// the container). A separate test may cover the retail path.
 	opts := DefaultOptions()
 	opts.UseBypassHash = true
-	data, err := Compile(irMod, opts)
+	data, _, err := Compile(irMod, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestCompile_RetailHash(t *testing.T) {
 	opts := DefaultOptions()
 	opts.UseBypassHash = false // Use retail hash
 
-	data, err := Compile(mod, opts)
+	data, _, err := Compile(mod, opts)
 	if err != nil {
 		t.Fatalf("Compile with retail hash failed: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestCompile_SimpleFragment(t *testing.T) {
 		{Name: "main", Stage: ir.StageFragment, Function: fn},
 	}
 
-	data, err := Compile(irMod, DefaultOptions())
+	data, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestComputeContainerHasEmptyISGOSG(t *testing.T) {
 			},
 		}},
 	}
-	blob, err := Compile(mod, DefaultOptions())
+	blob, _, err := Compile(mod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("dxil.Compile: %v", err)
 	}
@@ -906,7 +906,7 @@ func TestOutputIDIsSignatureIndex(t *testing.T) {
 		{Name: "vert_main", Stage: ir.StageVertex, Function: fn},
 	}
 
-	data, err := Compile(irMod, DefaultOptions())
+	data, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
@@ -1160,7 +1160,7 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 	}
 
 	// Shader model must stay at 6.0 since legacy ops are available from SM 6.0.
-	blob, err := Compile(irMod, DefaultOptions())
+	blob, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -1199,7 +1199,7 @@ func compileWGSLToDXIL(t *testing.T, src string) {
 			Overrides:         irMod.Overrides,
 			SpecialTypes:      irMod.SpecialTypes,
 		}
-		blob, cerr := Compile(single, opts)
+		blob, _, cerr := Compile(single, opts)
 		if cerr != nil {
 			t.Fatalf("Compile(%s): %v", ep.Name, cerr)
 		}

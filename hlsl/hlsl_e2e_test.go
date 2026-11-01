@@ -971,7 +971,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 // =============================================================================
 
 // compileWGSLToHLSLWithOpts compiles WGSL source to HLSL with custom options.
-func compileWGSLToHLSLWithOpts(t *testing.T, source string, opts *hlsl.Options) string {
+func compileWGSLToHLSLWithOpts(t *testing.T, source string, opts hlsl.Options) string {
 	t.Helper()
 
 	lexer := wgsl.NewLexer(source)

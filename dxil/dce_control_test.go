@@ -17,7 +17,7 @@ func TestDeadIfSharedConditionCompiles(t *testing.T) {
     if (c) { var t = 1; }
     if (c) { out.v = 7; }
 }`
-	blob, err := Compile(lowerSource(t, src), DefaultOptions())
+	blob, _, err := Compile(lowerSource(t, src), DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

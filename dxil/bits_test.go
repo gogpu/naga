@@ -36,7 +36,7 @@ func dumpbin(t *testing.T, src string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	blob, err := Compile(lowerSource(t, src), DefaultOptions())
+	blob, _, err := Compile(lowerSource(t, src), DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

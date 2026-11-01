@@ -34,6 +34,12 @@ func lowerSource(t *testing.T, src string) *ir.Module {
 	return m
 }
 
+// spirvBinary is spirv.Compile without its TranslationInfo.
+func spirvBinary(module *ir.Module, opts spirv.Options) ([]byte, error) {
+	binary, _, err := spirv.Compile(module, opts)
+	return binary, err
+}
+
 func mslOf(t *testing.T, m *ir.Module) string {
 	t.Helper()
 	code, _, err := msl.Compile(m, msl.DefaultOptions())
@@ -384,14 +390,14 @@ override n: u32 = 7u;
 	}
 	for name, src := range shaders {
 		backends := map[string]func(*ir.Module) error{
-			"spirv": func(m *ir.Module) error { _, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(m); return err },
+			"spirv": func(m *ir.Module) error { _, err := spirvBinary(m, spirv.DefaultOptions()); return err },
 			"msl":   func(m *ir.Module) error { _, _, err := msl.Compile(m, msl.DefaultOptions()); return err },
 			"hlsl":  func(m *ir.Module) error { _, _, err := hlsl.Compile(m, hlsl.DefaultOptions()); return err },
 			"glsl": func(m *ir.Module) error {
 				_, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310})
 				return err
 			},
-			"dxil": func(m *ir.Module) error { _, err := dxil.Compile(m, dxil.DefaultOptions()); return err },
+			"dxil": func(m *ir.Module) error { _, _, err := dxil.Compile(m, dxil.DefaultOptions()); return err },
 		}
 		for backend, compile := range backends {
 			if err := compile(lowerSource(t, src)); !errors.Is(err, ir.ErrUnresolvedOverride) {
@@ -450,10 +456,10 @@ var<workgroup> a: array<u32, SIZE>;
 			if err != nil || !strings.Contains(mslCode, "uint inner["+n+"];") {
 				t.Errorf("msl: err %v, want uint inner[%s];\n%s", err, n, mslCode)
 			}
-			if _, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(m); err != nil {
+			if _, err := spirvBinary(m, spirv.DefaultOptions()); err != nil {
 				t.Errorf("spirv: %v", err)
 			}
-			if _, err := dxil.Compile(m, dxil.DefaultOptions()); err != nil {
+			if _, _, err := dxil.Compile(m, dxil.DefaultOptions()); err != nil {
 				t.Errorf("dxil: %v", err)
 			}
 			// The result keeps the pending size; Resolve sizes it.

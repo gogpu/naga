@@ -28,7 +28,7 @@ import (
 func TestValidate_LdexpScalarStructural(t *testing.T) {
 	irMod := buildLdexpRegressionModule()
 
-	blob, err := Compile(irMod, DefaultOptions())
+	blob, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestValidate_LdexpScalarStructural(t *testing.T) {
 func TestValidate_ChainedOverrideDefault(t *testing.T) {
 	irMod := buildChainedOverrideModule()
 
-	blob, err := Compile(irMod, DefaultOptions())
+	blob, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

@@ -127,7 +127,7 @@ func TestSamplerHandleAtItsHeapRegister(t *testing.T) {
 // A texture_external is refused: the DXIL writer has none of its planes
 // and conversion, and wrote it as a texture of the wrong type.
 func TestExternalTexturesAreRefused(t *testing.T) {
-	_, err := Compile(lowerForTest(t, `
+	_, _, err := Compile(lowerForTest(t, `
 @group(0) @binding(0) var tex: texture_external;
 @fragment fn main() -> @location(0) vec4<f32> {
 	return textureLoad(tex, vec2<u32>(0u));

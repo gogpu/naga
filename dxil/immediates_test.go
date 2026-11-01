@@ -38,12 +38,12 @@ func lowerImmediatesShader(t *testing.T) *ir.Module {
 func TestImmediatesTarget(t *testing.T) {
 	m := lowerImmediatesShader(t)
 	for _, fake := range []bool{false, true} {
-		_, err := Compile(m, Options{FakeMissingBindings: fake})
+		_, _, err := Compile(m, Options{FakeMissingBindings: fake})
 		if !errors.Is(err, backend.ErrMissingBinding) {
 			t.Errorf("FakeMissingBindings %v, no target: err = %v, want backend.ErrMissingBinding", fake, err)
 		}
 	}
-	if _, err := Compile(m, Options{ImmediatesTarget: &BindTarget{Space: 2, Register: 3}}); err != nil {
+	if _, _, err := Compile(m, Options{ImmediatesTarget: &BindTarget{Space: 2, Register: 3}}); err != nil {
 		t.Fatal(err)
 	}
 }

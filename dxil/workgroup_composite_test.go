@@ -332,7 +332,7 @@ func TestWorkgroupVectorKeepsEveryComponent(t *testing.T) {
 func TestWorkgroupComposites(t *testing.T) {
 	for _, tt := range workgroupCompositeCases {
 		t.Run(tt.name, func(t *testing.T) {
-			blob, err := Compile(lowerSource(t, workgroupCompositeSource(tt.decls, tt.body)), DefaultOptions())
+			blob, _, err := Compile(lowerSource(t, workgroupCompositeSource(tt.decls, tt.body)), DefaultOptions())
 			if err != nil {
 				t.Fatalf("Compile: %v", err)
 			}

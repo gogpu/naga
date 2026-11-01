@@ -75,8 +75,7 @@ func main() {
 	}
 
 	// Compile to SPIR-V (use DefaultOptions for proper version)
-	backend := spirv.NewBackend(spirv.DefaultOptions())
-	spv, err := backend.Compile(ir)
+	spv, _, err := spirv.Compile(ir, spirv.DefaultOptions())
 	if err != nil {
 		fmt.Println("Compile error:", err)
 		os.Exit(1)

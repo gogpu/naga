@@ -56,7 +56,7 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 			continue
 		}
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
-		bytes, cerr := dxil.Compile(module, opts)
+		bytes, _, cerr := dxil.Compile(module, opts)
 		if cerr != nil {
 			// Skip individual EP failures; corpus mode tallies these
 			// separately and single mode reports the first error.

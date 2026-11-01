@@ -140,7 +140,7 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 			name    string
 			compile func()
 		}{
-			{"spirv", func() { _, _ = spirv.NewBackend(spirv.DefaultOptions()).Compile(module) }},
+			{"spirv", func() { _, _ = spirvBinary(module, spirv.DefaultOptions()) }},
 			{"msl", func() { _, _, _ = msl.Compile(module, msl.DefaultOptions()) }},
 			{"hlsl", func() { _, _, _ = hlsl.Compile(module, hlsl.DefaultOptions()) }},
 			{"glsl", func() {
@@ -152,7 +152,7 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 					_, _, _ = glsl.Compile(module, opts)
 				}
 			}},
-			{"dxil", func() { _, _ = dxil.Compile(module, dxil.DefaultOptions()) }},
+			{"dxil", func() { _, _, _ = dxil.Compile(module, dxil.DefaultOptions()) }},
 		}
 		for _, b := range backends {
 			b.compile()

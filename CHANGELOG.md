@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is an error wrapping `backend.ErrMissingBinding`, `FakeMissingBindings` or not: HLSL wrote `register(b0)` silently,
   which can take the caller's own b0, and DXIL gave the buffer a synthetic register that the PSV0 resource table left
   out. The dead `msl.EntryPointResources.PushConstantBuffer` is removed (`ImmediatesBuffer` is the field).
+- **Breaking: one backend contract.** Every backend is `Compile(*ir.Module, Options) (output, TranslationInfo, error)`
+  with `Options` by value: `spirv.Compile` replaces `spirv.NewBackend(opts).Compile(m)` (the exported `spirv.Backend`
+  was a type alias of an internal type), `dxil.Compile` returns a `TranslationInfo` too, and `hlsl.Compile` takes
+  `hlsl.Options` and returns `hlsl.TranslationInfo` by value (`hlsl.DefaultOptions` returns a value). The spirv and
+  dxil `TranslationInfo` carry `EntryPointNames`, as the text backends' do.
 - **Breaking: GLSL writer flags are named fields, and GL clip space is converted at the zero value.**
   `glsl.Options.WriterFlags` and the `glsl.WriterFlag*` constants are replaced by `SkipAdjustCoordinateSpace`,
   `ForcePointSize` and `TextureShadowLod`. A vertex entry point now converts `gl_Position` to GL clip space by

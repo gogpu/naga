@@ -113,7 +113,7 @@ func TestCompileDoesNotMutateModule(t *testing.T) {
 			module := lowerWGSL(t, tt.source)
 			want := lowerWGSL(t, tt.source)
 
-			first, err := dxil.Compile(module, dxil.DefaultOptions())
+			first, _, err := dxil.Compile(module, dxil.DefaultOptions())
 			if err != nil {
 				t.Fatalf("first Compile: %v", err)
 			}
@@ -121,7 +121,7 @@ func TestCompileDoesNotMutateModule(t *testing.T) {
 				t.Error("Compile changed the caller's module")
 			}
 
-			second, err := dxil.Compile(module, dxil.DefaultOptions())
+			second, _, err := dxil.Compile(module, dxil.DefaultOptions())
 			if err != nil {
 				t.Fatalf("second Compile: %v", err)
 			}

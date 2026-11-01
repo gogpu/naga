@@ -121,7 +121,7 @@ func TestReadbackCorpusValidatorsReject(t *testing.T) {
 		if err := compileCorpusDXIL(t, v, m, "main"); err != nil {
 			t.Fatalf("valid shader rejected: %v", err)
 		}
-		blob, err := dxil.Compile(m, dxil.DefaultOptions())
+		blob, _, err := dxil.Compile(m, dxil.DefaultOptions())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -271,7 +271,7 @@ func runTool(t *testing.T, tool, name string, data []byte, args ...string) error
 }
 
 func compileCorpusSPIRV(t *testing.T, v *corpusValidators, m *ir.Module, _ string) error {
-	code, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(m)
+	code, err := spirvBinary(m, spirv.DefaultOptions())
 	if err != nil || v.spirvVal == "" {
 		return err
 	}
@@ -320,7 +320,7 @@ func compileCorpusHLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry st
 }
 
 func compileCorpusDXIL(_ *testing.T, v *corpusValidators, m *ir.Module, _ string) error {
-	blob, err := dxil.Compile(m, dxil.DefaultOptions())
+	blob, _, err := dxil.Compile(m, dxil.DefaultOptions())
 	if err != nil {
 		return err
 	}

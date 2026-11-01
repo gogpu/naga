@@ -196,7 +196,7 @@ struct T { a: f32, b: u32, c: u64, d: f64 }
 // match usage").
 func TestDoubleExtensionsOnlyForTheirOperations(t *testing.T) {
 	for op, want := range map[string]bool{"*": false, "/": true} {
-		blob, err := Compile(lowerForTest(t, `
+		blob, _, err := Compile(lowerForTest(t, `
 @group(0) @binding(0) var<storage, read_write> s: array<f64>;
 @compute @workgroup_size(1) fn main() {
 	s[1] = s[0] `+op+` 3.0lf;
