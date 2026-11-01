@@ -3,7 +3,7 @@ package viewid
 import (
 	"sort"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -249,7 +249,7 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -264,9 +264,9 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 	// Apply the same cross-argument sort for non-VS inputs.
 	if !isVSInput {
 		sort.SliceStable(entries, func(i, j int) bool {
-			ki := backend.NewMemberInterfaceKey(&entries[i].binding)
-			kj := backend.NewMemberInterfaceKey(&entries[j].binding)
-			return backend.MemberInterfaceLess(ki, kj)
+			ki := d3d.NewMemberInterfaceKey(&entries[i].binding)
+			kj := d3d.NewMemberInterfaceKey(&entries[j].binding)
+			return d3d.MemberInterfaceLess(ki, kj)
 		})
 	}
 	result := make(map[viewIDArgKey]int, len(entries))

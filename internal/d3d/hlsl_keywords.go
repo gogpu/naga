@@ -1,7 +1,7 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package backend
+package d3d
 
 // HLSLReservedKeywords contains all HLSL reserved keywords (case-sensitive).
 // Shared between HLSL codegen (namer) and DXIL backend (NeedsTrailingUnderscore).

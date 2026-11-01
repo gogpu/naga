@@ -6,16 +6,16 @@ package codegen
 import (
 	"strings"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 )
 
 // reservedKeywords is an alias to the authoritative keyword map in the
 // backend package. Using a package-level alias keeps existing code
 // (namer, Escape, IsReserved) unchanged while the data lives in one place.
-var reservedKeywords = backend.HLSLReservedKeywords
+var reservedKeywords = d3d.HLSLReservedKeywords
 
-// caseInsensitiveKeywords is an alias to the authoritative map in backend.
-var caseInsensitiveKeywords = backend.HLSLCaseInsensitiveKeywords
+// caseInsensitiveKeywords is an alias to the authoritative map in d3d.
+var caseInsensitiveKeywords = d3d.HLSLCaseInsensitiveKeywords
 
 // UnnamedIdentifier is the default name for empty identifiers.
 const UnnamedIdentifier = "_unnamed"

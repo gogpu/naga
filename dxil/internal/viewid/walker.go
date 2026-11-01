@@ -1,7 +1,7 @@
 package viewid
 
 import (
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -121,7 +121,7 @@ func (s *analysisState) handleReturn(ret ir.StmtReturn) {
 // The return value's components are laid out in DECLARATION order
 // (Compose/Return places them in the source struct field order). The
 // caller's outputs slice is in PACKED INTERFACE order (locations first,
-// builtins last — see backend.SortedMemberIndices, BUG-DXIL-029). Walk
+// builtins last — see d3d.SortedMemberIndices, BUG-DXIL-029). Walk
 // the members in interface order so outputTaint[sigIdx] receives the
 // taint from the corresponding flat component span in valTaint.
 func (s *analysisState) distributeStructReturn(valTaint componentTaint, st ir.StructType) {
@@ -136,7 +136,7 @@ func (s *analysisState) distributeStructReturn(valTaint componentTaint, st ir.St
 	}
 
 	sigIdx := 0
-	for _, mi := range backend.SortedMemberIndices(st.Members) {
+	for _, mi := range d3d.SortedMemberIndices(st.Members) {
 		m := &st.Members[mi]
 		if m.Binding == nil {
 			continue

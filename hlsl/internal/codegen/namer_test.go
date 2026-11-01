@@ -6,7 +6,7 @@ package codegen
 import (
 	"testing"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 )
 
 func TestNamer_Call(t *testing.T) {
@@ -289,13 +289,13 @@ func TestBackendIsASCIIAlphanumeric(t *testing.T) {
 		{'\u00e9', false}, // e-acute is not ASCII
 	}
 	for _, tt := range tests {
-		if got := backend.IsASCIIAlphanumeric(tt.r); got != tt.want {
-			t.Errorf("backend.IsASCIIAlphanumeric(%q) = %v, want %v", tt.r, got, tt.want)
+		if got := d3d.IsASCIIAlphanumeric(tt.r); got != tt.want {
+			t.Errorf("d3d.IsASCIIAlphanumeric(%q) = %v, want %v", tt.r, got, tt.want)
 		}
 	}
 }
 
-// Testbackend.NeedsTrailingUnderscore verifies the exported helper used by the
+// TestBackendNeedsTrailingUnderscore verifies the exported helper used by the
 // DXIL backend to match DXC resource name conventions. DXC applies the
 // HLSL namer to all resource variable names before emitting DXIL
 // metadata, so our DXIL backend must replicate the same suffix logic.
@@ -340,8 +340,8 @@ func TestBackendNeedsTrailingUnderscore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := backend.NeedsTrailingUnderscore(tt.name); got != tt.want {
-				t.Errorf("backend.NeedsTrailingUnderscore(%q) = %v, want %v", tt.name, got, tt.want)
+			if got := d3d.NeedsTrailingUnderscore(tt.name); got != tt.want {
+				t.Errorf("d3d.NeedsTrailingUnderscore(%q) = %v, want %v", tt.name, got, tt.want)
 			}
 		})
 	}

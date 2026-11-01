@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/dxil/internal/module"
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1611,7 +1611,7 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 		cumComps += totalScalarCount(e.ir, e.ir.Types[member.Type].Inner)
 	}
 
-	order := backend.SortedMemberIndices(st.Members)
+	order := d3d.SortedMemberIndices(st.Members)
 	sigID := 0
 	for _, idx := range order {
 		member := st.Members[idx]
@@ -1696,7 +1696,7 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 		cum += componentCount(mty)
 	}
 
-	order := backend.SortedMemberIndices(st.Members)
+	order := d3d.SortedMemberIndices(st.Members)
 	sigID := 0
 	for _, idx := range order {
 		member := st.Members[idx]
@@ -1722,7 +1722,7 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 // to match the signature element ID assignment in buildSignatures and
 // collectGraphicsSignatures.
 func (e *Emitter) emitPromotedStructReturn(fn *ir.Function, varIdx uint32, st *ir.StructType) error {
-	order := backend.SortedMemberIndices(st.Members)
+	order := d3d.SortedMemberIndices(st.Members)
 	sigID := 0
 	for _, idx := range order {
 		member := st.Members[idx]
