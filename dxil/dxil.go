@@ -131,12 +131,25 @@ type Options struct {
 	// offset, in bytes, to all its addresses.
 	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
 
-	// RestrictIndexing clamps every run-time index into an array, matrix or
-	// vector that isn't in a storage or constant buffer to the last element,
-	// as hlsl.Options.RestrictIndexing does, so an index out of bounds
-	// reads and writes an element of it. A constant buffer binding clamps
-	// its own indices with BindTarget.RestrictIndexing.
-	RestrictIndexing bool
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled, as hlsl.Options.BoundsCheckPolicies does. The zero value
+	// is backend.BoundsCheckRestrict everywhere, which WebGPU requires. Per
+	// field:
+	//   - Index (function, private, workgroup memory and values): Restrict
+	//     clamps every run-time index to the last element, min(u32(i),
+	//     n - 1); Unchecked adds nothing.
+	//   - Buffer: Restrict clamps the indices into a constant buffer whose
+	//     BindTarget.RestrictIndexing is set (a root CBV needs it: D3D12
+	//     doesn't bounds check root descriptors). Storage buffers are raw
+	//     buffers D3D12 bounds-checks when bound through a descriptor table.
+	//   - ImageLoad: D3D12 returns zero for an out-of-bounds load, so every
+	//     policy is provided by the platform.
+	//   - BindingArray: Restrict clamps the index to the array's size, or to
+	//     BindTarget.BindingArraySize for an unbounded one (an error without
+	//     it).
+	// ReadZeroSkipWrite on Index, Buffer or BindingArray is not supported and
+	// makes Compile fail.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
 	// groupshared variables they use, as WebGPU requires. The zero value,
@@ -157,16 +170,16 @@ type FragmentEntryPoint struct {
 // DefaultOptions returns the default DXIL compilation options.
 func DefaultOptions() Options {
 	return Options{
-		ShaderModel:      SM6_0,
-		UseBypassHash:    false, // retail hash — portable, no dev-mode requirement
-		RestrictIndexing: true,
+		ShaderModel:   SM6_0,
+		UseBypassHash: false, // retail hash — portable, no dev-mode requirement
 	}
 }
 
 // convertBindingMap converts the public dxil.BindingMap to the internal
-// emit.BindingMap. Returns nil if the input is nil, preserving the
-// backward-compatible "no remap" behavior downstream.
-func convertBindingMap(m BindingMap) emit.BindingMap {
+// emit.BindingMap. A binding restricts the indexing of its constant buffer
+// (RestrictIndexing) only under the Buffer policy Restrict. Returns nil if
+// the input is nil, preserving the "no remap" behavior downstream.
+func convertBindingMap(m BindingMap, buffer backend.BoundsCheckPolicy) emit.BindingMap {
 	if m == nil {
 		return nil
 	}
@@ -176,7 +189,7 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 			Space:                            uint32(v.Space),
 			Register:                         v.Register,
 			BindingArraySize:                 v.BindingArraySize,
-			RestrictIndexing:                 v.RestrictIndexing,
+			RestrictIndexing:                 v.RestrictIndexing && buffer == backend.BoundsCheckRestrict,
 			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
 			DynamicStorageBufferSizeIndex:    v.DynamicStorageBufferSizeIndex,
 		}
@@ -292,6 +305,20 @@ func checkInput(irModule *ir.Module, opts Options) error {
 	if m := opts.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
 		return fmt.Errorf("dxil: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
+	p := opts.BoundsCheckPolicies
+	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
+		if policy > backend.BoundsCheckUnchecked {
+			return fmt.Errorf("dxil: BoundsCheckPolicies: %v is not supported", policy)
+		}
+	}
+	for _, f := range []struct {
+		name   string
+		policy backend.BoundsCheckPolicy
+	}{{"Index", p.Index}, {"Buffer", p.Buffer}, {"BindingArray", p.BindingArray}} {
+		if f.policy == backend.BoundsCheckReadZeroSkipWrite {
+			return fmt.Errorf("dxil: BoundsCheckPolicies.%s: ReadZeroSkipWrite is not supported; use Restrict or Unchecked", f.name)
+		}
+	}
 	for loc, tgt := range opts.BindingMap {
 		if tgt.DynamicStorageBufferSizeIndex != nil && tgt.DynamicStorageBufferOffsetsIndex == nil {
 			return fmt.Errorf("dxil: binding (group %d, binding %d) has a DynamicStorageBufferSizeIndex but no DynamicStorageBufferOffsetsIndex",
@@ -386,7 +413,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor:        opts.ShaderModel.Major,
 		ShaderModelMinor:        smMinor,
-		BindingMap:              convertBindingMap(opts.BindingMap),
+		BindingMap:              convertBindingMap(opts.BindingMap, opts.BoundsCheckPolicies.Buffer),
 		SamplerHeapTargets:      convertSamplerHeapTargets(opts.SamplerHeapTargets),
 		SamplerBufferBindingMap: convertSamplerBufferBindingMap(opts.SamplerBufferBindingMap),
 		ReachableGlobals:        reachableGlobals,
@@ -3202,15 +3229,12 @@ func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) err
 
 // lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
 // pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE), and
-// then clamps run-time indices when opts restrict indexing.
+// then clamps run-time indices under the Index and BindingArray policies.
 func lowerForEmit(irModule *ir.Module, opts Options) error {
 	if err := runOptPasses(irModule); err != nil {
 		return err
 	}
-	if opts.RestrictIndexing {
-		restrictIndices(irModule)
-	}
-	return nil
+	return restrictIndices(irModule, opts)
 }
 
 // runOptPasses runs the optimization pass pipeline on all functions

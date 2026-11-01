@@ -2,6 +2,7 @@ package dxil
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/backend"
@@ -12,7 +13,8 @@ import (
 // A binding that restricts indexing, a root CBV, which D3D12 doesn't bounds
 // check, has every run-time index of its loads clamped to its array or
 // matrix, as the HLSL writer clamps it with min(uint(i), n - 1). Without
-// RestrictIndexing the index is used as it is.
+// RestrictIndexing, or under the Buffer policy Unchecked, the index is used as
+// it is.
 func TestRestrictIndexingClampsConstantBufferIndices(t *testing.T) {
 	src := `
 struct L { color: vec4<f32>, m: mat4x4<f32> }
@@ -23,23 +25,32 @@ struct U { a: vec4<f32>, lights: array<L, 8> }
 	out[0] = u.lights[i].color + u.lights[i].m[i & 3u];
 }
 `
-	for _, restrict := range []bool{false, true} {
+	for _, tc := range []struct {
+		restrict bool
+		buffer   backend.BoundsCheckPolicy
+		clamped  bool
+	}{
+		{false, backend.BoundsCheckRestrict, false},
+		{true, backend.BoundsCheckRestrict, true},
+		{true, backend.BoundsCheckUnchecked, false},
+	} {
 		opts := DefaultOptions()
-		opts.BindingMap = BindingMap{{Group: 0, Binding: 0}: {Register: 2, RestrictIndexing: restrict}}
+		opts.BoundsCheckPolicies.Buffer = tc.buffer
+		opts.BindingMap = BindingMap{{Group: 0, Binding: 0}: {Register: 2, RestrictIndexing: tc.restrict}}
 		mod, fn := emitMainModuleOpts(t, src, opts)
 		limits := uminLimits(mod, fn)
 		slices.Sort(limits)
 		var want []int64
-		if restrict {
+		if tc.clamped {
 			want = []int64{3, 7, 7}
 		}
 		if !slices.Equal(limits, want) {
-			t.Errorf("RestrictIndexing %v: indices clamped to %v, want %v", restrict, limits, want)
+			t.Errorf("BindTarget.RestrictIndexing %v, Buffer %v: indices clamped to %v, want %v", tc.restrict, tc.buffer, limits, want)
 		}
 	}
 }
 
-// RestrictIndexing clamps a run-time index into a function, private or
+// The Index policy Restrict clamps a run-time index into a function, private or
 // workgroup array, nested ones included, or into a vector to its last
 // element, as the HLSL writer does, and leaves an index into a storage
 // buffer, which D3D12 bounds checks, and a constant index in bounds as they
@@ -60,7 +71,9 @@ var<workgroup> w: array<u32, 8>;
 `
 	for _, restrict := range []bool{false, true} {
 		opts := DefaultOptions()
-		opts.RestrictIndexing = restrict
+		if !restrict {
+			opts.BoundsCheckPolicies.Index = backend.BoundsCheckUnchecked
+		}
 		// Only the shader's own indices: zeroing w loops over its elements
 		// with an index of its own, clamped too.
 		opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupNone
@@ -72,7 +85,7 @@ var<workgroup> w: array<u32, 8>;
 			want = []int64{2, 3, 3, 3, 4, 5, 7}
 		}
 		if !slices.Equal(limits, want) {
-			t.Errorf("RestrictIndexing %v: indices clamped to %v, want %v", restrict, limits, want)
+			t.Errorf("Index Restrict %v: indices clamped to %v, want %v", restrict, limits, want)
 		}
 	}
 }
@@ -99,4 +112,49 @@ func uminLimits(mod *module.Module, fn *module.Function) []int64 {
 		}
 	}
 	return limits
+}
+
+// The BindingArray policy Restrict clamps a run-time index into a binding
+// array to its size, or to BindTarget.BindingArraySize for an unbounded one;
+// an unbounded array without it is an error, and Unchecked uses the index as
+// it is. Rust naga's HLSL writer never checks binding arrays; the DXIL
+// backend follows the HLSL backend here.
+func TestRestrictIndexingClampsBindingArrayIndices(t *testing.T) {
+	const body = `
+@group(0) @binding(1) var<storage, read_write> out: array<vec4<f32>>;
+@compute @workgroup_size(1) fn main(@builtin(local_invocation_index) i: u32) {
+	out[i] = textureLoad(textures[i], vec2<i32>(0), 0);
+}
+`
+	sized := "@group(0) @binding(0) var textures: binding_array<texture_2d<f32>, 8>;" + body
+	unbounded := "@group(0) @binding(0) var textures: binding_array<texture_2d<f32>>;" + body
+
+	opts := DefaultOptions()
+	opts.BoundsCheckPolicies.Index = backend.BoundsCheckUnchecked
+	mod, fn := emitMainModuleOpts(t, sized, opts)
+	if limits := uminLimits(mod, fn); !slices.Equal(limits, []int64{7}) {
+		t.Errorf("sized binding array: indices clamped to %v, want [7]", limits)
+	}
+
+	size := uint32(16)
+	opts.BindingMap = BindingMap{{Group: 0, Binding: 0}: {BindingArraySize: &size}}
+	mod, fn = emitMainModuleOpts(t, unbounded, opts)
+	if limits := uminLimits(mod, fn); !slices.Equal(limits, []int64{15}) {
+		t.Errorf("unbounded binding array with BindingArraySize 16: indices clamped to %v, want [15]", limits)
+	}
+
+	opts.BindingMap = nil
+	irMod, err := prepareModule(lowerSource(t, unbounded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lowerForEmit(irMod, opts); err == nil || !strings.Contains(err.Error(), "BindingArraySize") {
+		t.Errorf("unbounded binding array without a size: err = %v, want BindingArraySize named", err)
+	}
+
+	opts.BoundsCheckPolicies.BindingArray = backend.BoundsCheckUnchecked
+	mod, fn = emitMainModuleOpts(t, sized, opts)
+	if limits := uminLimits(mod, fn); len(limits) != 0 {
+		t.Errorf("Unchecked: indices clamped to %v", limits)
+	}
 }
