@@ -39,6 +39,9 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
 
 ### Changed
 
+- **Readback corpus: `calls/dce-live-local-chain-rt`.** vec3 helper results inlined through two return slots, the
+  shape in which naga 0.20.4's DXIL dropped gg's Difference and Soft Light blend math (fixed in 0.20.5): 0.20.4 wrote
+  zeros for two of the three modes and the validator accepted it.
 - **Readback corpus format 2.** A known failure can carry `"skip": true`: the runner does not dispatch the case on
   matching runs (the GPU hangs or the device is lost) and reports it skipped with its card, as Rust wgpu's
   `FailureCase` skip. Format 1 cases still read; `skip` needs format 2. A case that requires a feature a backend
