@@ -47,7 +47,6 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 			for _, clamp := range []*backend.ClampFragDepth{nil, {Offset: 0}} {
 				got, info, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
 					LangVersion:        version,
-					EntryPoint:         "fs_main",
 					ForceHighPrecision: true,
 					ClampFragDepth:     clamp,
 				})
@@ -93,9 +92,10 @@ var<immediate> im: Immediates;
 @vertex fn vs_main() -> @builtin(position) vec4<f32> { return im.tint; }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z * im.tint.x; }`
 	compile := func(ep string, offset uint32) (string, glsl.TranslationInfo, error) {
-		return glsl.Compile(lowerWGSL(t, src), glsl.Options{
+		m := lowerWGSL(t, src)
+		return glsl.Compile(m, glsl.Options{
 			LangVersion:    glsl.Version330,
-			EntryPoint:     ep,
+			EntryPoint:     entry(t, m, ep),
 			ClampFragDepth: &backend.ClampFragDepth{Offset: offset},
 		})
 	}

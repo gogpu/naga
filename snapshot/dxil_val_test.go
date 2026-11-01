@@ -14,9 +14,9 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/internal/testtools"
-	"github.com/gogpu/naga/ir"
 )
 
 // dxcPath returns the path to dxc.exe from Windows SDK, or empty if not found.
@@ -102,27 +102,18 @@ func TestDxilValSummary(t *testing.T) {
 		}
 
 		// Step 2: Compile each entry point to DXIL.
-		// dxil.Compile processes EntryPoints[0], so we isolate each one.
 		allEPsPass := true
 		var firstErr string
 		for j := range module.EntryPoints {
-			singleEPModule := &ir.Module{
-				Types:             module.Types,
-				Constants:         module.Constants,
-				GlobalVariables:   module.GlobalVariables,
-				GlobalExpressions: module.GlobalExpressions,
-				Functions:         module.Functions,
-				EntryPoints:       []ir.EntryPoint{module.EntryPoints[j]},
-				Overrides:         module.Overrides,
-				SpecialTypes:      module.SpecialTypes,
-			}
+			ep := &module.EntryPoints[j]
 
 			// The binding-array sizes of the shader's Rust parameters, and
 			// Rust's fake_missing_bindings default for the rest.
 			shaderOpts := opts
+			shaderOpts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 			shaderOpts.BindingMap = dxilBindingArraySizes(shader.name)
 			shaderOpts.FakeMissingBindings = true
-			dxilBytes, compileErr := dxil.Compile(singleEPModule, shaderOpts)
+			dxilBytes, compileErr := dxil.Compile(module, shaderOpts)
 			if compileErr != nil {
 				if firstErr == "" {
 					firstErr = compileErr.Error()
@@ -261,17 +252,11 @@ func TestDxilValGGProduction(t *testing.T) {
 
 			for j := range module.EntryPoints {
 				totalEPs++
-				singleEP := &ir.Module{
-					Types:             module.Types,
-					Constants:         module.Constants,
-					GlobalVariables:   module.GlobalVariables,
-					GlobalExpressions: module.GlobalExpressions,
-					Functions:         module.Functions,
-					EntryPoints:       []ir.EntryPoint{module.EntryPoints[j]},
-					Overrides:         module.Overrides,
-					SpecialTypes:      module.SpecialTypes,
+				epOpts := opts
+				epOpts.EntryPoint = &backend.EntryPointSelector{
+					Stage: module.EntryPoints[j].Stage, Name: module.EntryPoints[j].Name,
 				}
-				blob, cerr := dxil.Compile(singleEP, opts)
+				blob, cerr := dxil.Compile(module, epOpts)
 				if cerr != nil {
 					failures = append(failures, path+"/"+module.EntryPoints[j].Name+": compile: "+cerr.Error())
 					continue

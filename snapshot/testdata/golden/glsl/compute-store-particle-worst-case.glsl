@@ -20,53 +20,53 @@ layout(std140) uniform Params_block_2Compute { Params _group_0_binding_2_cs; };
 
 void main() {
     uvec3 id = gl_GlobalInvocationID;
-    Particle p_1 = Particle(vec2(0.0), vec2(0.0));
+    Particle p = Particle(vec2(0.0), vec2(0.0));
     uint i = id.x;
     uint _e4 = _group_0_binding_2_cs.count;
     if ((i >= _e4)) {
         return;
     }
     Particle _e8 = _group_0_binding_0_cs[i];
-    p_1 = _e8;
-    vec2 _e11 = p_1.pos;
+    p = _e8;
+    vec2 _e11 = p.pos;
     float r = length(_e11);
     float rSafe = max(r, 0.05);
-    vec2 _e16 = p_1.pos;
+    vec2 _e16 = p.pos;
     float _e26 = _group_0_binding_2_cs.dt;
     vec2 gravity = (((-(_e16) / vec2(((rSafe * rSafe) * rSafe))) * 0.15) * _e26);
-    vec2 _e29 = p_1.vel;
-    p_1.vel = (_e29 + gravity);
-    vec2 _e32 = p_1.vel;
-    p_1.vel = (_e32 * 0.9995);
-    vec2 _e36 = p_1.pos;
-    vec2 _e38 = p_1.vel;
+    vec2 _e29 = p.vel;
+    p.vel = (_e29 + gravity);
+    vec2 _e32 = p.vel;
+    p.vel = (_e32 * 0.9995);
+    vec2 _e36 = p.pos;
+    vec2 _e38 = p.vel;
     float _e41 = _group_0_binding_2_cs.dt;
-    p_1.pos = (_e36 + (_e38 * _e41));
-    float _e46 = p_1.pos.x;
+    p.pos = (_e36 + (_e38 * _e41));
+    float _e46 = p.pos.x;
     if ((_e46 > 1.0)) {
-        p_1.pos.x = 1.0;
-        float _e54 = p_1.vel.x;
-        p_1.vel.x = (_e54 * -0.8);
+        p.pos.x = 1.0;
+        float _e54 = p.vel.x;
+        p.vel.x = (_e54 * -0.8);
     }
-    float _e59 = p_1.pos.x;
+    float _e59 = p.pos.x;
     if ((_e59 < -1.0)) {
-        p_1.pos.x = -1.0;
-        float _e67 = p_1.vel.x;
-        p_1.vel.x = (_e67 * -0.8);
+        p.pos.x = -1.0;
+        float _e67 = p.vel.x;
+        p.vel.x = (_e67 * -0.8);
     }
-    float _e72 = p_1.pos.y;
+    float _e72 = p.pos.y;
     if ((_e72 > 1.0)) {
-        p_1.pos.y = 1.0;
-        float _e80 = p_1.vel.y;
-        p_1.vel.y = (_e80 * -0.8);
+        p.pos.y = 1.0;
+        float _e80 = p.vel.y;
+        p.vel.y = (_e80 * -0.8);
     }
-    float _e85 = p_1.pos.y;
+    float _e85 = p.pos.y;
     if ((_e85 < -1.0)) {
-        p_1.pos.y = -1.0;
-        float _e93 = p_1.vel.y;
-        p_1.vel.y = (_e93 * -0.8);
+        p.pos.y = -1.0;
+        float _e93 = p.vel.y;
+        p.vel.y = (_e93 * -0.8);
     }
-    Particle _e98 = p_1;
+    Particle _e98 = p;
     _group_0_binding_1_cs[i] = _e98;
     return;
 }

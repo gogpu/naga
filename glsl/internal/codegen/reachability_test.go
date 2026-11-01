@@ -387,7 +387,6 @@ func TestCompile_DeadCodeElimination_Functions(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version330,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
@@ -412,7 +411,6 @@ func TestCompile_DeadCodeElimination_Globals(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version330,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
@@ -441,7 +439,6 @@ func TestCompile_DeadCodeElimination_Constants(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version330,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
@@ -463,7 +460,6 @@ func TestCompile_DeadCodeElimination_Types(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version330,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
@@ -586,7 +582,6 @@ func TestCompile_OutputSizeReduction(t *testing.T) {
 	// Compile WITH dead code elimination (default)
 	sourceFiltered, _, err := Compile(module, Options{
 		LangVersion: Version330,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)

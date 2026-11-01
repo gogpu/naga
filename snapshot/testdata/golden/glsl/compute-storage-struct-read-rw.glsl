@@ -20,21 +20,21 @@ layout(std140) uniform Params_block_2Compute { Params _group_0_binding_2_cs; };
 
 void main() {
     uvec3 id = gl_GlobalInvocationID;
-    Particle p_1 = Particle(vec2(0.0), vec2(0.0));
+    Particle p = Particle(vec2(0.0), vec2(0.0));
     uint i = id.x;
     uint _e4 = _group_0_binding_2_cs.count;
     if ((i >= _e4)) {
         return;
     }
     Particle _e8 = _group_0_binding_0_cs[i];
-    p_1 = _e8;
-    vec2 _e11 = p_1.vel;
-    p_1.vel = (_e11 * 0.9995);
-    vec2 _e15 = p_1.pos;
-    vec2 _e17 = p_1.vel;
+    p = _e8;
+    vec2 _e11 = p.vel;
+    p.vel = (_e11 * 0.9995);
+    vec2 _e15 = p.pos;
+    vec2 _e17 = p.vel;
     float _e20 = _group_0_binding_2_cs.dt;
-    p_1.pos = (_e15 + (_e17 * _e20));
-    Particle _e25 = p_1;
+    p.pos = (_e15 + (_e17 * _e20));
+    Particle _e25 = p;
     _group_0_binding_1_cs[i] = _e25;
     return;
 }

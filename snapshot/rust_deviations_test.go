@@ -63,8 +63,6 @@ const (
 	reasonSPVWorkgroupLayoutFree = "workgroup variables use layout-free types (VUID-StandaloneSpirv-None-10684), " +
 		"copied to and from the decorated types with OpCopyLogical from SPIR-V 1.4 and with a member-wise " +
 		"function below it, as Tint does; Rust uses the decorated types there"
-	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
-		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
 	reasonSPVUnusedUniformPointers = "Rust declares the type of every expression it caches, also where nothing uses it, " +
 		"so it has a pointer to the regular type of each uniform buffer it declares std140-compatible; " +
 		"nothing uses it and we don't declare it"
@@ -82,27 +80,6 @@ const (
 // removed when fixed: TestRustReference fails on an entry that no longer
 // describes a difference.
 var rustDeviations = []rustDeviation{
-	// SPIR-V: per-entry-point modules.
-	{Shader: "interface", File: "wgsl-interface.compute.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "interface", File: "wgsl-interface.fragment.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "interface", File: "wgsl-interface.vertex.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "interface", File: "wgsl-interface.vertex_two_structs.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "overrides", File: "wgsl-overrides.main.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "overrides-atomicCompareExchangeWeak", File: "wgsl-overrides-atomicCompareExchangeWeak.f.spvasm",
-		Kind: deviationUnsupported, Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001",
-		ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "overrides-ray-query", File: "wgsl-overrides-ray-query.main.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "separate-entry-points", File: "wgsl-separate-entry-points.compute.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "separate-entry-points", File: "wgsl-separate-entry-points.fragment.spvasm", Kind: deviationUnsupported,
-		Reason: reasonSPVPerEntryPoint, Card: "FEAT-SPV-PIPELINE-001", ErrorContains: "per-entry-point SPIR-V output"},
-
 	// SPIR-V: other differences.
 	{Shader: "6772-unpack-expr-accesses", File: "wgsl-6772-unpack-expr-accesses.spvasm", Kind: deviationBug,
 		Reason: "no Int8 capability or 8-bit types: pack4xI8/unpack4xI8 use the polyfill where Rust uses native Int8",
@@ -442,12 +419,12 @@ var rustDeviations = []rustDeviation{
 	{Shader: "mesh-shader-points", File: "wgsl-mesh-shader-points.metal", Kind: deviationUnsupported, Card: "PARITY-UPSTREAM-001",
 		Reason:        "the msl package has no task/mesh stages; " + notPorted("b5bd5aed"),
 		ErrorContains: "unsupported shader stage"},
-	{Shader: "primitive-index-mesh-shader", File: "wgsl-primitive-index-mesh-shader.ms_main.spvasm", Kind: deviationUnsupported, Card: "FEAT-SPV-PIPELINE-001",
-		Reason:        reasonSPVPerEntryPoint,
-		ErrorContains: "per-entry-point SPIR-V output"},
-	{Shader: "primitive-index-mesh-shader", File: "wgsl-primitive-index-mesh-shader.fs_main.spvasm", Kind: deviationUnsupported, Card: "FEAT-SPV-PIPELINE-001",
-		Reason:        reasonSPVPerEntryPoint,
-		ErrorContains: "per-entry-point SPIR-V output"},
+	{Shader: "primitive-index-mesh-shader", File: "wgsl-primitive-index-mesh-shader.ms_main.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      "SPIR-V mesh shaders: no MeshShadingEXT, the module has no mesh entry point interface; " + notPorted("6bca1014"),
+		Fingerprint: "9bcea5cba24289cab32d49b14087d13417a6216b470917dd33e3715d9704e636"},
+	{Shader: "primitive-index-mesh-shader", File: "wgsl-primitive-index-mesh-shader.fs_main.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      "SPIR-V mesh shaders: no MeshShadingEXT, the module has no mesh entry point interface; " + notPorted("6bca1014"),
+		Fingerprint: "fd27dd5559f743eca48d6e04fd3df066eda7ff56f3571d5fdb011cdde7bf40eb"},
 	{Shader: "primitive-index-mesh-shader", File: "wgsl-primitive-index-mesh-shader.metal", Kind: deviationUnsupported, Card: "PARITY-UPSTREAM-001",
 		Reason:        "the msl package has no task/mesh stages; " + notPorted("b5bd5aed"),
 		ErrorContains: "unsupported shader stage"},

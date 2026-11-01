@@ -6,7 +6,7 @@ const vec2 ic0_ = vec2(2.0, 2.0);
 
 
 void main() {
-    vec2 vc0_1 = vec2(2.0, 2.0);
+    vec2 vc0_ = vec2(2.0, 2.0);
     vec2 lc0_ = vec2(2.0, 2.0);
     return;
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl/internal/codegen"
 )
@@ -211,14 +212,19 @@ type Options struct {
 	// passes false, the zero value here.
 	FakeMissingBindings bool
 
+	// EntryPoint selects the one entry point to write, as Rust naga's
+	// msl::PipelineOptions::entry_point; nil writes every entry point. One
+	// the module does not have is an error wrapping
+	// backend.ErrEntryPointNotFound.
+	EntryPoint *backend.EntryPointSelector
+
 	// AllowAndForcePointSize forces point size output for vertex shaders.
 	AllowAndForcePointSize bool
 
-	// VertexPullingTransform enables vertex pulling transformation.
-	VertexPullingTransform bool
-
-	// VertexBufferMappings describes the vertex buffer layout for vertex pulling.
-	VertexBufferMappings []VertexBufferMapping
+	// VertexPulling, when set, makes vertex entry points read their inputs
+	// from vertex buffers instead of stage_in (Rust naga's
+	// vertex_pulling_transform with its vertex_buffer_mappings).
+	VertexPulling *VertexPullingOptions
 
 	// ClampFragDepth, when set, clamps the depth a fragment entry point
 	// writes to the range in two f32, min then max, at byte offset
@@ -313,14 +319,11 @@ type VertexBufferMapping struct {
 	Attributes []AttributeMapping
 }
 
-// PipelineOptions configures options specific to a single pipeline/entry point.
-type PipelineOptions struct {
-	// EntryPoint specifies which entry point to compile.
-	// If nil, all entry points are compiled.
-	EntryPoint *backend.EntryPointSelector
-
-	// AllowAndForcePointSize forces point size output for vertex shaders.
-	AllowAndForcePointSize bool
+// VertexPullingOptions configures vertex pulling: the vertex buffers vertex
+// entry points read their inputs from.
+type VertexPullingOptions struct {
+	// VertexBuffers describes the vertex buffers and their attributes.
+	VertexBuffers []VertexBufferMapping
 }
 
 // TranslationInfo contains information about the compiled MSL output.
@@ -355,13 +358,13 @@ func DefaultOptions() Options {
 // Compile generates MSL source code from an IR module.
 // Returns the MSL source as a string and translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
-	return CompileWithPipeline(module, options, PipelineOptions{})
-}
-
-// CompileWithPipeline generates MSL source code with pipeline-specific options.
-func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOptions) (string, TranslationInfo, error) {
+	// The writer names identifiers over the whole module and writes the
+	// selected entry point only (Rust naga's PipelineOptions.entry_point).
+	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
+	}
 	copts := toCodegenOptions(options)
-	cpipe := toCodegenPipelineOptions(pipeline)
+	cpipe := codegen.PipelineOptions{EntryPoint: options.EntryPoint, AllowAndForcePointSize: options.AllowAndForcePointSize}
 	src, cinfo, err := codegen.CompileWithPipeline(module, copts, cpipe)
 	if err != nil {
 		return "", TranslationInfo{}, err
@@ -388,9 +391,10 @@ func toCodegenOptions(o Options) codegen.Options {
 	}
 
 	var vbMappings []codegen.VertexBufferMapping
-	if o.VertexBufferMappings != nil {
-		vbMappings = make([]codegen.VertexBufferMapping, len(o.VertexBufferMappings))
-		for i, m := range o.VertexBufferMappings {
+	vertexPulling := o.VertexPulling != nil
+	if vertexPulling && o.VertexPulling.VertexBuffers != nil {
+		vbMappings = make([]codegen.VertexBufferMapping, len(o.VertexPulling.VertexBuffers))
+		for i, m := range o.VertexPulling.VertexBuffers {
 			attrs := make([]codegen.AttributeMapping, len(m.Attributes))
 			for j, a := range m.Attributes {
 				attrs[j] = codegen.AttributeMapping{
@@ -420,7 +424,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		ForceLoopBounding:             !o.SkipLoopBounding,
 		FakeMissingBindings:           o.FakeMissingBindings,
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
-		VertexPullingTransform:        o.VertexPullingTransform,
+		VertexPullingTransform:        vertexPulling,
 		VertexBufferMappings:          vbMappings,
 		ClampFragDepth:                o.ClampFragDepth,
 		FixedSampleMask:               o.FixedSampleMask,
@@ -484,14 +488,6 @@ func toCodegenInlineSampler(s InlineSampler) codegen.InlineSampler {
 		MinFilter:   codegen.SamplerFilter(s.MinFilter),
 		MipFilter:   mipFilter,
 		CompareFunc: codegen.SamplerCompareFunc(s.CompareFunc),
-	}
-}
-
-// toCodegenPipelineOptions converts public PipelineOptions to codegen type.
-func toCodegenPipelineOptions(p PipelineOptions) codegen.PipelineOptions {
-	return codegen.PipelineOptions{
-		EntryPoint:             p.EntryPoint,
-		AllowAndForcePointSize: p.AllowAndForcePointSize,
 	}
 }
 

@@ -4,13 +4,13 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 
 void main() {
-    vec4 poly_1 = vec4(0.0);
-    int k_1 = 0;
-    int j_1 = 0;
-    float _e9 = poly_1.x;
-    int _e10 = j_1;
-    int _e13 = k_1;
-    poly_1.x = (_e9 + (vec3[2](vec3(0.0), vec3(0.0))[_e10].y * vec3[2](vec3(0.0), vec3(0.0))[_e13].z));
+    vec4 poly = vec4(0.0);
+    int k = 0;
+    int j = 0;
+    float _e9 = poly.x;
+    int _e10 = j;
+    int _e13 = k;
+    poly.x = (_e9 + (vec3[2](vec3(0.0), vec3(0.0))[_e10].y * vec3[2](vec3(0.0), vec3(0.0))[_e13].z));
     return;
 }
 

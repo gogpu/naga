@@ -5,6 +5,8 @@
 // various target languages (SPIR-V, GLSL, MSL, HLSL).
 package ir
 
+import "strconv"
+
 // Module represents a shader module in IR form.
 // Module is the IR representation of a shader module.
 // Structurally verified against Rust naga via TestIRReference (18/18 deep match).
@@ -149,6 +151,24 @@ const (
 	StageFragment
 	StageCompute
 )
+
+// String returns the stage's name as WGSL writes its attribute: vertex,
+// task, mesh, fragment or compute.
+func (s ShaderStage) String() string {
+	switch s {
+	case StageVertex:
+		return "vertex"
+	case StageTask:
+		return "task"
+	case StageMesh:
+		return "mesh"
+	case StageFragment:
+		return "fragment"
+	case StageCompute:
+		return "compute"
+	}
+	return "ShaderStage(" + strconv.Itoa(int(s)) + ")"
+}
 
 // Handle types for referencing IR objects
 type (

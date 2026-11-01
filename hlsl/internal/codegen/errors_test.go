@@ -19,7 +19,6 @@ func TestErrorKind_String(t *testing.T) {
 		{ErrInternalError, "InternalError"},
 		{ErrInvalidModule, "InvalidModule"},
 		{ErrUnsupportedType, "UnsupportedType"},
-		{ErrEntryPointNotFound, "EntryPointNotFound"},
 		{ErrorKind(255), "Unknown"},
 	}
 

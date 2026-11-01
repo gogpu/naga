@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -69,9 +70,9 @@ type Options struct {
 	// Matches Rust naga's special_constants_binding option.
 	SpecialConstantsBinding *BindTarget
 
-	// EntryPoint specifies which entry point to compile.
-	// If empty, the first entry point is used.
-	EntryPoint string
+	// EntryPoint selects the one entry point to write; nil writes every
+	// entry point.
+	EntryPoint *backend.EntryPointSelector
 
 	// FragmentEntryPoint specifies a fragment entry point to consider when
 	// generating the output interface of vertex entry points.
@@ -224,6 +225,11 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 	return nil
 }
 
+// selects reports whether sel selects ep; a nil sel selects every entry point.
+func selects(sel *backend.EntryPointSelector, ep *ir.EntryPoint) bool {
+	return sel == nil || (ep.Name == sel.Name && ep.Stage == sel.Stage)
+}
+
 // checkNumWorkgroups refuses an entry point that reads num_workgroups
 // without SpecialConstantsBinding: HLSL has no system value for it, and the
 // value comes from the special constants buffer. Rust naga writes it as
@@ -240,7 +246,11 @@ func checkNumWorkgroups(module *ir.Module, options *Options) error {
 		bi, ok := (*b).(ir.BuiltinBinding)
 		return ok && bi.Builtin == ir.BuiltinNumWorkGroups
 	}
-	for _, ep := range module.EntryPoints {
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		if !selects(options.EntryPoint, ep) {
+			continue
+		}
 		for _, arg := range ep.Function.Arguments {
 			found := isNumWorkgroups(arg.Binding)
 			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
@@ -275,6 +285,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 		return "", nil, fmt.Errorf("hlsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 	if err := checkBoundsCheckPolicies(options.BoundsCheckPolicies); err != nil {
+		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
+	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
 		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
 	if err := checkNumWorkgroups(module, options); err != nil {

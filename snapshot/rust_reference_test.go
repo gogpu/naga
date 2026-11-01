@@ -1,7 +1,6 @@
 package snapshot_test
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/internal/testtools"
@@ -17,11 +17,6 @@ import (
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
 )
-
-// errSPIRVPerEntryPoint: Rust's driver writes one SPIR-V module per entry
-// point (spv::PipelineOptions) for shaders with [spv] separate_entry_points.
-// Our spirv package cannot restrict output to one entry point yet.
-var errSPIRVPerEntryPoint = errors.New("per-entry-point SPIR-V output (Rust spv::PipelineOptions) is not implemented")
 
 // referenceTally counts outcomes for one backend.
 type referenceTally struct {
@@ -212,10 +207,11 @@ func prepareForBackend(source, shader string) (*ir.Module, error) {
 // ourSPIRVDisassembly compiles SPIR-V with the shader's Rust options and
 // disassembles it.
 func ourSPIRVDisassembly(module *ir.Module, shader string, o rustOutput, disassembler string) (string, error) {
+	opts := readRustSPVConfig(shader)
 	if o.entryPoint != "" {
-		return "", errSPIRVPerEntryPoint
+		opts.EntryPoint = &backend.EntryPointSelector{Stage: o.stage, Name: o.entryPoint}
 	}
-	binary, err := spirv.NewBackend(readRustSPVConfig(shader)).Compile(module)
+	binary, err := spirv.NewBackend(opts).Compile(module)
 	if err != nil {
 		return "", err
 	}
@@ -262,7 +258,9 @@ func ourTextOutput(module *ir.Module, shader string, o rustOutput) (string, erro
 			return "", err
 		}
 		opts := cfg.toOptions()
-		opts.EntryPoint = o.entryPoint
+		if o.entryPoint != "" {
+			opts.EntryPoint = &backend.EntryPointSelector{Stage: o.stage, Name: o.entryPoint}
+		}
 		code, _, err := glsl.Compile(module, opts)
 		return code, err
 	default:

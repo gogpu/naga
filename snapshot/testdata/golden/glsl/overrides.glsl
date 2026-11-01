@@ -17,12 +17,12 @@ float store_override = 0.0;
 
 
 void main() {
-    float t_1 = 23.0;
-    bool x_1 = false;
-    float gain_x_100_1 = 0.0;
-    x_1 = true;
+    float t = 23.0;
+    bool x = false;
+    float gain_x_100_ = 0.0;
+    x = true;
     float _e9 = gain_x_10_;
-    gain_x_100_1 = (_e9 * 10.0);
+    gain_x_100_ = (_e9 * 10.0);
     store_override = gain;
     return;
 }

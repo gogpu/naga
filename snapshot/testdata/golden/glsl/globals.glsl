@@ -92,8 +92,8 @@ void main() {
     }
     memoryBarrierShared();
     barrier();
-    float Foo_2 = 1.0;
-    bool at_2 = true;
+    float Foo = 1.0;
+    bool at = true;
     test_msl_packed_vec3_();
     mat4x2 _e5 = mat4x2_from_std140_(_group_0_binding_7_cs[0][0]);
     vec4 _e10 = _group_0_binding_6_cs[0][0][0];

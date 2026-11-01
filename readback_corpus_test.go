@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
@@ -336,8 +337,9 @@ var glslVersions = []glsl.Version{glsl.VersionES310, glsl.Version430}
 
 func compileCorpusGLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry string) error {
 	var errs []error
+	sel := &backend.EntryPointSelector{Stage: ir.StageCompute, Name: entry}
 	for _, version := range glslVersions {
-		src, _, err := glsl.Compile(m, glsl.Options{LangVersion: version, EntryPoint: entry, ForceHighPrecision: true})
+		src, _, err := glsl.Compile(m, glsl.Options{LangVersion: version, EntryPoint: sel, ForceHighPrecision: true})
 		if err == nil && v.glslang != "" {
 			err = runTool(t, v.glslang, "case.comp", []byte(src))
 		}

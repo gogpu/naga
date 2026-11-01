@@ -147,6 +147,12 @@ func (sm ShaderModel) String() string {
 	return strconv.Itoa(int(sm.Major)) + "." + strconv.Itoa(int(sm.Minor))
 }
 
+// ErrEntryPointNotFound reports an Options.EntryPoint the module has no entry
+// point for, or a nil one where the output holds a single entry point and the
+// module has several. Every backend's error for it wraps this value. Rust
+// naga reports it as EntryPointNotFound.
+var ErrEntryPointNotFound = errors.New("entry point not found")
+
 // ErrMissingBinding reports a resource the module uses that has no entry in a
 // non-nil binding map. Every backend's error for it wraps this value. Rust
 // naga reports it as MissingBinding.

@@ -23,9 +23,9 @@ void main() {
     barrier();
     uvec3 workgroup_id = gl_WorkGroupID;
     uvec3 local_id = gl_LocalInvocationID;
-    bool unnamed = false;
-    bool unnamed_1 = false;
-    bool unnamed_2 = false;
+    bool local = false;
+    bool local_1 = false;
+    bool local_2 = false;
     uint active_tile_index = (workgroup_id.x + (workgroup_id.y * 32768u));
     uint _e11 = atomicOr(wg_scalar, uint((active_tile_index >= 64u)));
     int _e14 = atomicAdd(wg_signed, 1);
@@ -54,23 +54,23 @@ void main() {
     memoryBarrierShared();
     barrier();
     if ((_e24 == 0u)) {
-        unnamed = (_e26 > 0);
+        local = (_e26 > 0);
     } else {
-        unnamed = false;
+        local = false;
     }
-    bool _e41 = unnamed;
+    bool _e41 = local;
     if (_e41) {
-        unnamed_1 = (_e29 > 0u);
+        local_1 = (_e29 > 0u);
     } else {
-        unnamed_1 = false;
+        local_1 = false;
     }
-    bool _e47 = unnamed_1;
+    bool _e47 = local_1;
     if (_e47) {
-        unnamed_2 = (_e33 > 0);
+        local_2 = (_e33 > 0);
     } else {
-        unnamed_2 = false;
+        local_2 = false;
     }
-    bool _e53 = unnamed_2;
+    bool _e53 = local_2;
     if (_e53) {
         return;
     } else {

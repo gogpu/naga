@@ -11,7 +11,9 @@
                OpEntryPoint Fragment %_14 "fs" %_8
                OpExecutionMode %_14 OriginUpperLeft
                OpDecorate %_6 BuiltIn Position
+               OpDecorate %_6 Invariant
                OpDecorate %_8 BuiltIn PointCoord
+               OpDecorate %_8 Invariant
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 4

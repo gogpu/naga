@@ -712,7 +712,7 @@ func TestGetSelectedEntryPoint(t *testing.T) {
 				{Name: "frag_main", Stage: ir.StageFragment, Function: ir.Function{}},
 			},
 		}
-		w := newWriter(module, &Options{LangVersion: Version330, EntryPoint: "frag_main"})
+		w := newWriter(module, &Options{LangVersion: Version330, EntryPoint: &backend.EntryPointSelector{Stage: ir.StageFragment, Name: "frag_main"}})
 		ep := w.getSelectedEntryPoint()
 		if ep == nil || ep.Name != "frag_main" {
 			t.Errorf("expected frag_main, got %v", ep)

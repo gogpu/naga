@@ -30,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/internal/testtools"
@@ -118,12 +119,11 @@ func TestDxilDxcGolden(t *testing.T) {
 
 		for j := range module.EntryPoints {
 			ep := module.EntryPoints[j]
-			single := singleEntryPointModule(module, j)
 			goldenFile := filepath.Join(dxcGoldenDir,
 				fmt.Sprintf("%s_%s_%s.ll", shader.name, stageShortName(ep.Stage), ep.Name))
 
 			if updateGolden {
-				if err := writeDxcGolden(dxc, single, ep, goldenFile); err != nil {
+				if err := writeDxcGolden(dxc, module, ep, goldenFile); err != nil {
 					t.Logf("FAIL UPDATE %s/%s: %v", shader.name, ep.Name, err)
 					diffCount++
 					continue
@@ -132,7 +132,7 @@ func TestDxilDxcGolden(t *testing.T) {
 				continue
 			}
 
-			matched, total, diff, err := compareToGolden(dxc, single, ep, goldenFile)
+			matched, total, diff, err := compareToGolden(dxc, module, ep, goldenFile)
 			if err != nil {
 				if os.IsNotExist(err) {
 					missingGoldenCount++
@@ -175,20 +175,6 @@ func TestDxilDxcGolden(t *testing.T) {
 	}
 }
 
-// singleEntryPointModule clones a module keeping only the j-th entry point.
-func singleEntryPointModule(mod *ir.Module, j int) *ir.Module {
-	return &ir.Module{
-		Types:             mod.Types,
-		Constants:         mod.Constants,
-		GlobalVariables:   mod.GlobalVariables,
-		GlobalExpressions: mod.GlobalExpressions,
-		Functions:         mod.Functions,
-		EntryPoints:       []ir.EntryPoint{mod.EntryPoints[j]},
-		Overrides:         mod.Overrides,
-		SpecialTypes:      mod.SpecialTypes,
-	}
-}
-
 func stageShortName(s ir.ShaderStage) string {
 	switch s {
 	case ir.StageVertex:
@@ -224,7 +210,9 @@ func stageDxcProfile(s ir.ShaderStage) string {
 // writeDxcGolden generates the reference golden by going naga HLSL → DXC → DXIL,
 // then dxc -dumpbin → normalized LLVM IR text saved to goldenFile.
 func writeDxcGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile string) error {
-	hlslSrc, _, err := hlsl.Compile(mod, hlsl.DefaultOptions())
+	hopts := hlsl.DefaultOptions()
+	hopts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
+	hlslSrc, _, err := hlsl.Compile(mod, hopts)
 	if err != nil {
 		return fmt.Errorf("hlsl compile: %w", err)
 	}
@@ -280,6 +268,7 @@ func compareToGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile st
 	// compiled the HLSL with.
 	opts := dxil.DefaultOptions()
 	opts.FakeMissingBindings = true
+	opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 	dxilBytes, compileErr := dxil.Compile(mod, opts)
 	if compileErr != nil {
 		return 0, 0, "", fmt.Errorf("naga dxil compile: %w", compileErr)

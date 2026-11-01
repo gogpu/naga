@@ -220,8 +220,10 @@ type Options struct {
 	// constant buffer.
 	SpecialConstantsBinding *BindTarget
 
-	// EntryPoint specifies which entry point to compile.
-	EntryPoint string
+	// EntryPoint selects the one entry point to write; nil writes every entry
+	// point. One the module does not have is an error wrapping
+	// backend.ErrEntryPointNotFound.
+	EntryPoint *backend.EntryPointSelector
 
 	// FragmentEntryPoint specifies a fragment entry point to consider when
 	// generating the output interface of vertex entry points.
@@ -336,9 +338,6 @@ const (
 
 	// ErrUnsupportedType indicates a type that cannot be represented in HLSL.
 	ErrUnsupportedType
-
-	// ErrEntryPointNotFound indicates the specified entry point doesn't exist.
-	ErrEntryPointNotFound
 )
 
 // String returns a human-readable error kind name.
@@ -356,8 +355,6 @@ func (k ErrorKind) String() string {
 		return "InvalidModule"
 	case ErrUnsupportedType:
 		return "UnsupportedType"
-	case ErrEntryPointNotFound:
-		return "EntryPointNotFound"
 	default:
 		return "Unknown"
 	}
@@ -717,8 +714,8 @@ func toCodegenOptions(o *Options) *codegen.Options {
 		ForceLoopBounding:                  !o.SkipLoopBounding,
 		DynamicStorageBufferOffsetsTargets: dynamicOffsets,
 		SpecialConstantsBinding:            specialBinding,
-		EntryPoint:                         o.EntryPoint,
 		FragmentEntryPoint:                 fragEP,
+		EntryPoint:                         o.EntryPoint,
 	}
 }
 

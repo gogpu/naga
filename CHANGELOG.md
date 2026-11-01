@@ -58,6 +58,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   5.0), 6.0 for DXIL (`dxil.Options{}` wrote 0.0 in the container part headers and 6.0 in `!dx.shaderModel`; both
   carry the same version now). A model the backend cannot write is an error. `hlsl.TranslationInfo.RequiredShaderModel`
   is a `backend.ShaderModel` too.
+- **Breaking: one entry point selector.** `Options.EntryPoint` is a `*backend.EntryPointSelector{Stage, Name}` in
+  `spirv`, `msl`, `hlsl`, `glsl` and `dxil`, replacing glsl's and hlsl's name strings and msl's
+  `PipelineOptions.EntryPoint`; a selector names the stage too, as a SPIR-V or GLSL input may hold two entry points of
+  one name. nil writes every entry point in SPIR-V, MSL and HLSL; GLSL and a DXIL container hold one, so there nil is
+  accepted only for a module with exactly one (glsl used to take the first, dxil always took the first). A selector the
+  module lacks is an error wrapping `backend.ErrEntryPointNotFound`; the `hlsl.ErrEntryPointNotFound` error kind, which
+  nothing returned, is removed. The text backends name identifiers over the whole
+  module and write the selected entry point, as Rust naga does, so GLSL locals lose a stray `_1` suffix (`poly_1` →
+  `poly`, `out_1` → `out_`, as in Rust's output). A SPIR-V module for one entry point leaves out the globals it does not
+  use and the functions it cannot call (Rust's `spv::PipelineOptions`): the nine per-entry-point SPIR-V outputs of the
+  Rust corpus now compile and compare with Rust instead of being unsupported.
+- **Breaking: msl vertex pulling is one option.** `msl.Options.VertexPulling *msl.VertexPullingOptions{VertexBuffers}`
+  replaces `VertexPullingTransform` and `VertexBufferMappings`; `msl.PipelineOptions` and `msl.CompileWithPipeline`
+  are removed (`EntryPoint` and `AllowAndForcePointSize` live in `msl.Options`).
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
@@ -89,6 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V: `@invariant` was dropped.** The position built-in it marks now carries the `Invariant` decoration, as in
+  Rust naga; without it the vertex position could differ between pipelines that share it. The `SampleMask` built-ins
+  share one `array<u32, 1>` type instead of declaring one each.
 - **SPIR-V: checked image loads were invalid SPIR-V** in three shapes, found when `Restrict` became the default and
   spirv-val ran over the corpus with it: `Restrict` on `u32` coordinates built its vector of ones from an `i32` one
   (Rust naga does the same); `ReadZeroSkipWrite` on a multisampled or storage texture branched without an

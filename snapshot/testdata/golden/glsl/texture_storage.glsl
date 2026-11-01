@@ -7,14 +7,14 @@ layout(rgba8) writeonly uniform image2D _group_0_binding_0_cs;
 
 void main() {
     uvec3 gid = gl_GlobalInvocationID;
-    bool unnamed = false;
+    bool local = false;
     uvec2 dims = uvec2(imageSize(_group_0_binding_0_cs).xy);
     if (!((gid.x >= dims.x))) {
-        unnamed = (gid.y >= dims.y);
+        local = (gid.y >= dims.y);
     } else {
-        unnamed = true;
+        local = true;
     }
-    bool _e13 = unnamed;
+    bool _e13 = local;
     if (_e13) {
         return;
     }

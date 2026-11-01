@@ -11,9 +11,9 @@ layout(location = 1) in uint _p2vs_location1;
 
 void main() {
     VertexInput in_ = VertexInput(_p2vs_location0, _p2vs_location1);
-    VertexOutput out_1 = VertexOutput(vec4(0.0));
+    VertexOutput out_ = VertexOutput(vec4(0.0));
     vec3 position = vec3((in_.chunk - ivec3(5)));
-    VertexOutput _e7 = out_1;
+    VertexOutput _e7 = out_;
     gl_Position = _e7.clip_position;
     return;
 }
