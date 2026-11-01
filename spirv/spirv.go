@@ -5,6 +5,7 @@
 package spirv
 
 import (
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/codegen"
 )
@@ -157,14 +158,15 @@ type Options struct {
 	BindingMap map[ResourceBinding]BindingInfo
 
 	// RequireBindings makes a resource without a BindingMap entry an error
-	// (ErrMissingBinding). The inverse of Rust naga's fake_missing_bindings,
-	// so the zero value behaves like Rust's default.
+	// wrapping backend.ErrMissingBinding. The inverse of Rust naga's
+	// fake_missing_bindings, so the zero value behaves like Rust's default.
 	RequireBindings bool
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
 	// workgroup variables, as WebGPU requires. The zero value is
-	// ZeroInitWorkgroupPolyfill, which works on every device.
-	ZeroInitializeWorkgroupMemory ZeroInitializeWorkgroupMemoryMode
+	// backend.ZeroInitWorkgroupPolyfill, which works on every device; every
+	// mode is honored.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ClampFragDepth, when set, clamps the depth a fragment entry point
 	// writes to the range in two f32 push constants, min then max, at byte
@@ -178,31 +180,8 @@ type Options struct {
 	// data, as an entry point has at most one push constant block, so Offset
 	// has to be past that data. Every stage that uses such a block then has
 	// the range in its block too.
-	ClampFragDepth *ClampFragDepth
+	ClampFragDepth *backend.ClampFragDepth
 }
-
-// ClampFragDepth is where the range of the frag_depth clamp is.
-type ClampFragDepth struct {
-	// Offset is the byte offset of min in the push constants; max follows.
-	Offset uint32
-}
-
-// ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.
-// Mirrors Rust naga's spv::ZeroInitializeWorkgroupMemoryMode.
-type ZeroInitializeWorkgroupMemoryMode uint8
-
-// ZeroInitializeWorkgroupMemoryMode values.
-const (
-	// ZeroInitWorkgroupPolyfill has invocation 0 store zero to the
-	// variables, followed by a workgroup barrier.
-	ZeroInitWorkgroupPolyfill ZeroInitializeWorkgroupMemoryMode = iota
-	// ZeroInitWorkgroupNative declares the variables with a null
-	// initializer, which needs Vulkan's
-	// shaderZeroInitializeWorkgroupMemory feature.
-	ZeroInitWorkgroupNative
-	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
-	ZeroInitWorkgroupNone
-)
 
 // ResourceBinding is a resource's WGSL @group and @binding.
 type ResourceBinding struct {
@@ -224,10 +203,6 @@ type BindingInfo struct {
 	// checks use for an unbounded binding array, which otherwise has none.
 	BindingArraySize *uint32
 }
-
-// ErrMissingBinding reports a resource with no BindingMap entry while
-// Options.RequireBindings is set.
-var ErrMissingBinding = codegen.ErrMissingBinding
 
 // DefaultOptions returns sensible default options.
 func DefaultOptions() Options {
@@ -992,8 +967,8 @@ func toCodegenOptions(o Options) codegen.Options {
 		BindingMap:            toCodegenBindingMap(o.BindingMap),
 		RequireBindings:       o.RequireBindings,
 
-		ZeroInitializeWorkgroupMemory: codegen.ZeroInitializeWorkgroupMemoryMode(o.ZeroInitializeWorkgroupMemory),
-		ClampFragDepth:                (*codegen.ClampFragDepth)(o.ClampFragDepth),
+		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
+		ClampFragDepth:                o.ClampFragDepth,
 	}
 }
 

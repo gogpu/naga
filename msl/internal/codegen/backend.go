@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -249,16 +250,11 @@ type Options struct {
 	// ClampFragDepth clamps the depth a fragment entry point writes to the
 	// range at byte ClampFragDepth.Offset of its immediates buffer (see the
 	// msl package).
-	ClampFragDepth *ClampFragDepth
+	ClampFragDepth *backend.ClampFragDepth
 
 	// FixedSampleMask is the render pipeline's sample mask, which fragment
 	// entry points apply themselves (see the msl package).
 	FixedSampleMask *uint32
-}
-
-// ClampFragDepth is where the range of the frag_depth clamp is.
-type ClampFragDepth struct {
-	Offset uint32
 }
 
 // VertexFormat describes the format of a vertex attribute.
@@ -348,17 +344,11 @@ func DefaultOptions() Options {
 type PipelineOptions struct {
 	// EntryPoint specifies which entry point to compile.
 	// If nil, all entry points are compiled.
-	EntryPoint *EntryPointSelector
+	EntryPoint *backend.EntryPointSelector
 
 	// AllowAndForcePointSize forces point size output for vertex shaders.
 	// Required for point primitive topology.
 	AllowAndForcePointSize bool
-}
-
-// EntryPointSelector identifies a specific entry point.
-type EntryPointSelector struct {
-	Stage ir.ShaderStage
-	Name  string
 }
 
 // TranslationInfo contains information about the compiled MSL output.

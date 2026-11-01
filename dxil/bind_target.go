@@ -26,7 +26,7 @@ type BindingLocation struct {
 // offset within the range).
 type BindTarget struct {
 	// Space is the register space (0-based).
-	Space uint32
+	Space uint8
 
 	// Register is the register index within the space. This is the
 	// DXIL metadata "lowerBound" and, for non-array resources, also
@@ -65,7 +65,7 @@ type BindTarget struct {
 // OffsetsBindTarget is the constant buffer of the dynamic offsets of the
 // storage buffers of a bind group: Size 32-bit root constants.
 type OffsetsBindTarget struct {
-	Space    uint32
+	Space    uint8
 	Register uint32
 	Size     uint32
 }

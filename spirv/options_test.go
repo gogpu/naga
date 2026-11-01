@@ -3,18 +3,18 @@ package spirv
 import (
 	"testing"
 
-	"github.com/gogpu/naga/spirv/internal/codegen"
+	"github.com/gogpu/naga/backend"
 )
 
 func TestZeroInitializeWorkgroupMemoryModeReachesCodegen(t *testing.T) {
-	for mode, want := range map[ZeroInitializeWorkgroupMemoryMode]codegen.ZeroInitializeWorkgroupMemoryMode{
-		ZeroInitWorkgroupPolyfill: codegen.ZeroInitWorkgroupPolyfill,
-		ZeroInitWorkgroupNative:   codegen.ZeroInitWorkgroupNative,
-		ZeroInitWorkgroupNone:     codegen.ZeroInitWorkgroupNone,
+	for _, mode := range []backend.ZeroInitializeWorkgroupMemoryMode{
+		backend.ZeroInitWorkgroupPolyfill,
+		backend.ZeroInitWorkgroupNative,
+		backend.ZeroInitWorkgroupNone,
 	} {
 		got := toCodegenOptions(Options{ZeroInitializeWorkgroupMemory: mode}).ZeroInitializeWorkgroupMemory
-		if got != want {
-			t.Errorf("mode %d reaches codegen as %d, want %d", mode, got, want)
+		if got != mode {
+			t.Errorf("mode %d reaches codegen as %d", mode, got)
 		}
 	}
 }

@@ -6,6 +6,7 @@ package msl
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl/internal/codegen"
 )
@@ -247,7 +248,7 @@ type Options struct {
 	// name reads them from push constants. An entry point with immediate
 	// data of its own finds the range in the same buffer, so Offset has to
 	// be past that data. Rust naga has no such option.
-	ClampFragDepth *ClampFragDepth
+	ClampFragDepth *backend.ClampFragDepth
 
 	// FixedSampleMask, when set, is the render pipeline's sample mask, which
 	// a fragment entry point applies itself: it ANDs it into the sample_mask
@@ -256,13 +257,6 @@ type Options struct {
 	// the same way. Leave it nil for a mask of all ones. Rust naga has no
 	// such option.
 	FixedSampleMask *uint32
-}
-
-// ClampFragDepth is where the range of the frag_depth clamp is.
-type ClampFragDepth struct {
-	// Offset is the byte offset of min in the immediates buffer, a multiple
-	// of 4; max follows.
-	Offset uint32
 }
 
 // VertexFormat describes the format of a vertex attribute.
@@ -341,16 +335,10 @@ type VertexBufferMapping struct {
 type PipelineOptions struct {
 	// EntryPoint specifies which entry point to compile.
 	// If nil, all entry points are compiled.
-	EntryPoint *EntryPointSelector
+	EntryPoint *backend.EntryPointSelector
 
 	// AllowAndForcePointSize forces point size output for vertex shaders.
 	AllowAndForcePointSize bool
-}
-
-// EntryPointSelector identifies a specific entry point.
-type EntryPointSelector struct {
-	Stage ir.ShaderStage
-	Name  string
 }
 
 // TranslationInfo contains information about the compiled MSL output.
@@ -458,7 +446,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
 		VertexPullingTransform:        o.VertexPullingTransform,
 		VertexBufferMappings:          vbMappings,
-		ClampFragDepth:                (*codegen.ClampFragDepth)(o.ClampFragDepth),
+		ClampFragDepth:                o.ClampFragDepth,
 		FixedSampleMask:               o.FixedSampleMask,
 	}
 }
@@ -525,15 +513,8 @@ func toCodegenInlineSampler(s InlineSampler) codegen.InlineSampler {
 
 // toCodegenPipelineOptions converts public PipelineOptions to codegen type.
 func toCodegenPipelineOptions(p PipelineOptions) codegen.PipelineOptions {
-	var ep *codegen.EntryPointSelector
-	if p.EntryPoint != nil {
-		ep = &codegen.EntryPointSelector{
-			Stage: p.EntryPoint.Stage,
-			Name:  p.EntryPoint.Name,
-		}
-	}
 	return codegen.PipelineOptions{
-		EntryPoint:             ep,
+		EntryPoint:             p.EntryPoint,
 		AllowAndForcePointSize: p.AllowAndForcePointSize,
 	}
 }

@@ -6,6 +6,7 @@ package naga
 import (
 	"errors"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/overrides"
 	"github.com/gogpu/naga/ir"
 )
@@ -16,13 +17,6 @@ import (
 // WGSL identifiers.
 type PipelineConstants map[string]float64
 
-// EntryPointSelector selects one entry point by stage and name. It is not
-// ir.EntryPoint.
-type EntryPointSelector struct {
-	Stage ir.ShaderStage
-	Name  string
-}
-
 // OverrideOptions configure ProcessOverrides. The zero value processes every
 // entry point with no pipeline constants: every override takes its default.
 type OverrideOptions struct {
@@ -30,7 +24,7 @@ type OverrideOptions struct {
 	Constants PipelineConstants
 	// EntryPoint, if not nil, keeps only that entry point; only overrides it
 	// uses need a value.
-	EntryPoint *EntryPointSelector
+	EntryPoint *backend.EntryPointSelector
 }
 
 // ProcessOverrides returns module with every override expression replaced by

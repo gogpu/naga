@@ -88,8 +88,8 @@ func loadHLSLBindingMap(wgslPath string) dxil.BindingMap {
 				}
 			}
 			if v, ok := fields["space"]; ok {
-				if n, err := strconv.ParseUint(v, 10, 32); err == nil {
-					target.Space = uint32(n)
+				if n, err := strconv.ParseUint(v, 10, 8); err == nil {
+					target.Space = uint8(n)
 				}
 			}
 			if v, ok := fields["binding_array_size"]; ok {

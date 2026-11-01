@@ -1,7 +1,10 @@
 // Package codegen implements SPIR-V code generation from naga IR.
 package codegen
 
-import "github.com/gogpu/naga/ir"
+import (
+	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/ir"
+)
 
 // Version represents a SPIR-V version.
 type Version struct {
@@ -82,34 +85,13 @@ type Options struct {
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
 	// workgroup variables.
-	ZeroInitializeWorkgroupMemory ZeroInitializeWorkgroupMemoryMode
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ClampFragDepth clamps the depth a fragment entry point writes to the
 	// range two f32 push constants hold, min then max, at byte offset
 	// ClampFragDepth.Offset (see the spirv package).
-	ClampFragDepth *ClampFragDepth
+	ClampFragDepth *backend.ClampFragDepth
 }
-
-// ClampFragDepth is where the range of the frag_depth clamp is.
-type ClampFragDepth struct {
-	Offset uint32
-}
-
-// ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.
-// Mirrors Rust naga's spv::ZeroInitializeWorkgroupMemoryMode.
-type ZeroInitializeWorkgroupMemoryMode uint8
-
-const (
-	// ZeroInitWorkgroupPolyfill has invocation 0 store zero to the
-	// variables, followed by a workgroup barrier.
-	ZeroInitWorkgroupPolyfill ZeroInitializeWorkgroupMemoryMode = iota
-	// ZeroInitWorkgroupNative declares the variables with a null
-	// initializer, which needs Vulkan's
-	// shaderZeroInitializeWorkgroupMemory feature.
-	ZeroInitWorkgroupNative
-	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
-	ZeroInitWorkgroupNone
-)
 
 // BindingInfo is where a resource binding goes in SPIR-V; see
 // spirv.BindingInfo. Mirrors Rust naga's back::spv::BindingInfo.

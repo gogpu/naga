@@ -169,7 +169,7 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 	out := make(emit.BindingMap, len(m))
 	for k, v := range m {
 		out[emit.BindingLocation{Group: k.Group, Binding: k.Binding}] = emit.BindTarget{
-			Space:                            v.Space,
+			Space:                            uint32(v.Space),
 			Register:                         v.Register,
 			BindingArraySize:                 v.BindingArraySize,
 			RestrictIndexing:                 v.RestrictIndexing,
@@ -186,7 +186,7 @@ func convertBindTarget(t *BindTarget) *emit.BindTarget {
 	if t == nil {
 		return nil
 	}
-	return &emit.BindTarget{Space: t.Space, Register: t.Register}
+	return &emit.BindTarget{Space: uint32(t.Space), Register: t.Register}
 }
 
 // convertSamplerHeapTargets converts the public SamplerHeapBindTargets to
@@ -198,11 +198,11 @@ func convertSamplerHeapTargets(t *SamplerHeapBindTargets) *emit.SamplerHeapBindT
 	}
 	return &emit.SamplerHeapBindTargets{
 		StandardSamplers: emit.BindTarget{
-			Space:    t.StandardSamplers.Space,
+			Space:    uint32(t.StandardSamplers.Space),
 			Register: t.StandardSamplers.Register,
 		},
 		ComparisonSamplers: emit.BindTarget{
-			Space:    t.ComparisonSamplers.Space,
+			Space:    uint32(t.ComparisonSamplers.Space),
 			Register: t.ComparisonSamplers.Register,
 		},
 	}
@@ -217,7 +217,7 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 	out := make(map[uint32]emit.BindTarget, len(m))
 	for group, bt := range m {
 		out[group] = emit.BindTarget{
-			Space:    bt.Space,
+			Space:    uint32(bt.Space),
 			Register: bt.Register,
 		}
 	}
@@ -1051,7 +1051,7 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
 			ResType:    container.PSVResTypeCBV,
 			ResKind:    container.PSVResKindCBuffer,
-			Space:      special.Space,
+			Space:      uint32(special.Space),
 			LowerBound: special.Register,
 			UpperBound: special.Register,
 		})
@@ -2035,7 +2035,7 @@ func usedDynamicOffsets(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]
 	var out []emit.DynamicOffsetsBuffer
 	for _, group := range slices.Sorted(maps.Keys(used)) {
 		if t, ok := opts.DynamicStorageBufferOffsetsTargets[group]; ok {
-			out = append(out, emit.DynamicOffsetsBuffer{Group: group, Space: t.Space, Register: t.Register, Size: t.Size})
+			out = append(out, emit.DynamicOffsetsBuffer{Group: group, Space: uint32(t.Space), Register: t.Register, Size: t.Size})
 		}
 	}
 	return out
@@ -2277,7 +2277,7 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 		if bindingMap != nil {
 			loc := BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
 			if tgt, ok := bindingMap[loc]; ok {
-				space = tgt.Space
+				space = uint32(tgt.Space)
 				lower = tgt.Register
 				explicitArraySize = tgt.BindingArraySize
 			}
@@ -2365,9 +2365,9 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 func psvSamplerHeapTarget(t *SamplerHeapBindTargets, comparison bool) (space, register uint32) {
 	if t != nil {
 		if comparison {
-			return t.ComparisonSamplers.Space, t.ComparisonSamplers.Register
+			return uint32(t.ComparisonSamplers.Space), t.ComparisonSamplers.Register
 		}
-		return t.StandardSamplers.Space, t.StandardSamplers.Register
+		return uint32(t.StandardSamplers.Space), t.StandardSamplers.Register
 	}
 	if comparison {
 		return 1, 0 // comparisonSamplerHeapDefaultSpace, comparisonSamplerHeapDefaultRegister
@@ -2380,7 +2380,7 @@ func psvSamplerHeapTarget(t *SamplerHeapBindTargets, comparison bool) (space, re
 func psvSamplerIndexBufferTarget(m map[uint32]BindTarget, group uint32) (space, register uint32) {
 	if m != nil {
 		if tgt, ok := m[group]; ok {
-			return tgt.Space, tgt.Register
+			return uint32(tgt.Space), tgt.Register
 		}
 	}
 	return 255, group // samplerIndexBufferDefaultSpace, group

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -178,7 +179,7 @@ func TestIntegration_CompileWithPipelineVertex(t *testing.T) {
 
 	opts := DefaultOptions()
 	pipeline := PipelineOptions{
-		EntryPoint: &EntryPointSelector{
+		EntryPoint: &backend.EntryPointSelector{
 			Name:  "vs",
 			Stage: ir.StageVertex,
 		},
@@ -211,7 +212,7 @@ func TestIntegration_CompileWithPipelineFragment(t *testing.T) {
 
 	opts := DefaultOptions()
 	pipeline := PipelineOptions{
-		EntryPoint: &EntryPointSelector{
+		EntryPoint: &backend.EntryPointSelector{
 			Name:  "fs",
 			Stage: ir.StageFragment,
 		},

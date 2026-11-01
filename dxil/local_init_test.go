@@ -123,7 +123,7 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 	}
 	emitOpts.DynamicOffsets = usedDynamicOffsets(irMod, emitOpts.ReachableGlobals, opts)
 	if t := opts.SpecialConstantsBinding; t != nil && entryUsesSpecialConstants(irMod, &irMod.EntryPoints[0]) {
-		emitOpts.SpecialConstants = &emit.BindTarget{Space: t.Space, Register: t.Register}
+		emitOpts.SpecialConstants = &emit.BindTarget{Space: uint32(t.Space), Register: t.Register}
 	}
 	mod, _, err := emit.EmitWithFlags(irMod, emitOpts)
 	if err != nil {

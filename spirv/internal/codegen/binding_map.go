@@ -1,15 +1,11 @@
 package codegen
 
 import (
-	"errors"
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
-
-// ErrMissingBinding reports a resource with no BindingMap entry while
-// Options.RequireBindings is set (Rust naga's Error::MissingBinding).
-var ErrMissingBinding = errors.New("resource binding missing from BindingMap")
 
 // bindingArrayKey identifies a binding array type whose size comes from the
 // binding map rather than the module (Rust naga's LocalType::BindingArray).
@@ -26,7 +22,7 @@ func (b *Backend) resolveResourceBinding(binding ir.ResourceBinding) (BindingInf
 		return info, nil
 	}
 	if b.options.RequireBindings {
-		return BindingInfo{}, fmt.Errorf("%w: group %d, binding %d", ErrMissingBinding, binding.Group, binding.Binding)
+		return BindingInfo{}, fmt.Errorf("%w: group %d, binding %d", backend.ErrMissingBinding, binding.Group, binding.Binding)
 	}
 	return BindingInfo{DescriptorSet: binding.Group, Binding: binding.Binding}, nil
 }

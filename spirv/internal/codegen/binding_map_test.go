@@ -1,9 +1,11 @@
 package codegen
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -148,6 +150,9 @@ func TestBindingMapMissingEntry(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "group 0") || !strings.Contains(err.Error(), "binding 0") {
 			t.Errorf("error %q does not name the missing @group(0) @binding(0)", err)
+		}
+		if !errors.Is(err, backend.ErrMissingBinding) {
+			t.Errorf("error %q does not wrap backend.ErrMissingBinding", err)
 		}
 	})
 	t.Run("require_bindings_nil_map", func(t *testing.T) {

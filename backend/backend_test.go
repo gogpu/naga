@@ -1,0 +1,43 @@
+package backend_test
+
+import (
+	"testing"
+
+	"github.com/gogpu/naga/backend"
+)
+
+// The zero value of every shared type is the behavior that is safe on every
+// device (ADR-009 rule 1), and the constants keep Rust naga's order:
+// proc::BoundsCheckPolicy {Restrict, ReadZeroSkipWrite, Unchecked}. Rust's
+// default policy is Unchecked; ours is the zero, Restrict.
+func TestZeroValuesAreSafe(t *testing.T) {
+	var policy backend.BoundsCheckPolicy
+	if policy != backend.BoundsCheckRestrict {
+		t.Errorf("zero BoundsCheckPolicy = %d, want BoundsCheckRestrict", policy)
+	}
+	order := []backend.BoundsCheckPolicy{
+		backend.BoundsCheckRestrict,
+		backend.BoundsCheckReadZeroSkipWrite,
+		backend.BoundsCheckUnchecked,
+	}
+	for i, p := range order {
+		if int(p) != i {
+			t.Errorf("BoundsCheckPolicy %d is at position %d, want Rust's order", p, i)
+		}
+	}
+
+	var policies backend.BoundsCheckPolicies
+	if policies != (backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckRestrict,
+		Buffer:       backend.BoundsCheckRestrict,
+		ImageLoad:    backend.BoundsCheckRestrict,
+		BindingArray: backend.BoundsCheckRestrict,
+	}) {
+		t.Errorf("zero BoundsCheckPolicies = %+v, want Restrict everywhere", policies)
+	}
+
+	var mode backend.ZeroInitializeWorkgroupMemoryMode
+	if mode != backend.ZeroInitWorkgroupPolyfill {
+		t.Errorf("zero ZeroInitializeWorkgroupMemoryMode = %d, want ZeroInitWorkgroupPolyfill", mode)
+	}
+}

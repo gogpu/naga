@@ -1,6 +1,10 @@
 package codegen
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gogpu/naga/backend"
+)
 
 // TestZeroInitializeWorkgroupMemoryModes checks that Polyfill zeroes the
 // workgroup variable with a store and a barrier, Native with a null
@@ -16,12 +20,12 @@ fn main(@builtin(local_invocation_index) i: u32) {
 `
 	for _, tc := range []struct {
 		name                 string
-		mode                 ZeroInitializeWorkgroupMemoryMode
+		mode                 backend.ZeroInitializeWorkgroupMemoryMode
 		barrier, initializer bool
 	}{
-		{"polyfill", ZeroInitWorkgroupPolyfill, true, false},
-		{"native", ZeroInitWorkgroupNative, false, true},
-		{"none", ZeroInitWorkgroupNone, false, false},
+		{"polyfill", backend.ZeroInitWorkgroupPolyfill, true, false},
+		{"native", backend.ZeroInitWorkgroupNative, false, true},
+		{"none", backend.ZeroInitWorkgroupNone, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := DefaultOptions()

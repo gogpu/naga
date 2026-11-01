@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -27,7 +28,7 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 		for _, clamp := range []bool{false, true} {
 			opts := Options{Version: Version1_3}
 			if clamp {
-				opts.ClampFragDepth = &ClampFragDepth{Offset: 8}
+				opts.ClampFragDepth = &backend.ClampFragDepth{Offset: 8}
 			}
 			spv := compileWGSLForCapabilityTestWithOpts(t, src, opts)
 			path := filepath.Join(t.TempDir(), "frag.spv")
@@ -68,7 +69,7 @@ struct Immediates { tint: vec4<f32> }
 var<` + space + `> im: Immediates;
 @vertex fn vs_main() -> @builtin(position) vec4<f32> { return im.tint; }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z * im.tint.x; }`
-	spv := compileWGSLForCapabilityTestWithOpts(t, src, Options{Version: Version1_3, ClampFragDepth: &ClampFragDepth{Offset: 16}})
+	spv := compileWGSLForCapabilityTestWithOpts(t, src, Options{Version: Version1_3, ClampFragDepth: &backend.ClampFragDepth{Offset: 16}})
 	path := filepath.Join(t.TempDir(), "frag.spv")
 	if err := os.WriteFile(path, spv, 0o644); err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ var<` + space + `> im: Immediates;
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewBackend(Options{Version: Version1_3, ClampFragDepth: &ClampFragDepth{Offset: 8}}).Compile(module)
+	_, err = NewBackend(Options{Version: Version1_3, ClampFragDepth: &backend.ClampFragDepth{Offset: 8}}).Compile(module)
 	if err == nil || !strings.Contains(err.Error(), "overlaps") {
 		t.Errorf("offset 8 inside 16 bytes of push constants: err %v, want an overlap", err)
 	}
