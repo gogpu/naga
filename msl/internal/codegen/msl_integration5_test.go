@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -219,7 +220,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckUnchecked
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckUnchecked
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 }
@@ -236,7 +237,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckUnchecked
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckUnchecked
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 }
@@ -257,7 +258,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 	mustContainMSL(t, code, "metal::min(")
@@ -276,7 +277,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 	mustContainMSL(t, code, "get_width()")
@@ -298,7 +299,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckReadZeroSkipWrite
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckReadZeroSkipWrite
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 	// RZSW wraps in ternary with zero fallback
@@ -436,7 +437,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "metal::min(")
 }
@@ -454,7 +455,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	// Static access at index 2 in array of size 4 — no clamping needed
 	mustNotContainMSL(t, code, "metal::min(unsigned(")
@@ -479,7 +480,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Buffer = BoundsCheckReadZeroSkipWrite
+	opts.BoundsCheckPolicies.Buffer = backend.BoundsCheckReadZeroSkipWrite
 	code := compileWGSLWithOpts(t, src, opts)
 	// RZSW should emit ternary with condition and DefaultConstructible fallback
 	mustContainMSL(t, code, "DefaultConstructible()")
@@ -1597,7 +1598,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckReadZeroSkipWrite
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckReadZeroSkipWrite
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".write(")
 }
@@ -1637,7 +1638,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckUnchecked
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckUnchecked
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 }

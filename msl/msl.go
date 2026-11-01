@@ -42,43 +42,6 @@ var (
 	Version3_1 = Version{Major: 3, Minor: 1}
 )
 
-// BoundsCheckPolicy controls how out-of-bounds accesses are handled.
-type BoundsCheckPolicy uint8
-
-const (
-	// BoundsCheckUnchecked performs no bounds checking.
-	// Out-of-bounds accesses have undefined behavior.
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-
-	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads
-	// and skips out-of-bounds writes.
-	BoundsCheckReadZeroSkipWrite
-
-	// BoundsCheckRestrict clamps indices to valid range.
-	BoundsCheckRestrict
-)
-
-// BoundsCheckPolicies configures bounds checking for different access types.
-type BoundsCheckPolicies struct {
-	// Index applies to array, vector, and matrix indexing.
-	Index BoundsCheckPolicy
-
-	// Buffer applies to buffer (storage/uniform) accesses.
-	Buffer BoundsCheckPolicy
-
-	// Image applies to texture read/write operations.
-	Image BoundsCheckPolicy
-
-	// BindingArray applies to binding array (texture array) indexing.
-	BindingArray BoundsCheckPolicy
-}
-
-// Contains returns true if any of the policy fields equals the given policy.
-// Note: BindingArray is intentionally excluded, matching the Rust implementation.
-func (p BoundsCheckPolicies) Contains(policy BoundsCheckPolicy) bool {
-	return p.Index == policy || p.Buffer == policy || p.Image == policy
-}
-
 // SamplerCoord specifies the coordinate system for an inline sampler.
 type SamplerCoord int
 
@@ -215,8 +178,16 @@ type Options struct {
 	// Referenced by BindSamplerTarget.Slot when IsInline is true.
 	InlineSamplers []InlineSampler
 
-	// BoundsCheckPolicies controls bounds checking behavior.
-	BoundsCheckPolicies BoundsCheckPolicies
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
+	// which WebGPU requires; Rust naga's default is Unchecked, and wgpu-hal's
+	// Metal backend passes ReadZeroSkipWrite (DefaultBoundsCheckPolicies).
+	// Every field honors every policy, as Rust naga's MSL writer does:
+	// Restrict with metal::min on the index (a runtime-sized array takes its
+	// length from the sizes buffer) and on image coordinates,
+	// ReadZeroSkipWrite with a ternary or an if around the access,
+	// Unchecked with no code.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
 	// threadgroup variables they use, as WebGPU requires. The zero value,
@@ -356,13 +327,14 @@ type TranslationInfo struct {
 	RequiresSizesBuffer bool
 }
 
-// DefaultBoundsCheckPolicies returns conservative bounds check policies.
-func DefaultBoundsCheckPolicies() BoundsCheckPolicies {
-	return BoundsCheckPolicies{
-		Index:        BoundsCheckReadZeroSkipWrite,
-		Buffer:       BoundsCheckReadZeroSkipWrite,
-		Image:        BoundsCheckReadZeroSkipWrite,
-		BindingArray: BoundsCheckReadZeroSkipWrite,
+// DefaultBoundsCheckPolicies returns ReadZeroSkipWrite on every field, the
+// policies of DefaultOptions and of wgpu's native default.
+func DefaultBoundsCheckPolicies() backend.BoundsCheckPolicies {
+	return backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckReadZeroSkipWrite,
+		Buffer:       backend.BoundsCheckReadZeroSkipWrite,
+		ImageLoad:    backend.BoundsCheckReadZeroSkipWrite,
+		BindingArray: backend.BoundsCheckReadZeroSkipWrite,
 	}
 }
 
@@ -436,14 +408,9 @@ func toCodegenOptions(o Options) codegen.Options {
 			Major: o.LangVersion.Major,
 			Minor: o.LangVersion.Minor,
 		},
-		PerEntryPointMap: perEntryPointMap,
-		InlineSamplers:   inlineSamplers,
-		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
-			Index:        codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
-			Buffer:       codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Buffer),
-			Image:        codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Image),
-			BindingArray: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.BindingArray),
-		},
+		PerEntryPointMap:              perEntryPointMap,
+		InlineSamplers:                inlineSamplers,
+		BoundsCheckPolicies:           o.BoundsCheckPolicies,
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ForceLoopBounding:             o.ForceLoopBounding,
 		FakeMissingBindings:           o.FakeMissingBindings,

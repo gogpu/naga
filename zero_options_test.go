@@ -194,6 +194,16 @@ func boundsBackends() map[string]boundsBackend {
 				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
 			},
 		},
+		"msl": {
+			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
+				code, _, err := msl.Compile(m, msl.Options{BoundsCheckPolicies: p})
+				return []byte(code), err
+			},
+			withZero: func(m *ir.Module) ([]byte, error) {
+				code, _, err := msl.Compile(m, msl.Options{})
+				return []byte(code), err
+			},
+		},
 	}
 }
 

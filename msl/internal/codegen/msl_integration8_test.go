@@ -3,6 +3,7 @@ package codegen
 import (
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -410,7 +411,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.Image = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckRestrict
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, ".read(")
 	mustContainMSL(t, code, "metal::min(")

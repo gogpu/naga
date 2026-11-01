@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -195,17 +196,17 @@ func BenchmarkMSLBoundsCheckPolicies(b *testing.B) {
 
 	policies := []struct {
 		name   string
-		policy BoundsCheckPolicies
+		policy backend.BoundsCheckPolicies
 	}{
-		{"unchecked", BoundsCheckPolicies{
-			Index:  BoundsCheckUnchecked,
-			Buffer: BoundsCheckUnchecked,
-			Image:  BoundsCheckUnchecked,
+		{"unchecked", backend.BoundsCheckPolicies{
+			Index:     backend.BoundsCheckUnchecked,
+			Buffer:    backend.BoundsCheckUnchecked,
+			ImageLoad: backend.BoundsCheckUnchecked,
 		}},
-		{"restrict", BoundsCheckPolicies{
-			Index:  BoundsCheckRestrict,
-			Buffer: BoundsCheckRestrict,
-			Image:  BoundsCheckRestrict,
+		{"restrict", backend.BoundsCheckPolicies{
+			Index:     backend.BoundsCheckRestrict,
+			Buffer:    backend.BoundsCheckRestrict,
+			ImageLoad: backend.BoundsCheckRestrict,
 		}},
 		{"safe_default", DefaultBoundsCheckPolicies()},
 	}

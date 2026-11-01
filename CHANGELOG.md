@@ -19,11 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ZeroInitWorkgroupNative` (`OpConstantNull` initializers) is SPIR-V only and an error elsewhere;
   `ZeroInitWorkgroupNone` leaves the memory as it is. Replaces the `msl` and `hlsl` bools of that name, whose zero
   value skipped the zeroing WebGPU requires, and `glsl`/`dxil` `SkipWorkgroupMemoryZeroInit`.
-- **Breaking: shared bounds-check policies.** `spirv.Options.BoundsCheckPolicies` and
-  `naga.CompileOptions.BoundsCheckPolicies` are `backend.BoundsCheckPolicies`; the constants follow Rust naga's
-  order, and the zero value is `BoundsCheckRestrict` on every field, which WebGPU requires (Rust's default is
-  `Unchecked`; a device with robust buffer and image access can set `Buffer` and `ImageLoad` to it). An unbounded
-  binding array under `Restrict` takes its size from the binding map (`BindingArraySize`), as wgpu passes it.
+- **Breaking: shared bounds-check policies.** `spirv`, `msl` and `naga.CompileOptions` `BoundsCheckPolicies` are
+  `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
+  on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
+  can set `Buffer` and `ImageLoad` to it). msl's `Image` field is `ImageLoad`, as in Rust and the other backends, and
+  `msl.BoundsCheckPolicies.Contains` is gone; `msl.DefaultBoundsCheckPolicies` still returns `ReadZeroSkipWrite`
+  everywhere. An unbounded binding array under `Restrict` in SPIR-V takes its size from the binding map
+  (`BindingArraySize`), as wgpu passes it.
 
 ### Added
 
