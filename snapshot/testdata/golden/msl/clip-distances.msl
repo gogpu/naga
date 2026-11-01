@@ -21,7 +21,7 @@ struct VertexOutput {
 
 struct main_Output {
     metal::float4 position [[position]];
-    type_2 clip_distances ;
+    float clip_distances [[clip_distance]] [1];
 };
 vertex main_Output main_(
 ) {
@@ -29,5 +29,5 @@ vertex main_Output main_(
     out.clip_distances.inner[0] = 0.5;
     VertexOutput _e4 = out;
     const auto _tmp = _e4;
-    return main_Output { _tmp.position, _tmp.clip_distances };
+    return main_Output { _tmp.position, {_tmp.clip_distances.inner[0]} };
 }
