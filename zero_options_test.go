@@ -85,10 +85,10 @@ func zeroInitBackends() map[string]zeroInitBackend {
 		},
 		"dxil": {
 			compile: func(m *ir.Module, mode backend.ZeroInitializeWorkgroupMemoryMode) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0, ZeroInitializeWorkgroupMemory: mode})
+				return dxil.Compile(m, dxil.Options{ZeroInitializeWorkgroupMemory: mode})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0})
+				return dxil.Compile(m, dxil.Options{})
 			},
 		},
 	}
@@ -227,10 +227,10 @@ func boundsBackends() map[string]boundsBackend {
 		},
 		"dxil": {
 			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0, BoundsCheckPolicies: p})
+				return dxil.Compile(m, dxil.Options{BoundsCheckPolicies: p})
 			},
 			withZero: func(m *ir.Module) ([]byte, error) {
-				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0})
+				return dxil.Compile(m, dxil.Options{})
 			},
 		},
 	}
@@ -424,7 +424,7 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	}
 
 	dxilWith := func(m dxil.BindingMap, fake bool) error {
-		_, err := dxil.Compile(bindingModule(t), dxil.Options{ShaderModel: dxil.SM6_0, BindingMap: m, FakeMissingBindings: fake})
+		_, err := dxil.Compile(bindingModule(t), dxil.Options{BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
 	dxilPartial := dxil.BindingMap{{Group: 0, Binding: 0}: {}}
@@ -469,5 +469,37 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	spv, err = spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
 	if err != nil || spv[5] != 3 {
 		t.Errorf("subgroups at 1.3: err = %v", err)
+	}
+}
+
+// The zero shader model is the backend's floor: 5.1 for HLSL (Rust naga's
+// default), 6.0 for DXIL; a model the backend cannot write is an error.
+func TestZeroShaderModel(t *testing.T) {
+	hlslCode := func(sm backend.ShaderModel) (string, error) {
+		code, _, err := hlsl.Compile(zeroOptionsModule(t), &hlsl.Options{ShaderModel: sm})
+		return code, err
+	}
+	zero, err := hlslCode(backend.ShaderModel{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v51, err := hlslCode(backend.ShaderModel{Major: 5, Minor: 1}); err != nil || v51 != zero {
+		t.Errorf("hlsl: zero shader model differs from 5.1 (err %v)", err)
+	}
+	if _, err := hlslCode(backend.ShaderModel{Major: 7, Minor: 0}); err == nil || !strings.Contains(err.Error(), "shader model 7.0 is not supported") {
+		t.Errorf("hlsl 7.0: err = %v", err)
+	}
+
+	dxilZero, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dxil60, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 0}})
+	if err != nil || !bytes.Equal(dxilZero, dxil60) {
+		t.Errorf("dxil: zero shader model differs from 6.0 (err %v)", err)
+	}
+	if _, err := dxil.Compile(zeroOptionsModule(t), dxil.Options{ShaderModel: backend.ShaderModel{Major: 5, Minor: 1}}); err == nil ||
+		!strings.Contains(err.Error(), "shader model 5.1 is not supported") {
+		t.Errorf("dxil 5.1: err = %v", err)
 	}
 }

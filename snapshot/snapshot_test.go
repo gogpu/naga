@@ -342,28 +342,10 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
 	{
 		hlslSection := extractHLSLSection(content)
 		if hlslSection != "" {
-			re := regexp.MustCompile(`(?m)^\s*shader_model\s*=\s*"([^"]+)"`)
+			// Rust's ShaderModel variants are V<major>_<minor>.
+			re := regexp.MustCompile(`(?m)^\s*shader_model\s*=\s*"V(\d)_(\d)"`)
 			if m := re.FindStringSubmatch(hlslSection); m != nil {
-				switch m[1] {
-				case "V5_0":
-					opts.ShaderModel = hlsl.ShaderModel5_0
-				case "V5_1":
-					opts.ShaderModel = hlsl.ShaderModel5_1
-				case "V6_0":
-					opts.ShaderModel = hlsl.ShaderModel6_0
-				case "V6_1":
-					opts.ShaderModel = hlsl.ShaderModel6_1
-				case "V6_2":
-					opts.ShaderModel = hlsl.ShaderModel6_2
-				case "V6_3":
-					opts.ShaderModel = hlsl.ShaderModel6_3
-				case "V6_4":
-					opts.ShaderModel = hlsl.ShaderModel6_4
-				case "V6_5":
-					opts.ShaderModel = hlsl.ShaderModel6_5
-				case "V6_6":
-					opts.ShaderModel = hlsl.ShaderModel6_6
-				}
+				opts.ShaderModel = backend.ShaderModel{Major: m[1][0] - '0', Minor: m[2][0] - '0'}
 			}
 		}
 	}

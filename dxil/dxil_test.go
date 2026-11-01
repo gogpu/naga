@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/container"
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
@@ -30,8 +31,8 @@ func TestCompile_NoEntryPoints(t *testing.T) {
 
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
-	if opts.ShaderModel != SM6_0 {
-		t.Errorf("default shader model: got %v, want SM6_0", opts.ShaderModel)
+	if opts.ShaderModel != (backend.ShaderModel{Major: 6, Minor: 0}) {
+		t.Errorf("default shader model: got %v, want 6.0", opts.ShaderModel)
 	}
 	// Retail hash is the portable default. BYPASS requires AgilitySDK
 	// 1.615+ with developer mode on the host and is rejected at

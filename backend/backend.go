@@ -134,10 +134,17 @@ type ClampFragDepth struct {
 	Offset uint32
 }
 
-// ShaderModel is a DirectX shader model version, such as 6.0.
+// ShaderModel is a DirectX shader model version, such as 6.0. Each backend
+// documents which versions it writes and what the zero value means (the
+// HLSL backend's floor is 5.1, the DXIL backend's 6.0).
 type ShaderModel struct {
 	Major uint8
 	Minor uint8
+}
+
+// String returns the version as "6.0".
+func (sm ShaderModel) String() string {
+	return strconv.Itoa(int(sm.Major)) + "." + strconv.Itoa(int(sm.Minor))
 }
 
 // ErrMissingBinding reports a resource the module uses that has no entry in a

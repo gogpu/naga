@@ -1475,7 +1475,7 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) error 
 
 	// dx.shaderModel = !{!"vs", i32 6, i32 MINOR}
 	mdKind := e.mod.AddMetadataString(shaderKindString(kind))
-	mdSMMajor := e.mod.AddMetadataValue(i32Ty, e.getIntConst(6))
+	mdSMMajor := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(e.opts.ShaderModelMajor)))
 	mdSMMinor := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(e.opts.ShaderModelMinor)))
 	mdSM := e.mod.AddMetadataTuple([]*module.MetadataNode{mdKind, mdSMMajor, mdSMMinor})
 	e.mod.AddNamedMetadata("dx.shaderModel", []*module.MetadataNode{mdSM})
