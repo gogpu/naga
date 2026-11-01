@@ -320,6 +320,12 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
 
 ### Fixed
 
+- **MSL: math functions written as expansions computed their argument several times, without parentheses.** The
+  integer `sign`, `firstLeadingBit`, the offsets of `extractBits` and `insertBits`, and below MSL 2.1
+  `pack4x*`/`unpack4x*` repeat their argument in the code they expand to; written inline, a compound argument was
+  computed again each time and the expansion's operators bound into it: `sign(a & b)` compared `a & (b > 0)`,
+  `unpack4xI8(a & b)` shifted only `b`. The argument is now computed once into a temporary, as Rust naga's writer
+  does (P1-MSL-098). Arguments that are a plain value were not affected.
 - **Ray query shaders no longer panic.** Compaction kept the module's special types (the ray intersection struct, the
   external texture parameter types) only when they were named, and never renumbered them, so once an unused type before
   one was removed every backend indexed past the type arena: gfx-rs/wgpu's ray query examples panicked in every

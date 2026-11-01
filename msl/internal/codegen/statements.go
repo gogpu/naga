@@ -463,7 +463,10 @@ func (w *Writer) collectNeedBakeExpressions(fn *ir.Function) {
 			w.needBakeExpression[handle] = struct{}{}
 		}
 
-		// Special case: Dot4 packed arguments
+		// Math functions whose expansion reads an argument several times bake
+		// it, as Rust's collect_needs_bake_expressions: written inline the
+		// argument is computed again each time, and the expansion's operators
+		// bind into it (`a & b < 0` is a & (b < 0)).
 		if mathExpr, ok := expr.Kind.(ir.ExprMath); ok {
 			switch mathExpr.Fun {
 			case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
@@ -474,6 +477,37 @@ func (w *Writer) collectNeedBakeExpressions(fn *ir.Function) {
 					if !w.isLiteralExpression(fn, *mathExpr.Arg1) {
 						w.needBakeExpression[*mathExpr.Arg1] = struct{}{}
 					}
+				}
+			case ir.MathFirstLeadingBit:
+				w.needBakeExpression[mathExpr.Arg] = struct{}{}
+			case ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp,
+				ir.MathUnpack4xI8, ir.MathUnpack4xU8:
+				// The polyfill below MSL 2.1 reads the argument four times.
+				if w.options.LangVersion.Less(Version2_1) {
+					w.needBakeExpression[mathExpr.Arg] = struct{}{}
+				}
+			case ir.MathExtractBits:
+				// Only the offset is read twice.
+				if mathExpr.Arg1 != nil {
+					w.needBakeExpression[*mathExpr.Arg1] = struct{}{}
+				}
+			case ir.MathInsertBits:
+				// Only the offset is read twice.
+				if mathExpr.Arg2 != nil {
+					w.needBakeExpression[*mathExpr.Arg2] = struct{}{}
+				}
+			case ir.MathSign:
+				// Metal's sign takes floats only; the integer one is written
+				// inline and reads its argument twice.
+				sint := false
+				switch inner := w.resolutionInner(w.fnExprType(fn, handle)).(type) {
+				case ir.ScalarType:
+					sint = inner.Kind == ir.ScalarSint
+				case ir.VectorType:
+					sint = inner.Scalar.Kind == ir.ScalarSint
+				}
+				if sint {
+					w.needBakeExpression[mathExpr.Arg] = struct{}{}
 				}
 			}
 		}
