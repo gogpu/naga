@@ -19,14 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ZeroInitWorkgroupNative` (`OpConstantNull` initializers) is SPIR-V only and an error elsewhere;
   `ZeroInitWorkgroupNone` leaves the memory as it is. Replaces the `msl` and `hlsl` bools of that name, whose zero
   value skipped the zeroing WebGPU requires, and `glsl`/`dxil` `SkipWorkgroupMemoryZeroInit`.
-- **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl` and `naga.CompileOptions` `BoundsCheckPolicies` are
+- **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
   can set `Buffer` and `ImageLoad` to it). msl's `Image` field is `ImageLoad`, as in Rust and the other backends, and
   `msl.BoundsCheckPolicies.Contains` is gone; `msl.DefaultBoundsCheckPolicies` still returns `ReadZeroSkipWrite`
   everywhere. glsl's `ImageStore` field, which nothing read, is gone (Rust has none); `BindingArray` has no effect
-  there, as GLSL has no binding arrays. An unbounded binding array under `Restrict` in SPIR-V takes its size from the
-  binding map (`BindingArraySize`), as wgpu passes it. GLSL ES cannot query a texture's levels or samples, so it
+  there, as GLSL has no binding arrays. `hlsl.Options.RestrictIndexing` is replaced by `Index` (function, private,
+  workgroup memory and values) and `Buffer` (uniform buffers whose `BindTarget.RestrictIndexing` is set, as in Rust);
+  storage buffers and image loads are bounds-checked by Direct3D; `ReadZeroSkipWrite` on `Index`, `Buffer` or
+  `BindingArray` is refused. `BindingArray` `Restrict` now clamps binding-array indices in HLSL too, which Rust's HLSL
+  writer never checks. An unbounded binding array under `Restrict` in SPIR-V and HLSL takes its size from the binding
+  map (`BindingArraySize`), as wgpu passes it; without it compiling fails. GLSL ES cannot query a texture's levels or samples, so it
   cannot check the level or sample of a `textureLoad`: a GLSL ES target sets `ImageLoad` to `Unchecked`, as wgpu-hal
   does below desktop GLSL 4.30, or compiling such a load fails with an error that says so.
 

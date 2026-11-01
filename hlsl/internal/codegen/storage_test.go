@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1463,7 +1464,7 @@ func TestNeedsRestrictIndexingPerBinding(t *testing.T) {
 
 	t.Run("restrict_indexing_false", func(t *testing.T) {
 		w := newTestWriter(module, nil, nil)
-		w.options.RestrictIndexing = true
+		w.options.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 		w.options.BindingMap = map[ResourceBinding]BindTarget{
 			{Group: 0, Binding: 2}: {Register: 0, Space: 0, RestrictIndexing: false},
 		}
@@ -1475,7 +1476,7 @@ func TestNeedsRestrictIndexingPerBinding(t *testing.T) {
 
 	t.Run("restrict_indexing_true", func(t *testing.T) {
 		w := newTestWriter(module, nil, nil)
-		w.options.RestrictIndexing = true
+		w.options.BoundsCheckPolicies.Buffer = backend.BoundsCheckRestrict
 		w.options.BindingMap = map[ResourceBinding]BindTarget{
 			{Group: 0, Binding: 2}: {Register: 0, Space: 0, RestrictIndexing: true},
 		}

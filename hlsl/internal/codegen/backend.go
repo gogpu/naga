@@ -46,9 +46,9 @@ type Options struct {
 	// error.
 	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
-	// RestrictIndexing adds bounds checks to array/buffer accesses.
-	// Prevents undefined behavior from out-of-bounds reads/writes.
-	RestrictIndexing bool
+	// BoundsCheckPolicies selects the bounds checks; see
+	// hlsl.Options.BoundsCheckPolicies.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// ForceLoopBounding adds maximum iteration limits to loops.
 	// Prevents infinite loops that could hang the GPU.
@@ -103,7 +103,6 @@ func DefaultOptions() *Options {
 			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
 		},
 		FakeMissingBindings: true,
-		RestrictIndexing:    true,
 		ForceLoopBounding:   true,
 	}
 }
@@ -203,6 +202,28 @@ type TranslationInfo struct {
 	HelperFunctions []string
 }
 
+// checkBoundsCheckPolicies refuses the policies the HLSL writer cannot honor:
+// a value outside the enum, and ReadZeroSkipWrite on Index, Buffer and
+// BindingArray, which it does not implement (Rust naga's HLSL writer has only
+// restrict_indexing). ImageLoad takes any value: Direct3D returns zero for an
+// out-of-bounds Load.
+func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
+	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
+		if policy > backend.BoundsCheckUnchecked {
+			return fmt.Errorf("BoundsCheckPolicies: %v is not supported", policy)
+		}
+	}
+	for _, f := range []struct {
+		name   string
+		policy backend.BoundsCheckPolicy
+	}{{"Index", p.Index}, {"Buffer", p.Buffer}, {"BindingArray", p.BindingArray}} {
+		if f.policy == backend.BoundsCheckReadZeroSkipWrite {
+			return fmt.Errorf("BoundsCheckPolicies.%s: ReadZeroSkipWrite is not supported; use Restrict or Unchecked", f.name)
+		}
+	}
+	return nil
+}
+
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
 func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, error) {
@@ -219,6 +240,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	}
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
 		return "", nil, fmt.Errorf("hlsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
+	if err := checkBoundsCheckPolicies(options.BoundsCheckPolicies); err != nil {
+		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
 
 	// Create writer

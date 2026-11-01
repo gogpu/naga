@@ -31,8 +31,8 @@ func TestDefaultOptions(t *testing.T) {
 		t.Errorf("ZeroInitializeWorkgroupMemory = %v, want Polyfill", opts.ZeroInitializeWorkgroupMemory)
 	}
 
-	if !opts.RestrictIndexing {
-		t.Error("RestrictIndexing should be true by default")
+	if opts.BoundsCheckPolicies != (backend.BoundsCheckPolicies{}) {
+		t.Errorf("BoundsCheckPolicies = %+v, want Restrict everywhere (the zero value)", opts.BoundsCheckPolicies)
 	}
 
 	if !opts.ForceLoopBounding {

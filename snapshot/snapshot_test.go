@@ -269,7 +269,14 @@ func backendBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPo
 // default_for_testing() plus the shader's TOML settings.
 func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
-	opts.RestrictIndexing = true
+	// Rust's restrict_indexing (default true) is Index and Buffer Restrict;
+	// its HLSL writer never checks binding arrays.
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckRestrict,
+		Buffer:       backend.BoundsCheckRestrict,
+		ImageLoad:    backend.BoundsCheckUnchecked,
+		BindingArray: backend.BoundsCheckUnchecked,
+	}
 	opts.ForceLoopBounding = true
 	if err := readHLSLConfig(opts, shaderName); err != nil {
 		return nil, err
