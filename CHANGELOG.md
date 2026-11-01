@@ -22,8 +22,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (FXC and DXIL) on Intel and NVIDIA, GLES and software. They found two DXIL failures beyond the known ones: a
   switch in an inlined helper hangs NVIDIA GPUs (P0-DXIL-055), and DXIL refuses workgroup vectors and emits
   invalid DXIL for workgroup structs (P1-DXIL-066). Both are open, with known failures in the corpus; DXIL is
-  opt-in in gogpu/wgpu (`GOGPU_DX12_DXIL=1`).
+  opt-in in gogpu/wgpu (`GOGPU_DX12_DXIL=1`). Both are fixed below.
 - DXIL regression tests for chains of inlined helpers and of locals (P0-DXIL-055).
+- **Readback corpus: 6 more cases** (43 → 49) for the DXIL fixes below: flow/return-in-switch-in-loop-rt,
+  entry-return-guard-rt, dead-if-shared-condition-rt; vars/workgroup-split-rt, workgroup-vec-dynamic-rt,
+  workgroup-tile-dynamic-rt.
+
+### Fixed
+
+- **DXIL: silent miscompiles of control flow.** A `break` in a `switch` inside a loop left the loop (P0-DXIL-057);
+  a `return` inside control flow of an entry point did nothing, so out-of-range invocations past a bounds guard
+  kept writing (P0-DXIL-052); `discard` was dropped (P0-DXIL-068). Every return of an entry point now branches to
+  one exit block, as DXC emits it, and an early return in an inlined helper is lowered with a returned flag and
+  guards (Mesa `nir_lower_returns`) instead of a break in a synthetic loop, which a `switch` or an inner loop caught.
+- **DXIL: every helper is inlined**, as DXC and Mesa do. Standalone helpers with control flow read back garbage or
+  hung NVIDIA GPUs (P0-DXIL-053, P0-DXIL-055); wgpu's readback run reads every case correctly with them inlined.
+- **DXIL: workgroup memory.** Workgroup vectors, matrices, structs and arrays of them were refused at compile time
+  or gave invalid DXIL (P1-DXIL-066); workgroup memory is now split into scalars by one pass before the emitter, as
+  DXC's SROA and Mesa's shared lowering do. In v0.20.4 and v0.20.5 two shapes compiled to DXIL the validator
+  accepts but that read wrong values: a workgroup vector, or an array of vectors written whole per element, read
+  only through a run-time component index kept just one component per vector.
+- **DXIL: `var<private>` vectors** kept only their first component; private variables are now locals of the entry
+  point, as Mesa lowers them (P0-DXIL-059).
+- **DXIL: dead code elimination.** A condition shared by two `if`s, one of them with nothing live in it, failed to
+  compile (P1-DXIL-061); dead `if`s and `switch`es are now removed structurally and liveness computed again, as
+  DXC's CFGSimplification before DCE. Liveness through chains of pure calls is computed to a fixed point.
+- **IR validator:** `break`, `continue` and `return` are checked as Rust naga's `ControlFlowAbility`, with its
+  messages: a `break` in a `switch` outside a loop is valid.
+
+### Known issues
+
+- **HLSL through FXC:** a `return` inside a `switch` inside a loop of a helper becomes the case's `break` in FXC's
+  output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
+  path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known
+  failure on dx12-fxc.
 
 ## [0.20.5] - 2026-10-31
 
