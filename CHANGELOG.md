@@ -150,6 +150,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V 1.5 and later: no explicit layout on Function and Private variables.** Vulkan forbids `ArrayStride`,
+  `Offset` and `MatrixStride` on the types of Function and Private variables from SPIR-V 1.5 on
+  (VUID-StandaloneSpirv-None-10684), and the validation layer rejected every shader with a local or private array or
+  struct at the version a Vulkan 1.2 device takes. Those variables now take layout-free types, copied to and from the
+  decorated ones with `OpCopyLogical`, as Workgroup variables already did; up to SPIR-V 1.4 the output is unchanged.
+  Rust naga has the same defect (gfx-rs/wgpu#7696). The spirv-val corpus now also runs at the Vulkan environment of
+  each version consumers write (1.0, 1.3, 1.5, 1.6). It found three more problems, open under Known issues.
 - **SPIR-V: `@invariant` was dropped.** The position built-in it marks now carries the `Invariant` decoration, as in
   Rust naga; without it the vertex position could differ between pipelines that share it. The `SampleMask` built-ins
   share one `array<u32, 1>` type instead of declaring one each.
@@ -187,6 +194,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
+- **SPIR-V for Vulkan** (found by the new Vulkan-environment validation): `@builtin(draw_index)` and
+  `@builtin(barycentric_no_perspective)` have no IR built-in and are written as other built-ins (P1-IR-026);
+  `subgroupBarrier` uses memory semantics Vulkan rejects (P2-SPV-013); the workgroup zero-initialization of an entry
+  point that reads `local_invocation_id` and `local_invocation_index` declares a second LocalInvocationId input
+  (P2-SPV-014).
 - **HLSL through FXC:** a `return` inside a `switch` inside a loop of a helper becomes the case's `break` in FXC's
   output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
   path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known

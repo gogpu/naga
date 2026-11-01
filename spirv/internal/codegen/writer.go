@@ -176,6 +176,11 @@ type ModuleBuilder struct {
 	// with same element+length appear as different types to spirv-val.
 	// Key: (typeID << 32) | value. Only used for single-word constants (covers 99% of cases).
 	constantCache map[uint64]uint32
+
+	// compositeConstituents records each OpConstantComposite's constituents,
+	// so that a constant can be written again with a layout-free type
+	// (Backend.layoutFreeConstant).
+	compositeConstituents map[uint32][]uint32
 }
 
 // NewModuleBuilder creates a new SPIR-V module builder.
@@ -231,6 +236,7 @@ func (b *ModuleBuilder) Reset(version Version) {
 	b.globalVars = b.globalVars[:0]
 	b.functions = b.functions[:0]
 	b.funcSink = nil
+	clear(b.compositeConstituents)
 
 	// Reset ID allocation
 	b.nextID = 1
@@ -583,6 +589,10 @@ func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint
 		b.ib.AddWord(constituent)
 	}
 	b.types = append(b.types, b.ib.Build(OpConstantComposite))
+	if b.compositeConstituents == nil {
+		b.compositeConstituents = make(map[uint32][]uint32)
+	}
+	b.compositeConstituents[id] = append([]uint32(nil), constituents...)
 	return id
 }
 
