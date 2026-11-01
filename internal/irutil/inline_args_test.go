@@ -1,11 +1,12 @@
 // Copyright 2026 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package ir_test
+package irutil_test
 
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -23,7 +24,7 @@ fn f(a: vec2<i32>, b: i32) -> i32 { return a.x + b; }
 	var acc = vec2<i32>(10, 20);
 	out.v = f(acc, bump(&acc));
 }`)
-	if err := ir.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
+	if err := irutil.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	fn := &mod.EntryPoints[0].Function

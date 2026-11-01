@@ -316,10 +316,10 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// and functions stay, dead expressions, abstract constants and what only
 	// they use go, and so do the scalar types registered during vec/mat/atomic
 	// resolution but only embedded by value in Vector/Matrix/Atomic types.
-	ir.Compact(l.module, ir.KeepUnusedYes)
+	irutil.Compact(l.module, irutil.KeepUnusedYes)
 
 	// Reorder surviving types in first-registration order.
-	ir.ReorderTypes(l.module)
+	irutil.ReorderTypes(l.module)
 
 	// Remove duplicate/redundant Emit statements.
 	// Our emitter sometimes generates duplicate Emit ranges (e.g., Emit(7..8) twice)
@@ -6169,7 +6169,7 @@ func (l *Lowerer) registerUnusedLetBindings() {
 		}
 		// Skip var declarations — Rust naga does NOT add var declarations to
 		// named_expressions. Only let bindings get named expression treatment.
-		// This allows compaction (ir.Compact) to remove unused LocalVariable expressions
+		// This allows compaction (irutil.Compact) to remove unused LocalVariable expressions
 		// for const-init vars that are never referenced.
 		if l.localIsVar[name] {
 			continue

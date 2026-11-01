@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -319,9 +320,9 @@ func TestIRReferenceCompact(t *testing.T) {
 
 		// Known diffs in compact comparison (same as non-compact + compact-specific)
 		knownOptimizationDiff := map[string]bool{
-			"types_with_comments": true, // ir.Compact keeps named types; Rust KeepUnused::No removes them
-			"module-scope":        true, // ir.Compact does not yet remove unused types (Vec2)
-			"type-alias":          true, // ir.Compact does not yet remove unused types
+			"types_with_comments": true, // naga.Compact keeps named types; Rust KeepUnused::No removes them
+			"module-scope":        true, // naga.Compact does not yet remove unused types (Vec2)
+			"type-alias":          true, // naga.Compact does not yet remove unused types
 		}
 
 		t.Run(shaderName, func(t *testing.T) {
@@ -345,7 +346,7 @@ func TestIRReferenceCompact(t *testing.T) {
 
 			// Compact as Rust's second compact(KeepUnused::No) does: unused
 			// globals/functions AND their orphaned types go.
-			ir.Compact(ourMod, ir.KeepUnusedNo)
+			naga.Compact(ourMod, naga.KeepUnusedNo)
 
 			var allDiffs []string
 			allDiffs = append(allDiffs, deepCompareTypes(rustMod.Types, ourMod.Types)...)

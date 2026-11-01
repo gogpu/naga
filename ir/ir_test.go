@@ -4,6 +4,39 @@ import (
 	"testing"
 )
 
+// --- Expression.NeedsPreEmit tests ---
+
+func TestExpressionNeedsPreEmit(t *testing.T) {
+	tests := []struct {
+		name string
+		kind ExpressionKind
+		want bool
+	}{
+		{"Literal", Literal{Value: LiteralF32(1.0)}, true},
+		{"ExprConstant", ExprConstant{Constant: 0}, true},
+		{"ExprOverride", ExprOverride{Override: 0}, true},
+		{"ExprZeroValue", ExprZeroValue{Type: 0}, true},
+		{"ExprGlobalVariable", ExprGlobalVariable{Variable: 0}, true},
+		{"ExprFunctionArgument", ExprFunctionArgument{Index: 0}, true},
+		{"ExprLocalVariable", ExprLocalVariable{Variable: 0}, true},
+		{"ExprBinary not pre-emit", ExprBinary{Op: BinaryAdd, Left: 0, Right: 1}, false},
+		{"ExprUnary not pre-emit", ExprUnary{Op: UnaryNegate, Expr: 0}, false},
+		{"ExprLoad not pre-emit", ExprLoad{Pointer: 0}, false},
+		{"ExprAccess not pre-emit", ExprAccess{Base: 0, Index: 1}, false},
+		{"ExprCompose not pre-emit", ExprCompose{Type: 0, Components: nil}, false},
+		{"ExprMath not pre-emit", ExprMath{Fun: MathSin, Arg: 0}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Expression{Kind: tt.kind}.NeedsPreEmit()
+			if got != tt.want {
+				t.Errorf("Expression{%T}.NeedsPreEmit() = %v, want %v", tt.kind, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- TypeResolution.Inner tests ---
 
 func TestTypeResolutionInner(t *testing.T) {

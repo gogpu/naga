@@ -6,11 +6,11 @@ package overrides
 import (
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 )
@@ -48,7 +48,7 @@ func Process(module *ir.Module, constants map[string]float64, ep *Selector) (*ir
 	}
 	// Rust compact(KeepUnused::No): an override no entry point uses needs no
 	// value.
-	ir.Compact(m, ir.KeepUnusedNo)
+	irutil.Compact(m, irutil.KeepUnusedNo)
 
 	if len(m.Overrides) > 0 {
 		if err := newProcessor(m, constants).run(); err != nil {
@@ -231,7 +231,7 @@ func (p *processor) globalExpressions() error {
 			}
 		}
 		// Operands precede the expression in the arena, so they are rebuilt.
-		kind = ir.RemapExpressionHandles(kind, p.adjusted[:i])
+		kind = irutil.RemapExpressionHandles(kind, p.adjusted[:i])
 		h, err := p.eval.TryEvalAndAppend(kind)
 		if err != nil {
 			return fmt.Errorf("global expression %d: %w", i, err)
@@ -386,7 +386,7 @@ func (p *processor) pipelineValue(k string, value float64, ty ir.TypeInner) (ir.
 }
 
 func (p *processor) newConstant(o int, name string, init ir.ExpressionHandle) ir.ConstantHandle {
-	c := ir.ConstantHandle(arenaIndex(len(p.m.Constants)))
+	c := ir.ConstantHandle(irutil.ArenaIndex(len(p.m.Constants)))
 	p.m.Constants = append(p.m.Constants, ir.Constant{Name: name, Type: p.m.Overrides[o].Ty, Init: init})
 	p.initAdjusted = append(p.initAdjusted, true)
 	p.constantOf[o] = c + 1
@@ -417,7 +417,7 @@ func (p *processor) function(fn *ir.Function) error {
 			}
 			kind = ir.ExprConstant{Constant: c}
 		}
-		kind = ir.RemapExpressionHandles(kind, adjusted[:i])
+		kind = irutil.RemapExpressionHandles(kind, adjusted[:i])
 		h, err := ev.TryEvalAndAppend(kind)
 		if err != nil {
 			return fmt.Errorf("function %q, expression %d: %w", fn.Name, i, err)
@@ -430,7 +430,7 @@ func (p *processor) function(fn *ir.Function) error {
 		}
 	}
 
-	ir.RemapStatementExpressionHandles(fn.Body, adjusted)
+	irutil.RemapStatementExpressionHandles(fn.Body, adjusted)
 	fn.Body = filterEmits(fn.Body, fn.Expressions)
 	for i := range fn.LocalVars {
 		if init := fn.LocalVars[i].Init; init != nil {
@@ -602,7 +602,7 @@ func (a globalArena) Expression(h ir.ExpressionHandle) ir.ExpressionKind {
 }
 
 func (a globalArena) Append(kind ir.ExpressionKind) ir.ExpressionHandle {
-	h := ir.ExpressionHandle(arenaIndex(len(a.m.GlobalExpressions)))
+	h := ir.ExpressionHandle(irutil.ArenaIndex(len(a.m.GlobalExpressions)))
 	a.m.GlobalExpressions = append(a.m.GlobalExpressions, ir.Expression{Kind: kind})
 	return h
 }
@@ -618,7 +618,7 @@ func (a fnArena) Expression(h ir.ExpressionHandle) ir.ExpressionKind {
 }
 
 func (a fnArena) Append(kind ir.ExpressionKind) ir.ExpressionHandle {
-	h := ir.ExpressionHandle(arenaIndex(len(a.fn.Expressions)))
+	h := ir.ExpressionHandle(irutil.ArenaIndex(len(a.fn.Expressions)))
 	a.fn.Expressions = append(a.fn.Expressions, ir.Expression{Kind: kind})
 	return h
 }
@@ -652,13 +652,4 @@ func (t *types) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
 	layout := layouter.Layout(base)
 	stride := (layout.Size + layout.Alignment - 1) / layout.Alignment * layout.Alignment
 	return t.Type(ir.ArrayType{Base: base, Size: size, Stride: stride})
-}
-
-// arenaIndex is n as an arena index. IR handles are 32-bit; an arena never
-// holds 2^32 entries.
-func arenaIndex(n int) uint32 {
-	if n < 0 || uint64(n) > math.MaxUint32 {
-		panic("pipeline constants: arena index out of the 32-bit handle range")
-	}
-	return uint32(n)
 }

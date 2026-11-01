@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -49,7 +50,7 @@ func CheckModule(spec *Spec, m *ir.Module) error {
 	// layout). ProcessOverrides leaves an unused global in place when it has
 	// nothing to do, so prune a copy: m stays the module the backends compile.
 	m = m.Clone()
-	ir.CompactUnused(m)
+	irutil.CompactUnused(m)
 	var layouter ir.Layouter
 	if err := layouter.Update(m); err != nil {
 		return err

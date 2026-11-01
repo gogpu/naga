@@ -1,6 +1,10 @@
-package ir
+package irutil
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gogpu/naga/ir"
+)
 
 // overrideCompactModule: override 0 "used" (no default) is read by the entry
 // point, override 1 "unused" (default 2u) by nothing, override 2 "viaGlobal"
@@ -8,33 +12,33 @@ import "testing"
 //
 //	GlobalExpressions: 0 = 2u (init of unused), 1 = Override(2), 2 = 1u,
 //	                   3 = Binary(Override(2) + 1u) (init of g)
-func overrideCompactModule() *Module {
-	u32 := TypeHandle(0)
-	two := ExpressionHandle(0)
-	gInit := ExpressionHandle(3)
-	return &Module{
-		Types: []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
-		GlobalExpressions: []Expression{
-			{Kind: Literal{Value: LiteralU32(2)}},
-			{Kind: ExprOverride{Override: 2}},
-			{Kind: Literal{Value: LiteralU32(1)}},
-			{Kind: ExprBinary{Op: BinaryAdd, Left: 1, Right: 2}},
+func overrideCompactModule() *ir.Module {
+	u32 := ir.TypeHandle(0)
+	two := ir.ExpressionHandle(0)
+	gInit := ir.ExpressionHandle(3)
+	return &ir.Module{
+		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(2)}},
+			{Kind: ir.ExprOverride{Override: 2}},
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 1, Right: 2}},
 		},
-		Overrides: []Override{
+		Overrides: []ir.Override{
 			{Name: "used", Ty: u32},
 			{Name: "unused", Ty: u32, Init: &two},
 			{Name: "viaGlobal", Ty: u32},
 		},
-		GlobalVariables: []GlobalVariable{
-			{Name: "g", Space: SpacePrivate, Type: u32, InitExpr: &gInit},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "g", Space: ir.SpacePrivate, Type: u32, InitExpr: &gInit},
 		},
-		EntryPoints: []EntryPoint{{
+		EntryPoints: []ir.EntryPoint{{
 			Name:  "main",
-			Stage: StageCompute,
-			Function: Function{
-				Expressions: []Expression{
-					{Kind: ExprOverride{Override: 0}},
-					{Kind: ExprOverride{Override: 2}},
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprOverride{Override: 0}},
+					{Kind: ir.ExprOverride{Override: 2}},
 				},
 			},
 		}},
@@ -60,16 +64,16 @@ func TestCompactConstants_KeepUnusedNoRemovesUnusedOverrides(t *testing.T) {
 	}
 	// viaGlobal moved from override 2 to override 1.
 	fn := m.EntryPoints[0].Function.Expressions
-	if eo, ok := fn[1].Kind.(ExprOverride); !ok || eo.Override != 1 {
+	if eo, ok := fn[1].Kind.(ir.ExprOverride); !ok || eo.Override != 1 {
 		t.Errorf("function expression 1: got %#v, want ExprOverride{1}", fn[1].Kind)
 	}
-	if eo, ok := fn[0].Kind.(ExprOverride); !ok || eo.Override != 0 {
+	if eo, ok := fn[0].Kind.(ir.ExprOverride); !ok || eo.Override != 0 {
 		t.Errorf("function expression 0: got %#v, want ExprOverride{0}", fn[0].Kind)
 	}
-	if eo, ok := m.GlobalExpressions[0].Kind.(ExprOverride); !ok || eo.Override != 1 {
+	if eo, ok := m.GlobalExpressions[0].Kind.(ir.ExprOverride); !ok || eo.Override != 1 {
 		t.Errorf("global expression 0: got %#v, want ExprOverride{1}", m.GlobalExpressions[0].Kind)
 	}
-	b, ok := m.GlobalExpressions[2].Kind.(ExprBinary)
+	b, ok := m.GlobalExpressions[2].Kind.(ir.ExprBinary)
 	if !ok || b.Left != 0 || b.Right != 1 {
 		t.Errorf("global expression 2: got %#v, want Binary(0, 1)", m.GlobalExpressions[2].Kind)
 	}
@@ -99,12 +103,12 @@ func TestCompactConstants_KeepUnusedYesKeepsNamedOverrides(t *testing.T) {
 // name (Rust creates them for override-sized arrays) is never used by
 // definition, also with KeepUnusedYes.
 func TestCompactConstants_AnonymousOverrideRemovedWhenUnused(t *testing.T) {
-	m := &Module{
-		Types:             []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
-		GlobalExpressions: []Expression{{Kind: Literal{Value: LiteralU32(4)}}},
+	m := &ir.Module{
+		Types:             []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralU32(4)}}},
 	}
-	init := ExpressionHandle(0)
-	m.Overrides = []Override{{Ty: 0, Init: &init}}
+	init := ir.ExpressionHandle(0)
+	m.Overrides = []ir.Override{{Ty: 0, Init: &init}}
 	compactConstants(m, KeepUnusedYes)
 	if len(m.Overrides) != 0 || len(m.GlobalExpressions) != 0 {
 		t.Errorf("got %d overrides, %d global expressions; want 0, 0", len(m.Overrides), len(m.GlobalExpressions))
@@ -114,14 +118,14 @@ func TestCompactConstants_AnonymousOverrideRemovedWhenUnused(t *testing.T) {
 // TestCompactConstants_MeshOverrideKeepsOverride: a mesh output limit given by
 // an override expression keeps the override.
 func TestCompactConstants_MeshOverrideKeepsOverride(t *testing.T) {
-	maxV := ExpressionHandle(0)
-	m := &Module{
-		Types:             []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
-		GlobalExpressions: []Expression{{Kind: ExprOverride{Override: 0}}},
-		Overrides:         []Override{{Name: "maxV", Ty: 0}},
-		EntryPoints: []EntryPoint{{
-			Name: "ms", Stage: StageMesh,
-			MeshInfo: &MeshStageInfo{MaxVerticesOverride: &maxV},
+	maxV := ir.ExpressionHandle(0)
+	m := &ir.Module{
+		Types:             []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		GlobalExpressions: []ir.Expression{{Kind: ir.ExprOverride{Override: 0}}},
+		Overrides:         []ir.Override{{Name: "maxV", Ty: 0}},
+		EntryPoints: []ir.EntryPoint{{
+			Name: "ms", Stage: ir.StageMesh,
+			MeshInfo: &ir.MeshStageInfo{MaxVerticesOverride: &maxV},
 		}},
 	}
 	compactConstants(m, KeepUnusedNo)
@@ -134,17 +138,17 @@ func TestCompactConstants_MeshOverrideKeepsOverride(t *testing.T) {
 // override-expression keeps its expression and the override (Rust compact
 // traces workgroup_size_overrides), and its handle is renumbered.
 func TestCompactConstants_WorkgroupSizeOverrideKept(t *testing.T) {
-	size := ExpressionHandle(1)
-	m := &Module{
-		Types: []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
-		GlobalExpressions: []Expression{
-			{Kind: Literal{Value: LiteralU32(9)}}, // dead
-			{Kind: ExprOverride{Override: 0}},
+	size := ir.ExpressionHandle(1)
+	m := &ir.Module{
+		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(9)}}, // dead
+			{Kind: ir.ExprOverride{Override: 0}},
 		},
-		Overrides: []Override{{Name: "wg", Ty: 0}},
-		EntryPoints: []EntryPoint{{
-			Name: "main", Stage: StageCompute, Workgroup: [3]uint32{1, 1, 1},
-			WorkgroupSizeOverrides: [3]*ExpressionHandle{&size, nil, nil},
+		Overrides: []ir.Override{{Name: "wg", Ty: 0}},
+		EntryPoints: []ir.EntryPoint{{
+			Name: "main", Stage: ir.StageCompute, Workgroup: [3]uint32{1, 1, 1},
+			WorkgroupSizeOverrides: [3]*ir.ExpressionHandle{&size, nil, nil},
 		}},
 	}
 	compactConstants(m, KeepUnusedNo)
@@ -160,21 +164,21 @@ func TestCompactConstants_WorkgroupSizeOverrideKept(t *testing.T) {
 // an override keeps it, also one without a name, and the type's handle to it
 // is renumbered.
 func TestCompactConstants_PendingArraySizeKeepsOverride(t *testing.T) {
-	o := OverrideHandle(1)
-	four := ExpressionHandle(0)
-	m := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarUint, Width: 4}},
-			{Inner: ArrayType{Base: 0, Size: ArraySize{Pending: &o}, Stride: 4}},
+	o := ir.OverrideHandle(1)
+	four := ir.ExpressionHandle(0)
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Pending: &o}, Stride: 4}},
 		},
-		GlobalExpressions: []Expression{{Kind: Literal{Value: LiteralU32(4)}}},
-		Overrides:         []Override{{Name: "unused", Ty: 0}, {Ty: 0, Init: &four}},
+		GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralU32(4)}}},
+		Overrides:         []ir.Override{{Name: "unused", Ty: 0}, {Ty: 0, Init: &four}},
 	}
 	compactConstants(m, KeepUnusedNo)
 	if len(m.Overrides) != 1 || m.Overrides[0].Init == nil {
 		t.Fatalf("overrides = %+v, want only the array size's", m.Overrides)
 	}
-	at := m.Types[1].Inner.(ArrayType)
+	at := m.Types[1].Inner.(ir.ArrayType)
 	if at.Size.Pending == nil || *at.Size.Pending != 0 {
 		t.Errorf("array size = %+v, want pending on override 0", at.Size)
 	}

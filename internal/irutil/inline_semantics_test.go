@@ -1,13 +1,14 @@
 // Copyright 2026 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package ir_test
+package irutil_test
 
 import (
 	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -125,7 +126,7 @@ fn f(a: u32, b: u32) -> u32 {
 		t.Run(tt.name, func(t *testing.T) {
 			orig := lowerWGSL(t, tt.src)
 			inlined := orig.Clone()
-			if err := ir.InlineUserFunctions(inlined, func(*ir.Function) bool { return true }); err != nil {
+			if err := irutil.InlineUserFunctions(inlined, func(*ir.Function) bool { return true }); err != nil {
 				t.Fatal(err)
 			}
 			fo, fi := functionByName(t, orig, "f"), functionByName(t, inlined, "f")
@@ -170,7 +171,7 @@ fn f(n: u32) -> u32 {
     return s;
 }`)
 	orig := mod.Clone()
-	if err := ir.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
+	if err := irutil.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	f := functionByName(t, mod, "f")
