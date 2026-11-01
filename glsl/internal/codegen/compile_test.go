@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -1175,7 +1176,7 @@ fn fs_main() -> @location(0) vec4<f32> {
 	// Select fragment entry point
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version330,
-		EntryPoint:  "fs_main",
+		EntryPoint:  &backend.EntryPointSelector{Stage: ir.StageFragment, Name: "fs_main"},
 	})
 	glslMustContain(t, output, "void main()")
 }

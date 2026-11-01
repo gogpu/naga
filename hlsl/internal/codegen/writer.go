@@ -263,6 +263,13 @@ type epResultInfo struct {
 	stage ir.ShaderStage
 }
 
+// writesEntryPoint reports whether the writer writes module.EntryPoints[i]:
+// every entry point, or only the one Options.EntryPoint selects. Names are
+// assigned over the whole module either way, as in Rust naga.
+func (w *Writer) writesEntryPoint(i int) bool {
+	return selects(w.options.EntryPoint, &w.module.EntryPoints[i])
+}
+
 // newWriter creates a new HLSL writer.
 func newWriter(module *ir.Module, options *Options) *Writer {
 	return &Writer{
@@ -445,7 +452,7 @@ func (w *Writer) registerNames() error {
 	// 2. Register entry point names + EP args + EP locals
 	for epIdx := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[epIdx]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if !w.writesEntryPoint(epIdx) {
 			continue
 		}
 		name := w.namer.call(ep.Name)
@@ -521,7 +528,7 @@ func (w *Writer) registerNames() error {
 func (w *Writer) collectEPResultTypes() {
 	for epIdx := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[epIdx]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if !w.writesEntryPoint(epIdx) {
 			continue
 		}
 		fn := &ep.Function
@@ -536,7 +543,7 @@ func (w *Writer) collectEPResultTypes() {
 func (w *Writer) writeAllEPInterfaces() error {
 	for epIdx := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[epIdx]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if !w.writesEntryPoint(epIdx) {
 			continue
 		}
 		epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]
@@ -2521,7 +2528,7 @@ func (w *Writer) writeEntryPoints() error {
 	for epIdx := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[epIdx]
 		// Skip if not the selected entry point
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if !w.writesEntryPoint(epIdx) {
 			continue
 		}
 

@@ -196,7 +196,7 @@ func goldenSPIRV(module *ir.Module, shader string) (string, error) {
 func goldenGLSL(module *ir.Module, _ string) (string, error) {
 	optionsFor := func(ep *ir.EntryPoint) glsl.Options {
 		opts := glsl.DefaultOptions()
-		opts.EntryPoint = ep.Name
+		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 		opts.BoundsCheckPolicies = uncheckedPolicies()
 		if ep.Stage == ir.StageCompute || usesStorageBuffer(module, &ep.Function) {
 			opts.LangVersion = glsl.Version430
@@ -216,7 +216,7 @@ func goldenGLSL(module *ir.Module, _ string) (string, error) {
 	}
 	if len(module.EntryPoints) == 1 {
 		opts := optionsFor(&module.EntryPoints[0])
-		opts.EntryPoint = "" // the only entry point
+		opts.EntryPoint = nil // the only entry point
 		return compile(opts)
 	}
 	parts := make([]string, 0, len(module.EntryPoints))

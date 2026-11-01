@@ -11,6 +11,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/ir"
 )
 
 // TestDepthTextureDeclarations compares the GLSL of the entry points of
@@ -25,7 +26,7 @@ func TestDepthTextureDeclarations(t *testing.T) {
 	for _, ep := range []string{"sampled", "loaded", "compared", "helpers"} {
 		t.Run(ep, func(t *testing.T) {
 			golden := "testdata/depth/" + ep + ".frag"
-			got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: ep, BoundsCheckPolicies: uncheckedPolicies})
+			got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: fragment(ep), BoundsCheckPolicies: uncheckedPolicies})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -38,7 +39,7 @@ func TestDepthTextureDeclarations(t *testing.T) {
 			if want := mustReadFile(golden); got != want {
 				t.Errorf("output differs from %s:\n%s", golden, got)
 			}
-			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep, ForceHighPrecision: true, BoundsCheckPolicies: uncheckedPolicies}); err != nil {
+			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: fragment(ep), ForceHighPrecision: true, BoundsCheckPolicies: uncheckedPolicies}); err != nil {
 				t.Errorf("ES 3.10: %v", err)
 			}
 		})
@@ -60,7 +61,7 @@ fn size(t: texture_depth_2d) -> vec2<u32> { return textureDimensions(t); }
 		"both kinds passed":   `textureSampleCompare(shadow, sc, p.xy, 0.5) + textureLoad(depth, vec2<i32>(p.xy), 0) + f32(size(depth).x + size(shadow).x)`,
 	} {
 		source := globals + "@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { return vec4<f32>(" + body + "); }"
-		_, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "fs_main"})
+		_, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: fragment("fs_main")})
 		if err == nil || !strings.Contains(err.Error(), "different sampler types") {
 			t.Errorf("%s: err = %v, want a refusal", name, err)
 		}
@@ -77,7 +78,7 @@ func TestRestrictedLoadsDeclareTheirLevel(t *testing.T) {
 	for _, ep := range []string{"loaded", "helpers"} {
 		got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{
 			LangVersion:         glsl.Version430,
-			EntryPoint:          ep,
+			EntryPoint:          fragment(ep),
 			BoundsCheckPolicies: backend.BoundsCheckPolicies{ImageLoad: backend.BoundsCheckRestrict},
 		})
 		if err != nil {
@@ -119,15 +120,20 @@ fn other(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	return vec4<f32>(both(d2, uv), 0.0, 0.0, 1.0);
 }
 `
-	got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "mixed"})
+	got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: fragment("mixed")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(got, "both(") {
 		t.Errorf("both, or calls_both calling it, is written:\n%s", got)
 	}
-	_, _, err = glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "other"})
+	_, _, err = glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: fragment("other")})
 	if err == nil || !strings.Contains(err.Error(), "different sampler types") {
 		t.Errorf("other: err = %v, want a refusal", err)
 	}
+}
+
+// fragment selects the fragment entry point name.
+func fragment(name string) *backend.EntryPointSelector {
+	return &backend.EntryPointSelector{Stage: ir.StageFragment, Name: name}
 }

@@ -26,13 +26,13 @@ struct S { a: f32, b: f16 }
 		"conversion": prefix + `@compute @workgroup_size(1) fn main() { s[0] = f32(f16(s[1]) * f16(s[2])); }`,
 		"variable":   prefix + `@compute @workgroup_size(1) fn main() { var h = 1.5h; h *= f16(s[1]); s[0] = f32(h); }`,
 	} {
-		_, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "main"})
+		_, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.Version430})
 		if err == nil || !strings.Contains(err.Error(), "16-bit float") {
 			t.Errorf("%s: err = %v, want the 16-bit float error", name, err)
 		}
 	}
 	unused := prefix + `@compute @workgroup_size(1) fn main() { s[0] = 1.0; }`
-	if _, _, err := glsl.Compile(lowerWGSL(t, unused), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "main"}); err != nil {
+	if _, _, err := glsl.Compile(lowerWGSL(t, unused), glsl.Options{LangVersion: glsl.Version430}); err != nil {
 		t.Errorf("f16 enabled but unused: %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -182,9 +183,8 @@ type Options struct {
 	// Defaults to Version330 if zero.
 	LangVersion Version
 
-	// EntryPoint specifies which entry point to compile.
-	// If empty, the first entry point is compiled.
-	EntryPoint string
+	// EntryPoint selects the entry point to compile; nil selects the first.
+	EntryPoint *backend.EntryPointSelector
 
 	// SamplerBindingBase adds offset to sampler binding indices.
 	SamplerBindingBase uint32
@@ -328,6 +328,10 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	}
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
+
+	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
 
 	// Create writer

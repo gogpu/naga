@@ -55,8 +55,8 @@ func columnStride(m ir.MatrixType) uint32 {
 // declareStd140Types declares the std140-compatible types of the uniform
 // buffers of the module.
 func (b *Backend) declareStd140Types() error {
-	for _, global := range b.module.GlobalVariables {
-		if global.Space == ir.SpaceUniform {
+	for h, global := range b.module.GlobalVariables {
+		if global.Space == ir.SpaceUniform && b.writesGlobal(h) {
 			if err := b.declareStd140(global.Type); err != nil {
 				return err
 			}

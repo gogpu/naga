@@ -60,6 +60,9 @@ type Options struct {
 	// are handled; see spirv.Options.BoundsCheckPolicies.
 	BoundsCheckPolicies backend.BoundsCheckPolicies
 
+	// EntryPoint selects the one entry point to write; nil writes all.
+	EntryPoint *backend.EntryPointSelector
+
 	// CapabilitiesAvailable limits which capabilities may be used. When nil,
 	// all capabilities are available (the default). When non-nil, only
 	// capabilities present in the set may be used; others trigger polyfills.
@@ -249,6 +252,7 @@ const (
 	DecorationNoPerspective Decoration = 13
 	DecorationCentroid      Decoration = 16
 	DecorationSample        Decoration = 17
+	DecorationInvariant     Decoration = 18
 	DecorationNonWritable   Decoration = 24
 	DecorationNonReadable   Decoration = 25
 	DecorationLocation      Decoration = 30

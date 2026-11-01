@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -44,6 +45,12 @@ type Backend struct {
 	module  *ir.Module
 	builder *ModuleBuilder
 	options Options
+
+	// epIndex is the entry point Options.EntryPoint selects, or
+	// entrypoint.All; filter, set with one selected, leaves out the globals
+	// and functions that entry point can't use (Rust naga's ep_index).
+	epIndex int
+	filter  *entrypoint.Filter
 
 	// versionErr is the first feature the module needs a newer SPIR-V
 	// version for than Options.Version (requireVersion).
@@ -147,6 +154,9 @@ type Backend struct {
 	// the SampleMask BuiltIn must be typed as array<u32, 1>, not scalar u32.
 	// These variables need AccessChain[0] when loading/storing.
 	sampleMaskVars map[uint32]bool
+	// sampleMaskArrayType is the layout-free array<u32, 1> those variables
+	// share, 0 until the first is declared.
+	sampleMaskArrayType uint32
 
 	// Shared instruction builder reused across emit methods that don't call
 	// other emit functions between Reset() and Build().
@@ -281,6 +291,7 @@ func (b *Backend) Reset() {
 	clear(b.wrappedFuncIDs)
 	clear(b.f16PolyfillVars)
 	clear(b.sampleMaskVars)
+	b.sampleMaskArrayType = 0
 	clear(b.rayQueryFuncIDs)
 	clear(b.std140Types)
 	clear(b.std140ConvertIDs)
@@ -352,12 +363,32 @@ func (b *Backend) newIB() *InstructionBuilder {
 	}
 }
 
+// writesEntryPoint reports whether the module written holds entry point i
+// (the mesh and task stages, which the backend never writes, aside).
+func (b *Backend) writesEntryPoint(i int) bool {
+	return b.epIndex == entrypoint.All || i == b.epIndex
+}
+
+// writesGlobal reports whether the module written declares global h.
+func (b *Backend) writesGlobal(h int) bool {
+	return b.filter == nil || b.filter.Globals[h]
+}
+
+// writesFunction reports whether the module written holds function h.
+func (b *Backend) writesFunction(h int) bool {
+	return b.filter == nil || b.filter.Functions[h]
+}
+
 // Compile translates an IR module to SPIR-V binary.
 // The Backend is automatically reset before each compilation, so
 // a single Backend instance can be reused across multiple Compile calls.
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if m := b.options.ZeroInitializeWorkgroupMemory; m > backend.ZeroInitWorkgroupNone {
 		return nil, fmt.Errorf("spirv: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
+	epIndex, err := entrypoint.Index(module, b.options.EntryPoint, false)
+	if err != nil {
+		return nil, fmt.Errorf("spirv: %w", err)
 	}
 	p := b.options.BoundsCheckPolicies
 	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
@@ -368,13 +399,18 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
-	module, err := ir.ResolvePendingArraySizes(module)
+	module, err = ir.ResolvePendingArraySizes(module)
 	if err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
 	// Reset all per-compilation state (maps cleared, slices truncated).
 	b.Reset()
 	b.module = module
+	b.epIndex, b.filter = epIndex, nil
+	if epIndex != entrypoint.All {
+		f := entrypoint.NewFilter(module, epIndex)
+		b.filter = &f
+	}
 
 	// Reuse or create the ModuleBuilder.
 	if b.builder != nil {
@@ -452,8 +488,8 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	// 13. Linkage capability for modules without compilable entry points
 	// Count non-mesh/task entry points (mesh/task are skipped in SPIR-V)
 	compilableEPs := 0
-	for _, ep := range b.module.EntryPoints {
-		if ep.Stage != ir.StageTask && ep.Stage != ir.StageMesh {
+	for i, ep := range b.module.EntryPoints {
+		if b.writesEntryPoint(i) && ep.Stage != ir.StageTask && ep.Stage != ir.StageMesh {
 			compilableEPs++
 		}
 	}
@@ -1786,6 +1822,9 @@ const OpCopyLogical OpCode = 400
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
+		if !b.writesGlobal(handle) {
+			continue // Rust writes a dummy: no OpVariable, the handles stay
+		}
 		// Skip TaskPayload globals — mesh/task shaders not supported in SPIR-V (matches Rust naga)
 		if global.Space == ir.SpaceTaskPayload {
 			continue
@@ -2077,6 +2116,9 @@ func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typ
 // Instead, builtins are global variables with Input/Output storage class.
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for epIdx := range b.module.EntryPoints {
+		if !b.writesEntryPoint(epIdx) {
+			continue
+		}
 		entryPoint := &b.module.EntryPoints[epIdx]
 		// Rust naga does not support mesh/task shaders in SPIR-V backend
 		// (marked unreachable! in write_entry_point). Skip them gracefully.
@@ -2130,6 +2172,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					b.addBuiltinCapabilities(binding.Builtin)
 					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassInput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+					if binding.Invariant {
+						b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
+					}
 					// Per Vulkan VUID-StandaloneSpirv-Flat-04744:
 					// Integer/bool Input variables in fragment shaders must be Flat.
 					if entryPoint.Stage == ir.StageFragment {
@@ -2205,6 +2250,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 								b.addBuiltinCapabilities(binding.Builtin)
 								spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassInput)
 								b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+								if binding.Invariant {
+									b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
+								}
 								// Per Vulkan VUID-StandaloneSpirv-Flat-04744:
 								// Integer/bool Input variables in fragment shaders must be Flat.
 								if entryPoint.Stage == ir.StageFragment {
@@ -2271,6 +2319,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					b.addBuiltinCapabilities(binding.Builtin)
 					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+					if binding.Invariant {
+						b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
+					}
 					b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -2329,6 +2380,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 							b.addBuiltinCapabilities(binding.Builtin)
 							spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 							b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+							if binding.Invariant {
+								b.builder.AddDecorate(varID, DecorationInvariant) // Rust naga: Position { invariant }
+							}
 							b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 						case ir.LocationBinding:
 							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -2454,12 +2508,16 @@ func isSampleMaskBinding(binding *ir.Binding) bool {
 // emitSampleMaskArrayType returns the SPIR-V type ID for array<u32, 1>,
 // which is required for SampleMask BuiltIn variables per the Vulkan spec.
 func (b *Backend) emitSampleMaskArrayType() (uint32, error) {
+	if b.sampleMaskArrayType != 0 {
+		return b.sampleMaskArrayType, nil
+	}
 	u32TypeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return 0, err
 	}
 	sizeID := b.builder.AddConstant(u32TypeID, 1)
-	return b.builder.AddTypeArray(u32TypeID, sizeID), nil
+	b.sampleMaskArrayType = b.builder.AddTypeArray(u32TypeID, sizeID)
+	return b.sampleMaskArrayType, nil
 }
 
 // addBuiltinCapabilities adds required capabilities for specific builtins.
@@ -2545,6 +2603,9 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 // emitEntryPoints emits all entry points with their execution modes.
 func (b *Backend) emitEntryPoints() error {
 	for epIdx, entryPoint := range b.module.EntryPoints {
+		if !b.writesEntryPoint(epIdx) {
+			continue
+		}
 		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
 		if entryPoint.Stage == ir.StageTask || entryPoint.Stage == ir.StageMesh {
 			continue
@@ -3204,6 +3265,9 @@ func (b *Backend) emitFunctions() error {
 	// any regular functions, matching Rust naga's write_wrapped_functions
 	// which is called at the start of each write_function.
 	for handle := range b.module.Functions {
+		if !b.writesFunction(handle) {
+			continue
+		}
 		fn := &b.module.Functions[handle]
 		if err := b.emitWrappedFunctions(fn); err != nil {
 			return err
@@ -3211,7 +3275,7 @@ func (b *Backend) emitFunctions() error {
 	}
 	for epIdx := range b.module.EntryPoints {
 		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
-		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+		if !b.writesEntryPoint(epIdx) || b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
 			continue
 		}
 		fn := &b.module.EntryPoints[epIdx].Function
@@ -3222,6 +3286,9 @@ func (b *Backend) emitFunctions() error {
 
 	// Emit regular functions
 	for handle := range b.module.Functions {
+		if !b.writesFunction(handle) {
+			continue
+		}
 		fn := &b.module.Functions[handle]
 		if err := b.emitRegularFunction(ir.FunctionHandle(handle), fn); err != nil {
 			return err
@@ -3230,7 +3297,7 @@ func (b *Backend) emitFunctions() error {
 	// Emit entry point functions (stored inline in EntryPoints, not in Functions[])
 	for epIdx := range b.module.EntryPoints {
 		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
-		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+		if !b.writesEntryPoint(epIdx) || b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
 			continue
 		}
 		fn := &b.module.EntryPoints[epIdx].Function

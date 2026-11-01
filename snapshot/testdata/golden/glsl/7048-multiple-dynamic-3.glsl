@@ -47,8 +47,8 @@ QEFResult foobar(vec3 normals[12], uint count) {
 }
 
 void main() {
-    vec3 arr_1[12] = vec3[12](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
-    vec3 _e1[12] = arr_1;
+    vec3 arr[12] = vec3[12](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
+    vec3 _e1[12] = arr;
     QEFResult _e3 = foobar(_e1, 1u);
     return;
 }

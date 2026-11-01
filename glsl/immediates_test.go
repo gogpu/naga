@@ -19,7 +19,7 @@ func TestImmediateItemsPublic(t *testing.T) {
 struct S { @size(16) a: f32, m: mat3x3<f32> }
 var<immediate> im: S;
 @vertex fn main() -> @builtin(position) vec4<f32> { return vec4<f32>(im.a); }`
-	_, info, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.VersionES320, EntryPoint: "main"})
+	_, info, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.VersionES320})
 	if err != nil {
 		t.Fatal(err)
 	}

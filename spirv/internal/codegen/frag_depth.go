@@ -38,7 +38,7 @@ func (b *Backend) carriesFragDepthRange(h ir.GlobalVariableHandle) (bool, error)
 	}
 	for i := range b.module.EntryPoints {
 		ep := &b.module.EntryPoints[i]
-		if ep.Stage != ir.StageFragment || !b.entryPointWritesFragDepth(*ep) {
+		if !b.writesEntryPoint(i) || ep.Stage != ir.StageFragment || !b.entryPointWritesFragDepth(*ep) {
 			continue
 		}
 		if g, ok := b.immediateGlobal(ep); !ok || g != h {

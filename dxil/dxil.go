@@ -34,6 +34,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/passes/sroa"
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -45,6 +46,12 @@ type Options struct {
 	// feature of a newer model (16-bit types 6.2, ray queries 6.5, 64-bit
 	// atomics 6.6, ...) gets that model's minor version.
 	ShaderModel backend.ShaderModel
+
+	// EntryPoint is the entry point the container holds. A DXIL container
+	// holds one, so nil is accepted only for a module with exactly one entry
+	// point. An entry point the module lacks is an error wrapping
+	// backend.ErrEntryPointNotFound.
+	EntryPoint *backend.EntryPointSelector
 
 	// UseBypassHash uses the BYPASS sentinel hash (16×0x01) instead of
 	// the retail validator hash. The BYPASS form is accepted by
@@ -366,15 +373,29 @@ func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	return nil
 }
 
-// checkOptions refuses what checkInput refuses and normalizes the
-// shader model of opts.
-func checkOptions(irModule *ir.Module, opts *Options) error {
+// checkOptions refuses what checkInput refuses, normalizes the shader model
+// of opts and returns irModule with only the entry point opts selects, its
+// workgroup sizes checked and pending array sizes resolved.
+func checkOptions(irModule *ir.Module, opts *Options) (*ir.Module, error) {
 	if err := checkInput(irModule, *opts); err != nil {
-		return err
+		return nil, err
 	}
 	var err error
-	opts.ShaderModel, err = normalizeShaderModel(opts.ShaderModel)
-	return err
+	if opts.ShaderModel, err = normalizeShaderModel(opts.ShaderModel); err != nil {
+		return nil, err
+	}
+	irModule, err = entrypoint.Select(irModule, opts.EntryPoint, true)
+	if err != nil {
+		return nil, fmt.Errorf("dxil: %w", err)
+	}
+	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
+		return nil, fmt.Errorf("dxil: %w", err)
+	}
+	irModule, err = ir.ResolvePendingArraySizes(irModule)
+	if err != nil {
+		return nil, fmt.Errorf("dxil: %w", err)
+	}
+	return irModule, nil
 }
 
 // normalizeShaderModel returns sm, the zero value being 6.0, or an error for
@@ -400,15 +421,9 @@ func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
 func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
-	if err := checkOptions(irModule, &opts); err != nil {
-		return nil, err
-	}
-	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
-		return nil, fmt.Errorf("dxil: %w", err)
-	}
-	irModule, err := ir.ResolvePendingArraySizes(irModule)
+	irModule, err := checkOptions(irModule, &opts)
 	if err != nil {
-		return nil, fmt.Errorf("dxil: %w", err)
+		return nil, err
 	}
 
 	ep := &irModule.EntryPoints[0]

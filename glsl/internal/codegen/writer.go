@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
@@ -74,6 +75,10 @@ type Writer struct {
 	currentFuncHandle ir.FunctionHandle
 	localNames        map[uint32]string
 	namedExpressions  map[ir.ExpressionHandle]string
+
+	// epIndex is the index of the entry point being written, in
+	// module.EntryPoints: GLSL holds one.
+	epIndex int
 
 	// Entry point context
 	inEntryPoint     bool
@@ -302,7 +307,7 @@ func sanitizeName(name string) string {
 
 // newWriter creates a new GLSL writer.
 func newWriter(module *ir.Module, options *Options) *Writer {
-	return &Writer{
+	w := &Writer{
 		module:             module,
 		options:            options,
 		names:              make(map[nameKey]string),
@@ -319,6 +324,11 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 		globalIsCombined:   make(map[ir.GlobalVariableHandle]bool),
 		requiredVersion:    options.LangVersion,
 	}
+	// Compile has refused a selector the module lacks; nil is the first.
+	if i, err := entrypoint.Index(module, options.EntryPoint, false); err == nil && i != entrypoint.All {
+		w.epIndex = i
+	}
+	return w
 }
 
 // String returns the generated GLSL source code.
@@ -432,7 +442,7 @@ func (w *Writer) buildReachableSet() {
 	// Find the target entry point
 	for i := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint == "" || ep.Name == w.options.EntryPoint {
+		if i == w.epIndex {
 			w.reachable = collectReachable(w.module, ep)
 			return
 		}
@@ -448,7 +458,7 @@ func (w *Writer) writeVersionDirective() {
 func (w *Writer) getSelectedEntryPoint() *ir.EntryPoint {
 	for i := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint == "" || ep.Name == w.options.EntryPoint {
+		if i == w.epIndex {
 			return ep
 		}
 	}
@@ -503,7 +513,7 @@ func (w *Writer) registerNames() error {
 	for epIdx, ep := range w.module.EntryPoints {
 		epName := w.namer.call(ep.Name)
 		// The selected EP gets "main" as GLSL name
-		if w.options.EntryPoint == "" || ep.Name == w.options.EntryPoint {
+		if epIdx == w.epIndex {
 			w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = "main"
 			w.entryPointNames[ep.Name] = "main"
 		} else {
@@ -1437,7 +1447,7 @@ func (w *Writer) computeBlockNames(global ir.GlobalVariable) (string, string) {
 func (w *Writer) currentEntryPointStage() ir.ShaderStage {
 	for i := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint == "" || ep.Name == w.options.EntryPoint {
+		if i == w.epIndex {
 			return ep.Stage
 		}
 	}
@@ -2136,7 +2146,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 func (w *Writer) writeEntryPoints() error {
 	for epIdx, ep := range w.module.EntryPoints {
 		// Skip if not the selected entry point
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if epIdx != w.epIndex {
 			continue
 		}
 
@@ -2638,7 +2648,7 @@ func (w *Writer) setupEntryPointIO(ep *ir.EntryPoint) {
 func (w *Writer) writeEarlyDepthTest() {
 	for i := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if i != w.epIndex {
 			continue
 		}
 		if ep.Stage == ir.StageFragment && ep.EarlyDepthTest != nil {
@@ -2661,7 +2671,7 @@ func (w *Writer) writeComputeLayoutEarly() {
 	// Find the target entry point
 	for i := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
+		if i != w.epIndex {
 			continue
 		}
 		if ep.Stage == ir.StageCompute {
@@ -2716,13 +2726,7 @@ func (w *Writer) writeLocalVars(fn *ir.Function) error {
 		// Use pre-registered name from registerNames (avoids double namer call)
 		var localName string
 		if w.inEntryPoint {
-			// Find EP index
-			for epIdx, ep := range w.module.EntryPoints {
-				if &ep.Function == fn || (w.options.EntryPoint != "" && ep.Name == w.options.EntryPoint) {
-					localName = w.names[nameKey{kind: nameKeyEntryPointLocal, handle1: uint32(epIdx), handle2: uint32(localIdx)}]
-					break
-				}
-			}
+			localName = w.names[nameKey{kind: nameKeyEntryPointLocal, handle1: uint32(w.epIndex), handle2: uint32(localIdx)}]
 		} else {
 			localName = w.names[nameKey{kind: nameKeyFunctionLocal, handle1: uint32(w.currentFuncHandle), handle2: uint32(localIdx)}]
 		}

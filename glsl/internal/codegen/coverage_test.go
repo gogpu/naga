@@ -736,7 +736,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version330,
-		EntryPoint:  "vs_main",
+		EntryPoint:  &backend.EntryPointSelector{Stage: ir.StageVertex, Name: "vs_main"},
 	})
 	glslMustContain(t, output, "gl_Position")
 	glslMustContain(t, output, "layout(location = 0)")
@@ -1155,7 +1155,7 @@ func TestCoverage_ComputeBlockNames(t *testing.T) {
 			},
 		},
 		typeNames: map[ir.TypeHandle]string{0: "MyStruct_"},
-		options:   &Options{EntryPoint: "cs_main"},
+		options:   &Options{EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "cs_main"}},
 	}
 
 	binding := &ir.ResourceBinding{Group: 1, Binding: 2}
@@ -1189,7 +1189,7 @@ func TestCoverage_ComputeBlockNamesFragment(t *testing.T) {
 			},
 		},
 		typeNames: map[ir.TypeHandle]string{0: "MyStruct"},
-		options:   &Options{EntryPoint: "fs_main"},
+		options:   &Options{EntryPoint: &backend.EntryPointSelector{Stage: ir.StageFragment, Name: "fs_main"}},
 	}
 
 	block, instance := w.computeBlockNames(ir.GlobalVariable{
@@ -1213,7 +1213,7 @@ func TestCoverage_ComputeBlockNamesVertex(t *testing.T) {
 			},
 		},
 		typeNames: map[ir.TypeHandle]string{0: "MyStruct"},
-		options:   &Options{EntryPoint: "vs_main"},
+		options:   &Options{EntryPoint: &backend.EntryPointSelector{Stage: ir.StageVertex, Name: "vs_main"}},
 	}
 
 	block, instance := w.computeBlockNames(ir.GlobalVariable{

@@ -51,8 +51,8 @@ _frexp_result_vec4_f32_ naga_frexp(vec4 arg) {
 }
 
 void main() {
-    float runtime_f32_1 = 1.0;
-    int runtime_i32_1 = 1;
+    float runtime_f32_ = 1.0;
+    int runtime_i32_ = 1;
     vec4 v = vec4(0.0);
     float a = degrees(1.0);
     float b = radians(1.0);
@@ -63,11 +63,11 @@ void main() {
     ivec4 sign_b = ivec4(-1, -1, -1, -1);
     vec4 sign_d = vec4(-1.0, -1.0, -1.0, -1.0);
     vec4 sign_e = vec4(0.0, 0.0, 0.0, 0.0);
-    float _e30 = runtime_f32_1;
+    float _e30 = runtime_f32_;
     float sign_f = sign(_e30);
-    float _e32 = runtime_f32_1;
+    float _e32 = runtime_f32_;
     vec4 sign_g = sign(vec4(_e32));
-    int _e35 = runtime_i32_1;
+    int _e35 = runtime_i32_;
     int sign_h = sign(_e35);
     ivec2 flb_b = ivec2(-1, -1);
     uvec2 flb_c = uvec2(0u, 0u);

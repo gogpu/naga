@@ -10,6 +10,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl/internal/codegen"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -120,9 +121,11 @@ type Options struct {
 	// Defaults to Version330 if zero.
 	LangVersion Version
 
-	// EntryPoint specifies which entry point to compile.
-	// If empty, the first entry point is compiled.
-	EntryPoint string
+	// EntryPoint selects the entry point to write: GLSL holds one, as main.
+	// nil is accepted only for a module with exactly one entry point. An
+	// entry point the module does not have, or nil with several, is an error
+	// wrapping backend.ErrEntryPointNotFound.
+	EntryPoint *backend.EntryPointSelector
 
 	// SamplerBindingBase adds offset to sampler binding indices.
 	SamplerBindingBase uint32
@@ -309,6 +312,11 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
+	// The writer names identifiers over the whole module and writes the
+	// selected entry point only, as Rust naga does.
+	if _, err = entrypoint.Index(module, options.EntryPoint, true); err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
+	}
 	copts := toCodegenOptions(options)
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {
@@ -367,7 +375,6 @@ func toCodegenOptions(o Options) codegen.Options {
 			Minor: o.LangVersion.Minor,
 			ES:    o.LangVersion.ES,
 		},
-		EntryPoint:          o.EntryPoint,
 		SamplerBindingBase:  o.SamplerBindingBase,
 		TextureBindingBase:  o.TextureBindingBase,
 		UniformBindingBase:  o.UniformBindingBase,
@@ -378,6 +385,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		BindingMap:          bindingMap,
 		FakeMissingBindings: o.FakeMissingBindings,
 		ClampFragDepth:      o.ClampFragDepth,
+		EntryPoint:          o.EntryPoint,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 	}

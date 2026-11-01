@@ -62,7 +62,7 @@ func TestCompileWithPipelineConstantsDoesNotMutateModule(t *testing.T) {
 	module := lowerWGSL(t, overridesInNestedBlocksShader)
 	want := lowerWGSL(t, overridesInNestedBlocksShader)
 
-	opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "cs"}
+	opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: entry(t, module, "cs")}
 	compile := func() (string, error) {
 		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: naga.PipelineConstants{"o": 3}})
 		if err != nil {

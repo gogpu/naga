@@ -131,6 +131,13 @@ type Options struct {
 	// then.
 	BoundsCheckPolicies backend.BoundsCheckPolicies
 
+	// EntryPoint selects the one entry point the module gets, as Rust
+	// naga's spv::PipelineOptions: the module then leaves out the globals
+	// that entry point does not use and the functions it cannot call. nil
+	// writes every entry point. One the module does not have is an error
+	// wrapping backend.ErrEntryPointNotFound.
+	EntryPoint *backend.EntryPointSelector
+
 	// CapabilitiesAvailable limits which capabilities may be used.
 	CapabilitiesAvailable map[Capability]struct{}
 
@@ -949,6 +956,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
 		ForceLoopBounding:       !o.SkipLoopBounding,
 		BoundsCheckPolicies:     o.BoundsCheckPolicies,
+		EntryPoint:              o.EntryPoint,
 		CapabilitiesAvailable:   o.CapabilitiesAvailable,
 		RayQueryInitTracking:    !o.SkipRayQueryInitTracking,
 		BindingMap:              toCodegenBindingMap(o.BindingMap),

@@ -388,7 +388,7 @@ override n: u32 = 7u;
 			"msl":   func(m *ir.Module) error { _, _, err := msl.Compile(m, msl.DefaultOptions()); return err },
 			"hlsl":  func(m *ir.Module) error { _, _, err := hlsl.Compile(m, hlsl.DefaultOptions()); return err },
 			"glsl": func(m *ir.Module) error {
-				_, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "main"})
+				_, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310})
 				return err
 			},
 			"dxil": func(m *ir.Module) error { _, err := dxil.Compile(m, dxil.DefaultOptions()); return err },
@@ -442,7 +442,7 @@ var<workgroup> a: array<u32, SIZE>;
 			if err != nil || !strings.Contains(hlslCode, "groupshared uint a["+n+"];") {
 				t.Errorf("hlsl: err %v, want groupshared uint a[%s];\n%s", err, n, hlslCode)
 			}
-			glslCode, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "main"})
+			glslCode, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310})
 			if err != nil || !strings.Contains(glslCode, "shared uint a["+n+"];") {
 				t.Errorf("glsl: err %v, want shared uint a[%s];\n%s", err, n, glslCode)
 			}

@@ -11,14 +11,14 @@ layout(std430) buffer type_1_block_0Compute { Particle _group_0_binding_0_cs[]; 
 
 
 void main() {
-    Particle p_1 = Particle(vec2(0.0), vec2(0.0));
-    p_1.pos = vec2(0.0, 0.0);
-    p_1.vel = vec2(0.0, 0.0);
-    p_1.pos.x = 1.0;
-    p_1.pos.y = 2.0;
-    p_1.vel.x = 3.0;
-    p_1.vel.y = 4.0;
-    Particle _e23 = p_1;
+    Particle p = Particle(vec2(0.0), vec2(0.0));
+    p.pos = vec2(0.0, 0.0);
+    p.vel = vec2(0.0, 0.0);
+    p.pos.x = 1.0;
+    p.pos.y = 2.0;
+    p.vel.x = 3.0;
+    p.vel.y = 4.0;
+    Particle _e23 = p;
     _group_0_binding_0_cs[0] = _e23;
     return;
 }

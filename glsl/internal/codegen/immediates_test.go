@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -132,7 +133,14 @@ var<workgroup> w: f32;
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, info, err := Compile(lowerWGSL(t, tt.src), Options{LangVersion: VersionES320, EntryPoint: tt.ep})
+			m := lowerWGSL(t, tt.src)
+			var sel *backend.EntryPointSelector
+			for _, ep := range m.EntryPoints {
+				if ep.Name == tt.ep { // WGSL entry point names are unique
+					sel = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
+				}
+			}
+			out, info, err := Compile(m, Options{LangVersion: VersionES320, EntryPoint: sel})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -193,7 +201,7 @@ var<immediate> a: f32;
 var<immediate> b: f32;
 var<workgroup> w: f32;
 @compute @workgroup_size(1) fn main() { w = a + b; }`
-	_, _, err := Compile(lowerWGSL(t, src), Options{LangVersion: VersionES320, EntryPoint: "main"})
+	_, _, err := Compile(lowerWGSL(t, src), Options{LangVersion: VersionES320})
 	if err == nil || !strings.Contains(err.Error(), "multiple immediate") {
 		t.Errorf("err = %v, want the multiple immediate data error", err)
 	}
@@ -208,7 +216,7 @@ func TestImmediateArrayRefused(t *testing.T) {
 		"array":  "var<immediate> im: array<vec4<f32>, 2>;\nvar<workgroup> w: f32;\n@compute @workgroup_size(1) fn main() { w = im[1].x; }",
 		"member": "struct S { a: f32, b: array<vec4<f32>, 2> }\nvar<immediate> im: S;\nvar<workgroup> w: f32;\n@compute @workgroup_size(1) fn main() { w = im.a; }",
 	} {
-		_, _, err := Compile(lowerWGSL(t, src), Options{LangVersion: VersionES320, EntryPoint: "main"})
+		_, _, err := Compile(lowerWGSL(t, src), Options{LangVersion: VersionES320})
 		if err == nil || !strings.Contains(err.Error(), "not allowed in immediate data") {
 			t.Errorf("%s: err = %v, want the immediate data type error", name, err)
 		}

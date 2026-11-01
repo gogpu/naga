@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
@@ -51,17 +52,8 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 		if entry != "" && ep.Name != entry {
 			continue
 		}
-		single := &ir.Module{
-			Types:             module.Types,
-			Constants:         module.Constants,
-			GlobalVariables:   module.GlobalVariables,
-			GlobalExpressions: module.GlobalExpressions,
-			Functions:         module.Functions,
-			EntryPoints:       []ir.EntryPoint{ep},
-			Overrides:         module.Overrides,
-			SpecialTypes:      module.SpecialTypes,
-		}
-		bytes, cerr := dxil.Compile(single, opts)
+		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
+		bytes, cerr := dxil.Compile(module, opts)
 		if cerr != nil {
 			// Skip individual EP failures; corpus mode tallies these
 			// separately and single mode reports the first error.

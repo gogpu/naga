@@ -30,9 +30,6 @@ const (
 
 	// ErrUnsupportedType indicates a type that cannot be represented in HLSL.
 	ErrUnsupportedType
-
-	// ErrEntryPointNotFound indicates the specified entry point doesn't exist.
-	ErrEntryPointNotFound
 )
 
 // String returns a human-readable error kind name.
@@ -50,8 +47,6 @@ func (k ErrorKind) String() string {
 		return "InvalidModule"
 	case ErrUnsupportedType:
 		return "UnsupportedType"
-	case ErrEntryPointNotFound:
-		return "EntryPointNotFound"
 	default:
 		return "Unknown"
 	}

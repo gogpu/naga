@@ -21,8 +21,8 @@ const uvec2 cp1_ = uvec2(0u);
 
 
 void main() {
-    Foo foo_1 = Foo(vec4(0.0), 0);
-    foo_1 = Foo(vec4(1.0), 1);
+    Foo foo = Foo(vec4(0.0), 0);
+    foo = Foo(vec4(1.0), 1);
     mat2x2 m0_ = mat2x2(vec2(1.0, 0.0), vec2(0.0, 1.0));
     mat4x4 m1_ = mat4x4(vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
     uvec2 zvc8_ = uvec2(0u, 0u);

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
@@ -852,7 +853,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 			t.Fatalf("Lower failed: %v", err)
 		}
 		opts := hlsl.DefaultOptions()
-		opts.EntryPoint = epName
+		for _, ep := range module.EntryPoints {
+			if ep.Name == epName {
+				opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: epName}
+			}
+		}
 		code, _, err := hlsl.Compile(module, opts)
 		if err != nil {
 			t.Fatalf("HLSL Compile (entry=%s) failed: %v", epName, err)

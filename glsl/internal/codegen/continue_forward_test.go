@@ -199,7 +199,6 @@ func TestContinueForward_DoWhileOutput(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version430,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -298,7 +297,6 @@ func TestContinueForward_RegularSwitchNoContinueForward(t *testing.T) {
 
 	source, _, err := Compile(module, Options{
 		LangVersion: Version430,
-		EntryPoint:  "main",
 	})
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)

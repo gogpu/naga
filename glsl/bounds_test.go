@@ -11,6 +11,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/ir"
 )
 
 // TestRestrictBoundsChecks compares the GLSL of shaders that index arrays,
@@ -26,9 +27,10 @@ func TestRestrictBoundsChecks(t *testing.T) {
 		{"testdata/bounds/spaces.wgsl", "testdata/bounds/spaces.comp"},
 	} {
 		t.Run(tc.golden, func(t *testing.T) {
-			got, _, err := glsl.Compile(lowerWGSL(t, mustReadFile(tc.source)), glsl.Options{
+			m := lowerWGSL(t, mustReadFile(tc.source))
+			got, _, err := glsl.Compile(m, glsl.Options{
 				LangVersion: glsl.Version430,
-				EntryPoint:  "main",
+				EntryPoint:  entry(t, m, "main"),
 				BoundsCheckPolicies: backend.BoundsCheckPolicies{
 					Index:        backend.BoundsCheckRestrict,
 					Buffer:       backend.BoundsCheckRestrict,
@@ -133,8 +135,20 @@ func TestFeatureAvailability(t *testing.T) {
 @group(0) @binding(0) var<storage, read_write> data: array<u32>;
 @compute @workgroup_size(1) fn cs() { data[0] = 1u; }
 @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`)
-	code, _, err = glsl.Compile(two, glsl.Options{LangVersion: glsl.Version330, EntryPoint: "fs"})
+	code, _, err = glsl.Compile(two, glsl.Options{LangVersion: glsl.Version330, EntryPoint: entry(t, two, "fs")})
 	if err != nil || strings.Contains(code, "GL_ARB_shader_storage_buffer_object") {
 		t.Errorf("fragment entry point beside a storage buffer it does not use: err = %v\n%s", err, code)
 	}
+}
+
+// entry selects m's entry point name; the tests name entry points only.
+func entry(t *testing.T, m *ir.Module, name string) *backend.EntryPointSelector {
+	t.Helper()
+	for _, ep := range m.EntryPoints {
+		if ep.Name == name {
+			return &backend.EntryPointSelector{Stage: ep.Stage, Name: name}
+		}
+	}
+	t.Fatalf("no entry point %q", name)
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -44,7 +45,6 @@ func TestGLSL_UnsupportedRayQuery(t *testing.T) {
 	}
 	_, _, err := Compile(mod, Options{
 		LangVersion: Version430,
-		EntryPoint:  "main",
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported ray query in GLSL")
@@ -70,7 +70,7 @@ func TestGLSL_UnsupportedMeshShader(t *testing.T) {
 	}
 	_, _, err := Compile(mod, Options{
 		LangVersion: Version460,
-		EntryPoint:  "mesh_main",
+		EntryPoint:  &backend.EntryPointSelector{Stage: ir.StageMesh, Name: "mesh_main"},
 	})
 	if err == nil {
 		t.Fatal("expected error for mesh shader in GLSL")
@@ -99,7 +99,7 @@ func TestGLSL_UnsupportedTaskShader(t *testing.T) {
 	}
 	_, _, err := Compile(mod, Options{
 		LangVersion: Version460,
-		EntryPoint:  "task_main",
+		EntryPoint:  &backend.EntryPointSelector{Stage: ir.StageTask, Name: "task_main"},
 	})
 	if err == nil {
 		t.Fatal("expected error for task shader in GLSL")
@@ -142,7 +142,6 @@ func TestGLSL_UnsupportedBindingArray(t *testing.T) {
 	// compiler handles this gracefully (either error or produces output without crash).
 	_, _, err := Compile(mod, Options{
 		LangVersion: Version460,
-		EntryPoint:  "main",
 	})
 	// This test verifies no panic — binding arrays may compile with degraded
 	// type names or may error. Either behavior is acceptable as long as no panic.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
@@ -144,7 +145,10 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 			{"hlsl", func() { _, _, _ = hlsl.Compile(module, hlsl.DefaultOptions()) }},
 			{"glsl", func() {
 				for _, ep := range module.EntryPoints {
-					opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep.Name}
+					opts := glsl.Options{
+						LangVersion: glsl.VersionES310,
+						EntryPoint:  &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name},
+					}
 					_, _, _ = glsl.Compile(module, opts)
 				}
 			}},

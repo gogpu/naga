@@ -810,6 +810,7 @@ func compileMSLWithOpts(t *testing.T, module *ir.Module, opts msl.Options) (stri
 // (msl_pipeline = { key = val, ... }).
 func parseMSLPipeline(content string, opts *msl.Options) error {
 	lines := strings.Split(content, "\n")
+	pulling := false
 
 	// Check for inline table format: msl_pipeline = { ... }
 	for _, line := range lines {
@@ -819,7 +820,7 @@ func parseMSLPipeline(content string, opts *msl.Options) error {
 				opts.AllowAndForcePointSize = true
 			}
 			if strings.Contains(trimmed, "vertex_pulling_transform = true") {
-				opts.VertexPullingTransform = true
+				pulling = true
 			}
 		}
 	}
@@ -849,7 +850,7 @@ func parseMSLPipeline(content string, opts *msl.Options) error {
 		if strings.HasPrefix(trimmed, "vertex_pulling_transform") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[1]) == "true" {
-				opts.VertexPullingTransform = true
+				pulling = true
 			}
 		}
 	}
@@ -859,7 +860,10 @@ func parseMSLPipeline(content string, opts *msl.Options) error {
 	if err != nil {
 		return err
 	}
-	opts.VertexBufferMappings = mappings
+	// Rust naga reads the buffer mappings only with the transform on.
+	if pulling {
+		opts.VertexPulling = &msl.VertexPullingOptions{VertexBuffers: mappings}
+	}
 	return nil
 }
 
