@@ -7,7 +7,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -195,7 +195,7 @@ func (e *Emitter) analyzeResources() {
 		// comment table emitted by dxc -dumpbin. Matching this
 		// convention keeps the resource table identical to DXC.
 		resName := gv.Name
-		if backend.NeedsTrailingUnderscore(resName) {
+		if d3d.NeedsTrailingUnderscore(resName) {
 			resName += "_"
 		}
 

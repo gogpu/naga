@@ -7,8 +7,8 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
-	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -2393,9 +2393,9 @@ func (e *Emitter) emitMeshSignatureMetadata(ep *ir.EntryPoint) *module.MetadataN
 
 // dxilArbitrarySemantic is the default DXIL semantic name used for
 // WGSL @location(N) varyings that don't map to a system value. Sourced
-// from backend.LocationSemantic so HLSL, DXIL, and wgpu/hal/dx12's
+// from d3d.LocationSemantic so HLSL, DXIL, and wgpu/hal/dx12's
 // input-layout SemanticName cannot drift (BUG-DXIL-028).
-const dxilArbitrarySemantic = backend.LocationSemantic
+const dxilArbitrarySemantic = d3d.LocationSemantic
 
 // dxilSigInfo holds the per-element data needed to build a !dx.entryPoints
 // signature element for graphics stages. Mirrors the relevant subset of
@@ -2720,7 +2720,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 	// with the (Register, StartCol) the packer assigned. SV_Position keeps
 	// its own row, system-managed elements still carry (-1, -1) and consume
 	// no row, locations within the same interp group share rows.
-	addInputPacked := func(id *int, binding ir.Binding, th ir.TypeHandle, pe backend.PackedElement) {
+	addInputPacked := func(id *int, binding ir.Binding, th ir.TypeHandle, pe d3d.PackedElement) {
 		if skipInputBuiltin(binding) {
 			return
 		}
@@ -2737,7 +2737,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 		inputs = append(inputs, info)
 		*id++
 	}
-	addOutputPacked := func(id *int, binding ir.Binding, th ir.TypeHandle, pe backend.PackedElement) {
+	addOutputPacked := func(id *int, binding ir.Binding, th ir.TypeHandle, pe d3d.PackedElement) {
 		if skipBuiltin(binding) {
 			return
 		}
@@ -2757,24 +2757,24 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
-	interpFnIn := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
+	interpFnIn := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
 	}
-	interpFnOut := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, true))
+	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, true))
 	}
 
 	// Inputs: flatten args + struct members into a single binding list.
 	{
 		bindings, types := collectFlatArgBindings(e.ir, fn.Arguments, isVSInput)
-		infos := make([]backend.SigElementInfo, len(bindings))
+		infos := make([]d3d.SigElementInfo, len(bindings))
 		for i, b := range bindings {
-			infos[i] = backend.SigElementInfoForBinding(e.ir, b, types[i], stage, false, interpFnIn)
-			if isVSInput && infos[i].Kind == backend.SigPackLocation {
-				infos[i].Kind = backend.SigPackBuiltinSystemValue
+			infos[i] = d3d.SigElementInfoForBinding(e.ir, b, types[i], stage, false, interpFnIn)
+			if isVSInput && infos[i].Kind == d3d.SigPackLocation {
+				infos[i].Kind = d3d.SigPackBuiltinSystemValue
 			}
 		}
-		packed := backend.PackSignatureElements(infos, true)
+		packed := d3d.PackSignatureElements(infos, true)
 		id := 0
 		for i, b := range bindings {
 			if packed[i].Rows == 0 {
@@ -2788,7 +2788,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 		oid := 0
 		resType := e.ir.Types[fn.Result.Type]
 		if st, ok := resType.Inner.(ir.StructType); ok {
-			packed := backend.PackStructMembers(e.ir, st.Members, stage, true, false, interpFnOut)
+			packed := d3d.PackStructMembers(e.ir, st.Members, stage, true, false, interpFnOut)
 			for _, pm := range packed {
 				if !pm.HasBinding || pm.Rows == 0 {
 					continue
@@ -2797,7 +2797,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 				addOutputPacked(&oid, *m.Binding, m.Type, pm.PackedElement)
 			}
 		} else if fn.Result.Binding != nil {
-			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, backend.ResultElement(*fn.Result.Binding, stage))
+			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, d3d.ResultElement(*fn.Result.Binding, stage))
 		}
 	}
 	return inputs, outputs
@@ -2820,7 +2820,7 @@ func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument, isVSIn
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -2835,7 +2835,7 @@ func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument, isVSIn
 	// but cross-argument ordering must also be locations-first to match
 	// DXC's fragment input register assignment. VS inputs use
 	// InputAssembler packing which preserves declaration order.
-	backend.SortFlatBindings(bindings, types, isVSInput)
+	d3d.SortFlatBindings(bindings, types, isVSInput)
 	return bindings, types
 }
 
@@ -3170,7 +3170,7 @@ func buildSortedInputUsageKeys(irMod *ir.Module, args []ir.FunctionArgument, isV
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -3186,9 +3186,9 @@ func buildSortedInputUsageKeys(irMod *ir.Module, args []ir.FunctionArgument, isV
 	// VS inputs use InputAssembler packing which preserves declaration order.
 	if !isVSInput && len(items) > 1 {
 		sort.SliceStable(items, func(i, j int) bool {
-			ki := backend.NewMemberInterfaceKey(&items[i].binding)
-			kj := backend.NewMemberInterfaceKey(&items[j].binding)
-			return backend.MemberInterfaceLess(ki, kj)
+			ki := d3d.NewMemberInterfaceKey(&items[i].binding)
+			kj := d3d.NewMemberInterfaceKey(&items[j].binding)
+			return d3d.MemberInterfaceLess(ki, kj)
 		})
 	}
 	keys := make([]InputUsageKey, len(items))

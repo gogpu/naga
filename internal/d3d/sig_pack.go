@@ -1,4 +1,4 @@
-package backend
+package d3d
 
 import "github.com/gogpu/naga/ir"
 

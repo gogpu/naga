@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -137,21 +137,21 @@ func (e *Emitter) buildInputRowMap(fn *ir.Function, stage ir.ShaderStage) map[in
 	isVSInput := stage == ir.StageVertex
 	isComputeLike := stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask
 
-	interpFn := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
+	interpFn := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
 	}
 
 	entries := e.collectFlatInputEntries(fn, isVSInput)
 
 	// Build SigElementInfo for packing (mirrors collectGraphicsSignatures).
-	infos := make([]backend.SigElementInfo, len(entries))
+	infos := make([]d3d.SigElementInfo, len(entries))
 	for i, ent := range entries {
-		infos[i] = backend.SigElementInfoForBinding(e.ir, ent.binding, ent.typeH, stage, false, interpFn)
-		if isVSInput && infos[i].Kind == backend.SigPackLocation {
-			infos[i].Kind = backend.SigPackBuiltinSystemValue
+		infos[i] = d3d.SigElementInfoForBinding(e.ir, ent.binding, ent.typeH, stage, false, interpFn)
+		if isVSInput && infos[i].Kind == d3d.SigPackLocation {
+			infos[i].Kind = d3d.SigPackBuiltinSystemValue
 		}
 	}
-	packed := backend.PackSignatureElements(infos, true)
+	packed := d3d.PackSignatureElements(infos, true)
 
 	// Map each entry to its signature element index (sigId).
 	// The sigId in loadInput/storeOutput is the sequential index of the
@@ -201,7 +201,7 @@ func (e *Emitter) collectFlatInputEntries(fn *ir.Function, isVSInput bool) []inp
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -212,9 +212,9 @@ func (e *Emitter) collectFlatInputEntries(fn *ir.Function, isVSInput bool) []inp
 	}
 	if !isVSInput {
 		sort.SliceStable(entries, func(i, j int) bool {
-			ki := backend.NewMemberInterfaceKey(&entries[i].binding)
-			kj := backend.NewMemberInterfaceKey(&entries[j].binding)
-			return backend.MemberInterfaceLess(ki, kj)
+			ki := d3d.NewMemberInterfaceKey(&entries[i].binding)
+			kj := d3d.NewMemberInterfaceKey(&entries[j].binding)
+			return d3d.MemberInterfaceLess(ki, kj)
 		})
 	}
 	return entries
@@ -234,7 +234,7 @@ func addStructStartRows(irMod *ir.Module, fn *ir.Function, result map[inputRowKe
 			continue
 		}
 		minRow := -1
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -692,7 +692,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 	// Phase 1: Handle compute builtins (they don't produce loadInput).
 	// Also identify which sorted members will produce loadInput calls and
 	// their ISG1 row assignments.
-	order := backend.SortedMemberIndices(st.Members)
+	order := d3d.SortedMemberIndices(st.Members)
 	type loadMember struct {
 		memberIdx int
 		inputID   int // signature element index (sigId) for loadInput

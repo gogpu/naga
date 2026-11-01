@@ -9,7 +9,7 @@ package container
 import (
 	"fmt"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -56,7 +56,7 @@ func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 // User-defined @location(N) inputs use LocationSemantic — must match
 // wgpu/hal/dx12's D3D12_INPUT_ELEMENT_DESC.SemanticName (BUG-DXIL-028).
 func MapLocationToInputSemantic(loc uint32) SemanticMapping {
-	return SemanticMapping{backend.LocationSemantic, loc, SVArbitrary}
+	return SemanticMapping{d3d.LocationSemantic, loc, SVArbitrary}
 }
 
 // MapLocationToOutputSemantic converts a location binding to an output semantic.
@@ -67,7 +67,7 @@ func MapLocationToOutputSemantic(loc uint32, isFragment bool) SemanticMapping {
 	if isFragment {
 		return SemanticMapping{semTarget, loc, SVTarget}
 	}
-	return SemanticMapping{backend.LocationSemantic, loc, SVArbitrary}
+	return SemanticMapping{d3d.LocationSemantic, loc, SVArbitrary}
 }
 
 // MapBindingToSemantic converts any naga IR binding to a DXIL semantic.

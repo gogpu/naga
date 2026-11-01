@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 )
 
 // namer generates unique identifiers for HLSL output.
@@ -112,7 +112,7 @@ func (n *namer) sanitize(label string) string {
 	}
 	if !needsSanitize {
 		for _, c := range s {
-			if !backend.IsASCIIAlphanumeric(c) && c != '_' {
+			if !d3d.IsASCIIAlphanumeric(c) && c != '_' {
 				needsSanitize = true
 				break
 			}
@@ -139,7 +139,7 @@ func (n *namer) sanitize(label string) string {
 				buf.WriteByte('_')
 			}
 		default:
-			if backend.IsASCIIAlphanumeric(c) || c == '_' {
+			if d3d.IsASCIIAlphanumeric(c) || c == '_' {
 				if c == '_' && strings.HasSuffix(buf.String(), "_") {
 					continue // collapse consecutive underscores
 				}
@@ -185,7 +185,7 @@ func (n *namer) call(label string) string {
 
 	// First occurrence
 	suffixed := base
-	if backend.EndsWithDigit(base) || n.isKeyword(base) {
+	if d3d.EndsWithDigit(base) || n.isKeyword(base) {
 		suffixed = base + "_"
 	}
 	n.unique[base] = 0

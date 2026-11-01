@@ -1,4 +1,4 @@
-// Package backend holds cross-backend constants and helpers shared between
+// Package d3d holds cross-backend constants and helpers shared between
 // naga's text backends (HLSL) and binary backends (DXIL) that both target
 // the D3D ecosystem. Centralizing these values here prevents the HLSL
 // writer and the DXIL emitter from drifting — a drift that directly
@@ -10,7 +10,7 @@
 //   - referenced by at least two sibling backends that otherwise would
 //     duplicate a literal
 //   - stable enough that external tooling (wgpu/hal, gg, ui) can rely on it
-package backend
+package d3d
 
 // LocationSemantic is the semantic-name prefix for user-defined
 // @location(N) vertex-shader inputs and inter-stage varyings in both

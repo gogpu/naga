@@ -207,7 +207,7 @@ linters:
           - unused
 
       # HLSL keyword maps - string literals as map keys (same as lexer.go)
-      - path: internal/backend/hlsl_keywords\.go
+      - path: internal/d3d/hlsl_keywords\.go
         linters:
           - goconst
 

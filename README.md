@@ -368,7 +368,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 | Package | Coverage |
 |---------|:---:|
 | internal/textutil, dxil/module | **100%** |
-| internal/backend | **96.6%** |
+| internal/d3d | **96.6%** |
 | dxil/passes (dce/mem2reg/sroa) | **83-93%** |
 | ir, glsl, wgsl/parser, dxil/bitcode/container/viewid | **80-84%** |
 | spirv | **76.5%** |

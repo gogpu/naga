@@ -32,7 +32,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/passes/mem2reg"
 	"github.com/gogpu/naga/dxil/internal/passes/sroa"
 	"github.com/gogpu/naga/dxil/internal/viewid"
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -516,15 +516,15 @@ func unbindUnreadOutputs(irModule *ir.Module, ep *ir.EntryPoint, frag *FragmentE
 // elements (SV_Depth family / SV_Coverage / SV_StencilRef on output,
 // SV_SampleIndex on input) carry Register = 0xFFFFFFFF and consume no row.
 // VS input is unpacked (PackingKind::InputAssembler — each element on its
-// own row at column 0). See internal/backend/sig_pack.go.
+// own row at column 0). See internal/d3d/sig_pack.go.
 func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]container.SignatureElement, []container.SignatureElement) {
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
-	interpFn := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, false))
+	interpFn := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, false))
 	}
-	interpFnOut := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, true))
+	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, true))
 	}
 
 	// Inputs from function arguments.
@@ -578,7 +578,7 @@ func buildOutputSigElements(
 	res *ir.FunctionResult,
 	stage ir.ShaderStage,
 	isFragment bool,
-	interpFnOut func(loc ir.LocationBinding) backend.SigPackInterp,
+	interpFnOut func(loc ir.LocationBinding) d3d.SigPackInterp,
 ) []container.SignatureElement {
 	if res == nil {
 		return nil
@@ -589,14 +589,14 @@ func buildOutputSigElements(
 		if res.Binding == nil {
 			return nil
 		}
-		pe := backend.ResultElement(*res.Binding, stage)
+		pe := d3d.ResultElement(*res.Binding, stage)
 		return bindingToSignatureElements(irMod, *res.Binding, res.Type, pe.Register, 0, true, isFragment)
 	}
 	// Walk members in graphics output order — locations first, then builtins
 	// (SV_Position last). Same convention naga's HLSL backend applies via
 	// interfaceKey/Less in hlsl/functions.go, so DXC's HLSL roundtrip
 	// produces an identical OSG1 register layout.
-	packed := backend.PackStructMembers(irMod, st.Members, stage, true, false, interpFnOut)
+	packed := d3d.PackStructMembers(irMod, st.Members, stage, true, false, interpFnOut)
 	out := make([]container.SignatureElement, 0, len(packed))
 	for _, pm := range packed {
 		if !pm.HasBinding || pm.Rows == 0 {
@@ -670,7 +670,7 @@ func collectFlatBindings(
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -687,7 +687,7 @@ func collectFlatBindings(
 	// ordering must also be locations-first to match DXC's fragment input
 	// register assignment. VS inputs use InputAssembler packing which
 	// preserves declaration order.
-	backend.SortFlatBindings(bindings, types, stage == ir.StageVertex)
+	d3d.SortFlatBindings(bindings, types, stage == ir.StageVertex)
 	return bindings, types
 }
 
@@ -715,7 +715,7 @@ func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument, isVSInput
 		if !ok {
 			continue
 		}
-		order := backend.SortedMemberIndices(st.Members)
+		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
 			if m.Binding == nil {
@@ -731,9 +731,9 @@ func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument, isVSInput
 	// VS inputs use InputAssembler packing which preserves declaration order.
 	if !isVSInput {
 		sort.SliceStable(items, func(i, j int) bool {
-			ki := backend.NewMemberInterfaceKey(&items[i].binding)
-			kj := backend.NewMemberInterfaceKey(&items[j].binding)
-			return backend.MemberInterfaceLess(ki, kj)
+			ki := d3d.NewMemberInterfaceKey(&items[i].binding)
+			kj := d3d.NewMemberInterfaceKey(&items[j].binding)
+			return d3d.MemberInterfaceLess(ki, kj)
 		})
 	}
 	keys := make([]inputUsageKey, len(items))
@@ -766,18 +766,18 @@ func packBindingsForSignature(
 	stage ir.ShaderStage,
 	isOutput bool,
 	isVSInput bool,
-	interpFn func(loc ir.LocationBinding) backend.SigPackInterp,
-) []backend.PackedElement {
-	infos := make([]backend.SigElementInfo, len(bindings))
+	interpFn func(loc ir.LocationBinding) d3d.SigPackInterp,
+) []d3d.PackedElement {
+	infos := make([]d3d.SigElementInfo, len(bindings))
 	for i, b := range bindings {
-		infos[i] = backend.SigElementInfoForBinding(irMod, b, types[i], stage, isOutput, interpFn)
-		if isVSInput && infos[i].Kind == backend.SigPackLocation {
+		infos[i] = d3d.SigElementInfoForBinding(irMod, b, types[i], stage, isOutput, interpFn)
+		if isVSInput && infos[i].Kind == d3d.SigPackLocation {
 			// VSIn uses PackingKind::InputAssembler — each element on its
 			// own row at col 0. Treat as system-value-like for the packer.
-			infos[i].Kind = backend.SigPackBuiltinSystemValue
+			infos[i].Kind = d3d.SigPackBuiltinSystemValue
 		}
 	}
-	return backend.PackSignatureElements(infos, !isOutput)
+	return d3d.PackSignatureElements(infos, !isOutput)
 }
 
 // buildSigElementFromPacked builds one container.SignatureElement using a
@@ -787,7 +787,7 @@ func buildSigElementFromPacked(
 	irMod *ir.Module,
 	binding ir.Binding,
 	typeHandle ir.TypeHandle,
-	pe backend.PackedElement,
+	pe d3d.PackedElement,
 	isOutput, isFragment bool,
 ) (container.SignatureElement, bool) {
 	elems := bindingToSignatureElements(irMod, binding, typeHandle, pe.Register, pe.StartCol, isOutput, isFragment)
@@ -1183,7 +1183,7 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	// from the packer. The row counter is also tracked so SigInput/Output
 	// Vectors covers the highest used row + element rows. System-managed
 	// elements (Register=0xFFFFFFFF) do not contribute to the row counter.
-	addElement := func(binding ir.Binding, typeHandle ir.TypeHandle, isOutput bool, pe backend.PackedElement, row *uint8) (container.PSVSignatureElement, bool) {
+	addElement := func(binding ir.Binding, typeHandle ir.TypeHandle, isOutput bool, pe d3d.PackedElement, row *uint8) (container.PSVSignatureElement, bool) {
 		sem, ok := psvSemanticForBinding(binding, ep.Stage, isOutput)
 		if !ok {
 			return container.PSVSignatureElement{}, false
@@ -1238,11 +1238,11 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
-	interpFnIn := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, false))
+	interpFnIn := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, false))
 	}
-	interpFnOut := func(loc ir.LocationBinding) backend.SigPackInterp {
-		return backend.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, true))
+	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
+		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, true))
 	}
 
 	// Walk arguments (inputs).
@@ -1266,13 +1266,13 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	if ep.Function.Result != nil {
 		res := ep.Function.Result
 		if res.Binding != nil {
-			elem, ok := addElement(*res.Binding, res.Type, true, backend.ResultElement(*res.Binding, stage), &outputRow)
+			elem, ok := addElement(*res.Binding, res.Type, true, d3d.ResultElement(*res.Binding, stage), &outputRow)
 			if ok {
 				psvOutputs = append(psvOutputs, elem)
 			}
 		} else if int(res.Type) < len(irMod.Types) {
 			if st, ok := irMod.Types[res.Type].Inner.(ir.StructType); ok {
-				packed := backend.PackStructMembers(irMod, st.Members, stage, true, false, interpFnOut)
+				packed := d3d.PackStructMembers(irMod, st.Members, stage, true, false, interpFnOut)
 				for _, pm := range packed {
 					if !pm.HasBinding || pm.Rows == 0 {
 						continue
@@ -1459,7 +1459,7 @@ func psvSemanticForLocation(loc ir.LocationBinding, stage ir.ShaderStage, isOutp
 	isFragment := stage == ir.StageFragment
 	return psvSemantic{
 		Kind:          0, // SemanticKind::Arbitrary
-		Name:          backend.LocationSemantic,
+		Name:          d3d.LocationSemantic,
 		Index:         loc.Location,
 		Interpolation: psvInterpolationMode(loc.Interpolation, isFragment, isOutput),
 	}

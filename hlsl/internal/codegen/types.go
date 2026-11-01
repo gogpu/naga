@@ -8,7 +8,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -183,10 +183,10 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 }
 
 // locationSemantic is the prefix for user-defined location semantics
-// (matches Rust naga). Sourced from internal/backend so HLSL and DXIL
+// (matches Rust naga). Sourced from internal/d3d so HLSL and DXIL
 // share a single source of truth — see BUG-DXIL-028 for why drift here
 // breaks D3D12 pipeline-state creation.
-const locationSemantic = backend.LocationSemantic
+const locationSemantic = d3d.LocationSemantic
 
 // getSemanticFromBinding returns the HLSL semantic for a binding.
 // For location bindings, returns LOC{N} (not TEXCOORD{N}), matching Rust naga.

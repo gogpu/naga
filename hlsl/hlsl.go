@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/hlsl/internal/codegen"
-	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -618,7 +618,7 @@ func NewErrorWithSpan(kind ErrorKind, message string, start, end uint32) *Error 
 // NeedsTrailingUnderscore reports whether a variable name requires a
 // trailing underscore suffix in HLSL output.
 func NeedsTrailingUnderscore(name string) bool {
-	return backend.NeedsTrailingUnderscore(name)
+	return d3d.NeedsTrailingUnderscore(name)
 }
 
 // --- Conversion functions ---
