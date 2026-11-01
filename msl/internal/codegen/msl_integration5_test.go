@@ -1286,6 +1286,7 @@ func TestMSL_ArrayLengthDirect(t *testing.T) {
 				Name:    "buf",
 				Type:    tStruct,
 				Space:   ir.SpaceStorage,
+				Access:  ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
 			},
 		},

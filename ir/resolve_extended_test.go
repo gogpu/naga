@@ -1481,7 +1481,7 @@ func TestResolve_AccessIndex_PointerToMatrix_ProducesValuePointer(t *testing.T) 
 			{Name: "mat3x2", Inner: MatrixType{Columns: Vec3, Rows: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}}, // 1
 		},
 		GlobalVariables: []GlobalVariable{
-			{Name: "m", Type: 1, Space: SpaceStorage}, // 0: var<storage> m: mat3x2<f32>
+			{Name: "m", Type: 1, Space: SpaceStorage, Access: StorageAccessLoad | StorageAccessStore}, // 0: var<storage> m: mat3x2<f32>
 		},
 	}
 	fn := &Function{
@@ -1659,7 +1659,7 @@ func TestResolve_Load_ValuePointerVector_ProducesVector(t *testing.T) {
 			{Name: "mat3x2", Inner: MatrixType{Columns: Vec3, Rows: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
 		},
 		GlobalVariables: []GlobalVariable{
-			{Name: "m", Type: 1, Space: SpaceStorage},
+			{Name: "m", Type: 1, Space: SpaceStorage, Access: StorageAccessLoad | StorageAccessStore},
 		},
 	}
 	fn := &Function{

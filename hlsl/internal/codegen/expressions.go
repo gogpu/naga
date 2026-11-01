@@ -3105,7 +3105,7 @@ func (w *Writer) writeArrayLengthExpression(e ir.ExprArrayLength) error {
 	}
 
 	// Determine if writable
-	writable := gv.Space == ir.SpaceStorage && gv.Access == ir.StorageReadWrite
+	writable := gv.Space == ir.SpaceStorage && gv.Access.Contains(ir.StorageAccessStore)
 
 	// Mark that we need the NagaBufferLength helper
 	if w.nagaBufferLengthWritten == nil {
@@ -3603,7 +3603,7 @@ func (w *Writer) isNonUniformRecursive(handle ir.ExpressionHandle, depth int) bo
 			case ir.SpaceHandle:
 				return false // Handle space (textures/samplers) is uniform
 			case ir.SpaceStorage:
-				if gv.Access == ir.StorageRead {
+				if !gv.Access.Contains(ir.StorageAccessStore) {
 					return false // Read-only storage is uniform
 				}
 				return true // Read-write storage is non-uniform

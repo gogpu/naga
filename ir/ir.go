@@ -535,15 +535,26 @@ func (f StorageFormat) IsSnorm() bool {
 	}
 }
 
-// StorageAccess represents access modes for storage textures.
-type StorageAccess uint8
+// StorageAccess is how a storage buffer (GlobalVariable.Access) or a storage
+// image (ImageType.StorageAccess) may be used: Rust naga's StorageAccess bit
+// set, with its values. WGSL read is StorageAccessLoad, write
+// StorageAccessStore, read_write both, atomic all three. The empty set is
+// "unset": the validator rejects it on a storage buffer or image, as it does
+// StorageFormatUndefined (ADR-010 E2).
+type StorageAccess uint32
 
 const (
-	StorageAccessRead StorageAccess = iota
-	StorageAccessWrite
-	StorageAccessReadWrite
-	StorageAccessAtomic
+	// StorageAccessLoad: the resource can be read.
+	StorageAccessLoad StorageAccess = 1 << 0
+	// StorageAccessStore: the resource can be written.
+	StorageAccessStore StorageAccess = 1 << 1
+	// StorageAccessAtomic: the resource can be the target of atomic
+	// operations (atomic storage textures).
+	StorageAccessAtomic StorageAccess = 1 << 2
 )
+
+// Contains reports whether every bit of b is in a.
+func (a StorageAccess) Contains(b StorageAccess) bool { return a&b == b }
 
 // Constant represents a constant value.
 type Constant struct {
@@ -590,17 +601,6 @@ type ZeroConstantValue struct{}
 
 func (ZeroConstantValue) constantValue() {}
 
-// StorageAccessMode represents access modes for storage buffers.
-// This is separate from StorageAccess (used for storage textures).
-type StorageAccessMode uint8
-
-const (
-	// StorageReadWrite indicates read-write access (default for storage buffers).
-	StorageReadWrite StorageAccessMode = iota
-	// StorageRead indicates read-only access.
-	StorageRead
-)
-
 // GlobalVariable represents a global variable.
 type GlobalVariable struct {
 	Name    string
@@ -612,10 +612,12 @@ type GlobalVariable struct {
 	// init expression. This mirrors Rust naga's GlobalVariable.init field.
 	// When set, this is the canonical init reference into GlobalExpressions.
 	InitExpr *ExpressionHandle
-	// Access stores the access mode for storage address space variables.
-	// Only meaningful when Space == SpaceStorage.
-	// Rust naga: Storage { access: StorageAccess::LOAD } vs Storage { access: StorageAccess::LOAD | StorageAccess::STORE }.
-	Access StorageAccessMode
+	// Access is the access of a SpaceStorage variable (Rust naga's
+	// AddressSpace::Storage { access }): StorageAccessLoad for WGSL read,
+	// StorageAccessLoad|StorageAccessStore for read_write. The validator
+	// rejects an empty set on a storage variable and any set on another
+	// space, where Rust's type has no place for it.
+	Access StorageAccess
 }
 
 // ResourceBinding represents a resource binding.

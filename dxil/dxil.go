@@ -2482,7 +2482,7 @@ func collectPSVResources(irMod *ir.Module, t psvTargets) []container.PSVResource
 			resType = container.PSVResTypeCBV
 			resKind = container.PSVResKindCBuffer
 		case ir.SpaceStorage:
-			if gv.Access == ir.StorageRead {
+			if !gv.Access.Contains(ir.StorageAccessStore) {
 				class = classSRV
 				resType = container.PSVResTypeSRVRaw
 				resKind = container.PSVResKindRawBuffer

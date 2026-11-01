@@ -512,7 +512,7 @@ func TestAnalyzeResourcesBindingMapMultiClass(t *testing.T) {
 			{
 				Name:    "pin",
 				Space:   ir.SpaceStorage,
-				Access:  ir.StorageRead,
+				Access:  ir.StorageAccessLoad,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
 				Type:    2,
 			},
@@ -520,7 +520,7 @@ func TestAnalyzeResourcesBindingMapMultiClass(t *testing.T) {
 			{
 				Name:    "pout",
 				Space:   ir.SpaceStorage,
-				Access:  ir.StorageReadWrite,
+				Access:  ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 1},
 				Type:    2,
 			},
@@ -557,7 +557,7 @@ func TestAnalyzeResourcesBindingMapMultiClass(t *testing.T) {
 	}
 
 	// After FEAT-DXIL-003: classifyGlobalVariable distinguishes read-only
-	// (StorageRead → SRV / t-register) from read-write (StorageReadWrite →
+	// (StorageAccessLoad → SRV / t-register) from read-write (StorageAccessLoad | StorageAccessStore →
 	// UAV / u-register) storage buffers, matching the HLSL backend's
 	// classifier. Per-class rangeID counters are independent, so pin and
 	// pout both land at rangeID=0 — the first (and only) resource in
@@ -627,7 +627,7 @@ func TestClassifyStorageBufferAccessMode(t *testing.T) {
 			{
 				Name:    "ro_buf",
 				Space:   ir.SpaceStorage,
-				Access:  ir.StorageRead,
+				Access:  ir.StorageAccessLoad,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
 				Type:    2,
 			},
@@ -635,7 +635,7 @@ func TestClassifyStorageBufferAccessMode(t *testing.T) {
 			{
 				Name:    "rw_buf",
 				Space:   ir.SpaceStorage,
-				Access:  ir.StorageReadWrite,
+				Access:  ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 1},
 				Type:    2,
 			},
@@ -1170,7 +1170,7 @@ func TestSamplerIndexBufferInsertionOrder(t *testing.T) {
 			{Name: "", Inner: ir.SamplerType{Comparison: true}},                                                    // 2: comparison sampler
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageRead,
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 0},
 			{Name: "tex", Space: ir.SpaceHandle,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 1},

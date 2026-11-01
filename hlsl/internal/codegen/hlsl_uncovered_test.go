@@ -171,7 +171,8 @@ func TestWriteF2U32Helper(t *testing.T) {
 
 func TestIsStorageBufferReadOnly(t *testing.T) {
 	global := &ir.GlobalVariable{
-		Space: ir.SpaceStorage,
+		Space:  ir.SpaceStorage,
+		Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 	}
 	// Currently always returns false (stub)
 	if got := isStorageBufferReadOnly(global); got {
@@ -1784,7 +1785,7 @@ func TestGetGlobalUniformMatrix_NotUniform(t *testing.T) {
 			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "mat", Type: 0, Space: ir.SpaceStorage}, // NOT uniform
+			{Name: "mat", Type: 0, Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore}, // NOT uniform
 		},
 	}
 	w := newTestWriter(module, nil, nil)
@@ -2098,7 +2099,7 @@ func TestWriteNagaBufferLengthHelpers(t *testing.T) {
 			{Inner: ir.ArrayType{Base: 0, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Type: 1, Space: ir.SpaceStorage, Access: ir.StorageReadWrite},
+			{Name: "buf", Type: 1, Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore},
 		},
 	}
 	opts := DefaultOptions()
@@ -2129,7 +2130,7 @@ func TestWriteNagaBufferLengthHelpers_ReadOnly(t *testing.T) {
 			{Inner: ir.ArrayType{Base: 0, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Type: 1, Space: ir.SpaceStorage, Access: ir.StorageRead},
+			{Name: "buf", Type: 1, Space: ir.SpaceStorage, Access: ir.StorageAccessLoad},
 		},
 	}
 	opts := DefaultOptions()

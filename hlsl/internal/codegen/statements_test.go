@@ -56,7 +56,7 @@ func TestGetPointerAddressSpace(t *testing.T) {
 			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceWorkGroup}}, // 2: ptr<workgroup, u32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 			{Name: "wg", Space: ir.SpaceWorkGroup, Type: 0},
 		},
 	}
@@ -189,7 +189,7 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceStorage}}, // 1: ptr<storage, u32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "storage_buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "storage_buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 

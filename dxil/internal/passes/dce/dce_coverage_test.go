@@ -275,7 +275,7 @@ func TestImageAtomicIsRoot(t *testing.T) {
 func TestGlobalAtomicIsRoot(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "counter", Space: ir.SpaceStorage, Type: 0},
+			{Name: "counter", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 
@@ -828,7 +828,7 @@ func TestLocalStoreInsideNestedBlock(t *testing.T) {
 func TestPureCallWithLiveResultKept(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 		Functions: []ir.Function{
 			{Name: "pure_fn"}, // no side effects
@@ -878,7 +878,7 @@ func TestPureCallWithLiveResultKept(t *testing.T) {
 func TestDeadIfConditionReadByAStore(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 
@@ -1085,7 +1085,7 @@ func TestEmptyFunctionNoExpressions(t *testing.T) {
 func TestPropagateCallResultLivenessInsideSwitch(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 		Functions: []ir.Function{
 			{Name: "pure_fn"},
@@ -1149,7 +1149,7 @@ func TestPropagateCallResultLivenessInsideSwitch(t *testing.T) {
 func TestPropagateCallResultLivenessInsideLoop(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 		Functions: []ir.Function{
 			{Name: "pure_fn"},

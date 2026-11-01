@@ -840,19 +840,18 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		return fmt.Errorf("global var '%s': @group requires @binding attribute", v.Name)
 	}
 
-	// Determine storage access mode from WGSL access mode annotation.
-	// var<storage, read_write> → StorageReadWrite (LOAD|STORE)
-	// var<storage, read> or var<storage> → StorageRead (LOAD only)
-	accessMode := ir.StorageReadWrite
+	// The access of a storage variable (Rust's AddressSpace::Storage
+	// { access }): read when the declaration names none, as WGSL says.
+	// Other spaces have none.
+	var accessMode ir.StorageAccess
 	if space == ir.SpaceStorage {
-		switch v.AccessMode {
-		case "read":
-			accessMode = ir.StorageRead
-		case "read_write":
-			accessMode = ir.StorageReadWrite
-		default:
-			// Default for storage without explicit access mode is read-only
-			accessMode = ir.StorageRead
+		accessMode = ir.StorageAccessLoad
+		if v.AccessMode != "" {
+			a, ok := storageAccessWord(v.AccessMode)
+			if !ok {
+				return fmt.Errorf("unknown access: `%s`", v.AccessMode)
+			}
+			accessMode = a
 		}
 	}
 
@@ -5896,6 +5895,9 @@ func (l *Lowerer) parseTextureType(t *parser.NamedType) ir.ImageType {
 		}
 		if len(t.TypeParams) >= 2 {
 			img.StorageAccess = l.parseStorageAccess(t.TypeParams[1])
+		} else {
+			// WGSL texture_storage_* takes a format and an access.
+			l.addError("expected a storage format and an access", t.Span)
 		}
 		return img
 	}
@@ -6060,21 +6062,33 @@ func (l *Lowerer) parseStorageFormat(param parser.Type) ir.StorageFormat {
 func (l *Lowerer) parseStorageAccess(param parser.Type) ir.StorageAccess {
 	namedType, ok := param.(*parser.NamedType)
 	if !ok {
-		return ir.StorageAccessWrite
+		l.addError("expected a storage access", param.Pos())
+		return 0
 	}
-	name := namedType.Name
-	switch name {
+	a, ok := storageAccessWord(namedType.Name)
+	if !ok {
+		// It was taken as write.
+		l.addError(fmt.Sprintf("unknown access: `%s`", namedType.Name), namedType.Span)
+		return 0
+	}
+	return a
+}
+
+// storageAccessWord is Rust's conv::map_storage_access: atomic is the three
+// bits, as an atomic texture is also loaded and stored (it lowered to
+// read_write before).
+func storageAccessWord(word string) (ir.StorageAccess, bool) {
+	switch word {
 	case "read":
-		return ir.StorageAccessRead
+		return ir.StorageAccessLoad, true
 	case "write":
-		return ir.StorageAccessWrite
+		return ir.StorageAccessStore, true
 	case "read_write":
-		return ir.StorageAccessReadWrite
+		return ir.StorageAccessLoad | ir.StorageAccessStore, true
 	case "atomic":
-		return ir.StorageAccessReadWrite
-	default:
-		return ir.StorageAccessWrite // Default to write
+		return ir.StorageAccessAtomic | ir.StorageAccessLoad | ir.StorageAccessStore, true
 	}
+	return 0, false
 }
 
 // binaryOpTable maps token kinds to binary operators.

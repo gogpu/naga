@@ -436,13 +436,14 @@ func (w *Writer) imageTypeName(img ir.ImageType, _ StorageAccess) string {
 		// Use the actual storage access mode from the IR.
 		// Rust naga: read-only storage textures use access::read,
 		// write-only use access::write, read_write use access::read_write.
-		switch img.StorageAccess {
-		case ir.StorageAccessRead:
-			accessStr = Namespace + "access::read"
-		case ir.StorageAccessWrite:
+		// Rust back/msl/writer.rs:327-334.
+		switch a := img.StorageAccess; {
+		case a.Contains(ir.StorageAccessLoad | ir.StorageAccessStore):
+			accessStr = Namespace + "access::read_write"
+		case a.Contains(ir.StorageAccessStore):
 			accessStr = Namespace + "access::write"
 		default:
-			accessStr = Namespace + "access::read_write"
+			accessStr = Namespace + "access::read"
 		}
 	default:
 		// Multisampled sampled textures use access::read.

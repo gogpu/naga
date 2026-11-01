@@ -56,7 +56,7 @@ func TestSharedConditionOfADeadIf(t *testing.T) {
 	mod := &ir.Module{}
 	u32 := scalarTypeHandle(mod, ir.ScalarUint, 4)
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
-	mod.GlobalVariables = []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Type: i32}}
+	mod.GlobalVariables = []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: i32}}
 
 	fn := &ir.Function{
 		Arguments: []ir.FunctionArgument{{Name: "li", Type: u32}},
@@ -97,7 +97,7 @@ func TestSharedConditionOfADeadSwitch(t *testing.T) {
 	mod := &ir.Module{}
 	u32 := scalarTypeHandle(mod, ir.ScalarUint, 4)
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
-	mod.GlobalVariables = []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Type: i32}}
+	mod.GlobalVariables = []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: i32}}
 
 	fn := &ir.Function{
 		Arguments: []ir.FunctionArgument{{Name: "li", Type: u32}},

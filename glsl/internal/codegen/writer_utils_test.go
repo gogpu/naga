@@ -103,9 +103,9 @@ func TestGlslStorageAccess(t *testing.T) {
 		access ir.StorageAccess
 		want   string
 	}{
-		{ir.StorageAccessRead, "readonly "},
-		{ir.StorageAccessWrite, "writeonly "},
-		{ir.StorageAccessReadWrite, ""},
+		{ir.StorageAccessLoad, "readonly "},
+		{ir.StorageAccessStore, "writeonly "},
+		{ir.StorageAccessLoad | ir.StorageAccessStore, ""},
 		{ir.StorageAccess(255), ""},
 	}
 

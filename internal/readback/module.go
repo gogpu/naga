@@ -100,7 +100,7 @@ func checkGlobal(m *ir.Module, g *ir.GlobalVariable, b *Binding) error {
 	switch {
 	case g.Space == ir.SpaceUniform:
 		kind = KindUniform
-	case g.Space == ir.SpaceStorage && g.Access == ir.StorageRead:
+	case g.Space == ir.SpaceStorage && !g.Access.Contains(ir.StorageAccessStore):
 		kind = KindStorageRead
 	case g.Space == ir.SpaceStorage:
 		kind = KindStorageRW

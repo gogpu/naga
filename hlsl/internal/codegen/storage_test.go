@@ -698,7 +698,7 @@ func TestIsStoragePointer(t *testing.T) {
 			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceUniform}}, // 2: ptr<uniform, u32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "storBuf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "storBuf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 			{Name: "uniBuf", Space: ir.SpaceUniform, Type: 0},
 		},
 	}
@@ -775,7 +775,7 @@ func TestFillAccessChain(t *testing.T) {
 			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},                                  // 5: vec4<f32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 4},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 4},
 		},
 	}
 
@@ -907,7 +907,7 @@ func TestWriteStorageLoad(t *testing.T) {
 			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}, // 3: vec4<f32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 
@@ -988,7 +988,7 @@ func TestWriteStorageStore(t *testing.T) {
 			{Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}, // 2: vec2<f32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 
@@ -1193,7 +1193,7 @@ func TestWriteStorageLoadMatrix(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: f32
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 
@@ -1389,6 +1389,7 @@ func TestFillAccessChainWithDynamicOffset(t *testing.T) {
 			{
 				Name:    "buf",
 				Space:   ir.SpaceStorage,
+				Access:  ir.StorageAccessLoad | ir.StorageAccessStore,
 				Type:    1,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 3},
 			},

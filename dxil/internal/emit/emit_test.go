@@ -4268,7 +4268,7 @@ func buildMinimalComputeShader() *ir.Module {
 			{
 				Name:   "out",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group: 0, Binding: 0,
 				},
@@ -4345,7 +4345,7 @@ func buildComputeWithUAV() *ir.Module {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group:   0,
 					Binding: 0,
@@ -4426,7 +4426,7 @@ func buildComputeMultipleBuiltins() *ir.Module {
 			{
 				Name:   "out",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group: 0, Binding: 0,
 				},
@@ -4862,7 +4862,7 @@ func buildComputeWithAtomicAdd() *ir.Module {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group:   0,
 					Binding: 0,
@@ -4991,7 +4991,7 @@ func TestEmitAtomicCompareExchange(t *testing.T) {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group:   0,
 					Binding: 0,
@@ -5175,7 +5175,7 @@ func TestEmitMultipleAtomicOps(t *testing.T) {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group:   0,
 					Binding: 0,
@@ -5390,7 +5390,7 @@ func TestEmitAtomicSubtract(t *testing.T) {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group:   0,
 					Binding: 0,
@@ -5503,7 +5503,7 @@ func buildComputeWithFloatVec2Store() *ir.Module {
 			{
 				Name:   "out",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group: 0, Binding: 0,
 				},
@@ -5683,7 +5683,7 @@ func buildComputeWithFloatVec2Load() *ir.Module {
 			{
 				Name:   "data",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageRead,
+				Access: ir.StorageAccessLoad,
 				Binding: &ir.ResourceBinding{
 					Group: 0, Binding: 0,
 				},
@@ -5692,7 +5692,7 @@ func buildComputeWithFloatVec2Load() *ir.Module {
 			{
 				Name:   "out",
 				Space:  ir.SpaceStorage,
-				Access: ir.StorageReadWrite,
+				Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{
 					Group: 0, Binding: 1,
 				},
@@ -5893,7 +5893,7 @@ func TestResourceNameSuffix(t *testing.T) {
 					{
 						Name:   tt.irName,
 						Space:  ir.SpaceStorage,
-						Access: ir.StorageReadWrite,
+						Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 						Binding: &ir.ResourceBinding{
 							Group:   0,
 							Binding: 0,

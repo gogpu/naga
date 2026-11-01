@@ -302,7 +302,7 @@ func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 		// storage buffers (var<storage, read_write>) map to UAV
 		// (u-register, RWByteAddressBuffer). Matches the HLSL backend's
 		// classifier (hlsl/storage.go getRegisterTypeForAddressSpace).
-		if gv.Access == ir.StorageRead {
+		if !gv.Access.Contains(ir.StorageAccessStore) {
 			return resourceClassSRV, true
 		}
 		return resourceClassUAV, true

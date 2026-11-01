@@ -366,7 +366,7 @@ func (w *Writer) collectFeatures() {
 			// The readonly qualifier of a read-only buffer block is one of
 			// the memory qualifiers, which desktop GLSL below 420 only has
 			// through GL_ARB_shader_image_load_store.
-			if global.Access == ir.StorageRead {
+			if !global.Access.Contains(ir.StorageAccessStore) {
 				w.features.request(FeatureImageLoadStore)
 			}
 		}
