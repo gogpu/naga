@@ -224,6 +224,14 @@ func boundsBackends() map[string]boundsBackend {
 				return []byte(code), err
 			},
 		},
+		"dxil": {
+			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
+				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0, BoundsCheckPolicies: p})
+			},
+			withZero: func(m *ir.Module) ([]byte, error) {
+				return dxil.Compile(m, dxil.Options{ShaderModel: dxil.SM6_0})
+			},
+		},
 	}
 }
 

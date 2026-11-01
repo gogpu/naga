@@ -117,7 +117,9 @@ func TestDxilValSummary(t *testing.T) {
 				SpecialTypes:      module.SpecialTypes,
 			}
 
-			dxilBytes, compileErr := dxil.Compile(singleEPModule, opts)
+			shaderOpts := opts
+			shaderOpts.BindingMap = dxilBindingArraySizes(shader.name)
+			dxilBytes, compileErr := dxil.Compile(singleEPModule, shaderOpts)
 			if compileErr != nil {
 				if firstErr == "" {
 					firstErr = compileErr.Error()
@@ -292,4 +294,30 @@ func TestDxilValGGProduction(t *testing.T) {
 			t.Errorf("  %s", f)
 		}
 	}
+}
+
+// dxilBindingArraySizes is the binding map that gives the unbounded binding
+// arrays of a shader the sizes its Rust parameters give them, every other
+// binding at its WGSL group and binding as without a map. The default
+// BindingArray policy, Restrict, clamps to that size, as wgpu passes it.
+func dxilBindingArraySizes(shaderName string) dxil.BindingMap {
+	data, err := os.ReadFile(rustParamsPath(shaderName))
+	if err != nil {
+		return nil
+	}
+	var m dxil.BindingMap
+	for _, b := range mustRustParams(string(data)).spvBindingMap {
+		if b.bindingArraySize == nil {
+			continue
+		}
+		if m == nil {
+			m = dxil.BindingMap{}
+		}
+		m[dxil.BindingLocation{Group: b.group, Binding: b.binding}] = dxil.BindTarget{
+			Space:            uint8(b.group),
+			Register:         b.binding,
+			BindingArraySize: b.bindingArraySize,
+		}
+	}
+	return m
 }

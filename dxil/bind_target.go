@@ -33,19 +33,16 @@ type BindTarget struct {
 	// the dx.op.createHandle index.
 	Register uint32
 
-	// BindingArraySize is the array size for binding arrays. If nil,
-	// the resource is not an array.
-	//
-	// Note: the DXIL backend takes the actual array size from the IR
-	// type (BindingArrayType.Size). This field is accepted for parity
-	// with hlsl.BindTarget so callers can share a single binding-map
-	// builder; it is currently not consulted by the DXIL backend.
+	// BindingArraySize is the number of elements of an unbounded binding
+	// array (binding_array<T> without a size) at this binding: the range of
+	// its resource, and the bound the BindingArray policy Restrict clamps
+	// its indices to. A sized binding array takes its size from its type.
 	BindingArraySize *uint32
 
 	// RestrictIndexing clamps run-time indices into the arrays and matrix
-	// columns of the constant buffer at this binding to their bounds, as
-	// hlsl.BindTarget.RestrictIndexing does. A root CBV needs it: D3D12
-	// doesn't bounds check root descriptors.
+	// columns of the constant buffer at this binding to their bounds under
+	// the Buffer policy Restrict, as hlsl.BindTarget.RestrictIndexing does.
+	// A root CBV needs it: D3D12 doesn't bounds check root descriptors.
 	RestrictIndexing bool
 
 	// DynamicStorageBufferOffsetsIndex is, for a storage buffer with a
