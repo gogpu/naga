@@ -158,10 +158,6 @@ type EntryPointResources struct {
 	// Resources maps (group, binding) pairs to Metal bind targets.
 	Resources map[ir.ResourceBinding]BindTarget
 
-	// PushConstantBuffer is the buffer slot for push constants.
-	// Nil if push constants are not used.
-	PushConstantBuffer *uint8
-
 	// SizesBuffer is the buffer slot for runtime array sizes.
 	// Required when using runtime-sized arrays.
 	SizesBuffer *uint8

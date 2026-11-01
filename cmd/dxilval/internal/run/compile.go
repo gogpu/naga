@@ -43,6 +43,9 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 	}
 
 	opts := dxil.DefaultOptions()
+	// Immediate data at b0 in space 0, Rust naga's immediates_target in the
+	// test parameters that give one.
+	opts.ImmediatesTarget = &dxil.BindTarget{}
 	if bm := loadHLSLBindingMap(srcPath); bm != nil {
 		opts.BindingMap = bm
 	}

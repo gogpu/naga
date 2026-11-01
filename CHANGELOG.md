@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `poly`, `out_1` → `out_`, as in Rust's output). A SPIR-V module for one entry point leaves out the globals it does not
   use and the functions it cannot call (Rust's `spv::PipelineOptions`): the nine per-entry-point SPIR-V outputs of the
   Rust corpus now compile and compare with Rust instead of being unsupported.
+- **Breaking: immediate data has an explicit register in HLSL and DXIL.** `hlsl.Options.ImmediatesTarget` and
+  `dxil.Options.ImmediatesTarget` (`*BindTarget`, Rust naga's `immediates_target`) place the `var<immediate>`
+  constant buffer, the root constants D3D12 binds in the root signature. A module with immediate data and no target
+  is an error wrapping `backend.ErrMissingBinding`, `FakeMissingBindings` or not: HLSL wrote `register(b0)` silently,
+  which can take the caller's own b0, and DXIL gave the buffer a synthetic register that the PSV0 resource table left
+  out. The dead `msl.EntryPointResources.PushConstantBuffer` is removed (`ImmediatesBuffer` is the field).
 - **Breaking: msl vertex pulling is one option.** `msl.Options.VertexPulling *msl.VertexPullingOptions{VertexBuffers}`
   replaces `VertexPullingTransform` and `VertexBufferMappings`; `msl.PipelineOptions` and `msl.CompileWithPipeline`
   are removed (`EntryPoint` and `AllowAndForcePointSize` live in `msl.Options`).

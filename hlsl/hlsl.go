@@ -220,6 +220,13 @@ type Options struct {
 	// constant buffer.
 	SpecialConstantsBinding *BindTarget
 
+	// ImmediatesTarget is the constant buffer register of the immediate data
+	// (var<immediate>), the root constants D3D12 binds in the root signature
+	// (Rust naga's immediates_target). The data has no WGSL binding, so a
+	// module with immediate data and no target is an error wrapping
+	// backend.ErrMissingBinding, FakeMissingBindings or not.
+	ImmediatesTarget *BindTarget
+
 	// EntryPoint selects the one entry point to write; nil writes every entry
 	// point. One the module does not have is an error wrapping
 	// backend.ErrEntryPointNotFound.
@@ -689,10 +696,14 @@ func toCodegenOptions(o *Options) *codegen.Options {
 		}
 	}
 
-	var specialBinding *codegen.BindTarget
+	var specialBinding, immediatesTarget *codegen.BindTarget
 	if o.SpecialConstantsBinding != nil {
 		bt := toCodegenBindTarget(*o.SpecialConstantsBinding)
 		specialBinding = &bt
+	}
+	if o.ImmediatesTarget != nil {
+		bt := toCodegenBindTarget(*o.ImmediatesTarget)
+		immediatesTarget = &bt
 	}
 
 	var fragEP *codegen.FragmentEntryPoint
@@ -714,6 +725,7 @@ func toCodegenOptions(o *Options) *codegen.Options {
 		ForceLoopBounding:                  !o.SkipLoopBounding,
 		DynamicStorageBufferOffsetsTargets: dynamicOffsets,
 		SpecialConstantsBinding:            specialBinding,
+		ImmediatesTarget:                   immediatesTarget,
 		FragmentEntryPoint:                 fragEP,
 		EntryPoint:                         o.EntryPoint,
 	}

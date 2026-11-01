@@ -211,6 +211,7 @@ func stageDxcProfile(s ir.ShaderStage) string {
 // then dxc -dumpbin → normalized LLVM IR text saved to goldenFile.
 func writeDxcGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile string) error {
 	hopts := hlsl.DefaultOptions()
+	hopts.ImmediatesTarget = &hlsl.BindTarget{} // as compareToGolden's
 	hopts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 	hlslSrc, _, err := hlsl.Compile(mod, hopts)
 	if err != nil {
@@ -268,6 +269,9 @@ func compareToGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile st
 	// compiled the HLSL with.
 	opts := dxil.DefaultOptions()
 	opts.FakeMissingBindings = true
+	// Immediate data at b0 in space 0, Rust's immediates_target for the
+	// corpus shaders that have it.
+	opts.ImmediatesTarget = &dxil.BindTarget{}
 	opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 	dxilBytes, compileErr := dxil.Compile(mod, opts)
 	if compileErr != nil {

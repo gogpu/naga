@@ -70,6 +70,11 @@ type Options struct {
 	// Matches Rust naga's special_constants_binding option.
 	SpecialConstantsBinding *BindTarget
 
+	// ImmediatesTarget is the constant buffer register of the immediate
+	// data (Rust naga's immediates_target): the root constants D3D12 binds
+	// directly in the root signature. A module with immediate data needs it.
+	ImmediatesTarget *BindTarget
+
 	// EntryPoint selects the one entry point to write; nil writes every
 	// entry point.
 	EntryPoint *backend.EntryPointSelector

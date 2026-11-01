@@ -327,6 +327,18 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
 		}
 	}
 
+	// Parse immediates_target, in either key order.
+	if m := regexp.MustCompile(`immediates_target\s*=\s*\{([^}]+)\}`).FindStringSubmatch(content); m != nil {
+		var reg, space uint64
+		if r := regexp.MustCompile(`register\s*=\s*(\d+)`).FindStringSubmatch(m[1]); r != nil {
+			reg, _ = strconv.ParseUint(r[1], 10, 32)
+		}
+		if s := regexp.MustCompile(`space\s*=\s*(\d+)`).FindStringSubmatch(m[1]); s != nil {
+			space, _ = strconv.ParseUint(s[1], 10, 8)
+		}
+		opts.ImmediatesTarget = &hlsl.BindTarget{Register: uint32(reg), Space: uint8(space)}
+	}
+
 	// Parse fake_missing_bindings ONLY in [hlsl] section (not MSL or other sections)
 	{
 		hlslSection := extractHLSLSection(content)
