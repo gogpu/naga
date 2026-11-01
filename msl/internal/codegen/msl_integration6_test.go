@@ -3,6 +3,8 @@ package codegen
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // =============================================================================
@@ -240,7 +242,7 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 }
 `
 	opts := DefaultOptions()
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "threadgroup")
 	mustContainMSL(t, code, "shared_data")

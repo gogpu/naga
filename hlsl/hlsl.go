@@ -6,6 +6,7 @@ package hlsl
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl/internal/codegen"
 	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
@@ -280,9 +281,14 @@ type Options struct {
 	// not found in BindingMap.
 	FakeMissingBindings bool
 
-	// ZeroInitializeWorkgroupMemory emits code to zero-initialize
-	// groupshared variables at the start of compute shaders.
-	ZeroInitializeWorkgroupMemory bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// groupshared variables they use, as WebGPU requires. The zero value,
+	// backend.ZeroInitWorkgroupPolyfill, stores zero to them from the first
+	// invocation and adds a group barrier, as Rust naga's default
+	// zero_initialize_workgroup_memory: true does. ZeroInitWorkgroupNone
+	// leaves them as they are; ZeroInitWorkgroupNative is an error, Direct3D
+	// has no way to ask for it.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// RestrictIndexing adds bounds checks to array/buffer accesses.
 	RestrictIndexing bool
@@ -581,10 +587,9 @@ func DefaultOptions() *Options {
 			StandardSamplers:   BindTarget{Space: 0, Register: 0},
 			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
 		},
-		FakeMissingBindings:           true,
-		ZeroInitializeWorkgroupMemory: true,
-		RestrictIndexing:              true,
-		ForceLoopBounding:             true,
+		FakeMissingBindings: true,
+		RestrictIndexing:    true,
+		ForceLoopBounding:   true,
 	}
 }
 

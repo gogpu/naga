@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/emit"
 	"github.com/gogpu/naga/dxil/internal/module"
 )
@@ -62,7 +63,7 @@ var<workgroup> w: array<u32, 8>;
 		opts.RestrictIndexing = restrict
 		// Only the shader's own indices: zeroing w loops over its elements
 		// with an index of its own, clamped too.
-		opts.SkipWorkgroupMemoryZeroInit = true
+		opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupNone
 		mod, fn := emitMainModuleOpts(t, src, opts)
 		limits := uminLimits(mod, fn)
 		slices.Sort(limits)

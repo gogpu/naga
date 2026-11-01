@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -64,8 +65,8 @@ func TestDefaultOptions(t *testing.T) {
 		t.Errorf("Expected LangVersion 2.1, got %v", opts.LangVersion)
 	}
 
-	if !opts.ZeroInitializeWorkgroupMemory {
-		t.Error("Expected ZeroInitializeWorkgroupMemory to be true")
+	if opts.ZeroInitializeWorkgroupMemory != backend.ZeroInitWorkgroupPolyfill {
+		t.Errorf("ZeroInitializeWorkgroupMemory = %v, want Polyfill", opts.ZeroInitializeWorkgroupMemory)
 	}
 
 	if !opts.ForceLoopBounding {

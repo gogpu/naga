@@ -14,6 +14,7 @@ package backend
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -88,6 +89,19 @@ const (
 	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
 	ZeroInitWorkgroupNone
 )
+
+// String returns the mode's name as in Rust naga.
+func (m ZeroInitializeWorkgroupMemoryMode) String() string {
+	switch m {
+	case ZeroInitWorkgroupPolyfill:
+		return "Polyfill"
+	case ZeroInitWorkgroupNative:
+		return "Native"
+	case ZeroInitWorkgroupNone:
+		return "None"
+	}
+	return "ZeroInitializeWorkgroupMemoryMode(" + strconv.Itoa(int(m)) + ")"
+}
 
 // EntryPointSelector selects one entry point of a module by stage and name.
 // It is not ir.EntryPoint.

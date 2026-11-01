@@ -218,9 +218,14 @@ type Options struct {
 	// BoundsCheckPolicies controls bounds checking behavior.
 	BoundsCheckPolicies BoundsCheckPolicies
 
-	// ZeroInitializeWorkgroupMemory enables zero-initialization of
-	// workgroup (threadgroup) memory at the start of compute shaders.
-	ZeroInitializeWorkgroupMemory bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// threadgroup variables they use, as WebGPU requires. The zero value,
+	// backend.ZeroInitWorkgroupPolyfill, stores zero to them from the first
+	// invocation and adds a threadgroup barrier, as Rust naga's default
+	// zero_initialize_workgroup_memory: true does. ZeroInitWorkgroupNone
+	// leaves them as they are; ZeroInitWorkgroupNative is an error, Metal
+	// has no way to ask for it.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ForceLoopBounding adds loop iteration limits to prevent infinite loops.
 	ForceLoopBounding bool
@@ -364,10 +369,9 @@ func DefaultBoundsCheckPolicies() BoundsCheckPolicies {
 // DefaultOptions returns sensible default options for MSL generation.
 func DefaultOptions() Options {
 	return Options{
-		LangVersion:                   Version2_1,
-		BoundsCheckPolicies:           DefaultBoundsCheckPolicies(),
-		ZeroInitializeWorkgroupMemory: true,
-		ForceLoopBounding:             true,
+		LangVersion:         Version2_1,
+		BoundsCheckPolicies: DefaultBoundsCheckPolicies(),
+		ForceLoopBounding:   true,
 	}
 }
 

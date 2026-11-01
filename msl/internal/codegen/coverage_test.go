@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -469,7 +470,7 @@ func TestCompile_WorkgroupZeroInit(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 
 	result, _, err := Compile(module, opts)
 	if err != nil {
@@ -893,7 +894,7 @@ func TestCompile_WorkgroupAtomicZeroInit(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 
 	result, _, err := Compile(module, opts)
 	if err != nil {

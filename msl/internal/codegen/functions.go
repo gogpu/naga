@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -598,7 +599,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// !fun_info[handle].is_empty()).
 	needWorkgroupInit := false
 	localInvocationIDName := ""
-	if w.options.ZeroInitializeWorkgroupMemory && ep.Stage == ir.StageCompute {
+	if w.options.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupPolyfill && ep.Stage == ir.StageCompute {
 		for i, global := range w.module.GlobalVariables {
 			if _, used := epUsedGlobals[uint32(i)]; !used {
 				continue

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -26,8 +27,8 @@ func TestDefaultOptions(t *testing.T) {
 		t.Error("FakeMissingBindings should be true by default")
 	}
 
-	if !opts.ZeroInitializeWorkgroupMemory {
-		t.Error("ZeroInitializeWorkgroupMemory should be true by default")
+	if opts.ZeroInitializeWorkgroupMemory != backend.ZeroInitWorkgroupPolyfill {
+		t.Errorf("ZeroInitializeWorkgroupMemory = %v, want Polyfill", opts.ZeroInitializeWorkgroupMemory)
 	}
 
 	if !opts.RestrictIndexing {

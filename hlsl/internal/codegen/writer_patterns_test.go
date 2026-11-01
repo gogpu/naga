@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -276,7 +277,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_counter",
 		}
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
-		w.options.ZeroInitializeWorkgroupMemory = true
+		w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 		w.writeWorkgroupInit()
 		output := w.Out.String()
 		if !strings.Contains(output, "wg_counter = (uint)0;") {
@@ -301,7 +302,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_data",
 		}
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
-		w.options.ZeroInitializeWorkgroupMemory = true
+		w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 		w.writeWorkgroupInit()
 		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
@@ -327,7 +328,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_matrix",
 		}
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "float"})
-		w.options.ZeroInitializeWorkgroupMemory = true
+		w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 		w.writeWorkgroupInit()
 		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
@@ -355,7 +356,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_struct",
 		}
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "MyStruct"})
-		w.options.ZeroInitializeWorkgroupMemory = true
+		w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 		w.writeWorkgroupInit()
 		output := w.Out.String()
 		if !strings.Contains(output, "wg_struct = (MyStruct)0;") {
@@ -383,7 +384,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 			{kind: nameKeyGlobalVariable, handle1: 0}: "sh_scratch",
 		}
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "PathMonoid"})
-		w.options.ZeroInitializeWorkgroupMemory = true
+		w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 		w.writeWorkgroupInit()
 		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
@@ -410,7 +411,7 @@ func TestHLSL_NeedWorkgroupInit(t *testing.T) {
 		{kind: nameKeyGlobalVariable, handle1: 0}: "wg_counter",
 	}
 	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
-	w.options.ZeroInitializeWorkgroupMemory = true
+	w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 
 	// Compute stage with workgroup var should need init
 	ep := &ir.EntryPoint{Stage: ir.StageCompute}
@@ -425,7 +426,7 @@ func TestHLSL_NeedWorkgroupInit(t *testing.T) {
 	}
 
 	// Disabled option should not need init
-	w.options.ZeroInitializeWorkgroupMemory = false
+	w.options.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupNone
 	if w.needWorkgroupInit(ep) {
 		t.Error("disabled ZeroInitializeWorkgroupMemory should not need init")
 	}
