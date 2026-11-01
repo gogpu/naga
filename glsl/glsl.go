@@ -4,7 +4,9 @@
 package glsl
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl/internal/codegen"
@@ -299,9 +301,44 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	copts := toCodegenOptions(options)
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {
+		var missing *codegen.MissingFeaturesError
+		if errors.As(err, &missing) {
+			return "", TranslationInfo{}, fmt.Errorf("glsl: %w", &MissingFeaturesError{
+				Version:            options.LangVersion,
+				Features:           missing.Features.Names(),
+				ForImageLoadChecks: missing.ForImageLoadChecks,
+			})
+		}
 		return "", TranslationInfo{}, err
 	}
 	return src, fromCodegenTranslationInfo(cinfo), nil
+}
+
+// MissingFeaturesError reports that the entry point needs GLSL features the
+// target version lacks, as Rust naga's Error::MissingFeatures does: writing
+// them anyway gives GLSL the driver rejects. Features holds Rust's names
+// (TEXTURE_LEVELS, COMPUTE_SHADER, ...). ForImageLoadChecks reports that the
+// ImageLoad bounds checks asked for some of them: GLSL ES cannot query a
+// texture's levels or samples, so it cannot check the level or sample of a
+// textureLoad, and setting BoundsCheckPolicies.ImageLoad to
+// backend.BoundsCheckUnchecked for such a target avoids the error, as
+// wgpu-hal does below desktop GLSL 4.30. A caller can match it with
+// errors.As.
+type MissingFeaturesError struct {
+	Version            Version
+	Features           []string
+	ForImageLoadChecks bool
+}
+
+// Error returns Rust naga's message, with the policy to set when the
+// ImageLoad checks need the features.
+func (e *MissingFeaturesError) Error() string {
+	msg := fmt.Sprintf("GLSL %s doesn't support the required feature(s): %s", e.Version, strings.Join(e.Features, " | "))
+	if e.ForImageLoadChecks {
+		msg += " (the ImageLoad bounds checks need them; set BoundsCheckPolicies.ImageLoad to Unchecked " +
+			"for this target, as wgpu-hal does below desktop GLSL 4.30)"
+	}
+	return msg
 }
 
 // toCodegenOptions converts public Options to internal codegen Options.

@@ -4,6 +4,7 @@
 package glsl_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -93,6 +94,25 @@ func TestFeatureAvailability(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "GLSL 300 es doesn't support the required feature(s): TEXTURE_LEVELS") ||
 			!strings.Contains(err.Error(), "BoundsCheckPolicies.ImageLoad to Unchecked") {
 			t.Errorf("ES 3.00, ImageLoad %v: err = %v, want TEXTURE_LEVELS missing and the policy named", policy, err)
+		}
+		var missing *glsl.MissingFeaturesError
+		if !errors.As(err, &missing) || missing.Version != glsl.VersionES300 || !missing.ForImageLoadChecks ||
+			len(missing.Features) != 1 || missing.Features[0] != "TEXTURE_LEVELS" {
+			t.Errorf("ES 3.00, ImageLoad %v: errors.As = %+v, want TEXTURE_LEVELS for ImageLoad on 300 es", policy, missing)
+		}
+	}
+	// A load without a level or sample (a storage texture) needs neither
+	// query, so ES checks it, as Rust does.
+	storage := lowerWGSL(t, `
+@group(0) @binding(0) var st: texture_storage_2d<r32float, read>;
+@fragment fn main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(st, vec2<i32>(p.xy));
+}`)
+	for _, policy := range []backend.BoundsCheckPolicy{backend.BoundsCheckRestrict, backend.BoundsCheckReadZeroSkipWrite} {
+		opts := glsl.Options{LangVersion: glsl.VersionES310, BoundsCheckPolicies: uncheckedPolicies}
+		opts.BoundsCheckPolicies.ImageLoad = policy
+		if _, _, err := glsl.Compile(storage, opts); err != nil {
+			t.Errorf("ES 3.10 storage texture load, ImageLoad %v: %v", policy, err)
 		}
 	}
 	if _, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.VersionES300, BoundsCheckPolicies: uncheckedPolicies}); err != nil {
