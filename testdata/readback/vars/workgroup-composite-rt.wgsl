@@ -1,8 +1,8 @@
 // var<workgroup> vectors, an array of vectors and a struct: zero at the start, then written and read per member.
 // src = [5]. Expected: v.y before any write = 0; ws.b before any write = 0; after v = (5, 6): v.x + v.y = 11;
 // av[1] = (5, 10, 15, 20) → av[1].z = 15; av[0] is never written → av[0].w = 0; after ws.a = 5: ws.a + ws.b = 5.
-// DXIL (P1-DXIL-066): workgroup vectors are refused at compile time; a workgroup struct gives DXIL that
-// IDxcValidator rejects ("Invalid record") or crashes on.
+// DXIL (P1-DXIL-066) refused workgroup vectors at compile time and gave a workgroup struct DXIL that
+// IDxcValidator rejected ("Invalid record") or crashed on; workgroup memory is now split into scalars, as DXC does.
 struct S {
     a: u32,
     b: u32,

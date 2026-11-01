@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/consteval"
@@ -5685,9 +5687,14 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 			return e.decomposeWorkgroupStruct(varHandle, gv, st, irType.Name)
 		}
 
-		mangledName := hlslMangledGroupsharedName(e.ir, gv)
-		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
+		modGV := e.mod.AddGlobalVar(GroupsharedName(e.ir, gv), elemTy, 3)
 		modGV.Alignment = globalVarAlignment(elemTy)
+		if strings.HasPrefix(gv.Name, "\x01?") {
+			// A piece of a split variable: DXC defines the pieces SROA
+			// makes, with an undef initializer and external linkage.
+			modGV.Initializer = e.mod.AddUndefConst(elemTy)
+			modGV.Linkage = 0
+		}
 		emitterID := e.allocValue()
 		e.globalVarModuleVars[emitterID] = modGV
 		e.globalVarAllocas[varHandle] = emitterID
@@ -7236,7 +7243,7 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 	}), true, nil
 }
 
-// hlslMangledGroupsharedName produces the MSVC-decorated name for a
+// GroupsharedName produces the MSVC-decorated name for a
 // groupshared (workgroup) variable, matching DXC's HLSL lowering.
 //
 // Format: \01?<hlsl_name>@@3<type_code>A
@@ -7248,10 +7255,16 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 //   - Array:  PA<element_code> (pointer to array of element)
 //   - A suffix terminates the decoration.
 //
-// For struct-typed variables, DXC uses U<struct_name>@@A.<member_suffix>
-// which requires per-member SROA decomposition; we fall back to the raw
-// IR name when the type cannot be simply encoded.
-func hlslMangledGroupsharedName(irMod *ir.Module, gv *ir.GlobalVariable) string {
+// A vector is V?$vector@<scalar>$0<n-1>@@ and a matrix
+// V?$matrix@<scalar>$0<c-1>$0<r-1>@@ (MSVC encodes the template arguments
+// 1..10 as $00..$09), a struct U<name>@@. A variable split into pieces (the
+// workgroup scalarization pass) gets DXC's piece names from that pass, which
+// start with the \01 marker already and are kept as they are. We fall back to
+// the raw IR name when the type cannot be simply encoded.
+func GroupsharedName(irMod *ir.Module, gv *ir.GlobalVariable) string {
+	if strings.HasPrefix(gv.Name, "\x01?") {
+		return gv.Name
+	}
 	name := gv.Name
 	// Apply HLSL namer trailing-underscore rule: names ending with an
 	// ASCII digit or matching HLSL keywords get an underscore suffix.
@@ -7274,39 +7287,47 @@ func msvcTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
 	if int(th) >= len(irMod.Types) {
 		return ""
 	}
-	t := irMod.Types[th].Inner
-	switch tt := t.(type) {
-	case ir.ScalarType:
-		return msvcScalarCode(tt)
-	case ir.VectorType:
-		return ""
-	case ir.ArrayType:
-		elemCode := msvcElementTypeCode(irMod, tt.Base)
+	if arr, ok := irMod.Types[th].Inner.(ir.ArrayType); ok {
+		elemCode := msvcElementTypeCode(irMod, arr.Base)
 		if elemCode == "" {
 			return ""
 		}
 		return "PA" + elemCode
-	case ir.AtomicType:
-		return msvcScalarCode(tt.Scalar)
-	default:
-		return ""
 	}
+	return msvcElementTypeCode(irMod, th)
 }
 
-// msvcElementTypeCode returns the type code for an array element type.
+// msvcElementTypeCode returns the type code for a type other than an array:
+// an array element type. An array of arrays has no simple code.
 func msvcElementTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
 	if int(th) >= len(irMod.Types) {
 		return ""
 	}
-	t := irMod.Types[th].Inner
-	switch tt := t.(type) {
+	switch tt := irMod.Types[th].Inner.(type) {
 	case ir.ScalarType:
 		return msvcScalarCode(tt)
 	case ir.AtomicType:
 		return msvcScalarCode(tt.Scalar)
-	default:
-		return ""
+	case ir.VectorType:
+		if s := msvcScalarCode(tt.Scalar); s != "" {
+			return "V?$vector@" + s + msvcTemplateInt(int(tt.Size)) + "@@"
+		}
+	case ir.MatrixType:
+		if s := msvcScalarCode(tt.Scalar); s != "" {
+			return "V?$matrix@" + s + msvcTemplateInt(int(tt.Columns)) + msvcTemplateInt(int(tt.Rows)) + "@@"
+		}
+	case ir.StructType:
+		if name := irMod.Types[th].Name; name != "" {
+			return "U" + name + "@@"
+		}
 	}
+	return ""
+}
+
+// msvcTemplateInt is MSVC's encoding of an integer template argument from 1
+// to 10: $0 and the digit of n-1.
+func msvcTemplateInt(n int) string {
+	return "$0" + strconv.Itoa(n-1)
 }
 
 // msvcScalarCode returns the MSVC type decoration code for a scalar type.

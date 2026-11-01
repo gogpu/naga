@@ -274,8 +274,34 @@ func compileCorpusSPIRV(t *testing.T, v *corpusValidators, m *ir.Module, _ strin
 	if err != nil || v.spirvVal == "" {
 		return err
 	}
-	// spirv.DefaultOptions emits SPIR-V 1.1; Vulkan 1.1 is the first to take it.
-	return runTool(t, v.spirvVal, "case.spv", code, "--target-env", "vulkan1.1")
+	return runTool(t, v.spirvVal, "case.spv", code, "--target-env", spirvTargetEnv(code))
+}
+
+func TestSpirvTargetEnv(t *testing.T) {
+	header := func(minor byte) []byte { return []byte{0x03, 0x02, 0x23, 0x07, 0, minor, 1, 0} }
+	for minor, want := range map[byte]string{0: "vulkan1.1", 3: "vulkan1.1", 4: "vulkan1.2", 5: "vulkan1.2", 6: "vulkan1.3"} {
+		if got := spirvTargetEnv(header(minor)); got != want {
+			t.Errorf("SPIR-V 1.%d: %s, want %s", minor, got, want)
+		}
+	}
+}
+
+// spirvTargetEnv is the first Vulkan version that takes SPIR-V of the
+// version in code's header. spirv.DefaultOptions emits SPIR-V 1.1, which
+// Vulkan 1.1 takes; the backend raises it to 1.4, which needs Vulkan 1.2,
+// for a load of a struct or an array from workgroup memory (OpCopyLogical).
+func spirvTargetEnv(code []byte) string {
+	// The version word is 0x00MMmm00, little-endian: the minor version is
+	// its second byte.
+	if len(code) >= 8 {
+		switch minor := code[5]; {
+		case minor >= 6:
+			return "vulkan1.3"
+		case minor >= 4:
+			return "vulkan1.2"
+		}
+	}
+	return "vulkan1.1"
 }
 
 func compileCorpusHLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry string) error {
