@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "workgroup arrays of structs with vectors, a matrix, arrays of arrays of vectors and a run-time indexed vector, written per invocation and read across the workgroup: [22 103 7 12, 18 102 14 34, 14 101 21 12, 10 100 0 34] (P1-DXIL-066)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 17, "fill": "0xDEADBEEF",
+     "expect": [[22, 103, 7, 12, 18, 102, 14, 34, 14, 101, 21, 12, 10, 100, 0, 34, "fill"]]}
+  ]
+}

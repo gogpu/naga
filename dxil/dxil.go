@@ -3183,14 +3183,14 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 }
 
 // prepareEntryPoint drops the outputs of a vertex entry point that its
-// fragment stage doesn't read and zeroes the workgroup memory a compute
-// entry point uses.
+// fragment stage doesn't read, zeroes the workgroup memory a compute entry
+// point uses and splits its composite workgroup variables into scalars.
 func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
 	if !opts.SkipWorkgroupMemoryZeroInit {
-		return zeroInitWorkgroupMemory(irModule, ep)
+		zeroInitWorkgroupMemory(irModule, ep)
 	}
-	return nil
+	return scalarizeWorkgroupMemory(irModule, ep)
 }
 
 // lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC

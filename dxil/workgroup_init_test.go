@@ -1,7 +1,6 @@
 package dxil
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -42,9 +41,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	}
 
 	ep := &m.EntryPoints[0]
-	if err := zeroInitWorkgroupMemory(m, ep); err != nil {
-		t.Fatal(err)
-	}
+	zeroInitWorkgroupMemory(m, ep)
 	if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
 		t.Fatalf("validate: %v %v", err, errs)
 	}
@@ -119,21 +116,5 @@ fn main(@builtin(local_invocation_index) i: u32) {
 `)
 	if _, err := Compile(m, DefaultOptions()); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestZeroInitWorkgroupMatrixIsAnError requires a workgroup matrix, which
-// the emitter can't store to yet, to be refused rather than left unzeroed.
-func TestZeroInitWorkgroupMatrixIsAnError(t *testing.T) {
-	m := lowerSource(t, `
-var<workgroup> rot: mat2x2<f32>;
-@compute @workgroup_size(1)
-fn main() {
-	rot[0] = vec2<f32>(1.0);
-}
-`)
-	err := zeroInitWorkgroupMemory(m, &m.EntryPoints[0])
-	if err == nil || !strings.Contains(err.Error(), `"rot"`) {
-		t.Errorf("error = %v, want one naming rot", err)
 	}
 }

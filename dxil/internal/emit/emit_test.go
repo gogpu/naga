@@ -6879,9 +6879,9 @@ func TestHlslMangledGroupsharedName(t *testing.T) {
 			irMod.Types = append(irMod.Types, ir.Type{Inner: tc.varType})
 			gv.Type = th
 
-			got := hlslMangledGroupsharedName(irMod, gv)
+			got := GroupsharedName(irMod, gv)
 			if got != tc.want {
-				t.Errorf("hlslMangledGroupsharedName(%q) = %q, want %q", tc.varName, got, tc.want)
+				t.Errorf("GroupsharedName(%q) = %q, want %q", tc.varName, got, tc.want)
 			}
 		})
 	}
