@@ -295,7 +295,7 @@ func (w *Writer) collectFeatures() {
 	}
 
 	// Writer flags can request features
-	if w.options.WriterFlags&WriterFlagTextureShadowLod != 0 {
+	if w.options.TextureShadowLod {
 		w.features.request(FeatureTextureShadowLod)
 	}
 

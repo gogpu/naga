@@ -53,6 +53,7 @@ void main() {
     _vs2fs_location9 = _e41.perspective_centroid;
     _vs2fs_location10 = _e41.perspective_sample;
     _vs2fs_location11 = _e41.perspective_center;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

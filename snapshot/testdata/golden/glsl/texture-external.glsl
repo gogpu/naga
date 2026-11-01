@@ -89,6 +89,7 @@ vec4 test(sampler2D t) {
 void main() {
     vec4 _e1 = test(_group_0_binding_0_vs);
     gl_Position = _e1;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

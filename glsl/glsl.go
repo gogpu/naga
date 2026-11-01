@@ -78,37 +78,6 @@ var (
 	VersionES320 = Version{Major: 3, Minor: 20, ES: true} // ES 3.2
 )
 
-// WriterFlags control output formatting.
-type WriterFlags uint32
-
-// Writer flag constants.
-const (
-	// WriterFlagNone uses default settings.
-	WriterFlagNone WriterFlags = 0
-
-	// WriterFlagExplicitTypes forces explicit type annotations.
-	WriterFlagExplicitTypes WriterFlags = 1 << iota
-
-	// WriterFlagDebugInfo adds source comments for debugging.
-	WriterFlagDebugInfo
-
-	// WriterFlagMinify removes unnecessary whitespace.
-	WriterFlagMinify
-
-	// WriterFlagAdjustCoordinateSpace adds gl_Position coordinate adjustment
-	// at the end of vertex shaders to convert from Vulkan/WebGPU conventions
-	// (Y-down, Z in [0,1]) to OpenGL conventions (Y-up, Z in [-1,1]).
-	WriterFlagAdjustCoordinateSpace
-
-	// WriterFlagForcePointSize emits gl_PointSize = 1.0 in vertex shaders.
-	// Required for WebGL compatibility.
-	WriterFlagForcePointSize
-
-	// WriterFlagTextureShadowLod enables GL_EXT_texture_shadow_lod extension
-	// for sampling cube/array shadow textures with explicit LOD.
-	WriterFlagTextureShadowLod
-)
-
 // BindingMapKey identifies a resource binding for the BindingMap.
 type BindingMapKey struct {
 	Group   uint32
@@ -127,24 +96,24 @@ type Options struct {
 	// wrapping backend.ErrEntryPointNotFound.
 	EntryPoint *backend.EntryPointSelector
 
-	// SamplerBindingBase adds offset to sampler binding indices.
-	SamplerBindingBase uint32
+	// SkipAdjustCoordinateSpace leaves gl_Position as the entry point writes
+	// it. By default a vertex entry point ends by converting WebGPU's clip
+	// space to OpenGL's, y negated and z from [0, 1] to [-1, 1]:
+	// gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
+	// as Rust naga's ADJUST_COORDINATE_SPACE, which its default flags and
+	// wgpu-hal's GLES backend set.
+	SkipAdjustCoordinateSpace bool
 
-	// TextureBindingBase adds offset to texture binding indices.
-	TextureBindingBase uint32
+	// ForcePointSize writes gl_PointSize = 1.0 in vertex entry points, which
+	// GL ES and WebGL need to draw a point list (Rust's FORCE_POINT_SIZE;
+	// wgpu-hal sets it for point-list pipelines).
+	ForcePointSize bool
 
-	// UniformBindingBase adds offset to uniform buffer binding indices.
-	UniformBindingBase uint32
-
-	// StorageBindingBase adds offset to storage buffer binding indices.
-	StorageBindingBase uint32
-
-	// WriterFlags control output formatting.
-	WriterFlags WriterFlags
-
-	// ForceHighPrecision forces highp precision for all float types (ES only).
-	// If false, uses default precision qualifiers.
-	ForceHighPrecision bool
+	// TextureShadowLod samples cube and array shadow textures at an explicit
+	// level with GL_EXT_texture_shadow_lod (Rust's TEXTURE_SHADOW_LOD); the
+	// device needs the extension. Without it, such a sample at level zero is
+	// written with textureGrad.
+	TextureShadowLod bool
 
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
@@ -297,8 +266,7 @@ type ImmediateItem struct {
 // DefaultOptions returns sensible default options for GLSL generation.
 func DefaultOptions() Options {
 	return Options{
-		LangVersion:        Version330,
-		ForceHighPrecision: true,
+		LangVersion: Version330,
 	}
 }
 
@@ -375,17 +343,14 @@ func toCodegenOptions(o Options) codegen.Options {
 			Minor: o.LangVersion.Minor,
 			ES:    o.LangVersion.ES,
 		},
-		SamplerBindingBase:  o.SamplerBindingBase,
-		TextureBindingBase:  o.TextureBindingBase,
-		UniformBindingBase:  o.UniformBindingBase,
-		StorageBindingBase:  o.StorageBindingBase,
-		WriterFlags:         codegen.WriterFlags(o.WriterFlags),
-		ForceHighPrecision:  o.ForceHighPrecision,
-		BoundsCheckPolicies: o.BoundsCheckPolicies,
-		BindingMap:          bindingMap,
-		FakeMissingBindings: o.FakeMissingBindings,
-		ClampFragDepth:      o.ClampFragDepth,
-		EntryPoint:          o.EntryPoint,
+		SkipAdjustCoordinateSpace: o.SkipAdjustCoordinateSpace,
+		ForcePointSize:            o.ForcePointSize,
+		TextureShadowLod:          o.TextureShadowLod,
+		BoundsCheckPolicies:       o.BoundsCheckPolicies,
+		BindingMap:                bindingMap,
+		FakeMissingBindings:       o.FakeMissingBindings,
+		ClampFragDepth:            o.ClampFragDepth,
+		EntryPoint:                o.EntryPoint,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 	}

@@ -34,9 +34,6 @@ type Options struct {
 	// Debug includes debug information
 	Debug bool
 
-	// Validation enables output validation
-	Validation bool
-
 	// UseStorageInputOutput16 enables StorageInputOutput16 capability for f16
 	// types used in entry point inputs/outputs. When true, f16 I/O uses native
 	// 16-bit types; when false, a polyfill converts to/from f32.
@@ -112,7 +109,6 @@ func DefaultOptions() Options {
 	return Options{
 		Version:                 Version1_1,
 		Debug:                   false,
-		Validation:              true,
 		UseStorageInputOutput16: true,
 		ForceLoopBounding:       true,
 		RayQueryInitTracking:    true,

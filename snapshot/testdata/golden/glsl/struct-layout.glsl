@@ -37,6 +37,7 @@ layout(location = 1) in float _p2vs_location1;
 void main() {
     NoPadding input_1 = NoPadding(_p2vs_location0, _p2vs_location1);
     gl_Position = vec4(0.0);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 
@@ -112,6 +113,7 @@ layout(location = 2) in float _p2vs_location2;
 void main() {
     NeedsPadding input_3 = NeedsPadding(_p2vs_location0, _p2vs_location1, _p2vs_location2);
     gl_Position = vec4(0.0);
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

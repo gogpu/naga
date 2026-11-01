@@ -39,7 +39,7 @@ func TestDepthTextureDeclarations(t *testing.T) {
 			if want := mustReadFile(golden); got != want {
 				t.Errorf("output differs from %s:\n%s", golden, got)
 			}
-			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: fragment(ep), ForceHighPrecision: true, BoundsCheckPolicies: uncheckedPolicies}); err != nil {
+			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: fragment(ep), BoundsCheckPolicies: uncheckedPolicies}); err != nil {
 				t.Errorf("ES 3.10: %v", err)
 			}
 		})

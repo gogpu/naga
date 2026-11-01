@@ -2513,7 +2513,7 @@ func TestGLSL_ShadowLodWorkaround_CubeShadow(t *testing.T) {
 		}},
 	}
 
-	// Without WriterFlagTextureShadowLod -> should use textureGrad workaround
+	// Without TextureShadowLod -> should use textureGrad workaround
 	opts := DefaultOptions()
 	result, _, err := Compile(module, opts)
 	if err != nil {
@@ -2589,7 +2589,7 @@ func TestGLSL_ShadowLodWorkaround_2DArrayShadow(t *testing.T) {
 }
 
 func TestGLSL_ShadowLod_NoWorkaround_WithExtension(t *testing.T) {
-	// With WriterFlagTextureShadowLod, cube shadow at level zero
+	// With TextureShadowLod, cube shadow at level zero
 	// should use textureLod (no workaround needed).
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	depthRefExpr := ir.ExpressionHandle(3)
@@ -2641,7 +2641,7 @@ func TestGLSL_ShadowLod_NoWorkaround_WithExtension(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.WriterFlags = WriterFlagTextureShadowLod
+	opts.TextureShadowLod = true
 	result, _, err := Compile(module, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)

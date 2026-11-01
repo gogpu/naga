@@ -45,6 +45,7 @@ void main() {
     gl_Position = _e28.proj_position;
     _vs2fs_location0 = _e28.world_normal;
     _vs2fs_location1 = _e28.world_position;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 

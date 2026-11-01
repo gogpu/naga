@@ -586,10 +586,10 @@ func (w *Writer) writeDirectReturn(ret ir.StmtReturn) error {
 		w.WriteLine("%s = %s;", outputName, w.outputValue(w.entryPointResult.Binding, value))
 		// For vertex position output, add coordinate space adjustment and point size
 		if b.Builtin == ir.BuiltinPosition {
-			if w.options.WriterFlags&WriterFlagAdjustCoordinateSpace != 0 {
+			if !w.options.SkipAdjustCoordinateSpace {
 				w.WriteLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
 			}
-			if w.options.WriterFlags&WriterFlagForcePointSize != 0 {
+			if w.options.ForcePointSize {
 				w.WriteLine("gl_PointSize = 1.0;")
 			}
 		}
@@ -672,10 +672,10 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 func (w *Writer) writeCoordinateAdjustIfNeeded(info *epStructInfo) {
 	for _, member := range info.members {
 		if member.isBuiltin && member.builtinName == "gl_Position" {
-			if w.options.WriterFlags&WriterFlagAdjustCoordinateSpace != 0 {
+			if !w.options.SkipAdjustCoordinateSpace {
 				w.WriteLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
 			}
-			if w.options.WriterFlags&WriterFlagForcePointSize != 0 {
+			if w.options.ForcePointSize {
 				w.WriteLine("gl_PointSize = 1.0;")
 			}
 			return

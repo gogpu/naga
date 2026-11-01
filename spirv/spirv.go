@@ -95,9 +95,6 @@ type Options struct {
 	// Debug includes debug information.
 	Debug bool
 
-	// Validation enables output validation.
-	Validation bool
-
 	// UseStorageInputOutput16 passes f16 entry point inputs and outputs as
 	// f16 with the StorageInputOutput16 capability. The zero value converts
 	// them to and from f32, which every device accepts; the capability needs
@@ -109,7 +106,12 @@ type Options struct {
 	// ForcePointSize adds a BuiltIn PointSize output variable with value 1.0.
 	ForcePointSize bool
 
-	// AdjustCoordinateSpace flips the Y coordinate of Position outputs.
+	// AdjustCoordinateSpace negates the y of every Position output after the
+	// entry point stores it (Rust naga's ADJUST_COORDINATE_SPACE). Vulkan
+	// flips y with a negative viewport height, so the zero value leaves
+	// positions as they are; set it for a device that ignores a negative
+	// height (wgpu-hal's IGNORED_NEGATIVE_VIEWPORT_HEIGHT workaround). Rust's
+	// Options::default() has it on.
 	AdjustCoordinateSpace bool
 
 	// SkipLoopBounding leaves loops as they are. By default every loop gets
@@ -210,7 +212,6 @@ func DefaultOptions() Options {
 	return Options{
 		Version:                 Version1_1,
 		Debug:                   false,
-		Validation:              true,
 		UseStorageInputOutput16: true,
 	}
 }
@@ -950,7 +951,6 @@ func toCodegenOptions(o Options) codegen.Options {
 		},
 		Capabilities:            o.Capabilities,
 		Debug:                   o.Debug,
-		Validation:              o.Validation,
 		UseStorageInputOutput16: o.UseStorageInputOutput16,
 		ForcePointSize:          o.ForcePointSize,
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,

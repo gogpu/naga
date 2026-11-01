@@ -381,6 +381,7 @@ void main() {
     _vs2fs_location0 = _tmp_return.index;
     gl_Position = _tmp_return.position;
     _vs2fs_location1 = _tmp_return.uv;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 
@@ -809,6 +810,7 @@ void main() {
     gl_Position = _tmp_return.clip_position;
     _vs2fs_location0 = _tmp_return.normal;
     _vs2fs_location1 = _tmp_return.world_pos;
+    gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
     return;
 }
 
