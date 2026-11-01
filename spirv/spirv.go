@@ -78,7 +78,15 @@ const (
 
 // Options configures SPIR-V generation.
 type Options struct {
-	// Version is the SPIR-V version to target.
+	// Version is the SPIR-V version of the module. The zero value is 1.0,
+	// the only version every Vulkan device accepts without knowing the
+	// device, as Rust naga's default; wgpu-hal derives it from the device
+	// (Vulkan 1.0 → 1.0, 1.1 → 1.3, 1.2 → 1.5, 1.3 → 1.6, 1.4 with
+	// VK_KHR_spirv_1_4). The backend never raises it: a feature that needs a
+	// newer version (subgroup operations need 1.3) is an error, as Rust
+	// naga's SpirvVersionTooLow. Below 1.4, values copied between the
+	// layout-free Workgroup types and the decorated ones are copied member by
+	// member instead of with OpCopyLogical.
 	Version Version
 
 	// Capabilities are additional capabilities to declare.

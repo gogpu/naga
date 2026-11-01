@@ -99,6 +99,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	}
 
 	// Look through value-preserving conversions to the producing instruction.
+
 	for {
 		in := instrs[def[value]]
 		switch in.opcode {
@@ -114,6 +115,13 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 				c := instrs[def[composite]]
 				if c.opcode == OpCopyLogical {
 					composite = c.words[3]
+					continue
+				}
+				// Below SPIR-V 1.4 the layout copy is a call of a function
+				// that copies its one argument member by member; the only
+				// calls in these shaders are those copies.
+				if c.opcode == OpFunctionCall && len(c.words) == 5 {
+					composite = c.words[4]
 					continue
 				}
 				if c.opcode == OpLoad && isData(c.words[3]) && def[composite] < firstDataStore {

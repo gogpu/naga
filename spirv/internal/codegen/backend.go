@@ -45,6 +45,10 @@ type Backend struct {
 	builder *ModuleBuilder
 	options Options
 
+	// versionErr is the first feature the module needs a newer SPIR-V
+	// version for than Options.Version (requireVersion).
+	versionErr error
+
 	// Type cache (IR TypeHandle → SPIR-V ID)
 	typeIDs map[ir.TypeHandle]uint32
 
@@ -166,7 +170,11 @@ type Backend struct {
 	// a column of a std140Matrix by a dynamic index (std140.go).
 	std140Types      map[ir.TypeHandle]*std140Type
 	std140ConvertIDs map[ir.TypeHandle]uint32
-	matCx2ColumnIDs  map[ir.TypeHandle]uint32
+	// layoutCopyIDs are the functions copying a value between the
+	// layout-free type of Workgroup memory and the decorated one below
+	// SPIR-V 1.4 (copyLayout).
+	layoutCopyIDs   map[layoutCopyKey]uint32
+	matCx2ColumnIDs map[ir.TypeHandle]uint32
 
 	// OpConstantNull per SPIR-V type ID, the zero initializer of function
 	// and private variables (constantNull).
@@ -194,6 +202,9 @@ type wrappedBinaryOp struct {
 
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
+	if options.Version == (Version{}) {
+		options.Version = Version1_0
+	}
 	return &Backend{
 		options:               options,
 		typeIDs:               make(map[ir.TypeHandle]uint32, 16),
@@ -223,6 +234,7 @@ func NewBackend(options Options) *Backend {
 		rayQueryFuncIDs:       make(map[rayQueryFuncKind]uint32, 6),
 		std140Types:           make(map[ir.TypeHandle]*std140Type),
 		std140ConvertIDs:      make(map[ir.TypeHandle]uint32),
+		layoutCopyIDs:         make(map[layoutCopyKey]uint32),
 		matCx2ColumnIDs:       make(map[ir.TypeHandle]uint32),
 		nullConstantIDs:       make(map[uint32]uint32, 4),
 		fragDepthVars:         make(map[uint32]bool),
@@ -241,6 +253,7 @@ func NewBackend(options Options) *Backend {
 // do not need to call it explicitly.
 func (b *Backend) Reset() {
 	b.module = nil
+	b.versionErr = nil
 
 	// Clear maps — Go 1.21+ clear() keeps capacity, removes all entries
 	clear(b.typeIDs)
@@ -271,6 +284,7 @@ func (b *Backend) Reset() {
 	clear(b.rayQueryFuncIDs)
 	clear(b.std140Types)
 	clear(b.std140ConvertIDs)
+	clear(b.layoutCopyIDs)
 	clear(b.matCx2ColumnIDs)
 	clear(b.nullConstantIDs)
 	clear(b.fragDepthVars)
@@ -446,6 +460,9 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if compilableEPs == 0 {
 		b.addCapability(CapabilityLinkage)
 	}
+	if b.versionErr != nil {
+		return nil, b.versionErr
+	}
 
 	return b.builder.Build(), nil
 }
@@ -500,9 +517,16 @@ func (b *Backend) requireAllCapabilities(caps ...Capability) bool {
 	return true
 }
 
-// requireVersion bumps the SPIR-V module version to at least minVersion.
-func (b *Backend) requireVersion(minVersion Version) {
-	b.builder.RequireVersion(minVersion)
+// requireVersion records an error when the module's version is older than
+// minVersion, which feature needs; Compile returns the first one. As Rust
+// naga does for mesh and ray-tracing shaders (Error::SpirvVersionTooLow), the
+// backend never raises the version the caller asked for: a module newer than
+// the device takes fails only at pipeline creation.
+func (b *Backend) requireVersion(minVersion Version, feature string) {
+	if versionLess(b.options.Version, minVersion) && b.versionErr == nil {
+		b.versionErr = fmt.Errorf("spirv: %s need SPIR-V %d.%d, and Options.Version is %d.%d",
+			feature, minVersion.Major, minVersion.Minor, b.options.Version.Major, b.options.Version.Minor)
+	}
 }
 
 // addExtension adds a SPIR-V extension without duplicates.
@@ -2458,7 +2482,7 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		// Rust require_any picks first from [GroupNonUniform, SubgroupBallotKHR]
 		// when capabilities_available is None (default), so only GroupNonUniform.
 		b.addCapability(CapabilityGroupNonUniform)
-		b.requireVersion(Version1_3)
+		b.requireVersion(Version1_3, "subgroup built-ins")
 	}
 }
 
@@ -4347,8 +4371,7 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 		}
 		loadedID := e.backend.builder.AddLoad(layoutFreeTypeID, ptrID)
 
-		e.backend.requireSpirvVersion14()
-		return e.backend.builder.AddCopyLogical(typeID, loadedID), nil
+		return e.backend.copyLayout(gv.Type, loadedID, true)
 	}
 
 	if info := e.backend.std140Types[gv.Type]; info != nil && gv.Space == ir.SpaceUniform {
@@ -4595,10 +4618,7 @@ func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.E
 		}
 	}
 
-	// Bump SPIR-V version to 1.4 (minimum for OpCopyLogical).
-	e.backend.requireSpirvVersion14()
-
-	return e.backend.builder.AddCopyLogical(targetTypeID, valueID), nil
+	return e.backend.copyLayout(*valueTypeHandle, valueID, valueIsWG)
 }
 
 // unwrapToValueTypeHandle resolves a TypeResolution to the underlying value
@@ -4635,15 +4655,143 @@ func (b *Backend) typeNeedsLayoutDecoration(handle ir.TypeHandle) bool {
 	}
 }
 
-// requireSpirvVersion14 ensures the output SPIR-V version is at least 1.4.
-// Called when OpCopyLogical or other 1.4+ features are needed.
-func (b *Backend) requireSpirvVersion14() {
-	b.builder.RequireVersion(Version1_4)
-	// Also update options so emitEntryPoints sees the bumped version
-	// for SPIR-V 1.4+ interface variable requirements.
-	if b.options.Version.Major < 1 || (b.options.Version.Major == 1 && b.options.Version.Minor < 4) {
-		b.options.Version = Version1_4
+// copyLayout converts value, of IR type h, between the layout-free type of
+// Workgroup memory and the decorated type everything else uses (to the
+// decorated one when toDecorated): VUID-StandaloneSpirv-None-10684 forbids
+// explicit layout in Workgroup, and the two are distinct SPIR-V types. From
+// SPIR-V 1.4 on it is one OpCopyLogical; below, where that instruction does
+// not exist, the composite is taken apart and built again member by member,
+// recursively, as Tint's ForkExplicitLayoutTypes does, in one function per
+// type and direction that every use calls, as the std140 conversions are
+// written (Rust naga's convert-from-std140 functions). The module keeps the
+// caller's version either way.
+func (b *Backend) copyLayout(h ir.TypeHandle, value uint32, toDecorated bool) (uint32, error) {
+	dstID, err := b.layoutTypeID(h, toDecorated)
+	if err != nil {
+		return 0, err
 	}
+	if !versionLess(b.options.Version, Version1_4) {
+		return b.builder.AddCopyLogical(dstID, value), nil
+	}
+	function, err := b.layoutCopyFunction(h, toDecorated)
+	if err != nil {
+		return 0, err
+	}
+	id := b.builder.AllocID()
+	b.builder.funcAppend(Instruction{Opcode: OpFunctionCall, Words: []uint32{dstID, id, function, value}})
+	return id, nil
+}
+
+// layoutCopyKey identifies a function copyLayout calls: the type and the
+// direction of the copy.
+type layoutCopyKey struct {
+	ty          ir.TypeHandle
+	toDecorated bool
+}
+
+// layoutCopyFunction returns the function copying a value of type h between
+// its two layouts member by member, which it writes the first time.
+func (b *Backend) layoutCopyFunction(h ir.TypeHandle, toDecorated bool) (uint32, error) {
+	key := layoutCopyKey{ty: h, toDecorated: toDecorated}
+	if id, ok := b.layoutCopyIDs[key]; ok {
+		return id, nil
+	}
+	srcID, err := b.layoutTypeID(h, !toDecorated)
+	if err != nil {
+		return 0, err
+	}
+	dstID, err := b.layoutTypeID(h, toDecorated)
+	if err != nil {
+		return 0, err
+	}
+	functionID := b.builder.AllocID()
+	b.layoutCopyIDs[key] = functionID
+	var fb FunctionBuilder
+	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{dstID, functionID, uint32(FunctionControlNone),
+		b.getFuncType(dstID, []uint32{srcID})}}
+	paramID := b.builder.AllocID()
+	fb.Parameters = []Instruction{{Opcode: OpFunctionParameter, Words: []uint32{srcID, paramID}}}
+	block := NewBlock(b.builder.AllocID())
+
+	// part copies member or element index of the parameter, of type member.
+	part := func(member ir.TypeHandle, index uint32) (uint32, error) {
+		memberSrcID, err := b.layoutTypeID(member, !toDecorated)
+		if err != nil {
+			return 0, err
+		}
+		v := b.builder.AllocID()
+		block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{memberSrcID, v, paramID, index}})
+		if !b.typeNeedsLayoutDecoration(member) {
+			return v, nil
+		}
+		memberFunction, err := b.layoutCopyFunction(member, toDecorated)
+		if err != nil {
+			return 0, err
+		}
+		memberDstID, err := b.layoutTypeID(member, toDecorated)
+		if err != nil {
+			return 0, err
+		}
+		copied := b.builder.AllocID()
+		block.Push(Instruction{Opcode: OpFunctionCall, Words: []uint32{memberDstID, copied, memberFunction, v}})
+		return copied, nil
+	}
+	var parts []uint32
+	switch t := b.module.Types[h].Inner.(type) {
+	case ir.StructType:
+		parts = make([]uint32, len(t.Members))
+		for i, m := range t.Members {
+			if parts[i], err = part(m.Type, uint32(i)); err != nil {
+				return 0, err
+			}
+		}
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			return 0, fmt.Errorf("copying a runtime-sized array between layouts")
+		}
+		parts = make([]uint32, *t.Size.Constant)
+		for i := range parts {
+			if parts[i], err = part(t.Base, uint32(i)); err != nil {
+				return 0, err
+			}
+		}
+	default:
+		return 0, fmt.Errorf("copying type %T between layouts", t)
+	}
+	resultID := b.builder.AllocID()
+	block.Push(Instruction{Opcode: OpCompositeConstruct, Words: append([]uint32{dstID, resultID}, parts...)})
+	fb.Consume(block, Instruction{Opcode: OpReturnValue, Words: []uint32{resultID}})
+	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
+	return functionID, nil
+}
+
+// copyLayoutToDecorated converts value, loaded from Workgroup memory as the
+// layout-free SPIR-V type layoutFreeID, to its decorated type (copyLayout).
+func (b *Backend) copyLayoutToDecorated(layoutFreeID, value uint32) (uint32, error) {
+	// The smallest handle, so that the output does not depend on map order.
+	found, best := false, ir.TypeHandle(0)
+	for h, id := range b.layoutFreeTypeIDs {
+		if id == layoutFreeID && (!found || h < best) {
+			found, best = true, h
+		}
+	}
+	if !found {
+		return 0, fmt.Errorf("workgroup load: no IR type for layout-free type %d", layoutFreeID)
+	}
+	return b.copyLayout(best, value, true)
+}
+
+// layoutTypeID returns the decorated or the layout-free SPIR-V type of h.
+func (b *Backend) layoutTypeID(h ir.TypeHandle, decorated bool) (uint32, error) {
+	if decorated {
+		return b.emitType(h)
+	}
+	return b.emitTypeWithoutLayout(h)
+}
+
+// versionLess reports whether a is an older SPIR-V version than v.
+func versionLess(a, v Version) bool {
+	return a.Major < v.Major || (a.Major == v.Major && a.Minor < v.Minor)
 }
 
 // resolveAccessElementType determines the element type when indexing into a base type.
@@ -4770,8 +4918,9 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 
 		// Convert layout-free → decorated after loading from Workgroup.
 		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
-			e.backend.requireSpirvVersion14()
-			loadID = e.backend.builder.AddCopyLogical(elementTypeID, loadID)
+			if loadID, err = e.backend.copyLayoutToDecorated(accessElementTypeID, loadID); err != nil {
+				return 0, err
+			}
 		}
 
 		return loadID, nil
@@ -5059,8 +5208,7 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 
 		// Convert layout-free → decorated after loading from Workgroup.
 		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
-			e.backend.requireSpirvVersion14()
-			loadID = e.backend.builder.AddCopyLogical(elementTypeID, loadID)
+			return e.backend.copyLayoutToDecorated(accessElementTypeID, loadID)
 		}
 
 		return loadID, nil
@@ -5540,8 +5688,7 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 			return 0, err
 		}
 		if decoratedType != resultType {
-			e.backend.requireSpirvVersion14()
-			return e.backend.builder.AddCopyLogical(decoratedType, loadedID), nil
+			return e.backend.copyLayoutToDecorated(resultType, loadedID)
 		}
 	}
 
@@ -10183,7 +10330,7 @@ func (e *ExpressionEmitter) emitSubgroupResultRef(handle ir.ExpressionHandle) (u
 
 // emitSubgroupBallot emits a SubgroupBallot statement.
 func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error {
-	e.backend.requireVersion(Version1_3)
+	e.backend.requireVersion(Version1_3, "subgroup operations")
 	e.backend.addCapability(CapabilityGroupNonUniformBallot)
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
@@ -10226,7 +10373,7 @@ func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error
 
 // emitSubgroupCollectiveOperation emits a SubgroupCollectiveOperation statement.
 func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroupCollectiveOperation) error {
-	e.backend.requireVersion(Version1_3)
+	e.backend.requireVersion(Version1_3, "subgroup operations")
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return err
@@ -10342,7 +10489,7 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 
 // emitSubgroupGather emits a SubgroupGather statement.
 func (e *ExpressionEmitter) emitSubgroupGather(stmt ir.StmtSubgroupGather) error {
-	e.backend.requireVersion(Version1_3)
+	e.backend.requireVersion(Version1_3, "subgroup operations")
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return err

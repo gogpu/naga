@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -355,9 +356,19 @@ func TestCapability_SubgroupBuiltins(t *testing.T) {
 				},
 			}
 
-			spvBytes := compileModule(t, module)
+			spvBytes, err := NewBackend(subgroupOptions()).Compile(module)
+			if err != nil {
+				t.Fatal(err)
+			}
 			caps := extractCapabilities(spvBytes)
 			assertCapability(t, caps, CapabilityGroupNonUniform)
+
+			// Below SPIR-V 1.3 the backend refuses them instead of raising
+			// the version the caller asked for.
+			if _, err := NewBackend(DefaultOptions()).Compile(module); err == nil ||
+				!strings.Contains(err.Error(), "need SPIR-V 1.3") {
+				t.Errorf("SPIR-V 1.1: err = %v, want need SPIR-V 1.3", err)
+			}
 		})
 	}
 }

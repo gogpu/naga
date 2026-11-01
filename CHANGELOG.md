@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the binding it was written as `SV_GroupID`, the workgroup's ID instead of the count (Rust naga does the same). It is
   an error now, also under `FakeMissingBindings`. In DXIL it read a constant buffer at `b0, space0`, which can
   collide with the caller's own `b0`; it is an error now, and `FakeMissingBindings` keeps that buffer.
+- **Breaking: the SPIR-V backend never raises the version.** The zero `spirv.Options.Version` is 1.0, the only version
+  every Vulkan device accepts without knowing the device (it wrote a 0.0 header). A feature that needs a newer version
+  is an error, as Rust naga's `SpirvVersionTooLow`: subgroup operations below 1.3 were silently raised to 1.3, which a
+  Vulkan 1.0 device rejects. A value copied between Workgroup memory (layout-free types, VUID-10684) and a buffer used
+  `OpCopyLogical` and raised the module to 1.4; below 1.4 it is now copied member by member in a function per type,
+  as Tint does, so gg's Vello stages compile to valid SPIR-V 1.0.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

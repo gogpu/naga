@@ -60,9 +60,9 @@ const (
 		"instead of as threadgroup entry-point parameters: the pure-Go wgpu Metal HAL does not call " +
 		"setThreadgroupMemoryLength:atIndex:, so parameter-based threadgroup memory would be unsized. " +
 		"The rest of the output is identical to Rust's"
-	reasonSPVWorkgroupLayoutFree = "workgroup variables use layout-free types plus OpCopyLogical " +
-		"(VUID-StandaloneSpirv-None-10684); OpCopyLogical needs SPIR-V 1.4, so the module is 1.4 and its " +
-		"OpEntryPoint lists every global the entry point uses, where Rust emits 1.1 with Input/Output only"
+	reasonSPVWorkgroupLayoutFree = "workgroup variables use layout-free types (VUID-StandaloneSpirv-None-10684), " +
+		"copied to and from the decorated types with OpCopyLogical from SPIR-V 1.4 and with a member-wise " +
+		"function below it, as Tint does; Rust uses the decorated types there"
 	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
 	reasonSPVUnusedUniformPointers = "Rust declares the type of every expression it caches, also where nothing uses it, " +
@@ -312,7 +312,7 @@ var rustDeviations = []rustDeviation{
 		Fingerprint: "f278a18cf662e19ee4b0d76f533e153fde6089635386232b84972d187e3b6479"},
 	{Shader: "workgroup-var-init", File: "wgsl-workgroup-var-init.spvasm", Kind: deviationBug, Card: "NAGA-SPV-009",
 		Reason:      reasonSPVWorkgroupLayoutFree + "; also Rust has one more, empty, entry block" + "; " + notPorted("6bca1014"),
-		Fingerprint: "73becac2176e1a8cb3c6072c52d062cac8082dd0fffbd64ab489ac6a2745fd9a"},
+		Fingerprint: "0244b2eceaa063ee8301cb20e54be78ce98d49c0f88743c89b65057fa534e730"},
 	{Shader: "workgroup-var-init", File: "wgsl-workgroup-var-init.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "b66a14becea1eb9fa9f71d61289df82652660c58e999a131e70fcdc9f3b00c38"},
