@@ -32,9 +32,8 @@
 // # Concurrency
 //
 // Every exported function is safe for concurrent use. Validate and the other
-// functions that take a module never modify it, except the passes that exist
-// to change it in place (Compact, CompactUnused, ReorderTypes,
-// InlineUserFunctions, RemapStatementExpressionHandles); a function that
-// returns a module may share unmodified parts of its input with it. A
-// Layouter needs the usual synchronization of a value Update changes.
+// functions that take a module never modify it, and Module.Clone shares
+// nothing with its source. Package ir has no pass that rewrites a module:
+// compaction is naga.Compact, which modifies its module in place.
+// A Layouter needs the usual synchronization of a value Update changes.
 package ir

@@ -379,7 +379,7 @@ func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderM
 // correctly with every helper inlined (wgpu's A/B run, 2026-10-31).
 func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 	irModule = irModule.Clone()
-	if err := ir.InlineUserFunctions(irModule, nil); err != nil {
+	if err := irutil.InlineUserFunctions(irModule, nil); err != nil {
 		return nil, fmt.Errorf("dxil: inline user functions: %w", err)
 	}
 	if err := lowerPrivatesToLocals(irModule); err != nil {

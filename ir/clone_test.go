@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -111,7 +112,7 @@ func BenchmarkModuleClone(b *testing.B) {
 // function arenas, statement handles in nested blocks, named expressions,
 // local initializers, overrides, constants and types.
 func mutateInDepth(m *ir.Module) {
-	ir.Compact(m, ir.KeepUnusedNo)
+	irutil.Compact(m, irutil.KeepUnusedNo)
 	m.Types = append(m.Types, ir.Type{Name: "added"})
 	for i := range m.GlobalExpressions {
 		m.GlobalExpressions[i].Kind = ir.Literal{Value: ir.LiteralU32(uint32(i))}
@@ -132,9 +133,9 @@ func mutateInDepth(m *ir.Module) {
 		for i := range shift {
 			shift[i] = ir.ExpressionHandle(i + 1)
 		}
-		ir.RemapStatementExpressionHandles(fn.Body, shift)
+		irutil.RemapStatementExpressionHandles(fn.Body, shift)
 		for i := range fn.Expressions {
-			fn.Expressions[i].Kind = ir.RemapExpressionHandles(fn.Expressions[i].Kind, shift)
+			fn.Expressions[i].Kind = irutil.RemapExpressionHandles(fn.Expressions[i].Kind, shift)
 		}
 		for h := range fn.NamedExpressions {
 			fn.NamedExpressions[h] += "_changed"

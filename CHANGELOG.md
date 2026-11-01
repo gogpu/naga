@@ -212,8 +212,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   New: `ir.Layouter` (`Update(m) error`, `Layout(h) TypeLayout{Size, Alignment}`, Rust's `proc::Layouter`) replaces
   `ir.TypeSize` and `ir.TypeAlignment` with the same numbers; `TypeResolution.Inner(types)` replaces `ir.TypeResInner`;
   `Literal.Type()` replaces `ir.ResolveLiteralType`; `Expression.NeedsPreEmit()` replaces `ir.NeedsPreEmit`;
-  `ir.Compact(m, KeepUnused)` (Rust's `compact::compact`) replaces `CompactConstants`, `CompactExpressions`,
-  `CompactTypes`. Internal now: `CheckWorkgroupSizesResolved`, `ResolvePendingArraySizes`, `IndexableLengthOf`,
+  `naga.Compact(m, naga.KeepUnused)` (Rust's `compact::compact`, a crate-level module, not under `ir`) replaces
+  `CompactConstants`, `CompactExpressions`, `CompactTypes` and `CompactUnused`; `ir.KeepUnused` is `naga.KeepUnused`.
+  `ir` has no pass that rewrites a module any more: `InlineUserFunctions`, `ReorderTypes`, `RemapExpressionHandles`
+  and `RemapStatementExpressionHandles` are internal, with one copy of each handle walker (a test fails when a new
+  IR kind has no case in them). Internal now as well: `CheckWorkgroupSizesResolved`, `ResolvePendingArraySizes`, `IndexableLengthOf`,
   `ConstIndexValue`, `FlattenCompose`, `DeduplicateEmits`, `IsAbstractType`, `ResolveAtomicPointerScalar`,
   `FindFrexpResultType`, `FindModfResultType`.
 
@@ -233,6 +236,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: inlined helpers could read the wrong values.** The inliner's statement walker had no case for
+  `workgroupUniformLoad`, ray queries, subgroup operations and image atomics, and did not remap the compare value of
+  an atomic compare-exchange, so a helper inlined into its caller kept handles that pointed at unrelated caller
+  expressions. One shared walker now serves inlining, compaction and overrides. The ray-query shaders, which this
+  failed to compile, now compile and fail DXIL validation for another reason (P1-DXIL-075).
 - **`@early_depth_test`: `unchanged` meant `force`, and SPIR-V ignored it** (ADR-010 E1). `ir.EarlyDepthTest` is
   Rust naga's shape, `ir.EarlyDepthForce{}` or `ir.EarlyDepthAllow{Conservative}` (it was a struct with only the
   conservative depth, so `force` and `unchanged` were one value, both writing GLSL `layout(early_fragment_tests)`).

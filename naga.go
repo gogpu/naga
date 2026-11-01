@@ -8,9 +8,10 @@
 //   - DXIL — DirectX Intermediate Language for Direct3D 12
 //
 // This package is the one-call path from WGSL to SPIR-V, plus pipeline
-// constants. Each language has its own package: a frontend's Parse
-// (wgsl.Parse) gives an IR module, ir.Validate checks it, and a backend's
-// Compile (spirv, msl, glsl, hlsl, dxil) writes it.
+// constants (ProcessOverrides) and module compaction (Compact). Each
+// language has its own package: a frontend's Parse (wgsl.Parse) gives an IR
+// module, ir.Validate checks it, and a backend's Compile (spirv, msl, glsl,
+// hlsl, dxil) writes it.
 //
 // Example usage (SPIR-V):
 //
@@ -36,6 +37,8 @@
 //
 // Every exported function is safe for concurrent use. ProcessOverrides never
 // modifies its input module; its result may share unmodified parts of it.
+// Compact is the one function that modifies the module it is given, in
+// place: no other goroutine may use that module while it runs.
 package naga
 
 import (

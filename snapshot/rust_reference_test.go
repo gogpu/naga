@@ -185,8 +185,9 @@ func compareWithRust(t *testing.T, shader shaderFile, o rustOutput, refPath stri
 //
 // Rust's driver also compacts the module with KeepUnused::No before the
 // backends. We do not: our compiler has no such step, so users get the
-// uncompacted output, and ir.CompactUnused is a partial, test-only helper
-// (BUG-IR-COMPACT-001). Where the missing compaction changes an output,
+// uncompacted output, and the KeepUnusedNo step of naga.Compact
+// (irutil.CompactUnused) is partial (BUG-IR-COMPACT-001). Where the missing
+// compaction changes an output,
 // rustDeviations records it.
 //
 // Each call lowers the source afresh, so preparing one backend's module cannot

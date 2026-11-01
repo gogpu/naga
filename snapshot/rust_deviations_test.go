@@ -69,7 +69,7 @@ const (
 		"so it has a pointer to the regular type of each uniform buffer it declares std140-compatible; " +
 		"nothing uses it and we don't declare it"
 	reasonCompactNoEntryPoints = "the module has no entry points; Rust's compact(KeepUnused::No) removes " +
-		"everything, ir.CompactUnused returns early and every type and function is emitted"
+		"everything, irutil.CompactUnused returns early and every type and function is emitted"
 	reasonGLSLStd140MatCx2 = "2-row matrices in uniform buffers are declared std140-compatible, a struct's matrix " +
 		"member as one vec2 member per column and any other such matrix as a struct of its columns, rebuilt on " +
 		"load: std140 puts matrix columns 16 bytes apart where WGSL puts a matCx2's 8 apart, so Rust's GLSL, " +

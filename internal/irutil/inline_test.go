@@ -1,7 +1,9 @@
-package ir
+package irutil
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // TestInlineEmitRangeEnd verifies that StmtEmit Range.End is treated as an
@@ -9,48 +11,48 @@ import (
 // Callee emit ranges must end at "one past the last remapped expression",
 // not at the raw mapped value of the original End handle.
 func TestInlineEmitRangeEnd(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name:   "callee",
-				Result: &FunctionResult{Type: scalarI32},
+				Result: &ir.FunctionResult{Type: scalarI32},
 				// Body: emit two expressions [0..2), then return the
 				// second. Range.End == 2 is exclusive.
-				Expressions: []Expression{
-					{Kind: Literal{Value: LiteralI32(7)}},
-					{Kind: Literal{Value: LiteralI32(13)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(7)}},
+					{Kind: ir.Literal{Value: ir.LiteralI32(13)}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 2}}},
-					{Kind: StmtReturn{Value: handlePtr(1)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+					{Kind: ir.StmtReturn{Value: handlePtr(1)}},
 				},
 			},
 		},
 	}
 
 	// Caller: result := callee()
-	module.EntryPoints = []EntryPoint{
+	module.EntryPoints = []ir.EntryPoint{
 		{
 			Name:  "main",
-			Stage: StageCompute,
-			Function: Function{
+			Stage: ir.StageCompute,
+			Function: ir.Function{
 				Name: "main",
-				Expressions: []Expression{
-					{Kind: ExprCallResult{Function: 0}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprCallResult{Function: 0}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtCall{
+				Body: []ir.Statement{
+					{Kind: ir.StmtCall{
 						Function:  0,
 						Arguments: nil,
 						Result:    handlePtr(0),
@@ -65,9 +67,9 @@ func TestInlineEmitRangeEnd(t *testing.T) {
 	}
 
 	main := &module.EntryPoints[0].Function
-	var emit *StmtEmit
-	walkStmts(main.Body, func(s *Statement) {
-		if e, ok := s.Kind.(StmtEmit); ok && emit == nil {
+	var emit *ir.StmtEmit
+	walkStmts(main.Body, func(s *ir.Statement) {
+		if e, ok := s.Kind.(ir.StmtEmit); ok && emit == nil {
 			emit = &e
 		}
 	})
@@ -80,10 +82,10 @@ func TestInlineEmitRangeEnd(t *testing.T) {
 	}
 	// The exclusive End must point one past the last remapped literal.
 	// Locate the two literal expressions in the caller.
-	var litIdxs []ExpressionHandle
+	var litIdxs []ir.ExpressionHandle
 	for i := range main.Expressions {
-		if _, ok := main.Expressions[i].Kind.(Literal); ok {
-			litIdxs = append(litIdxs, ExpressionHandle(i))
+		if _, ok := main.Expressions[i].Kind.(ir.Literal); ok {
+			litIdxs = append(litIdxs, ir.ExpressionHandle(i))
 		}
 	}
 	if len(litIdxs) != 2 {
@@ -102,44 +104,44 @@ func TestInlineEmitRangeEnd(t *testing.T) {
 // the caller, so two helpers that both define `let foo = ...` don't
 // collide in the caller's namespace.
 func TestInlineNamedExpressionsPrefixed(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name:   "helper",
-				Result: &FunctionResult{Type: scalarI32},
-				Expressions: []Expression{
-					{Kind: Literal{Value: LiteralI32(42)}},
+				Result: &ir.FunctionResult{Type: scalarI32},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(42)}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 				},
-				NamedExpressions: map[ExpressionHandle]string{
+				NamedExpressions: map[ir.ExpressionHandle]string{
 					0: "result",
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 1}}},
-					{Kind: StmtReturn{Value: handlePtr(0)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: handlePtr(0)}},
 				},
 			},
 		},
 	}
-	module.EntryPoints = []EntryPoint{
+	module.EntryPoints = []ir.EntryPoint{
 		{
-			Name: "main", Stage: StageCompute,
-			Function: Function{
+			Name: "main", Stage: ir.StageCompute,
+			Function: ir.Function{
 				Name: "main",
-				Expressions: []Expression{
-					{Kind: ExprCallResult{Function: 0}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprCallResult{Function: 0}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtCall{Function: 0, Result: handlePtr(0)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtCall{Function: 0, Result: handlePtr(0)}},
 				},
 			},
 		},
@@ -166,45 +168,45 @@ func TestInlineNamedExpressionsPrefixed(t *testing.T) {
 // downstream emitters (DXIL) misclassify the loaded value (e.g., treat a
 // pointer-typed argument as a scalar default), producing invalid code.
 func TestInlineArgLoadExpressionTypes(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name: "callee",
-				Arguments: []FunctionArgument{
+				Arguments: []ir.FunctionArgument{
 					{Name: "x", Type: scalarI32},
 				},
-				Result: &FunctionResult{Type: scalarI32},
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 0}},
+				Result: &ir.FunctionResult{Type: scalarI32},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtReturn{Value: handlePtr(0)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtReturn{Value: handlePtr(0)}},
 				},
 			},
 		},
 	}
-	caller := Function{
+	caller := ir.Function{
 		Name: "main",
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(99)}},
-			{Kind: ExprCallResult{Function: 0}},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(99)}},
+			{Kind: ir.ExprCallResult{Function: 0}},
 		},
-		ExpressionTypes: []TypeResolution{
+		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 		},
-		Body: []Statement{
-			{Kind: StmtCall{Function: 0, Arguments: []ExpressionHandle{0}, Result: handlePtr(1)}},
+		Body: []ir.Statement{
+			{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{0}, Result: handlePtr(1)}},
 		},
 	}
-	module.EntryPoints = []EntryPoint{{Name: "main", Stage: StageCompute, Function: caller}}
+	module.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageCompute, Function: caller}}
 
 	if err := InlineUserFunctions(module, nil); err != nil {
 		t.Fatalf("InlineUserFunctions: %v", err)
@@ -219,7 +221,7 @@ func TestInlineArgLoadExpressionTypes(t *testing.T) {
 	// must have a non-empty TypeResolution.
 	for i := range main.Expressions {
 		switch main.Expressions[i].Kind.(type) {
-		case ExprLoad, ExprLocalVariable:
+		case ir.ExprLoad, ir.ExprLocalVariable:
 			tr := main.ExpressionTypes[i]
 			if tr.Handle == nil && tr.Value == nil {
 				t.Errorf("expression [%d] (%T) has empty TypeResolution",
@@ -234,57 +236,57 @@ func TestInlineArgLoadExpressionTypes(t *testing.T) {
 // Helper expressions (slot pointers, arg loads) must live OUTSIDE that
 // region; otherwise StmtEmit Range.End remapping breaks.
 func TestInlineExpressionsArrayContiguous(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name: "callee",
-				Arguments: []FunctionArgument{
+				Arguments: []ir.FunctionArgument{
 					{Name: "a", Type: scalarI32},
 					{Name: "b", Type: scalarI32},
 				},
-				Result: &FunctionResult{Type: scalarI32},
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 0}},
-					{Kind: ExprFunctionArgument{Index: 1}},
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 1}},
+				Result: &ir.FunctionResult{Type: scalarI32},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.ExprFunctionArgument{Index: 1}},
+					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 2, End: 3}}},
-					{Kind: StmtReturn{Value: handlePtr(2)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+					{Kind: ir.StmtReturn{Value: handlePtr(2)}},
 				},
 			},
 		},
 	}
-	caller := Function{
+	caller := ir.Function{
 		Name: "main",
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(1)}},
-			{Kind: Literal{Value: LiteralI32(2)}},
-			{Kind: ExprCallResult{Function: 0}},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
+			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
+			{Kind: ir.ExprCallResult{Function: 0}},
 		},
-		ExpressionTypes: []TypeResolution{
+		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 		},
-		Body: []Statement{
-			{Kind: StmtCall{
+		Body: []ir.Statement{
+			{Kind: ir.StmtCall{
 				Function:  0,
-				Arguments: []ExpressionHandle{0, 1},
+				Arguments: []ir.ExpressionHandle{0, 1},
 				Result:    handlePtr(2),
 			}},
 		},
 	}
-	module.EntryPoints = []EntryPoint{{Name: "main", Stage: StageCompute, Function: caller}}
+	module.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageCompute, Function: caller}}
 
 	if err := InlineUserFunctions(module, nil); err != nil {
 		t.Fatalf("InlineUserFunctions: %v", err)
@@ -295,9 +297,9 @@ func TestInlineExpressionsArrayContiguous(t *testing.T) {
 	// callee's contiguous region's "real" content. The handle of the
 	// inlined emit's Start..End-1 must wrap exactly the callee
 	// expressions, no helper expressions interleaved.
-	var emit *StmtEmit
-	walkStmts(main.Body, func(s *Statement) {
-		if e, ok := s.Kind.(StmtEmit); ok && emit == nil {
+	var emit *ir.StmtEmit
+	walkStmts(main.Body, func(s *ir.Statement) {
+		if e, ok := s.Kind.(ir.StmtEmit); ok && emit == nil {
 			emit = &e
 		}
 	})
@@ -306,10 +308,10 @@ func TestInlineExpressionsArrayContiguous(t *testing.T) {
 	}
 	for h := emit.Range.Start; h < emit.Range.End; h++ {
 		switch main.Expressions[h].Kind.(type) {
-		case ExprBinary, ExprAccess, ExprAccessIndex, ExprLoad, ExprUnary,
-			ExprSplat, ExprSwizzle, ExprCompose, ExprMath, ExprAs, Literal,
-			ExprConstant, ExprZeroValue, ExprSelect, ExprRelational,
-			ExprFunctionArgument, ExprLocalVariable, ExprGlobalVariable:
+		case ir.ExprBinary, ir.ExprAccess, ir.ExprAccessIndex, ir.ExprLoad, ir.ExprUnary,
+			ir.ExprSplat, ir.ExprSwizzle, ir.ExprCompose, ir.ExprMath, ir.ExprAs, ir.Literal,
+			ir.ExprConstant, ir.ExprZeroValue, ir.ExprSelect, ir.ExprRelational,
+			ir.ExprFunctionArgument, ir.ExprLocalVariable, ir.ExprGlobalVariable:
 			// OK — these are the kinds the callee body could hold or
 			// that the inline pass produces inside the calleeExprMap
 			// region. The key invariant being tested is just that the
@@ -323,24 +325,24 @@ func TestInlineExpressionsArrayContiguous(t *testing.T) {
 
 // handlePtr returns a pointer to the given ExpressionHandle, for use in
 // StmtReturn.Value / StmtCall.Result fields that take *ExpressionHandle.
-func handlePtr(h ExpressionHandle) *ExpressionHandle {
+func handlePtr(h ir.ExpressionHandle) *ir.ExpressionHandle {
 	return &h
 }
 
 // walkStmts visits every statement in the block tree, calling fn for each.
-func walkStmts(b Block, fn func(*Statement)) {
+func walkStmts(b ir.Block, fn func(*ir.Statement)) {
 	for i := range b {
 		fn(&b[i])
 		switch sk := b[i].Kind.(type) {
-		case StmtBlock:
+		case ir.StmtBlock:
 			walkStmts(sk.Block, fn)
-		case StmtIf:
+		case ir.StmtIf:
 			walkStmts(sk.Accept, fn)
 			walkStmts(sk.Reject, fn)
-		case StmtLoop:
+		case ir.StmtLoop:
 			walkStmts(sk.Body, fn)
 			walkStmts(sk.Continuing, fn)
-		case StmtSwitch:
+		case ir.StmtSwitch:
 			for j := range sk.Cases {
 				walkStmts(sk.Cases[j].Body, fn)
 			}
@@ -353,67 +355,67 @@ func walkStmts(b Block, fn func(*Statement)) {
 // around the body, no break (there is no loop or switch to leave) and no
 // "returned" flag (no code after the if needs a guard).
 func TestInlineEarlyReturnsInIf(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				// fn test_if(x: i32) -> i32 {
 				//     if x > 0 { return 1; }
 				//     else { return -1; }
 				// }
 				Name: "test_if",
-				Arguments: []FunctionArgument{
+				Arguments: []ir.FunctionArgument{
 					{Name: "x", Type: scalarI32},
 				},
-				Result: &FunctionResult{Type: scalarI32},
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 0}},                   // [0]
-					{Kind: Literal{Value: LiteralI32(0)}},                    // [1]
-					{Kind: ExprBinary{Op: BinaryGreater, Left: 0, Right: 1}}, // [2]
-					{Kind: Literal{Value: LiteralI32(1)}},                    // [3]
-					{Kind: Literal{Value: LiteralI32(-1)}},                   // [4]
+				Result: &ir.FunctionResult{Type: scalarI32},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},                      // [0]
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},                    // [1]
+					{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}}, // [2]
+					{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                    // [3]
+					{Kind: ir.Literal{Value: ir.LiteralI32(-1)}},                   // [4]
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 2, End: 3}}},
-					{Kind: StmtIf{
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+					{Kind: ir.StmtIf{
 						Condition: 2,
-						Accept:    Block{{Kind: StmtReturn{Value: handlePtr(3)}}},
-						Reject:    Block{{Kind: StmtReturn{Value: handlePtr(4)}}},
+						Accept:    ir.Block{{Kind: ir.StmtReturn{Value: handlePtr(3)}}},
+						Reject:    ir.Block{{Kind: ir.StmtReturn{Value: handlePtr(4)}}},
 					}},
 				},
 			},
 		},
 	}
 
-	caller := Function{
+	caller := ir.Function{
 		Name: "main",
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(42)}},
-			{Kind: ExprCallResult{Function: 0}},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(42)}},
+			{Kind: ir.ExprCallResult{Function: 0}},
 		},
-		ExpressionTypes: []TypeResolution{
+		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 		},
-		Body: []Statement{
-			{Kind: StmtCall{
+		Body: []ir.Statement{
+			{Kind: ir.StmtCall{
 				Function:  0,
-				Arguments: []ExpressionHandle{0},
+				Arguments: []ir.ExpressionHandle{0},
 				Result:    handlePtr(1),
 			}},
 		},
 	}
-	module.EntryPoints = []EntryPoint{{Name: "main", Stage: StageCompute, Function: caller}}
+	module.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageCompute, Function: caller}}
 
 	if err := InlineUserFunctions(module, nil); err != nil {
 		t.Fatalf("InlineUserFunctions: %v", err)
@@ -422,12 +424,12 @@ func TestInlineEarlyReturnsInIf(t *testing.T) {
 	main := &module.EntryPoints[0].Function
 
 	slotStores := 0
-	walkStmts(main.Body, func(s *Statement) {
+	walkStmts(main.Body, func(s *ir.Statement) {
 		switch k := s.Kind.(type) {
-		case StmtLoop, StmtBreak:
+		case ir.StmtLoop, ir.StmtBreak:
 			t.Errorf("unexpected %T in the inlined body: %+v", k, main.Body)
-		case StmtStore:
-			if lv, ok := main.Expressions[k.Pointer].Kind.(ExprLocalVariable); ok && main.LocalVars[lv.Variable].Name == "_inline_ret_test_if" {
+		case ir.StmtStore:
+			if lv, ok := main.Expressions[k.Pointer].Kind.(ir.ExprLocalVariable); ok && main.LocalVars[lv.Variable].Name == "_inline_ret_test_if" {
 				slotStores++
 			}
 		}
@@ -443,7 +445,7 @@ func TestInlineEarlyReturnsInIf(t *testing.T) {
 
 	// The call result expression should now be an ExprLoad (from the ret slot).
 	callResultExpr := main.Expressions[1]
-	if _, ok := callResultExpr.Kind.(ExprLoad); !ok {
+	if _, ok := callResultExpr.Kind.(ir.ExprLoad); !ok {
 		t.Errorf("ExprCallResult[1] should be rewritten to ExprLoad, got %T", callResultExpr.Kind)
 	}
 }
@@ -451,61 +453,61 @@ func TestInlineEarlyReturnsInIf(t *testing.T) {
 // TestInlineEarlyReturnVoid: a void callee's early return with nothing after
 // its if lowers to nothing at all: no loop, no break, no flag.
 func TestInlineEarlyReturnVoid(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				// fn early_void(x: i32) {
 				//     if x > 0 { return; }
 				//     // implicit return at end
 				// }
 				Name: "early_void",
-				Arguments: []FunctionArgument{
+				Arguments: []ir.FunctionArgument{
 					{Name: "x", Type: scalarI32},
 				},
 				Result: nil, // void
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 0}},
-					{Kind: Literal{Value: LiteralI32(0)}},
-					{Kind: ExprBinary{Op: BinaryGreater, Left: 0, Right: 1}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
+					{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 2, End: 3}}},
-					{Kind: StmtIf{
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+					{Kind: ir.StmtIf{
 						Condition: 2,
-						Accept:    Block{{Kind: StmtReturn{}}},
-						Reject:    Block{},
+						Accept:    ir.Block{{Kind: ir.StmtReturn{}}},
+						Reject:    ir.Block{},
 					}},
 				},
 			},
 		},
 	}
 
-	caller := Function{
+	caller := ir.Function{
 		Name: "main",
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(5)}},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(5)}},
 		},
-		ExpressionTypes: []TypeResolution{
+		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &scalarI32},
 		},
-		Body: []Statement{
-			{Kind: StmtCall{
+		Body: []ir.Statement{
+			{Kind: ir.StmtCall{
 				Function:  0,
-				Arguments: []ExpressionHandle{0},
+				Arguments: []ir.ExpressionHandle{0},
 				Result:    nil,
 			}},
 		},
 	}
-	module.EntryPoints = []EntryPoint{{Name: "main", Stage: StageCompute, Function: caller}}
+	module.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageCompute, Function: caller}}
 
 	if err := InlineUserFunctions(module, nil); err != nil {
 		t.Fatalf("InlineUserFunctions: %v", err)
@@ -513,9 +515,9 @@ func TestInlineEarlyReturnVoid(t *testing.T) {
 
 	main := &module.EntryPoints[0].Function
 
-	walkStmts(main.Body, func(s *Statement) {
+	walkStmts(main.Body, func(s *ir.Statement) {
 		switch k := s.Kind.(type) {
-		case StmtLoop, StmtBreak, StmtReturn:
+		case ir.StmtLoop, ir.StmtBreak, ir.StmtReturn:
 			t.Errorf("unexpected %T in the inlined body: %+v", k, main.Body)
 		}
 	})
@@ -529,59 +531,59 @@ func TestInlineEarlyReturnVoid(t *testing.T) {
 // TestInlineTailReturnNoWrap verifies that a callee with only a tail
 // return (no early returns) does NOT get wrapped in a loop.
 func TestInlineTailReturnNoWrap(t *testing.T) {
-	scalarI32 := TypeHandle(0)
-	module := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}},
+	scalarI32 := ir.TypeHandle(0)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				// fn add(a: i32, b: i32) -> i32 { return a + b; }
 				Name: "add",
-				Arguments: []FunctionArgument{
+				Arguments: []ir.FunctionArgument{
 					{Name: "a", Type: scalarI32},
 					{Name: "b", Type: scalarI32},
 				},
-				Result: &FunctionResult{Type: scalarI32},
-				Expressions: []Expression{
-					{Kind: ExprFunctionArgument{Index: 0}},
-					{Kind: ExprFunctionArgument{Index: 1}},
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 1}},
+				Result: &ir.FunctionResult{Type: scalarI32},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.ExprFunctionArgument{Index: 1}},
+					{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}},
 				},
-				ExpressionTypes: []TypeResolution{
+				ExpressionTypes: []ir.TypeResolution{
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 					{Handle: &scalarI32},
 				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 2, End: 3}}},
-					{Kind: StmtReturn{Value: handlePtr(2)}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+					{Kind: ir.StmtReturn{Value: handlePtr(2)}},
 				},
 			},
 		},
 	}
 
-	caller := Function{
+	caller := ir.Function{
 		Name: "main",
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(1)}},
-			{Kind: Literal{Value: LiteralI32(2)}},
-			{Kind: ExprCallResult{Function: 0}},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
+			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
+			{Kind: ir.ExprCallResult{Function: 0}},
 		},
-		ExpressionTypes: []TypeResolution{
+		ExpressionTypes: []ir.TypeResolution{
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 			{Handle: &scalarI32},
 		},
-		Body: []Statement{
-			{Kind: StmtCall{
+		Body: []ir.Statement{
+			{Kind: ir.StmtCall{
 				Function:  0,
-				Arguments: []ExpressionHandle{0, 1},
+				Arguments: []ir.ExpressionHandle{0, 1},
 				Result:    handlePtr(2),
 			}},
 		},
 	}
-	module.EntryPoints = []EntryPoint{{Name: "main", Stage: StageCompute, Function: caller}}
+	module.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageCompute, Function: caller}}
 
 	if err := InlineUserFunctions(module, nil); err != nil {
 		t.Fatalf("InlineUserFunctions: %v", err)
@@ -590,8 +592,8 @@ func TestInlineTailReturnNoWrap(t *testing.T) {
 	main := &module.EntryPoints[0].Function
 
 	// Should NOT have a loop wrapper — tail return only.
-	walkStmts(main.Body, func(s *Statement) {
-		if _, ok := s.Kind.(StmtLoop); ok {
+	walkStmts(main.Body, func(s *ir.Statement) {
+		if _, ok := s.Kind.(ir.StmtLoop); ok {
 			t.Errorf("unexpected StmtLoop in inlined body — tail-return callee should NOT be wrapped")
 		}
 	})
@@ -609,55 +611,55 @@ func startsWith(s, prefix string) bool {
 // Without this Emit, mem2reg cannot detect the loads as live and
 // fails to promote the arg-spill local variable.
 func TestInlineEmitsArgLoadExpressions(t *testing.T) {
-	mod := &Module{}
+	mod := &ir.Module{}
 	// Types: i32
-	i32 := TypeHandle(len(mod.Types))
-	mod.Types = append(mod.Types, Type{Inner: ScalarType{Kind: ScalarSint, Width: 4}})
+	i32 := ir.TypeHandle(len(mod.Types))
+	mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}})
 
 	// Callee: fn add_one(x: i32) -> i32 { return x + 1; }
-	litOne := ExpressionHandle(0)
-	funcArg0 := ExpressionHandle(1)
-	binAdd := ExpressionHandle(2)
-	callee := Function{
+	litOne := ir.ExpressionHandle(0)
+	funcArg0 := ir.ExpressionHandle(1)
+	binAdd := ir.ExpressionHandle(2)
+	callee := ir.Function{
 		Name:      "add_one",
-		Arguments: []FunctionArgument{{Name: "x", Type: i32}},
-		Result:    &FunctionResult{Type: i32},
-		Expressions: []Expression{
-			{Kind: Literal{Value: LiteralI32(1)}},
-			{Kind: ExprFunctionArgument{Index: 0}},
-			{Kind: ExprBinary{Op: BinaryAdd, Left: funcArg0, Right: litOne}},
+		Arguments: []ir.FunctionArgument{{Name: "x", Type: i32}},
+		Result:    &ir.FunctionResult{Type: i32},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: funcArg0, Right: litOne}},
 		},
-		Body: Block{
-			{Kind: StmtEmit{Range: Range{Start: 0, End: 3}}},
-			{Kind: StmtReturn{Value: &binAdd}},
+		Body: ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+			{Kind: ir.StmtReturn{Value: &binAdd}},
 		},
 	}
-	callee.ExpressionTypes = make([]TypeResolution, len(callee.Expressions))
+	callee.ExpressionTypes = make([]ir.TypeResolution, len(callee.Expressions))
 	mod.Functions = append(mod.Functions, callee)
 
 	// Entry point: fn main() { let r = add_one(42); }
-	ep := Function{Name: "main"}
-	callerLit := ExpressionHandle(len(ep.Expressions))
-	ep.Expressions = append(ep.Expressions, Expression{Kind: Literal{Value: LiteralI32(42)}})
-	ep.ExpressionTypes = append(ep.ExpressionTypes, TypeResolution{Handle: &i32})
+	ep := ir.Function{Name: "main"}
+	callerLit := ir.ExpressionHandle(len(ep.Expressions))
+	ep.Expressions = append(ep.Expressions, ir.Expression{Kind: ir.Literal{Value: ir.LiteralI32(42)}})
+	ep.ExpressionTypes = append(ep.ExpressionTypes, ir.TypeResolution{Handle: &i32})
 
-	callResult := ExpressionHandle(len(ep.Expressions))
-	ep.Expressions = append(ep.Expressions, Expression{Kind: ExprCallResult{}})
-	ep.ExpressionTypes = append(ep.ExpressionTypes, TypeResolution{Handle: &i32})
+	callResult := ir.ExpressionHandle(len(ep.Expressions))
+	ep.Expressions = append(ep.Expressions, ir.Expression{Kind: ir.ExprCallResult{}})
+	ep.ExpressionTypes = append(ep.ExpressionTypes, ir.TypeResolution{Handle: &i32})
 
-	ep.Body = Block{
-		{Kind: StmtEmit{Range: Range{Start: callerLit, End: callerLit + 1}}},
-		{Kind: StmtCall{Function: 0, Arguments: []ExpressionHandle{callerLit}, Result: &callResult}},
-		{Kind: StmtEmit{Range: Range{Start: callResult, End: callResult + 1}}},
+	ep.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: callerLit, End: callerLit + 1}}},
+		{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{callerLit}, Result: &callResult}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: callResult, End: callResult + 1}}},
 	}
 
-	mod.EntryPoints = append(mod.EntryPoints, EntryPoint{
+	mod.EntryPoints = append(mod.EntryPoints, ir.EntryPoint{
 		Name:     "main",
-		Stage:    StageCompute,
+		Stage:    ir.StageCompute,
 		Function: ep,
 	})
 
-	err := InlineUserFunctions(mod, func(*Function) bool { return true })
+	err := InlineUserFunctions(mod, func(*ir.Function) bool { return true })
 	if err != nil {
 		t.Fatalf("InlineUserFunctions failed: %v", err)
 	}
@@ -665,9 +667,9 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 	// Verify the inlined body contains StmtEmit ranges that cover
 	// the ExprLoad expression(s) created for the scalar arg spill.
 	fn := &mod.EntryPoints[0].Function
-	emittedHandles := make(map[ExpressionHandle]bool)
+	emittedHandles := make(map[ir.ExpressionHandle]bool)
 	for _, s := range fn.Body {
-		if em, ok := s.Kind.(StmtEmit); ok {
+		if em, ok := s.Kind.(ir.StmtEmit); ok {
 			for h := em.Range.Start; h < em.Range.End; h++ {
 				emittedHandles[h] = true
 			}
@@ -676,23 +678,23 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 
 	// Find the ExprLoad expressions that reference a local variable
 	// (the arg-spill pattern). At least one must be emitted.
-	localPtrs := make(map[ExpressionHandle]uint32)
+	localPtrs := make(map[ir.ExpressionHandle]uint32)
 	for h, expr := range fn.Expressions {
-		if lv, ok := expr.Kind.(ExprLocalVariable); ok {
-			localPtrs[ExpressionHandle(h)] = uint32(lv.Variable)
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
+			localPtrs[ir.ExpressionHandle(h)] = uint32(lv.Variable)
 		}
 	}
 
 	foundEmittedArgLoad := false
 	for h, expr := range fn.Expressions {
-		ld, isLoad := expr.Kind.(ExprLoad)
+		ld, isLoad := expr.Kind.(ir.ExprLoad)
 		if !isLoad {
 			continue
 		}
 		if _, isLV := localPtrs[ld.Pointer]; !isLV {
 			continue
 		}
-		hh := ExpressionHandle(h)
+		hh := ir.ExpressionHandle(h)
 		if emittedHandles[hh] {
 			foundEmittedArgLoad = true
 			break
@@ -704,9 +706,9 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 }
 
 // emittedIn reports whether a StmtEmit directly in block covers h.
-func emittedIn(block Block, h ExpressionHandle) bool {
+func emittedIn(block ir.Block, h ir.ExpressionHandle) bool {
 	for _, s := range block {
-		if em, ok := s.Kind.(StmtEmit); ok && em.Range.Start <= h && h < em.Range.End {
+		if em, ok := s.Kind.(ir.StmtEmit); ok && em.Range.Start <= h && h < em.Range.End {
 			return true
 		}
 	}
@@ -717,33 +719,33 @@ func emittedIn(block Block, h ExpressionHandle) bool {
 // result to be emitted after the inlined body, so it is evaluated at the
 // call and not wherever it is first used.
 func TestInlineEmitsTheCallResult(t *testing.T) {
-	i32 := TypeHandle(0)
-	mod := &Module{
-		Types: []Type{{Inner: ScalarType{Kind: ScalarSint, Width: 4}}},
-		Functions: []Function{{
+	i32 := ir.TypeHandle(0)
+	mod := &ir.Module{
+		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		Functions: []ir.Function{{
 			Name:            "seven",
-			Result:          &FunctionResult{Type: i32},
-			Expressions:     []Expression{{Kind: Literal{Value: LiteralI32(7)}}},
-			ExpressionTypes: []TypeResolution{{Handle: &i32}},
-			Body:            Block{{Kind: StmtReturn{Value: handlePtr(0)}}},
+			Result:          &ir.FunctionResult{Type: i32},
+			Expressions:     []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralI32(7)}}},
+			ExpressionTypes: []ir.TypeResolution{{Handle: &i32}},
+			Body:            ir.Block{{Kind: ir.StmtReturn{Value: handlePtr(0)}}},
 		}},
 	}
-	mod.EntryPoints = []EntryPoint{{
+	mod.EntryPoints = []ir.EntryPoint{{
 		Name:  "main",
-		Stage: StageCompute,
-		Function: Function{
+		Stage: ir.StageCompute,
+		Function: ir.Function{
 			Name:            "main",
-			Expressions:     []Expression{{Kind: ExprCallResult{Function: 0}}},
-			ExpressionTypes: []TypeResolution{{Handle: &i32}},
-			Body:            Block{{Kind: StmtCall{Function: 0, Result: handlePtr(0)}}},
+			Expressions:     []ir.Expression{{Kind: ir.ExprCallResult{Function: 0}}},
+			ExpressionTypes: []ir.TypeResolution{{Handle: &i32}},
+			Body:            ir.Block{{Kind: ir.StmtCall{Function: 0, Result: handlePtr(0)}}},
 		},
 	}}
 
-	if err := InlineUserFunctions(mod, func(*Function) bool { return true }); err != nil {
+	if err := InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	fn := &mod.EntryPoints[0].Function
-	if _, ok := fn.Expressions[0].Kind.(ExprLoad); !ok {
+	if _, ok := fn.Expressions[0].Kind.(ir.ExprLoad); !ok {
 		t.Fatalf("call result is %T, want ExprLoad", fn.Expressions[0].Kind)
 	}
 	if !emittedIn(fn.Body, 0) {

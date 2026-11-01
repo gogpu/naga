@@ -6,6 +6,20 @@ type Expression struct {
 	Kind ExpressionKind
 }
 
+// NeedsPreEmit reports whether e is evaluated before the function runs and
+// must not be covered by an Emit statement (Rust naga's
+// Expression::needs_pre_emit): a literal, a constant, an override, a zero
+// value, a global or local variable or a function argument.
+func (e Expression) NeedsPreEmit() bool {
+	switch e.Kind.(type) {
+	case Literal, ExprConstant, ExprOverride, ExprZeroValue,
+		ExprGlobalVariable, ExprFunctionArgument, ExprLocalVariable:
+		return true
+	default:
+		return false
+	}
+}
+
 // ExpressionKind represents the different kinds of expressions.
 type ExpressionKind interface {
 	expressionKind()
