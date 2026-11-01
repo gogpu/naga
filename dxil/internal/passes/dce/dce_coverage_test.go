@@ -871,48 +871,37 @@ func TestPureCallWithLiveResultKept(t *testing.T) {
 // not unmark an expression used by another live expression.
 //
 // Covers: hasOtherLiveConsumer returning true, unmarkExpr early exit.
-func TestHasOtherLiveConsumerSharedExpression(t *testing.T) {
+// TestDeadIfConditionReadByAStore: the condition of an empty if is also the
+// value a live store writes. The if goes, the value stays emitted. Removing
+// the if used to take the liveness of the condition back, which missed the
+// store (a statement use), and the emitter stored a value it never computed.
+func TestDeadIfConditionReadByAStore(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
 			{Name: "out", Space: ir.SpaceStorage, Type: 0},
 		},
 	}
 
-	fn := &ir.Function{}
+	fn := &ir.Function{Arguments: []ir.FunctionArgument{{Name: "x"}}}
 
-	// expr 0: shared value used by both a dead if-condition and a live store
-	sharedVal := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(42)})
+	x := appendExpr(fn, ir.ExprFunctionArgument{Index: 0})
+	shared := appendExpr(fn, ir.ExprUnary{Op: ir.UnaryLogicalNot, Expr: x})
 	globalH := appendExpr(fn, ir.ExprGlobalVariable{Variable: 0})
 
 	fn.Body = ir.Block{
-		{Kind: ir.StmtEmit{Range: ir.Range{Start: sharedVal, End: globalH + 1}}},
-		// Dead if (both branches empty) — condition uses sharedVal
-		{Kind: ir.StmtIf{
-			Condition: sharedVal,
-			Accept:    ir.Block{},
-			Reject:    ir.Block{},
-		}},
-		// Live global store also uses sharedVal
-		{Kind: ir.StmtStore{Pointer: globalH, Value: sharedVal}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: shared, End: shared + 1}}},
+		{Kind: ir.StmtIf{Condition: shared}},
+		{Kind: ir.StmtStore{Pointer: globalH, Value: shared}},
 		{Kind: ir.StmtReturn{}},
 	}
 
 	Run(mod, fn)
 
-	// The if is dead, but sharedVal is still consumed by the live store.
-	// sharedVal must remain live; unmarkExpr should detect hasOtherLiveConsumer
-	// and not unmark it.
-	foundStore := false
-	for _, s := range fn.Body {
-		if st, ok := s.Kind.(ir.StmtStore); ok {
-			foundStore = true
-			if st.Value != sharedVal {
-				t.Errorf("store value should still be sharedVal (%d), got %d", sharedVal, st.Value)
-			}
-		}
+	if len(ifs(fn.Body)) != 0 {
+		t.Errorf("the empty if is kept")
 	}
-	if !foundStore {
-		t.Fatal("global store should survive DCE")
+	if !emitted(fn.Body, shared) {
+		t.Errorf("the stored value [%d] is not emitted", shared)
 	}
 }
 
