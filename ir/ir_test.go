@@ -4,9 +4,9 @@ import (
 	"testing"
 )
 
-// --- TypeResInner tests ---
+// --- TypeResolution.Inner tests ---
 
-func TestTypeResInner(t *testing.T) {
+func TestTypeResolutionInner(t *testing.T) {
 	module := &Module{
 		Types: []Type{
 			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
@@ -17,7 +17,7 @@ func TestTypeResInner(t *testing.T) {
 	t.Run("handle resolution", func(t *testing.T) {
 		h := TypeHandle(0)
 		res := TypeResolution{Handle: &h}
-		inner := TypeResInner(module, res)
+		inner := res.Inner(module.Types)
 		s, ok := inner.(ScalarType)
 		if !ok || s.Kind != ScalarFloat || s.Width != 4 {
 			t.Errorf("expected ScalarFloat/4, got %v", inner)
@@ -26,7 +26,7 @@ func TestTypeResInner(t *testing.T) {
 
 	t.Run("value resolution", func(t *testing.T) {
 		res := TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}
-		inner := TypeResInner(module, res)
+		inner := res.Inner(module.Types)
 		s, ok := inner.(ScalarType)
 		if !ok || s.Kind != ScalarUint || s.Width != 4 {
 			t.Errorf("expected ScalarUint/4, got %v", inner)
@@ -38,7 +38,7 @@ func TestTypeResInner(t *testing.T) {
 			Handle: nil,
 			Value:  VectorType{Size: Vec3, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}},
 		}
-		inner := TypeResInner(module, res)
+		inner := res.Inner(module.Types)
 		v, ok := inner.(VectorType)
 		if !ok || v.Size != Vec3 {
 			t.Errorf("expected Vec3, got %v", inner)

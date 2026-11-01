@@ -255,7 +255,7 @@ func TestResolveSwizzleType(t *testing.T) {
 	}
 }
 
-// --- FindModfResultType ---
+// --- findModfResultType ---
 
 func TestFindModfResultType(t *testing.T) {
 	module := &Module{
@@ -270,7 +270,7 @@ func TestFindModfResultType(t *testing.T) {
 
 	t.Run("found_scalar_f32", func(t *testing.T) {
 		argType := TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}
-		h := FindModfResultType(module, argType)
+		h := findModfResultType(module, argType)
 		if int(h) != 1 {
 			t.Errorf("expected type handle 1, got %d", h)
 		}
@@ -284,7 +284,7 @@ func TestFindModfResultType(t *testing.T) {
 			},
 		}
 		argType := TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}
-		h := FindModfResultType(emptyModule, argType)
+		h := findModfResultType(emptyModule, argType)
 		// -1 cast to uint32 wraps; check sentinel
 		if int32(h) != -1 {
 			t.Errorf("expected -1 (not found), got %d", int32(h))
@@ -292,7 +292,7 @@ func TestFindModfResultType(t *testing.T) {
 	})
 }
 
-// --- FindFrexpResultType ---
+// --- findFrexpResultType ---
 
 func TestFindFrexpResultType(t *testing.T) {
 	module := &Module{
@@ -307,7 +307,7 @@ func TestFindFrexpResultType(t *testing.T) {
 
 	t.Run("found_scalar_f32", func(t *testing.T) {
 		argType := TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}
-		h := FindFrexpResultType(module, argType)
+		h := findFrexpResultType(module, argType)
 		if int(h) != 1 {
 			t.Errorf("expected type handle 1, got %d", h)
 		}
@@ -321,14 +321,14 @@ func TestFindFrexpResultType(t *testing.T) {
 			},
 		}
 		argType := TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}
-		h := FindFrexpResultType(emptyModule, argType)
+		h := findFrexpResultType(emptyModule, argType)
 		if int32(h) != -1 {
 			t.Errorf("expected -1 (not found), got %d", int32(h))
 		}
 	})
 }
 
-// --- FindModfResultType with vector types ---
+// --- findModfResultType with vector types ---
 
 func TestFindModfResultType_Vector(t *testing.T) {
 	module := &Module{
@@ -341,13 +341,13 @@ func TestFindModfResultType_Vector(t *testing.T) {
 
 	h0 := TypeHandle(1) // vec2f
 	argType := TypeResolution{Handle: &h0}
-	h := FindModfResultType(module, argType)
+	h := findModfResultType(module, argType)
 	if int(h) != 2 {
 		t.Errorf("expected type handle 2, got %d", h)
 	}
 }
 
-// --- FindFrexpResultType with vector types ---
+// --- findFrexpResultType with vector types ---
 
 func TestFindFrexpResultType_Vector(t *testing.T) {
 	tests := []struct {
@@ -374,7 +374,7 @@ func TestFindFrexpResultType_Vector(t *testing.T) {
 			}
 			h1 := TypeHandle(1) // vec type
 			argType := TypeResolution{Handle: &h1}
-			h := FindFrexpResultType(module, argType)
+			h := findFrexpResultType(module, argType)
 			if int(h) != 2 {
 				t.Errorf("expected type handle 2, got %d", h)
 			}
@@ -445,11 +445,11 @@ func TestResolveAtomicResultType(t *testing.T) {
 
 func TestFindAtomicTypeForResult_Nested(t *testing.T) {
 	// Use a local variable pointing to an i32 scalar type.
-	// ResolveAtomicPointerScalar resolves the pointer expression's type,
-	// then gets TypeResInner which should be ScalarType or AtomicType.
+	// resolveAtomicPointerScalar resolves the pointer expression's type,
+	// then gets TypeResolution.Inner which should be ScalarType or AtomicType.
 	// ExprLocalVariable resolves to Pointer{Base: localVar.Type, Space: Function},
-	// and TypeResInner on that gives PointerType. So we use ExprFunctionArgument
-	// with a scalar type that ResolveAtomicPointerScalar can match.
+	// and TypeResolution.Inner on that gives PointerType. So we use ExprFunctionArgument
+	// with a scalar type that resolveAtomicPointerScalar can match.
 	module := &Module{
 		Types: []Type{
 			{Name: "i32", Inner: ScalarType{Kind: ScalarSint, Width: 4}},

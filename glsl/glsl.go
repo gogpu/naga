@@ -11,6 +11,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl/internal/codegen"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -276,10 +277,10 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if options.LangVersion == (Version{}) {
 		options.LangVersion = Version330
 	}
-	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
-	module, err := ir.ResolvePendingArraySizes(module)
+	module, err := irutil.ResolvePendingArraySizes(module)
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}

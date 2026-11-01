@@ -208,6 +208,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@interpolate(flat)`, as WGSL requires; it was made flat silently, and `ir.Validate` now rejects it with Rust's
   message, as it rejects the other interpolation/sampling combinations Rust's validator rejects. Output for shaders
   without `@interpolate` is unchanged.
+- **Breaking: `ir` keeps the data model and the helpers a frontend or backend outside naga needs** (ADR-010 B7).
+  New: `ir.Layouter` (`Update(m) error`, `Layout(h) TypeLayout{Size, Alignment}`, Rust's `proc::Layouter`) replaces
+  `ir.TypeSize` and `ir.TypeAlignment` with the same numbers; `TypeResolution.Inner(types)` replaces `ir.TypeResInner`;
+  `Literal.Type()` replaces `ir.ResolveLiteralType`; `Expression.NeedsPreEmit()` replaces `ir.NeedsPreEmit`;
+  `ir.Compact(m, KeepUnused)` (Rust's `compact::compact`) replaces `CompactConstants`, `CompactExpressions`,
+  `CompactTypes`. Internal now: `CheckWorkgroupSizesResolved`, `ResolvePendingArraySizes`, `IndexableLengthOf`,
+  `ConstIndexValue`, `FlattenCompose`, `DeduplicateEmits`, `IsAbstractType`, `ResolveAtomicPointerScalar`,
+  `FindFrexpResultType`, `FindModfResultType`.
 
 ### Added
 

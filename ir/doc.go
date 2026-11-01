@@ -32,6 +32,9 @@
 // # Concurrency
 //
 // Every exported function is safe for concurrent use. Validate and the other
-// functions that take a module never modify it; a function that returns a
-// module may share unmodified parts of its input with it.
+// functions that take a module never modify it, except the passes that exist
+// to change it in place (Compact, CompactUnused, ReorderTypes,
+// InlineUserFunctions, RemapStatementExpressionHandles); a function that
+// returns a module may share unmodified parts of its input with it. A
+// Layouter needs the usual synchronization of a value Update changes.
 package ir

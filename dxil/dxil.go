@@ -41,6 +41,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -483,10 +484,10 @@ func checkOptions(irModule *ir.Module, opts *Options) (*ir.Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dxil: %w", err)
 	}
-	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
+	if err := irutil.CheckWorkgroupSizesResolved(irModule); err != nil {
 		return nil, fmt.Errorf("dxil: %w", err)
 	}
-	irModule, err = ir.ResolvePendingArraySizes(irModule)
+	irModule, err = irutil.ResolvePendingArraySizes(irModule)
 	if err != nil {
 		return nil, fmt.Errorf("dxil: %w", err)
 	}

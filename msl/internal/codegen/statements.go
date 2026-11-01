@@ -820,7 +820,7 @@ func (w *Writer) bakeExpressionImpl(handle ir.ExpressionHandle, name string, use
 	}
 	if typeName == "" {
 		// Try re-resolving type from expression (handles cases where
-		// CompactTypes dropped abstract type handles).
+		// compaction dropped abstract type handles).
 		if w.currentFunction != nil && int(handle) < len(w.currentFunction.Expressions) {
 			if reResolved, err := ir.ResolveExpressionType(w.module, w.currentFunction, handle); err == nil {
 				if reResolved.Handle != nil {

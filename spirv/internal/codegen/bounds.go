@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -22,7 +23,7 @@ type guardedIndex struct {
 
 // guardIndex classifies the index expression handle.
 func (e *ExpressionEmitter) guardIndex(handle ir.ExpressionHandle) guardedIndex {
-	if v, ok := ir.ConstIndexValue(e.backend.module, e.function, handle); ok {
+	if v, ok := irutil.ConstIndexValue(e.backend.module, e.function, handle); ok {
 		return guardedIndex{known: true, value: v}
 	}
 	return guardedIndex{expr: handle}
@@ -76,7 +77,7 @@ func (e *ExpressionEmitter) sequenceLength(base ir.ExpressionHandle) (known, com
 		return 0, 0, fmt.Errorf("bounds check: base type: %w", err)
 	}
 	inner := typeResolutionInner(e.backend.module, res)
-	length, err := ir.IndexableLengthOf(e.backend.module, inner)
+	length, err := irutil.IndexableLengthOf(e.backend.module, inner)
 	if err != nil {
 		return 0, 0, fmt.Errorf("bounds check: %w", err)
 	}

@@ -176,7 +176,7 @@ func indexCount(m *ir.Module, fn *ir.Function, base ir.ExpressionHandle) uint32 
 	if err != nil {
 		return 0
 	}
-	inner := ir.TypeResInner(m, res)
+	inner := res.Inner(m.Types)
 	switch t := inner.(type) {
 	case ir.PointerType:
 		if t.Space == ir.SpaceUniform || t.Space == ir.SpaceStorage || t.Space == ir.SpaceHandle {

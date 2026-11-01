@@ -2,7 +2,7 @@ package ir
 
 import "testing"
 
-func TestResolveLiteralType(t *testing.T) {
+func TestLiteralType(t *testing.T) {
 	tests := []struct {
 		name     string
 		literal  Literal
@@ -47,15 +47,15 @@ func TestResolveLiteralType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveLiteralType(tt.literal)
+			got, err := tt.literal.Type()
 			if err != nil {
-				t.Fatalf("resolveLiteralType() error = %v", err)
+				t.Fatalf("Literal.Type() error = %v", err)
 			}
 			if got.Handle != nil {
 				t.Errorf("expected inline type, got handle")
 			}
 			if !typeInnerEqual(got.Value, tt.wantType) {
-				t.Errorf("resolveLiteralType() = %v, want %v", got.Value, tt.wantType)
+				t.Errorf("Literal.Type() = %v, want %v", got.Value, tt.wantType)
 			}
 		})
 	}

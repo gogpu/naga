@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -384,10 +385,10 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	}
 
 	// Overrides must have been replaced by naga.ProcessOverrides.
-	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
 	}
-	module, err := ir.ResolvePendingArraySizes(module)
+	module, err := irutil.ResolvePendingArraySizes(module)
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
 	}

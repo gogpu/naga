@@ -1062,7 +1062,7 @@ func (v *validator) isSizedArrayPointer(h ExpressionHandle) bool {
 	if fn == nil || int(h) >= len(fn.ExpressionTypes) {
 		return false
 	}
-	ptr, ok := TypeResInner(v.module, fn.ExpressionTypes[h]).(PointerType)
+	ptr, ok := fn.ExpressionTypes[h].Inner(v.module.Types).(PointerType)
 	if !ok || !v.isValidTypeHandle(ptr.Base) {
 		return false
 	}

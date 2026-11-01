@@ -111,7 +111,7 @@ func BenchmarkModuleClone(b *testing.B) {
 // function arenas, statement handles in nested blocks, named expressions,
 // local initializers, overrides, constants and types.
 func mutateInDepth(m *ir.Module) {
-	ir.CompactConstants(m, ir.KeepUnusedNo)
+	ir.Compact(m, ir.KeepUnusedNo)
 	m.Types = append(m.Types, ir.Type{Name: "added"})
 	for i := range m.GlobalExpressions {
 		m.GlobalExpressions[i].Kind = ir.Literal{Value: ir.LiteralU32(uint32(i))}

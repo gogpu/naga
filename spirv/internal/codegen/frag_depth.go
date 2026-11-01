@@ -45,7 +45,11 @@ func (b *Backend) carriesFragDepthRange(h ir.GlobalVariableHandle) (bool, error)
 			continue
 		}
 		global := b.module.GlobalVariables[h]
-		if size := ir.TypeSize(b.module, global.Type); b.options.ClampFragDepth.Offset < size {
+		var layouter ir.Layouter
+		if err := layouter.Update(b.module); err != nil {
+			return false, err
+		}
+		if size := layouter.Layout(global.Type).Size; b.options.ClampFragDepth.Offset < size {
 			return false, fmt.Errorf("the frag_depth range at push constant offset %d overlaps %s, which takes %d bytes", b.options.ClampFragDepth.Offset, global.Name, size)
 		}
 		return true, nil

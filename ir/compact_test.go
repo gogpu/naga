@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// --- IsAbstractType tests ---
+// --- isAbstractType tests ---
 
 func TestIsAbstractType(t *testing.T) {
 	types := []Type{
@@ -42,17 +42,17 @@ func TestIsAbstractType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsAbstractType(tt.inner, types)
+			got := isAbstractType(tt.inner, types)
 			if got != tt.want {
-				t.Errorf("IsAbstractType(%T) = %v, want %v", tt.inner, got, tt.want)
+				t.Errorf("isAbstractType(%T) = %v, want %v", tt.inner, got, tt.want)
 			}
 		})
 	}
 }
 
-// --- isPreEmitExpression tests ---
+// --- Expression.NeedsPreEmit tests ---
 
-func TestIsPreEmitExpression(t *testing.T) {
+func TestExpressionNeedsPreEmit(t *testing.T) {
 	tests := []struct {
 		name string
 		kind ExpressionKind
@@ -75,9 +75,9 @@ func TestIsPreEmitExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isPreEmitExpression(tt.kind)
+			got := Expression{Kind: tt.kind}.NeedsPreEmit()
 			if got != tt.want {
-				t.Errorf("isPreEmitExpression(%T) = %v, want %v", tt.kind, got, tt.want)
+				t.Errorf("Expression{%T}.NeedsPreEmit() = %v, want %v", tt.kind, got, tt.want)
 			}
 		})
 	}
@@ -248,11 +248,11 @@ func TestCompactUnused_MeshShaderTaskPayload(t *testing.T) {
 	}
 }
 
-// --- CompactTypes tests ---
+// --- compactTypes tests ---
 
 func TestCompactTypes_EmptyModule(t *testing.T) {
 	module := &Module{}
-	CompactTypes(module) // should not panic
+	compactTypes(module) // should not panic
 	if len(module.Types) != 0 {
 		t.Errorf("expected 0 types, got %d", len(module.Types))
 	}
@@ -279,7 +279,7 @@ func TestCompactTypes_RemovesUnreferencedAnonymousTypes(t *testing.T) {
 		},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	// Type 0 (unreferenced anonymous) should be removed
 	// Type 1 (named) kept, Type 2 (referenced by constant) kept
@@ -303,7 +303,7 @@ func TestCompactTypes_RemovesAbstractTypes(t *testing.T) {
 		},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	// Both abstract types removed, even though named
 	if len(module.Types) != 1 {
@@ -330,7 +330,7 @@ func TestCompactTypes_RemapsHandlesInTypes(t *testing.T) {
 		},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	// Type 0 removed, type 1->0, type 2->1
 	if len(module.Types) != 2 {
@@ -362,7 +362,7 @@ func TestCompactTypes_UnnamedUnreferenced(t *testing.T) {
 		},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	// f32 kept (referenced), u32 removed (unnamed + unreferenced)
 	if len(module.Types) != 1 {
@@ -383,7 +383,7 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 		},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	// Both kept: MyStruct (named struct) and Vec2Alias (named alias).
 	// Rust naga keeps ALL named types regardless of reference count.
@@ -392,7 +392,7 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 	}
 }
 
-// --- CompactConstants tests ---
+// --- compactConstants tests ---
 
 // matrixInitGlobalExpressions builds the global expression arena Rust naga
 // produces for mat2x2<f32>(vec2<f32>(1.0, 2.0), vec2<f32>(3.0, 4.0)):
@@ -460,7 +460,7 @@ func TestCompactTypes_KeepsTypesReachableFromGlobalExpressions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			module := tt.module()
-			CompactTypes(module)
+			compactTypes(module)
 
 			// vec2 (reachable) is kept; vec3 (only used by unreachable [8]) is removed,
 			// matching Rust, which traces only used global expressions.
@@ -504,7 +504,7 @@ func TestCompactTypes_KeepsZeroValueTypeFromGlobalExpressions(t *testing.T) {
 		Constants: []Constant{{Name: "C", Type: 0, Init: 2}},
 	}
 
-	CompactTypes(module)
+	compactTypes(module)
 
 	if len(module.Types) != 2 {
 		t.Fatalf("expected vec3 used by ZeroValue to be kept (2 types), got %d", len(module.Types))
@@ -525,7 +525,7 @@ func TestCompactTypes_IgnoresOutOfRangeConstantInit(t *testing.T) {
 		Types:     matrixInitTypes(),
 		Constants: []Constant{{Name: "M", Type: 0, Init: 42}},
 	}
-	CompactTypes(module) // must not panic
+	compactTypes(module) // must not panic
 	if len(module.Types) != 1 {
 		t.Fatalf("expected only the constant's own type to survive, got %d", len(module.Types))
 	}
@@ -533,7 +533,7 @@ func TestCompactTypes_IgnoresOutOfRangeConstantInit(t *testing.T) {
 
 func TestCompactConstants_EmptyModule(t *testing.T) {
 	module := &Module{}
-	CompactConstants(module, KeepUnusedYes) // should not panic
+	compactConstants(module, KeepUnusedYes) // should not panic
 }
 
 func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
@@ -559,7 +559,7 @@ func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	// Only NAMED_CONCRETE should survive (named + not abstract + referenced)
 	if len(module.Constants) != 1 {
@@ -585,7 +585,7 @@ func TestCompactConstants_KeepsReferencedByGlobalVarInit(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 {
 		t.Fatalf("expected 1 constant (ref'd by global init), got %d", len(module.Constants))
@@ -614,7 +614,7 @@ func TestCompactConstants_TransitiveKeepComposite(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	// Both should be kept: 1 is named+referenced, 0 is transitively needed by composite
 	if len(module.Constants) != 2 {
@@ -645,7 +645,7 @@ func TestCompactConstants_AllKept(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 2 {
 		t.Errorf("expected 2 constants (all kept), got %d", len(module.Constants))
@@ -671,7 +671,7 @@ func TestCompactConstants_RemovesGlobalExpressionsOfRemovedConstants(t *testing.
 		},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 || module.Constants[0].Name != "X" {
 		t.Fatalf("constants = %+v, want only X", module.Constants)
@@ -712,7 +712,7 @@ func TestCompactConstants_RemapsGlobalExpressionHandles(t *testing.T) {
 		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 1, InitExpr: &gvInit}},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	if len(module.GlobalExpressions) != 5 {
 		t.Fatalf("%d global expressions, want 5", len(module.GlobalExpressions))
@@ -750,7 +750,7 @@ func TestCompactConstants_KeepsConstantReferencedFromGlobalExpression(t *testing
 		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 0, InitExpr: &gvInit}},
 	}
 
-	CompactConstants(module, KeepUnusedYes)
+	compactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 {
 		t.Fatalf("%d constants, want the referenced unnamed one", len(module.Constants))
@@ -760,7 +760,7 @@ func TestCompactConstants_KeepsConstantReferencedFromGlobalExpression(t *testing
 	}
 }
 
-// --- CompactExpressions tests ---
+// --- compactExpressions tests ---
 
 func TestCompactExpressions_RemovesUnusedExpressions(t *testing.T) {
 	retVal := ExpressionHandle(2)
@@ -784,7 +784,7 @@ func TestCompactExpressions_RemovesUnusedExpressions(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 1 {
@@ -818,7 +818,7 @@ func TestCompactExpressions_KeepsNamedExpressions(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 1 {
@@ -851,7 +851,7 @@ func TestCompactExpressions_TransitiveDependencies(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	// All 3 should be kept (0,1 transitively needed by 2)
@@ -880,7 +880,7 @@ func TestCompactExpressions_AllUsed(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 1 {
@@ -895,7 +895,7 @@ func TestCompactExpressions_EmptyFunction(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module) // should not panic
+	compactExpressions(module) // should not panic
 }
 
 func TestCompactExpressions_RemapsEmitRanges(t *testing.T) {
@@ -921,7 +921,7 @@ func TestCompactExpressions_RemapsEmitRanges(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	// Expression 0 removed, 1->0, 2->1
@@ -957,7 +957,7 @@ func TestCompactExpressions_LocalVarInitKept(t *testing.T) {
 		},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 1 {
@@ -1033,86 +1033,6 @@ func TestReorderTypes_RemapsSpecialTypes(t *testing.T) {
 	// RayIntersection was at 1, now at 0
 	if module.SpecialTypes.RayIntersection == nil || *module.SpecialTypes.RayIntersection != 0 {
 		t.Error("expected RayIntersection remapped to 0")
-	}
-}
-
-// --- DeduplicateEmits tests ---
-
-func TestDeduplicateEmits_RemovesEmptyEmits(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
-			{
-				Name: "f",
-				Expressions: []Expression{
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 0}},
-				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 0}}}, // empty
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 1}}}, // non-empty with non-pre-emit expr
-					{Kind: StmtReturn{}},
-				},
-			},
-		},
-	}
-
-	DeduplicateEmits(module)
-
-	body := module.Functions[0].Body
-	if len(body) != 2 {
-		t.Fatalf("expected 2 statements after dedup (empty emit removed), got %d", len(body))
-	}
-}
-
-func TestDeduplicateEmits_RemovesCoveredEmits(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
-			{
-				Name: "f",
-				Expressions: []Expression{
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 0}},
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 0}},
-				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 2}}}, // first emit
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 2}}}, // duplicate — covered
-					{Kind: StmtReturn{}},
-				},
-			},
-		},
-	}
-
-	DeduplicateEmits(module)
-
-	body := module.Functions[0].Body
-	if len(body) != 2 {
-		t.Fatalf("expected 2 statements (duplicate removed), got %d", len(body))
-	}
-}
-
-func TestDeduplicateEmits_SkipsPreEmitOnlyRanges(t *testing.T) {
-	module := &Module{
-		Functions: []Function{
-			{
-				Name: "f",
-				Expressions: []Expression{
-					{Kind: Literal{Value: LiteralF32(1.0)}},              // pre-emit
-					{Kind: ExprConstant{Constant: 0}},                    // pre-emit
-					{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 0}}, // not pre-emit
-				},
-				Body: []Statement{
-					{Kind: StmtEmit{Range: Range{Start: 0, End: 2}}}, // all pre-emit -> removed
-					{Kind: StmtEmit{Range: Range{Start: 2, End: 3}}}, // has non-pre-emit -> kept
-					{Kind: StmtReturn{}},
-				},
-			},
-		},
-	}
-
-	DeduplicateEmits(module)
-
-	body := module.Functions[0].Body
-	if len(body) != 2 {
-		t.Fatalf("expected 2 statements (pre-emit only removed), got %d", len(body))
 	}
 }
 
@@ -2653,7 +2573,7 @@ func TestRemapStmtFuncHandles(t *testing.T) {
 	})
 }
 
-// --- CompactExpressions with rich statement trees (covers markStmtExprRefsForCompact + remapStmtExprHandlesCompact) ---
+// --- compactExpressions with rich statement trees (covers markStmtExprRefsForCompact + remapStmtExprHandlesCompact) ---
 
 func TestCompactExpressions_IfStatement(t *testing.T) {
 	retVal := ExpressionHandle(3)
@@ -2680,7 +2600,7 @@ func TestCompactExpressions_IfStatement(t *testing.T) {
 		}},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	// Expression 2 (unused) should be removed: 0,1,3 -> 0,1,2
@@ -2715,7 +2635,7 @@ func TestCompactExpressions_SwitchStatement(t *testing.T) {
 		}},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 2 {
@@ -2746,7 +2666,7 @@ func TestCompactExpressions_LoopStatement(t *testing.T) {
 		}},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	if len(fn.Expressions) != 2 {
@@ -2780,7 +2700,7 @@ func TestCompactExpressions_ImageStoreAndAtomic(t *testing.T) {
 		}},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	fn := &module.EntryPoints[0].Function
 	// Expression 3 (unused) removed
@@ -2820,7 +2740,7 @@ func TestCompactExpressions_CallStatement(t *testing.T) {
 		}},
 	}
 
-	CompactExpressions(module)
+	compactExpressions(module)
 
 	// In helper: expr 0 removed, expr 1 -> 0
 	if len(module.Functions[0].Expressions) != 1 {

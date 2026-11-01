@@ -319,9 +319,9 @@ func TestIRReferenceCompact(t *testing.T) {
 
 		// Known diffs in compact comparison (same as non-compact + compact-specific)
 		knownOptimizationDiff := map[string]bool{
-			"types_with_comments": true, // CompactTypes keeps named types; Rust KeepUnused::No removes them
-			"module-scope":        true, // CompactTypes does not yet remove unused types (Vec2)
-			"type-alias":          true, // CompactTypes does not yet remove unused types
+			"types_with_comments": true, // ir.Compact keeps named types; Rust KeepUnused::No removes them
+			"module-scope":        true, // ir.Compact does not yet remove unused types (Vec2)
+			"type-alias":          true, // ir.Compact does not yet remove unused types
 		}
 
 		t.Run(shaderName, func(t *testing.T) {
@@ -343,11 +343,9 @@ func TestIRReferenceCompact(t *testing.T) {
 				return
 			}
 
-			// Apply CompactUnused + CompactTypes to match Rust's second compact(KeepUnused::No).
-			// Rust's compact removes unused globals/functions AND their orphaned types.
-			ir.CompactUnused(ourMod)
-			ir.CompactExpressions(ourMod)
-			ir.CompactTypes(ourMod)
+			// Compact as Rust's second compact(KeepUnused::No) does: unused
+			// globals/functions AND their orphaned types go.
+			ir.Compact(ourMod, ir.KeepUnusedNo)
 
 			var allDiffs []string
 			allDiffs = append(allDiffs, deepCompareTypes(rustMod.Types, ourMod.Types)...)

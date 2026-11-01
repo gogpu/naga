@@ -50,6 +50,10 @@ func CheckModule(spec *Spec, m *ir.Module) error {
 	// nothing to do, so prune a copy: m stays the module the backends compile.
 	m = m.Clone()
 	ir.CompactUnused(m)
+	var layouter ir.Layouter
+	if err := layouter.Update(m); err != nil {
+		return err
+	}
 
 	var errs []error
 	json := map[uint32]*Binding{}
@@ -67,7 +71,7 @@ func CheckModule(spec *Spec, m *ir.Module) error {
 			continue
 		}
 		used[g.Binding.Binding] = true
-		if err := checkGlobal(m, g, json[g.Binding.Binding]); err != nil {
+		if err := checkGlobal(&layouter, g, json[g.Binding.Binding]); err != nil {
 			errs = append(errs, fmt.Errorf("binding %d (%s): %w", g.Binding.Binding, g.Name, err))
 		}
 	}
@@ -95,7 +99,7 @@ func CheckModule(spec *Spec, m *ir.Module) error {
 }
 
 // checkGlobal checks the JSON binding b of the bound global g.
-func checkGlobal(m *ir.Module, g *ir.GlobalVariable, b *Binding) error {
+func checkGlobal(layouter *ir.Layouter, g *ir.GlobalVariable, b *Binding) error {
 	var kind Kind
 	switch {
 	case g.Space == ir.SpaceUniform:
@@ -114,7 +118,7 @@ func checkGlobal(m *ir.Module, g *ir.GlobalVariable, b *Binding) error {
 		return fmt.Errorf("kind %q, the shader declares %q", b.Kind, kind)
 	}
 	// A runtime-sized array counts one element, WebGPU's minimum binding size.
-	if need, have := ir.TypeSize(m, g.Type), uint32(b.Size())*4; have < need { //nolint:gosec // Size is a JSON word count
+	if need, have := layouter.Layout(g.Type).Size, uint32(b.Size())*4; have < need { //nolint:gosec // Size is a JSON word count
 		return fmt.Errorf("%d bytes, the type needs %d", have, need)
 	}
 	return nil

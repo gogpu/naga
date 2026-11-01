@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -97,7 +98,7 @@ func (w *Writer) writeExpressionInline(handle ir.ExpressionHandle) (string, erro
 		return "", fmt.Errorf("invalid expression handle: %d", handle)
 	}
 	if int(handle) < len(w.currentFunction.ExpressionTypes) {
-		if res := w.currentFunction.ExpressionTypes[handle]; isFloat16(ir.TypeResInner(w.module, res)) {
+		if res := w.currentFunction.ExpressionTypes[handle]; isFloat16(res.Inner(w.module.Types)) {
 			return "", errNoFloat16
 		}
 	}
@@ -248,7 +249,7 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	k, isConst := ir.ConstIndexValue(w.module, w.currentFunction, a.Index)
+	k, isConst := irutil.ConstIndexValue(w.module, w.currentFunction, a.Index)
 	index = w.restrictIndex(a.Base, base, index, k, isConst)
 	return w.std140Element(a.Base, fmt.Sprintf("%s[%s]", base, index)), nil
 }
@@ -280,7 +281,7 @@ func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string,
 	if policy != backend.BoundsCheckRestrict {
 		return index
 	}
-	length, err := ir.IndexableLengthOf(w.module, inner)
+	length, err := irutil.IndexableLengthOf(w.module, inner)
 	switch {
 	case err != nil:
 		return index

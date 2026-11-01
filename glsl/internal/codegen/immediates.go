@@ -45,7 +45,11 @@ func (w *Writer) collectImmediateItems() error {
 		}
 		used = true
 		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}]
-		if err := w.appendImmediateItems(global.Type, name, 0); err != nil {
+		var layouter ir.Layouter
+		if err := layouter.Update(w.module); err != nil {
+			return fmt.Errorf("glsl: %w", err)
+		}
+		if err := w.appendImmediateItems(&layouter, global.Type, name, 0); err != nil {
 			return err
 		}
 	}
@@ -59,19 +63,19 @@ func (w *Writer) collectImmediateItems() error {
 	return nil
 }
 
-func (w *Writer) appendImmediateItems(ty ir.TypeHandle, path string, offset uint32) error {
+func (w *Writer) appendImmediateItems(layouter *ir.Layouter, ty ir.TypeHandle, path string, offset uint32) error {
 	switch t := w.module.Types[ty].Inner.(type) {
 	case ir.ScalarType, ir.VectorType, ir.MatrixType:
 		w.immediateItems = append(w.immediateItems, ImmediateItem{
 			AccessPath: path,
 			Type:       t,
 			Offset:     offset,
-			SizeBytes:  ir.TypeSize(w.module, ty),
+			SizeBytes:  layouter.Layout(ty).Size,
 		})
 	case ir.StructType:
 		for i, m := range t.Members {
 			member := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(ty), handle2: uint32(i)}]
-			if err := w.appendImmediateItems(m.Type, path+"."+member, offset+m.Offset); err != nil {
+			if err := w.appendImmediateItems(layouter, m.Type, path+"."+member, offset+m.Offset); err != nil {
 				return err
 			}
 		}

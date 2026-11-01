@@ -1,20 +1,21 @@
 package ir
 
-// KeepUnused selects whether compaction keeps named overrides nothing uses,
-// as Rust naga's compact::KeepUnused.
+// KeepUnused selects whether Compact keeps the functions, global variables
+// and named overrides nothing uses, as Rust naga's compact::KeepUnused.
 type KeepUnused bool
 
 const (
-	// KeepUnusedNo removes every override nothing uses (Rust KeepUnused::No),
-	// as pipeline-constant processing needs: an override no entry point uses
+	// KeepUnusedNo removes every function and global variable no entry point
+	// reaches and every override nothing uses (Rust KeepUnused::No), as
+	// pipeline-constant processing needs: an override no entry point uses
 	// needs no value.
 	KeepUnusedNo KeepUnused = false
-	// KeepUnusedYes keeps every named override (Rust KeepUnused::Yes), as
-	// after lowering.
+	// KeepUnusedYes keeps every function, global variable and named override
+	// (Rust KeepUnused::Yes), as after lowering.
 	KeepUnusedYes KeepUnused = true
 )
 
-// CompactConstants removes the constants, overrides and global expressions
+// compactConstants removes the constants, overrides and global expressions
 // nothing uses and renumbers the handles of what is left, as Rust naga's
 // compact does for Module.constants, Module.overrides and
 // Module.global_expressions.
@@ -29,9 +30,9 @@ const (
 // constants and overrides, and the operands of used global expressions. An
 // override without a name is never used by definition.
 //
-// Run it after CompactExpressions, so that a dead function expression does
+// Run it after compactExpressions, so that a dead function expression does
 // not keep a constant or an override alive.
-func CompactConstants(module *Module, keep KeepUnused) {
+func compactConstants(module *Module, keep KeepUnused) {
 	nc, ng, no := len(module.Constants), len(module.GlobalExpressions), len(module.Overrides)
 	if nc == 0 && ng == 0 && no == 0 {
 		return
@@ -89,7 +90,7 @@ func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 		c := &m.Constants[i]
 		abstract := c.IsAbstract
 		if !abstract && int(c.Type) < len(m.Types) {
-			abstract = IsAbstractType(m.Types[c.Type].Inner, m.Types)
+			abstract = isAbstractType(m.Types[c.Type].Inner, m.Types)
 		}
 		if c.Name != "" && c.Name != "_" && !abstract {
 			t.constant(ConstantHandle(i))

@@ -46,7 +46,7 @@ func TestResolveMathResultTypes(t *testing.T) {
 			t.Errorf("%s: %v", tt.name, err)
 			continue
 		}
-		if got := TypeResInner(m, res); !reflect.DeepEqual(got, tt.want) {
+		if got := res.Inner(m.Types); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("%s: result %#v, want %#v", tt.name, got, tt.want)
 		}
 	}
@@ -68,7 +68,7 @@ func TestResolveImageLoadSampledKind(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := VectorType{Size: Vec4, Scalar: ScalarType{Kind: kind, Width: 4}}
-		if got := TypeResInner(m, res); got != want {
+		if got := res.Inner(m.Types); got != want {
 			t.Errorf("kind %v: textureLoad type = %#v, want %#v", kind, got, want)
 		}
 	}

@@ -2,7 +2,7 @@ package ir
 
 import "testing"
 
-func TestTypeSize(t *testing.T) {
+func TestLayouterSize(t *testing.T) {
 	u32ptr := func(v uint32) *uint32 { return &v }
 
 	mod := &Module{
@@ -75,9 +75,9 @@ func TestTypeSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := TypeSize(mod, tt.handle)
+			got := layoutOf(t, mod, tt.handle).Size
 			if got != tt.want {
-				t.Errorf("TypeSize(%s) = %d, want %d", tt.name, got, tt.want)
+				t.Errorf("Layout(%s).Size = %d, want %d", tt.name, got, tt.want)
 			}
 		})
 	}

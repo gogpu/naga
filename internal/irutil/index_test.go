@@ -1,13 +1,24 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package ir_test
+package irutil_test
 
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
+
+func lowerWGSL(t *testing.T, source string) *ir.Module {
+	t.Helper()
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	return module
+}
 
 // indexOperand returns the Index operand of the first Access expression in
 // the entry point "main", the expression a bounds check has to classify.
@@ -83,7 +94,7 @@ func TestConstIndexValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, known := ir.ConstIndexValue(module, fn, tt.handle)
+			got, known := irutil.ConstIndexValue(module, fn, tt.handle)
 			if known != tt.known || got != tt.want {
 				t.Errorf("ConstIndexValue = %d, %v; want %d, %v", got, known, tt.want, tt.known)
 			}
@@ -117,7 +128,7 @@ fn main(@builtin(local_invocation_index) n: u32) {
 }`
 			module := lowerWGSL(t, source)
 			fn, index := indexOperand(t, module)
-			got, known := ir.ConstIndexValue(module, fn, index)
+			got, known := irutil.ConstIndexValue(module, fn, index)
 			if known != tt.known || got != tt.want {
 				t.Errorf("ConstIndexValue(%s) = %d, %v; want %d, %v", tt.index, got, known, tt.want, tt.known)
 			}
@@ -158,7 +169,7 @@ func TestIndexableLength(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ir.IndexableLengthOf(module, tt.inner)
+			got, err := irutil.IndexableLengthOf(module, tt.inner)
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Errorf("IndexableLengthOf = %+v, %v; want %+v, error %v", got, err, tt.want, tt.wantErr)
 			}
