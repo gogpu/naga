@@ -1098,7 +1098,7 @@ func TestEmitBarrierWorkgroup(t *testing.T) {
 			{Inner: ir.ArrayType{Base: u32, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageReadWrite,
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: arrU32},
 		},
 	}
@@ -1233,7 +1233,7 @@ func TestEmitComputeBuiltins(t *testing.T) {
 			{Inner: ir.ArrayType{Base: u32, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageReadWrite,
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: arrU32},
 		},
 	}
@@ -1855,7 +1855,7 @@ func TestEmitComputeShaderMetadata(t *testing.T) {
 			{Inner: ir.ArrayType{Base: u32, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageReadWrite,
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: arrU32},
 		},
 	}
@@ -2053,7 +2053,7 @@ func TestComputeBitcodeShaderFlagsBasicCompute(t *testing.T) {
 			{Inner: ir.ArrayType{Base: u32, Stride: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageReadWrite,
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: arrU32},
 		},
 	}

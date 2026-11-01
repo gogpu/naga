@@ -253,6 +253,9 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 		if inner.Class == ImageClassStorage && inner.StorageFormat == StorageFormatUndefined {
 			v.addError(fmt.Sprintf("type %d: storage image has no format (StorageFormatUndefined)", handle))
 		}
+		if inner.Class == ImageClassStorage && inner.StorageAccess == 0 {
+			v.addError(fmt.Sprintf("type %d: storage image has no access (empty StorageAccess)", handle))
+		}
 	}
 }
 
@@ -284,6 +287,17 @@ func (v *validator) validateGlobalVariables() {
 			// Rust: the type lacks CREATION_RESOLVED, which every address
 			// space but workgroup requires.
 			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: an array sized by an override is allowed only in the workgroup address space", i, gv.Name))
+		}
+
+		// Rust keeps the access inside AddressSpace::Storage (ADR-010 E2).
+		switch {
+		case gv.Space == SpaceStorage && gv.Access == 0:
+			v.addError(fmt.Sprintf("global variable %q: storage variable has no access (empty StorageAccess)", gv.Name))
+		case gv.Space == SpaceStorage && !gv.Access.Contains(StorageAccessLoad):
+			// Rust's GlobalVariableError text.
+			v.addError(fmt.Sprintf("global variable %q: Storage address space doesn't support write-only access", gv.Name))
+		case gv.Space != SpaceStorage && gv.Access != 0:
+			v.addError(fmt.Sprintf("global variable %q: only a storage variable has an access", gv.Name))
 		}
 
 		if gv.Binding != nil {

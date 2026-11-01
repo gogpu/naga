@@ -1435,7 +1435,7 @@ func TestWriteArrayLength_UintWrap(t *testing.T) {
 			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{}, Stride: 4}}, // dynamic array
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 1},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 1},
 		},
 		EntryPoints: []ir.EntryPoint{
 			{Name: "main", Stage: ir.StageCompute, Function: ir.Function{

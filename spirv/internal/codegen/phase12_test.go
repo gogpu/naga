@@ -1078,9 +1078,9 @@ func TestCollectUsedGlobalVars_Direct(t *testing.T) {
 		},
 		Constants: []ir.Constant{},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf0", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
-			{Name: "buf1", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 1},
-			{Name: "buf2", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 2}, Type: 1},
+			{Name: "buf0", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
+			{Name: "buf1", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 1},
+			{Name: "buf2", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 2}, Type: 1},
 		},
 		Functions: []ir.Function{},
 		EntryPoints: []ir.EntryPoint{
@@ -1129,8 +1129,8 @@ func TestCollectUsedGlobalVars_Transitive(t *testing.T) {
 		},
 		Constants: []ir.Constant{},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "direct_buf", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
-			{Name: "indirect_buf", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 1},
+			{Name: "direct_buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
+			{Name: "indirect_buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 1},
 		},
 		Functions: []ir.Function{
 			// Function 0: helper() -- references indirect_buf
@@ -1190,7 +1190,7 @@ func TestCollectUsedGlobalVars_NoDuplicates(t *testing.T) {
 		},
 		Constants: []ir.Constant{},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 1},
 		},
 		Functions: []ir.Function{},
 		EntryPoints: []ir.EntryPoint{

@@ -2012,29 +2012,13 @@ func (b *Backend) emitGlobals() error {
 func (b *Backend) getStorageAccessFlags(global ir.GlobalVariable) (hasLoad bool, hasStore bool, applicable bool) {
 	// Check Storage address space first (mirrors Rust: Storage { access })
 	if global.Space == ir.SpaceStorage {
-		switch global.Access {
-		case ir.StorageRead:
-			return true, false, true // LOAD only
-		case ir.StorageReadWrite:
-			return true, true, true // LOAD | STORE
-		default:
-			return true, true, true // default read_write
-		}
+		return global.Access.Contains(ir.StorageAccessLoad), global.Access.Contains(ir.StorageAccessStore), true
 	}
 	// Check storage image types
 	if int(global.Type) < len(b.module.Types) {
 		if img, ok := b.module.Types[global.Type].Inner.(ir.ImageType); ok {
 			if img.Class == ir.ImageClassStorage {
-				switch img.StorageAccess {
-				case ir.StorageAccessRead:
-					return true, false, true
-				case ir.StorageAccessWrite:
-					return false, true, true
-				case ir.StorageAccessReadWrite:
-					return true, true, true
-				default:
-					return true, true, true
-				}
+				return img.StorageAccess.Contains(ir.StorageAccessLoad), img.StorageAccess.Contains(ir.StorageAccessStore), true
 			}
 		}
 	}

@@ -724,7 +724,7 @@ func TestCompile_StorageBufferAsEntryParam(t *testing.T) {
 			}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "storage_buf", Type: tBuf, Space: ir.SpaceStorage,
+			{Name: "storage_buf", Type: tBuf, Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore,
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0}},
 		},
 		EntryPoints: []ir.EntryPoint{

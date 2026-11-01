@@ -891,7 +891,7 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 		// Storage buffers use ByteAddressBuffer / RWByteAddressBuffer (raw byte access).
 		// Matches Rust naga: storage globals always use byte address buffers.
 		binding := w.getBindTarget(global.Binding)
-		readOnly := global.Access == ir.StorageRead
+		readOnly := !global.Access.Contains(ir.StorageAccessStore)
 		prefix := "RW"
 		regType := "u"
 		if readOnly {

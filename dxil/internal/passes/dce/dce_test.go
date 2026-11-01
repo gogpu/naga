@@ -81,7 +81,7 @@ func TestDeadLocalOnlyCompute(t *testing.T) {
 func TestLiveLocalUsedByGlobalStore(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
@@ -137,7 +137,7 @@ func TestLiveLocalUsedByGlobalStore(t *testing.T) {
 func TestLiveLocalChain(t *testing.T) {
 	mod := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+			{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 	}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
@@ -714,7 +714,7 @@ func TestLocalReadIntoALiveLocalKeepsItsStores(t *testing.T) {
 // grows to a fixed point.
 func TestPureCallChainKeepsArguments(t *testing.T) {
 	mod := &ir.Module{
-		GlobalVariables: []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Type: 0}},
+		GlobalVariables: []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0}},
 	}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
 	g := ir.Function{

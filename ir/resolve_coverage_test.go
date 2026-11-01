@@ -391,7 +391,7 @@ func TestResolveAtomicResultType(t *testing.T) {
 			{Name: "atomic_u32", Inner: AtomicType{Scalar: ScalarType{Kind: ScalarUint, Width: 4}}},
 		},
 		GlobalVariables: []GlobalVariable{
-			{Name: "counter", Space: SpaceStorage, Type: 1}, // type 1 = atomic_u32
+			{Name: "counter", Space: SpaceStorage, Access: StorageAccessLoad | StorageAccessStore, Type: 1}, // type 1 = atomic_u32
 		},
 	}
 

@@ -294,9 +294,9 @@ func dumpGlobals(sb *strings.Builder, m *ir.Module) {
 		spaceStr := addressSpaceStr(g.Space)
 		if g.Space == ir.SpaceStorage {
 			switch g.Access {
-			case ir.StorageRead:
+			case ir.StorageAccessLoad:
 				spaceStr = "Storage(LOAD)"
-			case ir.StorageReadWrite:
+			case ir.StorageAccessLoad | ir.StorageAccessStore:
 				spaceStr = "Storage(LOAD|STORE)"
 			}
 		}

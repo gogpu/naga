@@ -20,8 +20,8 @@ func TestValidateStorageImageNeedsFormat(t *testing.T) {
 		image   ImageType
 		wantErr bool
 	}{
-		{"storage, no format", ImageType{Dim: Dim2D, Class: ImageClassStorage, StorageAccess: StorageAccessWrite}, true},
-		{"storage, r8unorm", ImageType{Dim: Dim2D, Class: ImageClassStorage, StorageFormat: StorageFormatR8Unorm, StorageAccess: StorageAccessWrite}, false},
+		{"storage, no format", ImageType{Dim: Dim2D, Class: ImageClassStorage, StorageAccess: StorageAccessStore}, true},
+		{"storage, r8unorm", ImageType{Dim: Dim2D, Class: ImageClassStorage, StorageFormat: StorageFormatR8Unorm, StorageAccess: StorageAccessStore}, false},
 		{"sampled", ImageType{Dim: Dim2D, Class: ImageClassSampled, SampledKind: ScalarFloat}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1519,7 +1519,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 
 	// Determine readonly from access mode
 	readOnly := ""
-	if global.Access == ir.StorageRead {
+	if !global.Access.Contains(ir.StorageAccessStore) {
 		readOnly = "readonly "
 	}
 
@@ -3036,18 +3036,19 @@ func glslStorageFormat(format ir.StorageFormat) string {
 	}
 }
 
-// glslStorageAccess returns the GLSL access qualifier for storage textures.
+// glslStorageAccess returns the GLSL access qualifier for storage textures,
+// as Rust naga's write_storage_access (back/glsl/writer.rs:4503): none for an
+// atomic image or one both loaded and stored.
 func glslStorageAccess(access ir.StorageAccess) string {
-	switch access {
-	case ir.StorageAccessRead:
-		return "readonly "
-	case ir.StorageAccessWrite:
-		return "writeonly "
-	case ir.StorageAccessReadWrite:
-		return "" // both read+write = no qualifier
-	default:
+	switch {
+	case access.Contains(ir.StorageAccessAtomic):
 		return ""
+	case !access.Contains(ir.StorageAccessStore):
+		return "readonly "
+	case !access.Contains(ir.StorageAccessLoad):
+		return "writeonly "
 	}
+	return ""
 }
 
 // formatFloat formats a float32 for GLSL output.

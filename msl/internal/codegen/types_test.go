@@ -459,13 +459,13 @@ func TestMSL_ImageType(t *testing.T) {
 			ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, Arrayed: true},
 			"texture1d_array"},
 		{"storage_rw",
-			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessReadWrite},
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessLoad | ir.StorageAccessStore},
 			"read_write"},
 		{"storage_read",
-			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessRead},
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessLoad},
 			"access::read"},
 		{"storage_write",
-			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessWrite},
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessStore},
 			"access::write"},
 	}
 

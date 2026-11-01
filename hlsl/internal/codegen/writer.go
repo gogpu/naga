@@ -991,7 +991,7 @@ func (w *Writer) handleArrayLengthHelper(fn *ir.Function, alExpr ir.ExprArrayLen
 		}
 		if int(gvHandle) < len(w.module.GlobalVariables) {
 			gv := &w.module.GlobalVariables[gvHandle]
-			writable = gv.Space == ir.SpaceStorage && gv.Access == ir.StorageReadWrite
+			writable = gv.Space == ir.SpaceStorage && gv.Access.Contains(ir.StorageAccessStore)
 		}
 	}
 
@@ -2099,7 +2099,7 @@ func (w *Writer) writeNagaBufferLengthHelpers(fn *ir.Function) {
 			}
 			if int(gvHandle) < len(w.module.GlobalVariables) {
 				gv := &w.module.GlobalVariables[gvHandle]
-				writable = gv.Space == ir.SpaceStorage && gv.Access == ir.StorageReadWrite
+				writable = gv.Space == ir.SpaceStorage && gv.Access.Contains(ir.StorageAccessStore)
 			}
 		}
 

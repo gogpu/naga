@@ -468,7 +468,7 @@ func TestNonWritableStorageBuffer(t *testing.T) {
 					Group:   0,
 					Binding: 0,
 				},
-				Access: ir.StorageRead, // read-only
+				Access: ir.StorageAccessLoad, // read-only
 			},
 		},
 		GlobalExpressions: []ir.Expression{},
@@ -1077,19 +1077,19 @@ func TestStorageTextureImageFormat(t *testing.T) {
 				Dim:           ir.Dim2D,
 				Class:         ir.ImageClassStorage,
 				StorageFormat: ir.StorageFormatR32Float,
-				StorageAccess: ir.StorageAccessRead,
+				StorageAccess: ir.StorageAccessLoad,
 			}},
 			{Name: "", Inner: ir.ImageType{
 				Dim:           ir.Dim2D,
 				Class:         ir.ImageClassStorage,
 				StorageFormat: ir.StorageFormatRgba8Uint,
-				StorageAccess: ir.StorageAccessRead,
+				StorageAccess: ir.StorageAccessLoad,
 			}},
 			{Name: "", Inner: ir.ImageType{
 				Dim:           ir.Dim2D,
 				Class:         ir.ImageClassStorage,
 				StorageFormat: ir.StorageFormatRgba32Sint,
-				StorageAccess: ir.StorageAccessRead,
+				StorageAccess: ir.StorageAccessLoad,
 			}},
 		},
 		Constants:       []ir.Constant{},

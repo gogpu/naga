@@ -416,7 +416,7 @@ func TestCollectFeatures_WorkgroupGlobal(t *testing.T) {
 func TestCollectFeatures_StorageGlobal(t *testing.T) {
 	module := &ir.Module{
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Type: 0},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
 		},
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
