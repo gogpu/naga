@@ -17,6 +17,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/internal/testtools"
+	"github.com/gogpu/naga/ir"
 )
 
 // dxcPath returns the path to dxc.exe from Windows SDK, or empty if not found.
@@ -292,7 +293,7 @@ func dxilBindingArraySizes(shaderName string) dxil.BindingMap {
 		if m == nil {
 			m = dxil.BindingMap{}
 		}
-		m[dxil.BindingLocation{Group: b.group, Binding: b.binding}] = dxil.BindTarget{
+		m[ir.ResourceBinding{Group: b.group, Binding: b.binding}] = dxil.BindTarget{
 			Space:            uint8(b.group),
 			Register:         b.binding,
 			BindingArraySize: b.bindingArraySize,

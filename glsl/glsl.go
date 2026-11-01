@@ -78,12 +78,6 @@ var (
 	VersionES320 = Version{Major: 3, Minor: 20, ES: true} // ES 3.2
 )
 
-// BindingMapKey identifies a resource binding for the BindingMap.
-type BindingMapKey struct {
-	Group   uint32
-	Binding uint32
-}
-
 // Options configures GLSL code generation.
 type Options struct {
 	// LangVersion is the target GLSL version.
@@ -145,7 +139,7 @@ type Options struct {
 	// binding 0, so it is an error wrapping backend.ErrMissingBinding unless
 	// FakeMissingBindings is set. Rust naga writes such a resource without a
 	// binding silently.
-	BindingMap map[BindingMapKey]uint8
+	BindingMap map[ir.ResourceBinding]uint8
 
 	// FakeMissingBindings writes a resource a non-nil BindingMap leaves out
 	// without a binding qualifier, as Rust naga does, instead of failing.

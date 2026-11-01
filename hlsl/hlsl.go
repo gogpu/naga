@@ -8,7 +8,6 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl/internal/codegen"
-	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -41,24 +40,6 @@ type BindTarget struct {
 	RestrictIndexing bool
 }
 
-// WithSpace returns a copy of the BindTarget with the specified space.
-func (bt BindTarget) WithSpace(space uint8) BindTarget {
-	bt.Space = space
-	return bt
-}
-
-// WithRegister returns a copy of the BindTarget with the specified register.
-func (bt BindTarget) WithRegister(register uint32) BindTarget {
-	bt.Register = register
-	return bt
-}
-
-// WithArraySize returns a copy of the BindTarget with the specified array size.
-func (bt BindTarget) WithArraySize(size uint32) BindTarget {
-	bt.BindingArraySize = &size
-	return bt
-}
-
 // OffsetsBindTarget specifies the HLSL register binding for a dynamic buffer
 // offsets constant buffer.
 type OffsetsBindTarget struct {
@@ -76,48 +57,6 @@ type SamplerHeapBindTargets struct {
 	ComparisonSamplers BindTarget
 }
 
-// ResourceBinding identifies a resource in the source shader.
-type ResourceBinding struct {
-	// Group corresponds to WGSL @group or SPIR-V DescriptorSet.
-	Group uint32
-
-	// Binding corresponds to WGSL @binding or SPIR-V Binding.
-	Binding uint32
-}
-
-// RegisterType represents the HLSL register type.
-type RegisterType uint8
-
-const (
-	// RegisterTypeB is for constant buffers (cbuffer).
-	RegisterTypeB RegisterType = iota
-
-	// RegisterTypeT is for textures and shader resource views.
-	RegisterTypeT
-
-	// RegisterTypeS is for samplers.
-	RegisterTypeS
-
-	// RegisterTypeU is for unordered access views (UAV).
-	RegisterTypeU
-)
-
-// String returns the single-character register prefix.
-func (rt RegisterType) String() string {
-	switch rt {
-	case RegisterTypeB:
-		return "b"
-	case RegisterTypeT:
-		return "t"
-	case RegisterTypeS:
-		return "s"
-	case RegisterTypeU:
-		return "u"
-	default:
-		return "b"
-	}
-}
-
 // ExternalTextureBindTarget specifies HLSL binding information for an external
 // texture global variable.
 type ExternalTextureBindTarget struct {
@@ -128,7 +67,7 @@ type ExternalTextureBindTarget struct {
 }
 
 // ExternalTextureBindingMap maps resource bindings to external texture bind targets.
-type ExternalTextureBindingMap map[ResourceBinding]ExternalTextureBindTarget
+type ExternalTextureBindingMap map[ir.ResourceBinding]ExternalTextureBindTarget
 
 // --- Options ---
 
@@ -144,7 +83,7 @@ type Options struct {
 	// @group(G) @binding(N). A non-nil map, empty too, must list every
 	// resource the module writes: one without an entry is an error wrapping
 	// backend.ErrMissingBinding, unless FakeMissingBindings is set.
-	BindingMap map[ResourceBinding]BindTarget
+	BindingMap map[ir.ResourceBinding]BindTarget
 
 	// SamplerHeapTargets places the sampler heaps samplers are read from (as
 	// Rust naga and wgpu-hal's DX12 backend bind samplers). Nil places the
@@ -246,236 +185,11 @@ type FragmentEntryPoint struct {
 	Function *ir.Function
 }
 
-// --- Feature flags ---
-
-// FeatureFlags indicates which HLSL features are used by the generated code.
-type FeatureFlags uint32
-
-const (
-	// FeatureNone indicates no special features are used.
-	FeatureNone FeatureFlags = 0
-
-	// FeatureWaveOps indicates wave intrinsics are used (SM 6.0+).
-	FeatureWaveOps FeatureFlags = 1 << iota
-
-	// FeatureRayTracing indicates DXR features are used (SM 6.3+).
-	FeatureRayTracing
-
-	// FeatureMeshShaders indicates mesh shader features are used (SM 6.5+).
-	FeatureMeshShaders
-
-	// Feature64BitIntegers indicates 64-bit integer types are used.
-	Feature64BitIntegers
-
-	// Feature64BitAtomics indicates 64-bit atomic operations are used (SM 6.6+).
-	Feature64BitAtomics
-
-	// FeatureFloat16 indicates native float16 types are used (SM 6.2+).
-	FeatureFloat16
-
-	// FeatureSubgroupOps indicates subgroup operations are used.
-	FeatureSubgroupOps
-)
-
-// Has returns true if the flags contain the specified feature.
-func (f FeatureFlags) Has(feature FeatureFlags) bool {
-	return f&feature != 0
-}
-
-// String returns a human-readable list of enabled features.
-func (f FeatureFlags) String() string {
-	if f == FeatureNone {
-		return "none"
-	}
-
-	var features []string
-	if f.Has(FeatureWaveOps) {
-		features = append(features, "WaveOps")
-	}
-	if f.Has(FeatureRayTracing) {
-		features = append(features, "RayTracing")
-	}
-	if f.Has(FeatureMeshShaders) {
-		features = append(features, "MeshShaders")
-	}
-	if f.Has(Feature64BitIntegers) {
-		features = append(features, "64BitIntegers")
-	}
-	if f.Has(Feature64BitAtomics) {
-		features = append(features, "64BitAtomics")
-	}
-	if f.Has(FeatureFloat16) {
-		features = append(features, "Float16")
-	}
-	if f.Has(FeatureSubgroupOps) {
-		features = append(features, "SubgroupOps")
-	}
-
-	if len(features) == 0 {
-		return "none"
-	}
-
-	result := features[0]
-	for i := 1; i < len(features); i++ {
-		result += ", " + features[i]
-	}
-	return result
-}
-
-// --- Error types ---
-
-// ErrorKind categorizes HLSL compilation errors.
-type ErrorKind uint8
-
-const (
-	// ErrUnsupportedFeature indicates a shader feature not supported by the target.
-	ErrUnsupportedFeature ErrorKind = iota
-
-	// ErrMissingBinding indicates a resource binding was not found in BindingMap.
-	ErrMissingBinding
-
-	// ErrInvalidShaderModel indicates an invalid or unsupported shader model.
-	ErrInvalidShaderModel
-
-	// ErrInternalError indicates an internal compiler error.
-	ErrInternalError
-
-	// ErrInvalidModule indicates the IR module is malformed.
-	ErrInvalidModule
-
-	// ErrUnsupportedType indicates a type that cannot be represented in HLSL.
-	ErrUnsupportedType
-)
-
-// String returns a human-readable error kind name.
-func (k ErrorKind) String() string {
-	switch k {
-	case ErrUnsupportedFeature:
-		return "UnsupportedFeature"
-	case ErrMissingBinding:
-		return "MissingBinding"
-	case ErrInvalidShaderModel:
-		return "InvalidShaderModel"
-	case ErrInternalError:
-		return "InternalError"
-	case ErrInvalidModule:
-		return "InvalidModule"
-	case ErrUnsupportedType:
-		return "UnsupportedType"
-	default:
-		return "Unknown"
-	}
-}
-
-// Span represents a source location for error reporting.
-type Span struct {
-	// Start is the byte offset of the span start.
-	Start uint32
-
-	// End is the byte offset of the span end.
-	End uint32
-}
-
-// Error represents an HLSL compilation error.
-type Error struct {
-	// Kind categorizes the error.
-	Kind ErrorKind
-
-	// Message provides details about the error.
-	Message string
-
-	// Span optionally identifies the source location.
-	Span *Span
-}
-
-// Error implements the error interface.
-func (e *Error) Error() string {
-	if e.Span != nil {
-		return fmt.Sprintf("hlsl %s at [%d:%d]: %s", e.Kind, e.Span.Start, e.Span.End, e.Message)
-	}
-	return fmt.Sprintf("hlsl %s: %s", e.Kind, e.Message)
-}
-
-// IsUnsupportedFeature returns true if the error is ErrUnsupportedFeature.
-func (e *Error) IsUnsupportedFeature() bool {
-	return e.Kind == ErrUnsupportedFeature
-}
-
-// IsMissingBinding returns true if the error is ErrMissingBinding.
-func (e *Error) IsMissingBinding() bool {
-	return e.Kind == ErrMissingBinding
-}
-
-// IsInternalError returns true if the error is ErrInternalError.
-func (e *Error) IsInternalError() bool {
-	return e.Kind == ErrInternalError
-}
-
-// --- I/O types ---
-
-// Io distinguishes input from output in entry point interfaces.
-type Io int
-
-const (
-	// IoInput marks entry point inputs.
-	IoInput Io = iota
-	// IoOutput marks entry point outputs.
-	IoOutput
-)
-
-// --- Writer type ---
-
-// Writer generates HLSL source code from IR.
-// Use Compile for the standard compilation workflow.
-type Writer = codegen.Writer
-
-// --- Translation info ---
-
-// TranslationInfo contains metadata about the HLSL translation.
+// TranslationInfo describes what Compile wrote (Rust naga's hlsl::ReflectionInfo).
 type TranslationInfo struct {
 	// EntryPointNames maps original entry point names to generated HLSL names.
 	EntryPointNames map[string]string
-
-	// UsedFeatures indicates which shader features are used.
-	UsedFeatures FeatureFlags
-
-	// RequiredShaderModel is the minimum shader model needed for this shader.
-	RequiredShaderModel backend.ShaderModel
-
-	// RegisterBindings maps resource names to their HLSL register bindings.
-	RegisterBindings map[string]string
-
-	// HelperFunctions lists any helper functions that were generated.
-	HelperFunctions []string
 }
-
-// --- Keyword constants ---
-
-// UnnamedIdentifier is the default name for empty identifiers.
-const UnnamedIdentifier = "_unnamed"
-
-// Naga helper function names.
-const (
-	NagaModfFunction               = "naga_modf"
-	NagaFrexpFunction              = "naga_frexp"
-	NagaExtractBitsFunction        = "naga_extractBits"
-	NagaInsertBitsFunction         = "naga_insertBits"
-	SamplerHeapVar                 = "_naga_sampler_heap"
-	ComparisonSamplerHeapVar       = "_naga_comparison_sampler_heap"
-	SampleExternalTextureFunction  = "_naga_sample_external_texture"
-	NagaAbsFunction                = "_naga_abs"
-	NagaDivFunction                = "naga_div"
-	NagaModFunction                = "naga_mod"
-	NagaNegFunction                = "_naga_neg"
-	NagaF2I32Function              = "_naga_f2i32"
-	NagaF2U32Function              = "_naga_f2u32"
-	NagaF2I64Function              = "_naga_f2i64"
-	NagaF2U64Function              = "_naga_f2u64"
-	ImageLoadExternalFunction      = "_naga_image_load_external"
-	ImageSampleBaseClampToEdgeFunc = "_naga_image_sample_base_clamp_to_edge"
-	DynamicBufferOffsetsPrefix     = "__dynamic_buffer_offsets"
-	ImageStorageLoadScalarWrapper  = "_naga_image_storage_load_scalar"
-)
 
 // --- Functions ---
 
@@ -517,134 +231,6 @@ func toCodegenShaderModel(sm backend.ShaderModel) (codegen.ShaderModel, error) {
 // DefaultOptions returns the zero Options, the safe defaults.
 func DefaultOptions() Options {
 	return Options{}
-}
-
-// DefaultBindTarget returns a BindTarget with default values.
-func DefaultBindTarget() BindTarget {
-	return BindTarget{
-		Space:            0,
-		Register:         0,
-		BindingArraySize: nil,
-	}
-}
-
-// NewError creates a new HLSL error without span information.
-func NewError(kind ErrorKind, message string) *Error {
-	return &Error{
-		Kind:    kind,
-		Message: message,
-		Span:    nil,
-	}
-}
-
-// NewErrorWithSpan creates a new HLSL error with span information.
-func NewErrorWithSpan(kind ErrorKind, message string, start, end uint32) *Error {
-	return &Error{
-		Kind:    kind,
-		Message: message,
-		Span:    &Span{Start: start, End: end},
-	}
-}
-
-// NeedsTrailingUnderscore reports whether a variable name requires a
-// trailing underscore suffix in HLSL output.
-func NeedsTrailingUnderscore(name string) bool {
-	return d3d.NeedsTrailingUnderscore(name)
-}
-
-// --- Conversion functions ---
-
-// ScalarToHLSL converts a scalar type to its HLSL string representation.
-func ScalarToHLSL(s ir.ScalarType) string {
-	return codegen.ScalarToHLSL(s)
-}
-
-// VectorToHLSL converts a vector type to its HLSL string representation.
-func VectorToHLSL(v ir.VectorType) string {
-	return codegen.VectorToHLSL(v)
-}
-
-// MatrixToHLSL converts a matrix type to its HLSL string representation.
-func MatrixToHLSL(m ir.MatrixType) string {
-	return codegen.MatrixToHLSL(m)
-}
-
-// ScalarCast returns the HLSL cast function for a scalar kind.
-func ScalarCast(k ir.ScalarKind) string {
-	return codegen.ScalarCast(k)
-}
-
-// BuiltInToSemantic converts a built-in value to its HLSL semantic string, ""
-// for a built-in HLSL has no semantic for (draw index, point size).
-func BuiltInToSemantic(b ir.BuiltinValue) string {
-	return codegen.BuiltInToSemantic(b)
-}
-
-// InterpolationToHLSL converts an interpolation kind to HLSL modifier.
-func InterpolationToHLSL(k ir.InterpolationKind) string {
-	return codegen.InterpolationToHLSL(k)
-}
-
-// SamplingToHLSL converts an interpolation sampling to HLSL modifier.
-func SamplingToHLSL(s ir.InterpolationSampling) string {
-	return codegen.SamplingToHLSL(s)
-}
-
-// AtomicOpToHLSL converts an atomic operation to its HLSL function name.
-func AtomicOpToHLSL(op string) string {
-	return codegen.AtomicOpToHLSL(op)
-}
-
-// AddressSpaceToHLSL converts an address space to HLSL representation.
-func AddressSpaceToHLSL(space ir.AddressSpace) string {
-	return codegen.AddressSpaceToHLSL(space)
-}
-
-// ImageDimToHLSL converts an image dimension to HLSL suffix.
-func ImageDimToHLSL(dim ir.ImageDimension, arrayed bool) string {
-	return codegen.ImageDimToHLSL(dim, arrayed)
-}
-
-// ImageClassToHLSL converts an image class to HLSL prefix.
-func ImageClassToHLSL(class ir.ImageClass, readWrite bool) string {
-	return codegen.ImageClassToHLSL(class, readWrite)
-}
-
-// ImageToHLSL converts an image type to full HLSL type string.
-func ImageToHLSL(img ir.ImageType, readWrite bool) string {
-	return codegen.ImageToHLSL(img, readWrite)
-}
-
-// SamplerToHLSL returns the HLSL sampler type.
-func SamplerToHLSL(comparison bool) string {
-	return codegen.SamplerToHLSL(comparison)
-}
-
-// ShaderStageToHLSL converts a shader stage to HLSL attribute name.
-func ShaderStageToHLSL(stage ir.ShaderStage) string {
-	return codegen.ShaderStageToHLSL(stage)
-}
-
-// ShaderProfile returns the full HLSL shader profile string.
-func ShaderProfile(stage ir.ShaderStage, major, minor uint8) string {
-	return codegen.ShaderProfile(stage, major, minor)
-}
-
-// --- Keyword functions ---
-
-// IsReserved checks if a name is an HLSL reserved keyword.
-func IsReserved(name string) bool {
-	return codegen.IsReserved(name)
-}
-
-// IsCaseInsensitiveReserved checks if a name conflicts with case-insensitive keywords.
-func IsCaseInsensitiveReserved(name string) bool {
-	return codegen.IsCaseInsensitiveReserved(name)
-}
-
-// Escape returns a safe identifier name.
-func Escape(name string) string {
-	return codegen.Escape(name)
 }
 
 // --- Internal conversion ---
@@ -761,11 +347,5 @@ func fromCodegenTranslationInfo(ci *codegen.TranslationInfo) TranslationInfo {
 	if ci == nil {
 		return TranslationInfo{}
 	}
-	return TranslationInfo{
-		EntryPointNames:     ci.EntryPointNames,
-		UsedFeatures:        FeatureFlags(ci.UsedFeatures),
-		RequiredShaderModel: backend.ShaderModel{Major: ci.RequiredShaderModel.Major(), Minor: ci.RequiredShaderModel.Minor()},
-		RegisterBindings:    ci.RegisterBindings,
-		HelperFunctions:     ci.HelperFunctions,
-	}
+	return TranslationInfo{EntryPointNames: ci.EntryPointNames}
 }

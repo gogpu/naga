@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/ir"
 )
 
 // TestMissingBindings (ADR-009 §6 rows 5 and 21): a nil BindingMap places
@@ -20,7 +21,7 @@ func TestMissingBindings(t *testing.T) {
 @group(1) @binding(3) var<storage, read_write> b: array<u32, 4>;
 @compute @workgroup_size(1) fn main() { a[0] = b[1]; }`
 	module := lowerBoundsSource(t, source)
-	partial := map[hlsl.ResourceBinding]hlsl.BindTarget{{Group: 0, Binding: 0}: {Register: 5}}
+	partial := map[ir.ResourceBinding]hlsl.BindTarget{{Group: 0, Binding: 0}: {Register: 5}}
 
 	_, _, err := hlsl.Compile(module, hlsl.Options{BindingMap: partial})
 	if !errors.Is(err, backend.ErrMissingBinding) || !strings.Contains(err.Error(), "group 1, binding 3") {

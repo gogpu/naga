@@ -428,7 +428,7 @@ func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 		if gv.Binding == nil {
 			continue
 		}
-		loc := BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
+		loc := ir.ResourceBinding{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
 		if _, ok := opts.BindingMap[loc]; opts.BindingMap != nil && !ok {
 			return fmt.Errorf("dxil: %w: %s at group %d, binding %d", backend.ErrMissingBinding, gv.Name, loc.Group, loc.Binding)
 		}
@@ -2274,7 +2274,7 @@ func usedDynamicOffsets(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]
 		if gv.Binding == nil || gv.Space != ir.SpaceStorage || (reachable != nil && !reachable[ir.GlobalVariableHandle(i)]) {
 			continue
 		}
-		if t, ok := opts.BindingMap[BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && t.DynamicStorageBufferOffsetsIndex != nil {
+		if t, ok := opts.BindingMap[ir.ResourceBinding{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && t.DynamicStorageBufferOffsetsIndex != nil {
 			used[gv.Binding.Group] = true
 		}
 	}
@@ -2524,7 +2524,7 @@ func collectPSVResources(irMod *ir.Module, t psvTargets) []container.PSVResource
 			space, lower = gv.Binding.Group, gv.Binding.Binding
 		}
 		if bindingMap != nil && !immediate {
-			loc := BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
+			loc := ir.ResourceBinding{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
 			if tgt, ok := bindingMap[loc]; ok {
 				space = uint32(tgt.Space)
 				lower = tgt.Register

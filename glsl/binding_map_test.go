@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/ir"
 )
 
 // TestBindingMapMissingEntry: on a version with explicit bindings, a
@@ -21,13 +22,13 @@ func TestBindingMapMissingEntry(t *testing.T) {
 @fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, uv) * tint;
 }`)
-	textureOnly := map[glsl.BindingMapKey]uint8{{Group: 0, Binding: 0}: 0}
+	textureOnly := map[ir.ResourceBinding]uint8{{Group: 0, Binding: 0}: 0}
 	_, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.VersionES310, BindingMap: textureOnly})
 	if err == nil || !strings.Contains(err.Error(), "tint at group 0, binding 2") {
 		t.Errorf("uniform left out: err = %v, want tint named", err)
 	}
 
-	full := map[glsl.BindingMapKey]uint8{{Group: 0, Binding: 0}: 0, {Group: 0, Binding: 2}: 1}
+	full := map[ir.ResourceBinding]uint8{{Group: 0, Binding: 0}: 0, {Group: 0, Binding: 2}: 1}
 	code, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.VersionES310, BindingMap: full})
 	if err != nil {
 		t.Fatalf("texture and uniform listed, sampler not: %v", err)

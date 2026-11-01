@@ -174,9 +174,9 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 
 	// [[spv.binding_map]]: remapped bindings and binding array sizes.
 	if len(params.spvBindingMap) > 0 {
-		opts.BindingMap = make(map[spirv.ResourceBinding]spirv.BindingInfo, len(params.spvBindingMap))
+		opts.BindingMap = make(map[ir.ResourceBinding]spirv.BindingInfo, len(params.spvBindingMap))
 		for _, b := range params.spvBindingMap {
-			opts.BindingMap[spirv.ResourceBinding{Group: b.group, Binding: b.binding}] = spirv.BindingInfo{
+			opts.BindingMap[ir.ResourceBinding{Group: b.group, Binding: b.binding}] = spirv.BindingInfo{
 				DescriptorSet:    b.descriptorSet,
 				Binding:          b.target,
 				BindingArraySize: b.bindingArraySize,
@@ -269,7 +269,7 @@ func rustHLSLOptions(shaderName string) (hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
 	// Rust's binding_map is always present (empty by default) and
 	// fake_missing_bindings defaults to true.
-	opts.BindingMap = map[hlsl.ResourceBinding]hlsl.BindTarget{}
+	opts.BindingMap = map[ir.ResourceBinding]hlsl.BindTarget{}
 	opts.FakeMissingBindings = true
 	// Rust's restrict_indexing (default true) is Index and Buffer Restrict;
 	// its HLSL writer never checks binding arrays.
@@ -369,14 +369,14 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
 				group, _ := strconv.ParseUint(m[1], 10, 32)
 				binding, _ := strconv.ParseUint(m[2], 10, 32)
 				btContent := m[3]
-				opts.BindingMap[hlsl.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = parseBindTargetFull(btContent)
+				opts.BindingMap[ir.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = parseBindTargetFull(btContent)
 			}
 			// Also try reversed order (bind_target before resource_binding)
 			for _, m := range re2.FindAllStringSubmatch(hlslSection, -1) {
 				btContent := m[1]
 				group, _ := strconv.ParseUint(m[2], 10, 32)
 				binding, _ := strconv.ParseUint(m[3], 10, 32)
-				opts.BindingMap[hlsl.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = parseBindTargetFull(btContent)
+				opts.BindingMap[ir.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = parseBindTargetFull(btContent)
 			}
 		}
 	}
@@ -460,7 +460,7 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
 				if opts.ExternalTextureBindingMap == nil {
 					opts.ExternalTextureBindingMap = make(hlsl.ExternalTextureBindingMap)
 				}
-				opts.ExternalTextureBindingMap[hlsl.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = target
+				opts.ExternalTextureBindingMap[ir.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}] = target
 			}
 		}
 	}
@@ -584,7 +584,7 @@ type glslConfig struct {
 	writerFlags         rustGLSLWriterFlags
 	excludeList         map[string]bool // entry points to skip
 	boundsCheckPolicies backend.BoundsCheckPolicies
-	bindingMap          map[glsl.BindingMapKey]uint8
+	bindingMap          map[ir.ResourceBinding]uint8
 }
 
 // rustGLSLWriterFlags is the part of Rust naga's glsl::WriterFlags the tests
@@ -729,7 +729,7 @@ func parseRustGLSLVersion(content string) (version glsl.Version, isWebGL, ok boo
 //	{ resource_binding = { group = 0, binding = 0 }, bind_target = 0 },
 //
 // ]
-func parseGLSLBindingMap(glslSection string) map[glsl.BindingMapKey]uint8 {
+func parseGLSLBindingMap(glslSection string) map[ir.ResourceBinding]uint8 {
 	if glslSection == "" {
 		return nil
 	}
@@ -737,14 +737,14 @@ func parseGLSLBindingMap(glslSection string) map[glsl.BindingMapKey]uint8 {
 	if !strings.Contains(glslSection, "binding_map") {
 		return nil
 	}
-	result := make(map[glsl.BindingMapKey]uint8)
+	result := make(map[ir.ResourceBinding]uint8)
 	// Match each { resource_binding = { group = G, binding = B }, bind_target = T }
 	re := regexp.MustCompile(`resource_binding\s*=\s*\{\s*group\s*=\s*(\d+)\s*,\s*binding\s*=\s*(\d+)\s*\}\s*,\s*bind_target\s*=\s*(\d+)`)
 	for _, m := range re.FindAllStringSubmatch(glslSection, -1) {
 		group, _ := strconv.Atoi(m[1])
 		binding, _ := strconv.Atoi(m[2])
 		target, _ := strconv.Atoi(m[3])
-		key := glsl.BindingMapKey{Group: uint32(group), Binding: uint32(binding)}
+		key := ir.ResourceBinding{Group: uint32(group), Binding: uint32(binding)}
 		result[key] = uint8(target)
 	}
 	if len(result) == 0 {

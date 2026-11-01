@@ -61,7 +61,7 @@ func (r *restricter) bindingArraySize(gv ir.GlobalVariableHandle) uint32 {
 		return *size
 	}
 	if global.Binding != nil {
-		tgt, found := r.bindings[BindingLocation{Group: global.Binding.Group, Binding: global.Binding.Binding}]
+		tgt, found := r.bindings[ir.ResourceBinding{Group: global.Binding.Group, Binding: global.Binding.Binding}]
 		if found && tgt.BindingArraySize != nil {
 			return *tgt.BindingArraySize
 		}

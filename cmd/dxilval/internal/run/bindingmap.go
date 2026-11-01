@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/dxil"
+	"github.com/gogpu/naga/ir"
 )
 
 // loadHLSLBindingMap reads the sibling .toml of a .wgsl path and returns
@@ -39,7 +40,7 @@ func loadHLSLBindingMap(wgslPath string) dxil.BindingMap {
 
 	inEntry := false
 	var target dxil.BindTarget
-	var loc dxil.BindingLocation
+	var loc ir.ResourceBinding
 	haveTarget := false
 	haveLoc := false
 
@@ -49,7 +50,7 @@ func loadHLSLBindingMap(wgslPath string) dxil.BindingMap {
 		}
 		inEntry = false
 		target = dxil.BindTarget{}
-		loc = dxil.BindingLocation{}
+		loc = ir.ResourceBinding{}
 		haveTarget = false
 		haveLoc = false
 	}

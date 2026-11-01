@@ -163,6 +163,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set", as webgpu.h's `Undefined = 0`. The validator rejects a storage image with it, and the WGSL frontend rejects an
   unknown format name (`unknown storage format: \`x\``, Rust naga's text); both left the format undefined before, and
   the backends wrote some format for it.
+- **Breaking: one binding key, and each backend exports its contract only** (ADR-009 row 1, ADR-010 F, D10). Every
+  binding map is keyed by `ir.ResourceBinding{Group, Binding}`: `spirv.ResourceBinding`, `hlsl.ResourceBinding`,
+  `glsl.BindingMapKey` and `dxil.BindingLocation` are removed (same fields; msl already used `ir.ResourceBinding`).
+  `spirv` keeps `Compile`, `Options`, `TranslationInfo`, `Version`, `BindingInfo` and `Capability`, now a real
+  `uint32` type with constants of the SPIR-V numbers (it was an alias of an internal type); its binary writer
+  (`ModuleBuilder`, `Writer`, `Instruction`, `Block`…), every opcode and enumeration constant and
+  `StorageFormatToImageFormat` are internal, as in Rust naga. `hlsl` keeps `Compile`, `Options`, `TranslationInfo`
+  and its binding types; its type-name and keyword helpers (`ScalarToHLSL`, `BuiltInToSemantic`, `Escape`,
+  `IsReserved`…), helper-name constants, `Writer`, `FeatureFlags`, `Io`, `RegisterType`, `Span`,
+  `DefaultBindTarget` and the `BindTarget.With*` methods are gone. `hlsl.Error`, `ErrorKind`, `NewError*` are
+  removed: `Compile` never returned them (it returned the internal error), so `errors.As` on them never matched;
+  branch with `backend.ErrUnsupported` and `backend.ErrMissingBinding`. `hlsl.TranslationInfo` keeps
+  `EntryPointNames`, as Rust's reflection; `UsedFeatures`, `RequiredShaderModel`, `RegisterBindings` and
+  `HelperFunctions` are removed. No public package declares a type alias any more.
 
 ### Added
 

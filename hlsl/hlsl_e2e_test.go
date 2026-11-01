@@ -995,7 +995,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 	// Build BindingMap from global variables — samplers get space=255
 	// and register=index_within_group, matching Rust wgpu-hal.
-	bindingMap := make(map[hlsl.ResourceBinding]hlsl.BindTarget)
+	bindingMap := make(map[ir.ResourceBinding]hlsl.BindTarget)
 	var samplerIdx uint32
 	for i := range module.GlobalVariables {
 		gv := &module.GlobalVariables[i]
@@ -1004,7 +1004,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		}
 		if int(gv.Type) < len(module.Types) {
 			if _, isSampler := module.Types[gv.Type].Inner.(ir.SamplerType); isSampler {
-				bindingMap[hlsl.ResourceBinding{
+				bindingMap[ir.ResourceBinding{
 					Group:   gv.Binding.Group,
 					Binding: gv.Binding.Binding,
 				}] = hlsl.BindTarget{
@@ -1015,7 +1015,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 				continue
 			}
 		}
-		bindingMap[hlsl.ResourceBinding{
+		bindingMap[ir.ResourceBinding{
 			Group:   gv.Binding.Group,
 			Binding: gv.Binding.Binding,
 		}] = hlsl.BindTarget{
