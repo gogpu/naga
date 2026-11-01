@@ -290,8 +290,28 @@ type Options struct {
 	// has no way to ask for it.
 	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
-	// RestrictIndexing adds bounds checks to array/buffer accesses.
-	RestrictIndexing bool
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
+	// which WebGPU requires; Rust naga's HLSL writer has one switch,
+	// restrict_indexing (default true, what wgpu-hal passes), that Index and
+	// Buffer here mirror. Per field:
+	//   - Index (function, private, workgroup memory and values): Restrict
+	//     clamps the index with min(); Unchecked adds nothing.
+	//   - Buffer: Restrict clamps indices into a uniform buffer whose
+	//     BindTarget.RestrictIndexing is set (Rust: for dynamic buffers). A
+	//     storage buffer is a ByteAddressBuffer, which Direct3D bounds-checks
+	//     when it is bound through a descriptor table (out-of-bounds reads
+	//     return zero, writes are dropped), so it needs no code under any
+	//     policy. A root descriptor is not bounds-checked: a caller that
+	//     binds storage that way gets no check.
+	//   - ImageLoad: Direct3D returns zero for an out-of-bounds Load, so every
+	//     policy is provided by the platform and no code is written.
+	//   - BindingArray: Restrict clamps the index to the array's size, or to
+	//     BindTarget.BindingArraySize for an unbounded one (an error without
+	//     it); Rust's HLSL writer never checks binding arrays.
+	// ReadZeroSkipWrite on Index, Buffer or BindingArray is not supported and
+	// makes Compile fail.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// ForceLoopBounding adds maximum iteration limits to loops.
 	ForceLoopBounding bool
@@ -588,7 +608,6 @@ func DefaultOptions() *Options {
 			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
 		},
 		FakeMissingBindings: true,
-		RestrictIndexing:    true,
 		ForceLoopBounding:   true,
 	}
 }
@@ -789,7 +808,7 @@ func toCodegenOptions(o *Options) *codegen.Options {
 		ExternalTextureBindingMap:          extTexMap,
 		FakeMissingBindings:                o.FakeMissingBindings,
 		ZeroInitializeWorkgroupMemory:      o.ZeroInitializeWorkgroupMemory,
-		RestrictIndexing:                   o.RestrictIndexing,
+		BoundsCheckPolicies:                o.BoundsCheckPolicies,
 		ForceLoopBounding:                  o.ForceLoopBounding,
 		DynamicStorageBufferOffsetsTargets: dynamicOffsets,
 		SpecialConstantsBinding:            specialBinding,

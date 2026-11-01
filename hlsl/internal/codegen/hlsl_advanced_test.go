@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -99,9 +100,9 @@ fn test_dynamic(idx: u32) -> f32 {
 `
 	opts := DefaultOptions()
 	opts.FakeMissingBindings = true
-	opts.RestrictIndexing = true
+	opts.BoundsCheckPolicies.Index = backend.BoundsCheckRestrict
 	code := compileWGSLToHLSL(t, src, opts)
-	// RestrictIndexing should add bounds clamping: min(idx, 7u)
+	// Index Restrict should add bounds clamping: min(idx, 7u)
 	if !strings.Contains(code, "min(") {
 		// Some implementations may use different clamping
 		// At minimum, the array access must compile

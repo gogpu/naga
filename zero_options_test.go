@@ -214,6 +214,16 @@ func boundsBackends() map[string]boundsBackend {
 				return []byte(code), err
 			},
 		},
+		"hlsl": {
+			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
+				code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: p})
+				return []byte(code), err
+			},
+			withZero: func(m *ir.Module) ([]byte, error) {
+				code, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: true})
+				return []byte(code), err
+			},
+		},
 	}
 }
 

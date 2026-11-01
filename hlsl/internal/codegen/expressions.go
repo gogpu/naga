@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -612,22 +613,11 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 		w.Out.WriteByte('[')
 	}
 
-	// When restrict_indexing is enabled, clamp dynamic indices to valid range
-	// matching Rust naga: min(uint(index), maxIndex)
-	// Skip check when indexing a binding array (they don't get restrict_indexing).
-	needsBoundCheck := w.options.RestrictIndexing && !indexingBindingArray && w.needsRestrictIndexing(e.Base)
-	if needsBoundCheck {
-		if maxIdx, ok := w.getAccessMaxIndex(e.Base); ok {
-			if !w.isConstantIndexInBounds(e.Index, maxIdx+1) {
-				fmt.Fprintf(&w.Out, "min(uint(")
-				if err := w.writeExpression(e.Index); err != nil {
-					return fmt.Errorf("access index: %w", err)
-				}
-				fmt.Fprintf(&w.Out, "), %du)", maxIdx)
-				w.Out.WriteByte(']')
-				return nil
-			}
-		}
+	// Restrict clamps an index that may be out of bounds: min(uint(index),
+	// maxIndex), as Rust naga does under restrict_indexing.
+	maxIdx, clamp, err := w.restrictedMaxIndex(e.Base, e.Index, indexingBindingArray)
+	if err != nil {
+		return err
 	}
 
 	// Write the index, possibly wrapped with NonUniformResourceIndex and/or sampler buffer lookup
@@ -637,8 +627,14 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 	if samplerInfo != nil {
 		fmt.Fprintf(&w.Out, "%s[%s + ", samplerInfo.samplerIndexBufferName, samplerInfo.bindingArrayBaseIndexName)
 	}
+	if clamp {
+		w.Out.WriteString("min(uint(")
+	}
 	if err := w.writeExpression(e.Index); err != nil {
 		return fmt.Errorf("access index: %w", err)
+	}
+	if clamp {
+		fmt.Fprintf(&w.Out, "), %du)", maxIdx)
 	}
 	if samplerInfo != nil {
 		w.Out.WriteByte(']') // close sampler index buffer lookup
@@ -704,6 +700,58 @@ func (w *Writer) getAccessMaxIndex(base ir.ExpressionHandle) (uint32, bool) {
 	return 0, false
 }
 
+// restrictedMaxIndex reports whether index into base must be clamped, and to
+// which maximum. Index and Buffer follow Rust naga's restrict_indexing:
+// function, private, workgroup and value bases under Index; uniform bases
+// under Buffer, only when their BindTarget.RestrictIndexing is set (Rust:
+// "used for dynamic buffers"); storage buffers are byte-address buffers that
+// Direct3D bounds-checks. A binding array is clamped under BindingArray,
+// which Rust's HLSL writer never checks: to its size, or to
+// BindTarget.BindingArraySize when it is unbounded; an unbounded one without
+// it is an error, as in the SPIR-V backend.
+func (w *Writer) restrictedMaxIndex(base, index ir.ExpressionHandle, bindingArray bool) (uint32, bool, error) {
+	policies := w.options.BoundsCheckPolicies
+	if bindingArray {
+		if policies.BindingArray != backend.BoundsCheckRestrict {
+			return 0, false, nil
+		}
+		size, err := w.bindingArraySize(base)
+		if err != nil {
+			return 0, false, err
+		}
+		if size == 0 {
+			return 0, false, fmt.Errorf("bounds check: indexing a zero-length binding array")
+		}
+		return size - 1, !w.isConstantIndexInBounds(index, size), nil
+	}
+	if !w.needsRestrictIndexing(base) {
+		return 0, false, nil
+	}
+	maxIdx, ok := w.getAccessMaxIndex(base)
+	if !ok || w.isConstantIndexInBounds(index, maxIdx+1) {
+		return 0, false, nil
+	}
+	return maxIdx, true, nil
+}
+
+// bindingArraySize returns the number of elements of the binding array base
+// refers to: its type's size, or its BindTarget.BindingArraySize.
+func (w *Writer) bindingArraySize(base ir.ExpressionHandle) (uint32, error) {
+	if gvHandle, ok := w.resolveGlobalVariableHandle(base); ok {
+		gv := w.module.GlobalVariables[gvHandle]
+		if ba, ok := w.module.Types[gv.Type].Inner.(ir.BindingArrayType); ok && ba.Size != nil {
+			return *ba.Size, nil
+		}
+		if gv.Binding != nil {
+			if bt, found := w.options.BindingMap[ResourceBinding{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; found && bt.BindingArraySize != nil {
+				return *bt.BindingArraySize, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("bounds check: the length of an unbounded binding array comes from " +
+		"BindingMap (BindingArraySize), and this one has none; set it or use BoundsCheckUnchecked for BindingArray")
+}
+
 // needsRestrictIndexing returns true if bounds checking should be applied for
 // this base expression's address space. Matches Rust naga's logic:
 // Function/Private/WorkGroup/Immediate/TaskPayload/None -> true
@@ -713,6 +761,9 @@ func (w *Writer) needsRestrictIndexing(base ir.ExpressionHandle) bool {
 	space := w.resolveAccessBaseSpace(base)
 	switch space {
 	case ir.SpaceUniform:
+		if w.options.BoundsCheckPolicies.Buffer != backend.BoundsCheckRestrict {
+			return false
+		}
 		// Check if the per-binding restrict_indexing is set.
 		// Matches Rust: resolve the global variable's binding, look up BindTarget.restrict_indexing.
 		if gvHandle, ok := w.resolveGlobalVariableHandle(base); ok {
@@ -728,7 +779,7 @@ func (w *Writer) needsRestrictIndexing(base ir.ExpressionHandle) bool {
 	case ir.SpaceStorage:
 		return false // Storage: handled by ByteAddressBuffer path, not restrict_indexing
 	default:
-		return true // Function, Private, WorkGroup, etc.
+		return w.options.BoundsCheckPolicies.Index == backend.BoundsCheckRestrict // Function, Private, WorkGroup, values
 	}
 }
 
