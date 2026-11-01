@@ -3,7 +3,6 @@ package lower
 import (
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/ir"
@@ -174,14 +173,8 @@ func (l *Lowerer) lowerConstant(c *parser.ConstDecl) error {
 	}
 
 	ch := index32[ir.ConstantHandle](len(l.module.Constants))
-	l.module.Constants = append(l.module.Constants, ir.Constant{
-		Name:  c.Name,
-		Type:  ty,
-		Init:  init,
-		Value: constantScalarValue(l.module.GlobalExpressions[init].Kind),
-	})
+	l.module.Constants = append(l.module.Constants, ir.Constant{Name: c.Name, Type: ty, Init: init})
 	l.moduleConstants[c.Name] = ch
-	l.markConstInlineInit(ch)
 	return nil
 }
 
@@ -327,46 +320,9 @@ func literalU32(lit ir.LiteralValue, err error) (uint32, error) {
 	return 0, fmt.Errorf("must be a const-expression that resolves to a concrete integer scalar (`u32` or `i32`)")
 }
 
-// constantScalarValue is the Constant.Value of a constant whose initializer
-// is a concrete scalar literal; nil otherwise. Backends take the value of
-// every constant from Constant.Init; Value only serves the readers that look
-// up a known scalar (index bounds, pipeline constants).
-func constantScalarValue(init ir.ExpressionKind) ir.ConstantValue {
-	lit, ok := init.(ir.Literal)
-	if !ok {
-		return nil
-	}
-	switch v := lit.Value.(type) {
-	case ir.LiteralBool:
-		if v {
-			return ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}
-		}
-		return ir.ScalarValue{Bits: 0, Kind: ir.ScalarBool}
-	case ir.LiteralI32:
-		return ir.ScalarValue{Bits: sintBits(int64(v)), Kind: ir.ScalarSint}
-	case ir.LiteralI64:
-		return ir.ScalarValue{Bits: sintBits(int64(v)), Kind: ir.ScalarSint}
-	case ir.LiteralU32:
-		return ir.ScalarValue{Bits: uint64(v), Kind: ir.ScalarUint}
-	case ir.LiteralU64:
-		return ir.ScalarValue{Bits: uint64(v), Kind: ir.ScalarUint}
-	case ir.LiteralF32:
-		return ir.ScalarValue{Bits: uint64(math.Float32bits(float32(v))), Kind: ir.ScalarFloat}
-	case ir.LiteralF64:
-		return ir.ScalarValue{Bits: math.Float64bits(float64(v)), Kind: ir.ScalarFloat}
-	}
-	return nil
-}
-
 // index32 converts an arena length or index to a 32-bit IR handle or count.
 // The IR addresses every arena with uint32 handles, so a valid index always
 // fits.
 func index32[T ~uint32](n int) T {
 	return T(n)
-}
-
-// sintBits is the two's-complement bit pattern of a signed integer, the
-// representation ScalarValue stores for ScalarSint.
-func sintBits(v int64) uint64 {
-	return uint64(v) //nolint:gosec // two's-complement reinterpretation is the stored representation
 }

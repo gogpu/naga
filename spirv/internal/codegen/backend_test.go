@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -178,28 +179,18 @@ func TestBackendEmitScalarConstants(t *testing.T) {
 	// Type: bool
 	boolType := ir.Type{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool}}
 
+	consts, exprs := constantsOf(
+		testConst{name: "pi", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))}, // f32 3.14159265
+		testConst{name: "answer", ty: 1, lit: ir.LiteralI32(42)},                           // i32
+		testConst{name: "truth", ty: 2, lit: ir.LiteralBool(true)},                         // bool
+	)
 	module := &ir.Module{
-		Types: []ir.Type{f32Type, i32Type, boolType},
-		Constants: []ir.Constant{
-			{
-				Name:  "pi",
-				Type:  0,                                                      // f32
-				Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40490fdb}, // 3.14159265
-			},
-			{
-				Name:  "answer",
-				Type:  1, // i32
-				Value: ir.ScalarValue{Kind: ir.ScalarSint, Bits: 42},
-			},
-			{
-				Name:  "truth",
-				Type:  2, // bool
-				Value: ir.ScalarValue{Kind: ir.ScalarBool, Bits: 1},
-			},
-		},
-		GlobalVariables: []ir.GlobalVariable{},
-		Functions:       []ir.Function{},
-		EntryPoints:     []ir.EntryPoint{},
+		Types:             []ir.Type{f32Type, i32Type, boolType},
+		Constants:         consts,
+		GlobalExpressions: exprs,
+		GlobalVariables:   []ir.GlobalVariable{},
+		Functions:         []ir.Function{},
+		EntryPoints:       []ir.EntryPoint{},
 	}
 
 	binary, err := backend.Compile(module)
@@ -231,25 +222,21 @@ func TestBackendEmitCompositeConstants(t *testing.T) {
 		},
 	}
 
+	consts, exprs := constantsOf(
+		// Scalar constants for components
+		testConst{name: "x", ty: 0, lit: ir.LiteralF32(1.0)},
+		testConst{name: "y", ty: 0, lit: ir.LiteralF32(2.0)},
+		testConst{name: "z", ty: 0, lit: ir.LiteralF32(3.0)},
+		// Composite constant: vec3(1.0, 2.0, 3.0)
+		testConst{name: "position", ty: 1, comps: []ir.ConstantHandle{0, 1, 2}},
+	)
 	module := &ir.Module{
-		Types: []ir.Type{f32Type, vec3fType},
-		Constants: []ir.Constant{
-			// Scalar constants for components
-			{Name: "x", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}}, // 1.0
-			{Name: "y", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40000000}}, // 2.0
-			{Name: "z", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40400000}}, // 3.0
-			// Composite constant: vec3(1.0, 2.0, 3.0)
-			{
-				Name: "position",
-				Type: 1, // vec3f
-				Value: ir.CompositeValue{
-					Components: []ir.ConstantHandle{0, 1, 2},
-				},
-			},
-		},
-		GlobalVariables: []ir.GlobalVariable{},
-		Functions:       []ir.Function{},
-		EntryPoints:     []ir.EntryPoint{},
+		Types:             []ir.Type{f32Type, vec3fType},
+		Constants:         consts,
+		GlobalExpressions: exprs,
+		GlobalVariables:   []ir.GlobalVariable{},
+		Functions:         []ir.Function{},
+		EntryPoints:       []ir.EntryPoint{},
 	}
 
 	binary, err := backend.Compile(module)
@@ -357,23 +344,11 @@ func TestBackendSimpleVertexShader(t *testing.T) {
 	}
 
 	// Constants for vec4(0.0, 0.0, 0.0, 1.0)
-	zeroConst := ir.Constant{
-		Name:  "zero",
-		Type:  1,                                             // f32
-		Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0}, // 0.0
-	}
-	oneConst := ir.Constant{
-		Name:  "one",
-		Type:  1,                                                      // f32
-		Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}, // 1.0
-	}
-	vec4Const := ir.Constant{
-		Name: "position",
-		Type: 2, // vec4f
-		Value: ir.CompositeValue{
-			Components: []ir.ConstantHandle{0, 0, 0, 1}, // vec4(0.0, 0.0, 0.0, 1.0)
-		},
-	}
+	consts, exprs := constantsOf(
+		testConst{name: "zero", ty: 1, lit: ir.LiteralF32(0.0)},
+		testConst{name: "one", ty: 1, lit: ir.LiteralF32(1.0)},
+		testConst{name: "position", ty: 2, comps: []ir.ConstantHandle{0, 0, 0, 1}}, // vec4(0.0, 0.0, 0.0, 1.0)
+	)
 
 	// Function: main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32>
 	vertexIndexBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})
@@ -406,10 +381,11 @@ func TestBackendSimpleVertexShader(t *testing.T) {
 	}
 
 	module := &ir.Module{
-		Types:           []ir.Type{u32Type, f32Type, vec4fType},
-		Constants:       []ir.Constant{zeroConst, oneConst, vec4Const},
-		GlobalVariables: []ir.GlobalVariable{},
-		Functions:       []ir.Function{mainFunc},
+		Types:             []ir.Type{u32Type, f32Type, vec4fType},
+		Constants:         consts,
+		GlobalExpressions: exprs,
+		GlobalVariables:   []ir.GlobalVariable{},
+		Functions:         []ir.Function{mainFunc},
 		EntryPoints: []ir.EntryPoint{
 			{
 				Name:     "main",
@@ -1467,6 +1443,11 @@ func TestBackendReuse(t *testing.T) {
 func buildVertexModule() *ir.Module {
 	vertexIndexBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})
 	positionBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	consts, exprs := constantsOf(
+		testConst{name: "zero", ty: 1, lit: ir.LiteralF32(0)},                 // 0
+		testConst{name: "one", ty: 1, lit: ir.LiteralF32(1)},                  // 1
+		testConst{name: "pos", ty: 2, comps: []ir.ConstantHandle{0, 0, 0, 1}}, // 2
+	)
 
 	return &ir.Module{
 		Types: []ir.Type{
@@ -1477,13 +1458,10 @@ func buildVertexModule() *ir.Module {
 				Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
 			}},
 		},
-		Constants: []ir.Constant{
-			{Name: "zero", Type: 1, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0}},                 // 0
-			{Name: "one", Type: 1, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},         // 1
-			{Name: "pos", Type: 2, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 0, 0, 1}}}, // 2
-		},
-		GlobalVariables: []ir.GlobalVariable{},
-		Functions:       []ir.Function{},
+		Constants:         consts,
+		GlobalExpressions: exprs,
+		GlobalVariables:   []ir.GlobalVariable{},
+		Functions:         []ir.Function{},
 		EntryPoints: []ir.EntryPoint{
 			{
 				Name:  "vs_main",
@@ -1514,6 +1492,11 @@ func buildVertexModule() *ir.Module {
 // buildFragModule builds a minimal fragment shader IR module for reuse testing.
 func buildFragModule() *ir.Module {
 	locationBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	consts, exprs := constantsOf(
+		testConst{name: "one", ty: 0, lit: ir.LiteralF32(1)},                    // 0
+		testConst{name: "zero", ty: 0, lit: ir.LiteralF32(0)},                   // 1
+		testConst{name: "color", ty: 1, comps: []ir.ConstantHandle{0, 1, 1, 0}}, // 2
+	)
 
 	return &ir.Module{
 		Types: []ir.Type{
@@ -1523,13 +1506,10 @@ func buildFragModule() *ir.Module {
 				Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
 			}},
 		},
-		Constants: []ir.Constant{
-			{Name: "one", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},           // 0
-			{Name: "zero", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0}},                   // 1
-			{Name: "color", Type: 1, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 1, 0}}}, // 2
-		},
-		GlobalVariables: []ir.GlobalVariable{},
-		Functions:       []ir.Function{},
+		Constants:         consts,
+		GlobalExpressions: exprs,
+		GlobalVariables:   []ir.GlobalVariable{},
+		Functions:         []ir.Function{},
 		EntryPoints: []ir.EntryPoint{
 			{
 				Name:  "fs_main",
@@ -1601,77 +1581,39 @@ func TestAddressSpaceToStorageClass_UnknownSpace(t *testing.T) {
 	}
 }
 
-func TestFindTypeHandleByID_NotFound(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+// TestEmitConstant_InitErrors: a constant is the constant written for its
+// Init expression, so an Init that is not a constant expression, or that is
+// out of range, is an error naming the constant.
+func TestEmitConstant_InitErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		exprs []ir.Expression
+		init  ir.ExpressionHandle
+		want  string
+	}{
+		{
+			name:  "override",
+			exprs: []ir.Expression{{Kind: ir.ExprOverride{Override: 0}}},
+			want:  `constant "c": override 0 used as a constant initializer`,
 		},
-		Constants:   []ir.Constant{},
-		Functions:   []ir.Function{},
-		EntryPoints: []ir.EntryPoint{},
-	}
-	backend := newTestBackend(t, module)
-
-	// Type ID 999 does not exist in the cache
-	_, err := backend.findTypeHandleByID(999)
-	if err == nil {
-		t.Fatal("expected error for type ID not found in cache")
-	}
-	if !strings.Contains(err.Error(), "type ID 999 not found in cache") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestResolveScalarType_WrongType(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		{
+			name: "out of range",
+			init: 5,
+			want: `constant "c": global expression 5 out of range (0 global expressions)`,
 		},
-		Constants:   []ir.Constant{},
-		Functions:   []ir.Function{},
-		EntryPoints: []ir.EntryPoint{},
 	}
-	backend := newTestBackend(t, module)
-
-	// The vector type should be in the cache after Compile
-	typeID, ok := backend.typeIDs[ir.TypeHandle(0)]
-	if !ok {
-		t.Fatal("vector type not in cache after Compile")
-	}
-
-	// Trying to resolve a vector type as scalar should fail
-	_, err := backend.resolveScalarType(typeID)
-	if err == nil {
-		t.Fatal("expected error for resolving vector as scalar")
-	}
-	if !strings.Contains(err.Error(), "expected ScalarType or AtomicType") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestEmitScalarConstant_UnknownKind(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-		},
-		Constants:   []ir.Constant{},
-		Functions:   []ir.Function{},
-		EntryPoints: []ir.EntryPoint{},
-	}
-	backend := newTestBackend(t, module)
-
-	typeID, ok := backend.typeIDs[ir.TypeHandle(0)]
-	if !ok {
-		t.Fatal("f32 type not in cache after Compile")
-	}
-
-	// ScalarValue with kind 99 should fail
-	_, err := backend.emitScalarConstant(typeID, ir.ScalarValue{Kind: 99, Bits: 0})
-	if err == nil {
-		t.Fatal("expected error for unknown scalar kind in constant")
-	}
-	if !strings.Contains(err.Error(), "unknown scalar kind") {
-		t.Errorf("unexpected error message: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			module := &ir.Module{
+				Types:             []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+				Constants:         []ir.Constant{{Name: "c", Type: 0, Init: tt.init}},
+				GlobalExpressions: tt.exprs,
+			}
+			_, err := NewBackend(DefaultOptions()).Compile(module)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Compile error = %v, want it to contain %q", err, tt.want)
+			}
+		})
 	}
 }
 

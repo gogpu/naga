@@ -21,7 +21,7 @@ struct StorageCompatible {
     uint64_t val_u64_array_2_[2];
     int64_t val_i64_array_2_[2];
 };
-const uint64_t constant_variable = 20u;
+const uint64_t constant_variable = 20ul;
 
 int64_t private_variable = 1l;
 

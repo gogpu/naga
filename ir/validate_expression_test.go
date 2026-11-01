@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -370,6 +371,14 @@ func TestValidateNew_GlobalVarInvalidInit(t *testing.T) {
 	expectValidationErrors(t, m, "init constant 999 does not exist")
 }
 
+// TestValidateNew_ConstantInvalidInit: a constant's value is its Init, so an
+// Init outside Module.GlobalExpressions is a constant without a value.
+func TestValidateNew_ConstantInvalidInit(t *testing.T) {
+	m := newValidModule()
+	m.Constants = []Constant{{Name: "C", Type: 0, Init: ExpressionHandle(len(m.GlobalExpressions) + 7)}}
+	expectValidationErrors(t, m, fmt.Sprintf("constant 0 (C): init expression %d does not exist", len(m.GlobalExpressions)+7))
+}
+
 func TestValidateNew_FunctionInvalidLocalVarInit(t *testing.T) {
 	m := newValidModule()
 	invalid := ExpressionHandle(999)
@@ -511,8 +520,9 @@ func TestValidateNew_CompleteValidModule(t *testing.T) {
 
 	// Add constants
 	m.Constants = []Constant{
-		{Name: "PI", Type: 0, Value: ScalarValue{Kind: ScalarFloat, Bits: 0x40490fdb}},
+		{Name: "PI", Type: 0, Init: ExpressionHandle(len(m.GlobalExpressions))},
 	}
+	m.GlobalExpressions = append(m.GlobalExpressions, Expression{Kind: Literal{Value: LiteralF32(3.1415927)}})
 
 	// Add global variables with unique bindings
 	m.GlobalVariables = []GlobalVariable{

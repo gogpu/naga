@@ -2,7 +2,6 @@ package snapshot_test
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -217,43 +216,18 @@ func dumpConstants(sb *strings.Builder, m *ir.Module) {
 		if name == "" {
 			name = "_"
 		}
-		fmt.Fprintf(sb, "[%d] %q type=[%d] init=%s\n", i, name, c.Type, formatConstantValue(c.Value))
+		fmt.Fprintf(sb, "[%d] %q type=[%d] init=[%d] %s\n", i, name, c.Type, c.Init, formatGlobalExpression(m, c.Init))
 	}
 	sb.WriteByte('\n')
 }
 
-func formatConstantValue(v ir.ConstantValue) string {
-	switch cv := v.(type) {
-	case ir.ScalarValue:
-		return fmt.Sprintf("Literal(%s)", formatScalarLiteral(cv))
-	case ir.CompositeValue:
-		parts := make([]string, len(cv.Components))
-		for i, h := range cv.Components {
-			parts[i] = fmt.Sprintf("[%d]", h)
-		}
-		return fmt.Sprintf("Composite(%s)", strings.Join(parts, ", "))
-	default:
-		return fmt.Sprintf("Unknown(%T)", v)
+// formatGlobalExpression formats the module-scope expression a constant's
+// Init refers to.
+func formatGlobalExpression(m *ir.Module, h ir.ExpressionHandle) string {
+	if int(h) >= len(m.GlobalExpressions) {
+		return fmt.Sprintf("Invalid(%d of %d)", h, len(m.GlobalExpressions))
 	}
-}
-
-func formatScalarLiteral(sv ir.ScalarValue) string {
-	switch sv.Kind {
-	case ir.ScalarBool:
-		if sv.Bits != 0 {
-			return "Bool(true)"
-		}
-		return "Bool(false)"
-	case ir.ScalarFloat:
-		f := math.Float64frombits(sv.Bits)
-		return fmt.Sprintf("Float(%g)", f)
-	case ir.ScalarSint:
-		return fmt.Sprintf("Sint(%d)", int64(sv.Bits))
-	case ir.ScalarUint:
-		return fmt.Sprintf("Uint(%d)", sv.Bits)
-	default:
-		return fmt.Sprintf("Unknown(bits=%d)", sv.Bits)
-	}
+	return formatExpression(m.GlobalExpressions[h].Kind)
 }
 
 // ---------------------------------------------------------------------------

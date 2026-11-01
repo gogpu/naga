@@ -9,54 +9,46 @@ import (
 )
 
 // =============================================================================
-// Test: Constant value emission (covers writeConstantValue, writeScalarValue)
+// Test: Constant emission from the constant's Init (put_const_expression)
 // =============================================================================
 
 func TestIntegration_ConstantScalarValues(t *testing.T) {
 	tests := []struct {
 		name  string
-		value ir.ConstantValue
+		value ir.LiteralValue
 		ty    ir.TypeInner
 		want  string
 	}{
-		{"bool_true", ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}, ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, "true"},
-		{"bool_false", ir.ScalarValue{Bits: 0, Kind: ir.ScalarBool}, ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, "false"},
-		{"i32_positive", ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "42"},
-		{"i32_negative", ir.ScalarValue{Bits: 0xFFFFFFFFFFFFFFFE, Kind: ir.ScalarSint}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "-2"},
-		{"u32", ir.ScalarValue{Bits: 100, Kind: ir.ScalarUint}, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, "100u"},
+		{"bool_true", ir.LiteralBool(true), ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, "constant bool MY_CONST = true;"},
+		{"bool_false", ir.LiteralBool(false), ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, "constant bool MY_CONST = false;"},
+		{"i32_positive", ir.LiteralI32(42), ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "constant int MY_CONST = 42;"},
+		{"i32_negative", ir.LiteralI32(-2), ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "constant int MY_CONST = -2;"},
+		{"u32", ir.LiteralU32(100), ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, "constant uint MY_CONST = 100u;"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tHandle := ir.TypeHandle(0)
 			module := &ir.Module{
 				Types: []ir.Type{
 					{Name: "", Inner: tt.ty},
 				},
-				Constants: []ir.Constant{
-					{Name: "MY_CONST", Type: tHandle, Value: tt.value},
-				},
 			}
+			module.Constants, module.GlobalExpressions = constantsOf(testConst{name: "MY_CONST", ty: 0, lit: tt.value})
 			result := compileModule(t, module)
 			mustContainMSL(t, result, tt.want)
-			mustContainMSL(t, result, "MY_CONST")
 		})
 	}
 }
 
 func TestIntegration_ConstantZeroValue(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
-		Constants: []ir.Constant{
-			{Name: "ZERO", Type: tF32, Value: ir.ZeroConstantValue{}},
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(testConst{name: "ZERO", ty: 0, zero: true})
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "ZERO")
-	mustContainMSL(t, result, "{}")
+	mustContainMSL(t, result, "constant float ZERO = float {};")
 }
 
 func TestIntegration_ConstantComposite(t *testing.T) {
@@ -68,16 +60,15 @@ func TestIntegration_ConstantComposite(t *testing.T) {
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			{Name: "", Inner: ir.VectorType{Size: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Constants: []ir.Constant{
-			{Name: "", Type: tF32, Value: ir.ScalarValue{Bits: 0x3F800000, Kind: ir.ScalarFloat}},
-			{Name: "", Type: tF32, Value: ir.ScalarValue{Bits: 0x40000000, Kind: ir.ScalarFloat}},
-			{Name: "", Type: tF32, Value: ir.ScalarValue{Bits: 0x40400000, Kind: ir.ScalarFloat}},
-			{Name: "VEC", Type: tVec3, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 2}}},
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{ty: tF32, lit: ir.LiteralF32(1)},
+		testConst{ty: tF32, lit: ir.LiteralF32(2)},
+		testConst{ty: tF32, lit: ir.LiteralF32(3)},
+		testConst{name: "VEC", ty: tVec3, comps: []ir.ConstantHandle{0, 1, 2}},
+	)
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "VEC")
-	mustContainMSL(t, result, "metal::float3(")
+	mustContainMSL(t, result, "constant metal::float3 VEC = metal::float3(1.0, 2.0, 3.0);")
 }
 
 // =============================================================================

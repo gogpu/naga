@@ -10,9 +10,9 @@ import (
 )
 
 // A module-scope vector value used as an *operand* used to reach the shader as
-// (0, 0, 0): the WGSL front-end put the initializer in Module.GlobalExpressions
-// and left Constant.Value nil, and the SPIR-V backend answered nil with
-// OpConstantNull. Nothing reported it — the shader compiled and every color
+// (0, 0, 0): the WGSL front-end put the initializer in Module.GlobalExpressions,
+// and the SPIR-V backend, which then read a separate inline value, answered a
+// constant without one with OpConstantNull. Nothing reported it — the shader compiled and every color
 // authored that way was black.
 //
 // These tests pin the whole matrix: `const` and `var<private>`, vec2/vec3/vec4,

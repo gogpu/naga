@@ -6,7 +6,7 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// --- isAbstractType tests ---
+// --- IsAbstractType tests ---
 
 func TestIsAbstractType(t *testing.T) {
 	types := []ir.Type{
@@ -44,9 +44,9 @@ func TestIsAbstractType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isAbstractType(tt.inner, types)
+			got := IsAbstractType(tt.inner, types)
 			if got != tt.want {
-				t.Errorf("isAbstractType(%T) = %v, want %v", tt.inner, got, tt.want)
+				t.Errorf("IsAbstractType(%T) = %v, want %v", tt.inner, got, tt.want)
 			}
 		})
 	}
@@ -509,11 +509,17 @@ func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarAbstractFloat, Width: 8}},
 		},
 		Constants: []ir.Constant{
-			{Name: "NAMED_CONCRETE", Type: 0, IsAbstract: false},
-			{Name: "NAMED_ABSTRACT", Type: 0, IsAbstract: true},
-			{Name: "", Type: 0, IsAbstract: false}, // unnamed
+			{Name: "NAMED_CONCRETE", Type: 0, Init: 0},
+			{Name: "NAMED_ABSTRACT", Type: 1, Init: 1}, // abstract by its type, as in Rust
+			{Name: "", Type: 0, Init: 2},               // unnamed
+		},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},
+			{Kind: ir.Literal{Value: ir.LiteralAbstractFloat(2)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(3)}},
 		},
 		EntryPoints: []ir.EntryPoint{
 			{
@@ -536,6 +542,11 @@ func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
 	}
 	if module.Constants[0].Name != "NAMED_CONCRETE" {
 		t.Errorf("expected 'NAMED_CONCRETE', got '%s'", module.Constants[0].Name)
+	}
+	// The removed constants' initializers go with them.
+	if len(module.GlobalExpressions) != 1 || module.Constants[0].Init != 0 {
+		t.Fatalf("expected the one surviving initializer at 0, got %d expressions, init %d",
+			len(module.GlobalExpressions), module.Constants[0].Init)
 	}
 }
 
@@ -565,10 +576,16 @@ func TestCompactConstants_TransitiveKeepComposite(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
 		},
 		Constants: []ir.Constant{
-			{Name: "", Type: 0, Value: ir.ScalarValue{Bits: 1, Kind: ir.ScalarUint}},              // 0: component
-			{Name: "COMP", Type: 0, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0}}}, // 1: composite referencing 0
+			{Name: "", Type: 0, Init: 0},     // 0: component
+			{Name: "COMP", Type: 1, Init: 2}, // 1: composite whose init refers to 0
+		},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprConstant{Constant: 0}},
+			{Kind: ir.ExprCompose{Type: 1, Components: []ir.ExpressionHandle{1, 1}}},
 		},
 		EntryPoints: []ir.EntryPoint{
 			{
@@ -585,9 +602,12 @@ func TestCompactConstants_TransitiveKeepComposite(t *testing.T) {
 
 	compactConstants(module, KeepUnusedYes)
 
-	// Both should be kept: 1 is named+referenced, 0 is transitively needed by composite
+	// Both should be kept: 1 is named+referenced, 0 is needed through 1's init
 	if len(module.Constants) != 2 {
 		t.Fatalf("expected 2 constants (transitive keep), got %d", len(module.Constants))
+	}
+	if len(module.GlobalExpressions) != 3 {
+		t.Fatalf("expected 3 global expressions kept, got %d", len(module.GlobalExpressions))
 	}
 }
 

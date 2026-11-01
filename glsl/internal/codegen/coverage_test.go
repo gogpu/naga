@@ -248,44 +248,41 @@ func TestCoverage_GetExpressionTypeHandle(t *testing.T) {
 }
 
 // =============================================================================
-// writeCompositeValue — coverage: 0%
+// writeConstExpr — a composite constant's Compose init
 // =============================================================================
 
-func TestCoverage_WriteCompositeValue(t *testing.T) {
-	w := &Writer{
-		module: &ir.Module{
-			Types: []ir.Type{
-				{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-				{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			},
-			Constants: []ir.Constant{
-				{Type: 1, Value: ir.ScalarValue{Bits: 0x3F800000, Kind: ir.ScalarFloat}, Init: 0},
-				{Type: 1, Value: ir.ScalarValue{Bits: 0x40000000, Kind: ir.ScalarFloat}, Init: 1},
-				{Type: 1, Value: ir.ScalarValue{Bits: 0x40400000, Kind: ir.ScalarFloat}, Init: 2},
-			},
-			GlobalExpressions: []ir.Expression{
-				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-				{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
-				{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},
-			},
+func TestCoverage_WriteConstExprCompose(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{ty: 1, lit: ir.LiteralF32(1.0)},
+		testConst{ty: 1, lit: ir.LiteralF32(2.0)},
+		testConst{ty: 1, lit: ir.LiteralF32(3.0)},
+		testConst{ty: 0, comps: []ir.ConstantHandle{0, 1, 2}},
+	)
+	w := &Writer{module: module}
 
-	result, err := w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 2}}, 0)
+	result, err := w.writeConstExpr(module.Constants[3].Init)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "vec3") {
-		t.Errorf("writeCompositeValue = %q, want contains 'vec3'", result)
+	if want := "vec3(1.0, 2.0, 3.0)"; result != want {
+		t.Errorf("writeConstExpr(Compose) = %q, want %q", result, want)
 	}
 
-	// Test with out-of-range component
-	result, err = w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{99}}, 0)
+	// A component out of range is written as 0.
+	module.GlobalExpressions = append(module.GlobalExpressions,
+		ir.Expression{Kind: ir.ExprCompose{Type: 0, Components: []ir.ExpressionHandle{99}}})
+	result, err = w.writeConstExpr(ir.ExpressionHandle(len(module.GlobalExpressions) - 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "0") {
-		t.Errorf("writeCompositeValue with OOB component = %q, want contains '0'", result)
+	if want := "vec3(0)"; result != want {
+		t.Errorf("writeConstExpr with OOB component = %q, want %q", result, want)
 	}
 }
 
@@ -1345,7 +1342,7 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 
 // =============================================================================
-// writeConstantValue — coverage: 54.5% — ZeroConstantValue + global expression
+// writeConstants — a vector constant from its init expression
 // =============================================================================
 
 func TestCoverage_ConstantZeroValue(t *testing.T) {
@@ -1592,46 +1589,26 @@ fn fs_main(@location(0) x: f32) -> @location(0) vec4<f32> {
 }
 
 // =============================================================================
-// writeScalarValue — coverage: 81.2% — more scalar types
+// writeConstants — a u64 constant keeps all 64 bits
 // =============================================================================
 
-func TestCoverage_ScalarValueTypes(t *testing.T) {
-	w := &Writer{
-		module: &ir.Module{
-			Types: []ir.Type{
-				{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
-				{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
-				{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
-			},
-		},
-	}
+// TestCoverage_U64ConstantFullWidth: a u64 constant is written from its
+// literal init. The constant's former scalar value wrote it through its low
+// 32 bits with a u32 suffix (5000000000 became 705032704u), silently
+// changing the value.
+func TestCoverage_U64ConstantFullWidth(t *testing.T) {
+	source := `
+const BIG: u64 = 5000000000lu;
 
-	// ScalarValue with i32 type
-	got, err := w.writeScalarValue(ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "42") {
-		t.Errorf("writeScalarValue(sint) = %q, want contains '42'", got)
-	}
+@group(0) @binding(0) var<storage, read_write> out: u64;
 
-	// ScalarValue with u32 type
-	got, err = w.writeScalarValue(ir.ScalarValue{Bits: 7, Kind: ir.ScalarUint}, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "7") {
-		t.Errorf("writeScalarValue(uint) = %q, want contains '7'", got)
-	}
-
-	// ScalarValue with bool type
-	got, err = w.writeScalarValue(ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "true" {
-		t.Errorf("writeScalarValue(bool) = %q, want 'true'", got)
-	}
+@compute @workgroup_size(1)
+fn main() {
+    out = BIG;
+}
+`
+	output := wgslToGLSL(t, source, Options{LangVersion: Version430})
+	glslMustContain(t, output, "const uint64_t BIG = 5000000000ul;")
 }
 
 // =============================================================================

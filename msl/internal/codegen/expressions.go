@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -155,17 +156,13 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		return w.writeLiteral(k)
 
 	case ir.ExprConstant:
-		// Abstract constants (from untyped const declarations like "const one = 1;")
-		// are removed by Rust naga's process_overrides pass and their values inlined.
-		// We inline them here at output time to match Rust's behavior.
+		// A constant of an abstract type (an untyped `const one = 1;`) is
+		// removed by compaction, so writeConstants never declares it; should
+		// one be referred to, its value is written in place.
 		if int(k.Constant) < len(w.module.Constants) {
 			c := &w.module.Constants[k.Constant]
-			if c.IsAbstract {
-				if c.Value == nil {
-					// Value is nil, use Init (GlobalExpressions handle) instead.
-					return w.writeGlobalExpression(c.Init)
-				}
-				return w.writeConstantValueInline(c.Value, c.Type)
+			if int(c.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[c.Type].Inner, w.module.Types) {
+				return w.writeGlobalExpression(c.Init)
 			}
 		}
 		name := w.getName(nameKey{kind: nameKeyConstant, handle1: uint32(k.Constant)})
@@ -433,65 +430,6 @@ func (w *Writer) writeZeroValue(typeHandle ir.TypeHandle) error {
 	typeName := w.writeTypeName(typeHandle, StorageAccess(0))
 	w.write("%s {}", typeName)
 	return nil
-}
-
-// writeConstantValueInline writes an abstract constant's value inline,
-// recursively expanding composite values. This matches Rust naga where
-// abstract constants are removed by process_overrides and their values
-// are inlined at each use site.
-func (w *Writer) writeConstantValueInline(value ir.ConstantValue, typeHandle ir.TypeHandle) error {
-	if value == nil {
-		// Value is nil — this shouldn't happen for inline constants,
-		// but handle gracefully with empty braces.
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		w.write("%s {}", typeName)
-		return nil
-	}
-	switch v := value.(type) {
-	case ir.ScalarValue:
-		return w.writeScalarValue(v, typeHandle)
-	case ir.CompositeValue:
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		// Check if it's a splat (all components are the same constant)
-		isSplat := len(v.Components) > 1
-		if isSplat {
-			first := v.Components[0]
-			for _, c := range v.Components[1:] {
-				if c != first {
-					isSplat = false
-					break
-				}
-			}
-		}
-		if isSplat && len(v.Components) > 0 {
-			w.write("%s(", typeName)
-			comp := &w.module.Constants[v.Components[0]]
-			if err := w.writeConstantValueInline(comp.Value, comp.Type); err != nil {
-				return err
-			}
-			w.write(")")
-		} else {
-			w.write("%s(", typeName)
-			for i, ch := range v.Components {
-				if i > 0 {
-					w.write(", ")
-				}
-				comp := &w.module.Constants[ch]
-				if err := w.writeConstantValueInline(comp.Value, comp.Type); err != nil {
-					return err
-				}
-			}
-			w.write(")")
-		}
-		return nil
-	case ir.ZeroConstantValue:
-		return w.writeZeroValue(typeHandle)
-	default:
-		// Fallback: write the type with empty braces
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		w.write("%s {}", typeName)
-		return nil
-	}
 }
 
 // writeCompose writes a composite construction.
@@ -2452,16 +2390,6 @@ func (w *Writer) reinterpretedVarName(packedType string, handle ir.ExpressionHan
 
 // writeAs writes a type cast/conversion.
 func (w *Writer) writeAs(as ir.ExprAs) error {
-	// Try to fold constant casts at output time.
-	// When pipeline constants are applied, expressions like As(Constant(2_i32), uint)
-	// should produce literal 2u instead of static_cast<uint>(o).
-	// Matches Rust naga's constant_evaluator behavior in process_overrides.
-	if as.Convert != nil {
-		if folded, ok := w.tryFoldConstantCast(as); ok {
-			return w.writeScalarValue(folded.scalar, folded.typeHandle)
-		}
-	}
-
 	// Determine target scalar type name.
 	// For bitcast (Convert==nil), use source width to match type sizes.
 	convert := as.Convert
@@ -2542,90 +2470,6 @@ func (w *Writer) writeAs(as ir.ExprAs) error {
 		w.write(")")
 	}
 	return nil
-}
-
-// foldedScalar is the result of folding a constant cast at output time.
-type foldedScalar struct {
-	scalar     ir.ScalarValue
-	typeHandle ir.TypeHandle
-}
-
-// tryFoldConstantCast attempts to fold As(Constant(value), targetKind) into a literal.
-// Returns the folded scalar value and true if successful.
-func (w *Writer) tryFoldConstantCast(as ir.ExprAs) (foldedScalar, bool) {
-	if w.currentFunction == nil || as.Convert == nil {
-		return foldedScalar{}, false
-	}
-	// Check if the inner expression is a Constant reference.
-	if int(as.Expr) >= len(w.currentFunction.Expressions) {
-		return foldedScalar{}, false
-	}
-	inner := &w.currentFunction.Expressions[as.Expr]
-	constRef, ok := inner.Kind.(ir.ExprConstant)
-	if !ok {
-		return foldedScalar{}, false
-	}
-	if int(constRef.Constant) >= len(w.module.Constants) {
-		return foldedScalar{}, false
-	}
-	c := &w.module.Constants[constRef.Constant]
-	sv, ok := c.Value.(ir.ScalarValue)
-	if !ok {
-		return foldedScalar{}, false
-	}
-
-	// Convert the scalar value to the target type.
-	targetWidth := *as.Convert
-	switch as.Kind {
-	case ir.ScalarUint:
-		var val uint32
-		switch sv.Kind {
-		case ir.ScalarSint:
-			val = uint32(int32(sv.Bits))
-		case ir.ScalarUint:
-			val = uint32(sv.Bits)
-		case ir.ScalarFloat:
-			val = uint32(math.Float32frombits(uint32(sv.Bits)))
-		default:
-			return foldedScalar{}, false
-		}
-		typeHandle := w.findOrRegisterScalarType(ir.ScalarUint, targetWidth)
-		return foldedScalar{
-			scalar:     ir.ScalarValue{Bits: uint64(val), Kind: ir.ScalarUint},
-			typeHandle: typeHandle,
-		}, true
-	case ir.ScalarSint:
-		var val int32
-		switch sv.Kind {
-		case ir.ScalarSint:
-			val = int32(sv.Bits)
-		case ir.ScalarUint:
-			val = int32(uint32(sv.Bits))
-		case ir.ScalarFloat:
-			val = int32(math.Float32frombits(uint32(sv.Bits)))
-		default:
-			return foldedScalar{}, false
-		}
-		typeHandle := w.findOrRegisterScalarType(ir.ScalarSint, targetWidth)
-		return foldedScalar{
-			scalar:     ir.ScalarValue{Bits: uint64(val), Kind: ir.ScalarSint},
-			typeHandle: typeHandle,
-		}, true
-	}
-	return foldedScalar{}, false
-}
-
-// findOrRegisterScalarType finds a type handle for a scalar type with given kind and width.
-func (w *Writer) findOrRegisterScalarType(kind ir.ScalarKind, width uint8) ir.TypeHandle {
-	for i, t := range w.module.Types {
-		if st, ok := t.Inner.(ir.ScalarType); ok {
-			if st.Kind == kind && st.Width == width {
-				return ir.TypeHandle(i)
-			}
-		}
-	}
-	// Fallback: use type 0 (should not happen in practice)
-	return ir.TypeHandle(0)
 }
 
 // writeImageSample writes a texture sample operation.

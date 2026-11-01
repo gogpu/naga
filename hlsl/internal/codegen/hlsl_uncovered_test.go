@@ -1414,10 +1414,10 @@ func TestWriteStructMatrixAccessHelpers(t *testing.T) {
 }
 
 // =============================================================================
-// writeCompositeValue (types.go) — 0% coverage
+// writeGlobalConstExpression — a composite constant's Compose init
 // =============================================================================
 
-func TestWriteCompositeValue(t *testing.T) {
+func TestWriteGlobalConstExpression_VectorCompose(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			// [0] f32
@@ -1425,45 +1425,47 @@ func TestWriteCompositeValue(t *testing.T) {
 			// [1] vec2<f32>
 			{Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Constants: []ir.Constant{
-			{Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}}, // 1.0
-			{Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40000000}}, // 2.0
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{ty: 0, lit: ir.LiteralF32(1.0)},
+		testConst{ty: 0, lit: ir.LiteralF32(2.0)},
+		testConst{ty: 1, comps: []ir.ConstantHandle{0, 1}},
+	)
 	w := newTestWriter(module, nil, nil)
 
-	v := ir.CompositeValue{Components: []ir.ConstantHandle{0, 1}}
-	result := w.writeCompositeValue(v, 1) // type 1 = vec2<f32>
-	// Should produce constructor syntax for vector: "float2(1.0, 2.0)" or similar
-	if result == "" {
-		t.Error("expected non-empty composite value")
+	if err := w.writeGlobalConstExpression(module.Constants[2].Init); err != nil {
+		t.Fatalf("writeGlobalConstExpression: %v", err)
 	}
-	if !strings.Contains(result, "1.0") {
-		t.Errorf("expected 1.0 in composite, got: %s", result)
+	// A vector uses constructor syntax.
+	if got, want := w.Out.String(), "float2(1.0, 2.0)"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestWriteCompositeValue_Array(t *testing.T) {
-	four := uint32(2)
+func TestWriteGlobalConstExpression_ArrayCompose(t *testing.T) {
+	two := uint32(2)
 	module := &ir.Module{
 		Types: []ir.Type{
 			// [0] i32
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 			// [1] array<i32, 2>
-			{Inner: ir.ArrayType{Base: 0, Stride: 4, Size: ir.ArraySize{Constant: &four}}},
-		},
-		Constants: []ir.Constant{
-			{Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarSint, Bits: 10}},
-			{Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarSint, Bits: 20}},
+			{Inner: ir.ArrayType{Base: 0, Stride: 4, Size: ir.ArraySize{Constant: &two}}},
 		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{ty: 0, lit: ir.LiteralI32(10)},
+		testConst{ty: 0, lit: ir.LiteralI32(20)},
+		testConst{ty: 1, comps: []ir.ConstantHandle{0, 1}},
+	)
 	w := newTestWriter(module, nil, nil)
 
-	v := ir.CompositeValue{Components: []ir.ConstantHandle{0, 1}}
-	result := w.writeCompositeValue(v, 1) // type 1 = array
-	// Arrays use {} initializer syntax, not ()
-	if !strings.Contains(result, "{") {
-		t.Errorf("expected array initializer with {}, got: %s", result)
+	if err := w.writeGlobalConstExpression(module.Constants[2].Init); err != nil {
+		t.Fatalf("writeGlobalConstExpression: %v", err)
+	}
+	// An array goes through its constructor function, as Rust naga's
+	// write_const_expression (Construct<array type id>).
+	if got := w.Out.String(); !strings.HasPrefix(got, "Construct") || !strings.HasSuffix(got, "(int(10), int(20))") {
+		t.Errorf("got %q, want Construct<array>(int(10), int(20))", got)
 	}
 }
 

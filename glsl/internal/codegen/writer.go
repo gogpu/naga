@@ -6,7 +6,6 @@ package codegen
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/gogpu/naga/backend"
@@ -896,7 +895,9 @@ func (w *Writer) writeConstants() error {
 		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}]
 		baseType := w.getBaseTypeName(constant.Type)
 		arraySuffix := w.getArraySuffix(constant.Type)
-		value, err := w.writeConstantValue(constant)
+		// The value is the init expression, as Rust naga's
+		// write_global_constant: write_const_expr(constant.init).
+		value, err := w.writeConstExpr(constant.Init)
 		if err != nil {
 			return err
 		}
@@ -928,35 +929,6 @@ func isFloat16(inner ir.TypeInner) bool {
 	return false
 }
 
-// writeConstantValue returns the GLSL representation of a constant value.
-func (w *Writer) writeConstantValue(constant ir.Constant) (string, error) {
-	// First try the direct Value
-	switch v := constant.Value.(type) {
-	case ir.ScalarValue:
-		return w.writeScalarValue(v, constant.Type)
-	case ir.CompositeValue:
-		return w.writeCompositeValue(v, constant.Type)
-	case ir.ZeroConstantValue:
-		zv := w.zeroInitValue(constant.Type)
-		if zv != "" {
-			return zv, nil
-		}
-	}
-
-	// If no direct value, try writing from GlobalExpressions init
-	if int(constant.Init) < len(w.module.GlobalExpressions) {
-		result, err := w.writeConstExpr(constant.Init)
-		if err != nil {
-			return "", err
-		}
-		if result != "0" || constant.Value == nil {
-			return result, nil
-		}
-	}
-
-	return "0", nil // Fallback
-}
-
 // writeConstExpr writes a constant expression from GlobalExpressions.
 // This handles Compose, ZeroValue, Literal, and Constant references.
 func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
@@ -971,7 +943,7 @@ func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
 		return w.zeroInitValue(k.Type), nil
 	case ir.ExprConstant:
 		if int(k.Constant) < len(w.module.Constants) {
-			return w.writeConstantValue(w.module.Constants[k.Constant])
+			return w.writeConstExpr(w.module.Constants[k.Constant].Init)
 		}
 		return "0", nil
 	case ir.ExprCompose:
@@ -1036,57 +1008,6 @@ func (w *Writer) formatLiteral(lit ir.Literal) (string, error) {
 	default:
 		return "0", nil
 	}
-}
-
-// writeScalarValue returns the GLSL representation of a scalar value.
-func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) (string, error) {
-	switch v.Kind {
-	case ir.ScalarBool:
-		if v.Bits != 0 {
-			return "true", nil
-		}
-		return "false", nil
-	case ir.ScalarSint:
-		return fmt.Sprintf("%d", int32(v.Bits)), nil
-	case ir.ScalarUint:
-		return fmt.Sprintf("%du", uint32(v.Bits)), nil
-	case ir.ScalarFloat:
-		// Get width from type
-		width := uint8(4) // Default to 32-bit
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				width = scalar.Width
-			}
-		}
-		switch width {
-		case 2:
-			return "", errNoFloat16
-		case 4:
-			return formatFloat(math.Float32frombits(uint32(v.Bits))), nil
-		default: // 64-bit float
-			return formatFloat64(math.Float64frombits(v.Bits)), nil
-		}
-	default:
-		return "0", nil
-	}
-}
-
-// writeCompositeValue returns the GLSL representation of a composite value.
-func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) (string, error) {
-	typeName := w.getTypeName(typeHandle)
-	var components []string
-	for _, compHandle := range v.Components {
-		if int(compHandle) < len(w.module.Constants) {
-			component, err := w.writeConstantValue(w.module.Constants[compHandle])
-			if err != nil {
-				return "", err
-			}
-			components = append(components, component)
-		} else {
-			components = append(components, "0")
-		}
-	}
-	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", ")), nil
 }
 
 // writeGlobalVariables writes uniform, input, and output declarations.

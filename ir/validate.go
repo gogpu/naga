@@ -259,11 +259,16 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 	}
 }
 
-// validateConstants checks all constants.
+// validateConstants checks all constants: the type and the init expression,
+// the constant's only value, exist (Rust naga's handle validation of
+// Constant { ty, init }).
 func (v *validator) validateConstants() {
 	for i, c := range v.module.Constants {
 		if !v.isValidTypeHandle(c.Type) {
 			v.addError(fmt.Sprintf("constant %d (%s): type %d does not exist", i, c.Name, c.Type))
+		}
+		if int(c.Init) >= len(v.module.GlobalExpressions) {
+			v.addError(fmt.Sprintf("constant %d (%s): init expression %d does not exist", i, c.Name, c.Init))
 		}
 	}
 }

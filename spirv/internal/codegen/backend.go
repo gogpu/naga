@@ -1462,22 +1462,13 @@ type globalExprConst struct {
 // kept and reported only if a constant or global variable takes the expression
 // as its initializer.
 //
-// A constant that carries its value inline (Constant.Value) is written from that
-// value, so the pass skips its Init expression rather than write it a second
-// time; it is still written on demand if another expression uses it.
+// A constant has no value of its own: it is the constant written for its Init
+// expression (Rust's constant_ids[constant.init]), so every constant's value
+// is written here, in arena order, as Rust's writer does.
 func (b *Backend) emitGlobalExpressions() {
 	b.globalExprs = append(b.globalExprs[:0], make([]globalExprConst, len(b.module.GlobalExpressions))...)
-	inlineInit := make([]bool, len(b.module.GlobalExpressions))
-	for i := range b.module.Constants {
-		c := &b.module.Constants[i]
-		if c.Value != nil && int(c.Init) < len(inlineInit) {
-			inlineInit[c.Init] = true
-		}
-	}
 	for handle := range b.module.GlobalExpressions {
-		if !inlineInit[handle] {
-			_, _ = b.globalExpr(ir.ExpressionHandle(handle))
-		}
+		_, _ = b.globalExpr(ir.ExpressionHandle(handle))
 	}
 }
 
@@ -1639,167 +1630,28 @@ func (b *Backend) emitConstants() error {
 	return nil
 }
 
-// emitConstant emits a single IR constant and returns its SPIR-V ID.
+// emitConstant returns the SPIR-V ID of an IR constant: the constant written
+// for its Init expression, as Rust naga's constant_ids[constant.init]. The
+// initializer the front-end left unfolded (errInitNotFolded) is the zero value
+// of the constant's type.
 func (b *Backend) emitConstant(handle ir.ConstantHandle) (uint32, error) {
-	// Check cache
 	if id, ok := b.constantIDs[handle]; ok {
 		return id, nil
 	}
-
 	constant := &b.module.Constants[handle]
-
-	// Get type ID
 	typeID, err := b.emitType(constant.Type)
 	if err != nil {
 		return 0, err
 	}
-
-	var id uint32
-
-	switch value := constant.Value.(type) {
-	case ir.ScalarValue:
-		scalarID, err := b.emitScalarConstant(typeID, value)
-		if err != nil {
-			return 0, err
-		}
-		id = scalarID
-
-	case ir.CompositeValue:
-		// Emit all component constants first
-		componentIDs := make([]uint32, len(value.Components))
-		for i, componentHandle := range value.Components {
-			componentID, err := b.emitConstant(componentHandle)
-			if err != nil {
-				return 0, err
-			}
-			componentIDs[i] = componentID
-		}
-
-		id = b.builder.AddConstantComposite(typeID, componentIDs...)
-
-	case ir.ZeroConstantValue:
-		// Zero-initialized constant -> OpConstantNull
+	id, err := b.globalExpr(constant.Init)
+	switch {
+	case errors.Is(err, errInitNotFolded):
 		id = b.builder.AddConstantNull(typeID)
-
-	case nil:
-		// Constant with no inline value: the initializer lives in
-		// Module.GlobalExpressions, reached through Constant.Init. That is the
-		// normal shape for a concretely typed composite `const` — a vector or
-		// matrix literal never gets a CompositeValue. Falling back to
-		// OpConstantNull here silently zeroed every such value.
-		initID, err := b.globalExpr(constant.Init)
-		switch {
-		case errors.Is(err, errInitNotFolded):
-			id = b.builder.AddConstantNull(typeID)
-		case err != nil:
-			return 0, fmt.Errorf("constant %q: %w", constant.Name, err)
-		default:
-			id = initID
-		}
-
-	default:
-		return 0, unsupported.Errorf("unsupported constant value type: %T", value)
+	case err != nil:
+		return 0, fmt.Errorf("constant %q: %w", constant.Name, err)
 	}
-
-	// Cache the result
 	b.constantIDs[handle] = id
 	return id, nil
-}
-
-// emitScalarConstant emits a scalar constant.
-func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) (uint32, error) {
-	switch value.Kind {
-	case ir.ScalarBool:
-		if value.Bits != 0 {
-			// OpConstantTrue
-			id := b.builder.AllocID()
-			builder := b.newIB()
-			builder.AddWord(typeID)
-			builder.AddWord(id)
-			b.builder.types = append(b.builder.types, builder.Build(OpConstantTrue))
-			return id, nil
-		}
-		// OpConstantFalse
-		id := b.builder.AllocID()
-		builder := b.newIB()
-		builder.AddWord(typeID)
-		builder.AddWord(id)
-		b.builder.types = append(b.builder.types, builder.Build(OpConstantFalse))
-		return id, nil
-
-	case ir.ScalarFloat:
-		// Determine width from type
-		scalarType, err := b.resolveScalarType(typeID)
-		if err != nil {
-			return 0, fmt.Errorf("spirv: emitScalarConstant float: %w", err)
-		}
-		switch scalarType.Width {
-		case 2:
-			// 16-bit float: bits contain f16 bit pattern in low 16 bits,
-			// stored in a single 32-bit literal word
-			return b.builder.AddConstant(typeID, uint32(value.Bits)&0xFFFF), nil
-		case 4:
-			// 32-bit float
-			return b.builder.AddConstantFloat32(typeID, math.Float32frombits(uint32(value.Bits))), nil
-		default:
-			// 64-bit float
-			return b.builder.AddConstantFloat64(typeID, math.Float64frombits(value.Bits)), nil
-		}
-
-	case ir.ScalarSint, ir.ScalarUint, ir.ScalarAbstractInt:
-		// Concretize abstract int to i32 for SPIR-V
-		if value.Kind == ir.ScalarAbstractInt {
-			return b.builder.AddConstant(typeID, uint32(value.Bits)), nil
-		}
-		// For integers, just pass the bits directly
-		// Handle 64-bit integers (need two words)
-		scalarType, err := b.resolveScalarType(typeID)
-		if err != nil {
-			return 0, fmt.Errorf("spirv: emitScalarConstant int: %w", err)
-		}
-		if scalarType.Width == 8 {
-			// 64-bit integer
-			lowBits := uint32(value.Bits & 0xFFFFFFFF)
-			highBits := uint32(value.Bits >> 32)
-			return b.builder.AddConstant(typeID, lowBits, highBits), nil
-		}
-		// 32-bit or smaller integer
-		return b.builder.AddConstant(typeID, uint32(value.Bits)), nil
-
-	case ir.ScalarAbstractFloat:
-		// Concretize abstract float to f32 for SPIR-V
-		return b.builder.AddConstantFloat32(typeID, math.Float32frombits(uint32(value.Bits))), nil
-
-	default:
-		return 0, fmt.Errorf("spirv: unknown scalar kind: %v", value.Kind)
-	}
-}
-
-// resolveScalarType finds the ScalarType for a SPIR-V type ID, unwrapping AtomicType if needed.
-func (b *Backend) resolveScalarType(typeID uint32) (ir.ScalarType, error) {
-	handle, err := b.findTypeHandleByID(typeID)
-	if err != nil {
-		return ir.ScalarType{}, fmt.Errorf("spirv: resolveScalarType: %w", err)
-	}
-	typ := &b.module.Types[handle]
-	switch inner := typ.Inner.(type) {
-	case ir.ScalarType:
-		return inner, nil
-	case ir.AtomicType:
-		return inner.Scalar, nil
-	default:
-		return ir.ScalarType{}, fmt.Errorf("spirv: expected ScalarType or AtomicType, got %T", typ.Inner)
-	}
-}
-
-// findTypeHandleByID finds the IR TypeHandle for a given SPIR-V type ID.
-func (b *Backend) findTypeHandleByID(id uint32) (ir.TypeHandle, error) {
-	for handle, typeID := range b.typeIDs {
-		if typeID == id {
-			return handle, nil
-		}
-	}
-	return 0, fmt.Errorf("spirv: type ID %d not found in cache", id)
 }
 
 // OpConstantTrue represents OpConstantTrue opcode.

@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"math"
 	"strings"
 	"testing"
 
@@ -357,7 +356,6 @@ fn main() {
 
 // =============================================================================
 // Test: Pipeline constants — unary negation and complex expressions
-// (covers evalUnaryOp, evalGlobalExpression, convertLiteralToType, literalToScalarValue)
 // =============================================================================
 
 func TestIntegration_PipelineConstantsNegation(t *testing.T) {
@@ -940,11 +938,11 @@ fn main() {
 }
 
 // =============================================================================
-// Test: Constant value inline emission (covers writeConstantValueInline)
+// Test: Pipeline constants folded into an expression
 // =============================================================================
 
-func TestIntegration_ConstantValueInline(t *testing.T) {
-	// Override with composite value that gets inlined
+func TestIntegration_PipelineConstantsFolded(t *testing.T) {
+	// Pipeline constants replace the overrides and their sum is evaluated.
 	src := `
 override A: f32 = 1.0;
 override B: f32 = 2.0;
@@ -959,49 +957,6 @@ fn main() {
 	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 10.0, "B": 20.0})
 	mustContainMSL(t, code, "10.0")
 	mustContainMSL(t, code, "20.0")
-}
-
-// =============================================================================
-// Test: halfToFloat32 (covers types.go halfToFloat32)
-// =============================================================================
-
-func TestHalfToFloat32(t *testing.T) {
-	tests := []struct {
-		name string
-		bits uint16
-		want float32
-	}{
-		{"positive_zero", 0x0000, 0.0},
-		{"negative_zero", 0x8000, float32(math.Copysign(0, -1))},
-		{"one", 0x3C00, 1.0},
-		{"negative_one", 0xBC00, -1.0},
-		{"half", 0x3800, 0.5},
-		{"two", 0x4000, 2.0},
-		{"infinity", 0x7C00, float32(math.Inf(1))},
-		{"negative_infinity", 0xFC00, float32(math.Inf(-1))},
-		{"smallest_subnormal", 0x0001, 5.960464477539063e-8},
-		{"largest_subnormal", 0x03FF, 6.097555160522461e-5},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := halfToFloat32(tt.bits)
-			if math.IsNaN(float64(tt.want)) {
-				if !math.IsNaN(float64(got)) {
-					t.Errorf("halfToFloat32(0x%04X) = %v, want NaN", tt.bits, got)
-				}
-			} else if got != tt.want {
-				t.Errorf("halfToFloat32(0x%04X) = %v, want %v", tt.bits, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestHalfToFloat32_NaN(t *testing.T) {
-	// NaN has exponent all 1s and non-zero fraction
-	got := halfToFloat32(0x7E00) // quiet NaN
-	if !math.IsNaN(float64(got)) {
-		t.Errorf("halfToFloat32(0x7E00) = %v, want NaN", got)
-	}
 }
 
 // =============================================================================
@@ -1462,11 +1417,11 @@ func TestIntegration_TextureSampleOffset(t *testing.T) {
 }
 
 // =============================================================================
-// Test: writeExpressionKind — constant expression via pipeline constants
-// (covers tryFoldConstantCast)
+// Test: a cast of a pipeline constant is folded by naga.ProcessOverrides
+// (Rust process_overrides evaluates it), not by the writer
 // =============================================================================
 
-func TestIntegration_TryFoldConstantCast(t *testing.T) {
+func TestIntegration_PipelineConstantCastFolded(t *testing.T) {
 	src := `
 override A: i32 = 5;
 struct Out { v: u32 };
@@ -1479,7 +1434,7 @@ fn main() {
 	opts := DefaultOptions()
 	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 42})
 	// Cast of constant i32(42) to u32 should fold to 42u
-	mustContainMSL(t, code, "42u")
+	mustContainMSL(t, code, "out.v = 42u;")
 }
 
 // =============================================================================
@@ -1686,27 +1641,6 @@ fn main() {
 	mustContainMSL(t, code, "naga_dot")
 	mustContainMSL(t, code, "naga_abs")
 	mustContainMSL(t, code, "naga_neg")
-}
-
-// =============================================================================
-// Test: findOrRegisterScalarType via direct IR (covers expressions.go)
-// =============================================================================
-
-func TestMSL_FindOrRegisterScalarType(t *testing.T) {
-	// Exercise tryFoldConstantCast through WGSL, which calls findOrRegisterScalarType.
-	src := `
-override A: i32 = 5;
-struct Out { v: u32 };
-@group(0) @binding(0) var<storage, read_write> out: Out;
-@compute @workgroup_size(1)
-fn main() {
-    out.v = u32(A);
-}
-`
-	opts := DefaultOptions()
-	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 42})
-	// A=42 as i32 cast to u32 should fold to 42u
-	mustContainMSL(t, code, "42u")
 }
 
 // =============================================================================

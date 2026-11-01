@@ -1242,8 +1242,8 @@ func TestCompile_NamedConstants(t *testing.T) {
 			{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
 		Constants: []ir.Constant{
-			{Name: "PI", Type: tF32, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40490fdb}},
-			{Name: "MAX_COUNT", Type: tF32, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x42c80000}},
+			{Name: "PI", Type: tF32, Init: 0},
+			{Name: "MAX_COUNT", Type: tF32, Init: 1},
 		},
 		GlobalExpressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(3.14159)}},
@@ -1257,8 +1257,8 @@ func TestCompile_NamedConstants(t *testing.T) {
 	}
 
 	mustContainMSL(t, result, "constant")
-	mustContainMSL(t, result, "PI")
-	mustContainMSL(t, result, "MAX_COUNT")
+	mustContainMSL(t, result, "constant float PI = 3.14159;")
+	mustContainMSL(t, result, "constant float MAX_COUNT = 100.0;")
 }
 
 // =============================================================================

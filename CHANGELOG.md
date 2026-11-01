@@ -208,6 +208,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@interpolate(flat)`, as WGSL requires; it was made flat silently, and `ir.Validate` now rejects it with Rust's
   message, as it rejects the other interpolation/sampling combinations Rust's validator rejects. Output for shaders
   without `@interpolate` is unchanged.
+- **Breaking: a constant is its init expression, as Rust** (ADR-010 B5). `ir.Constant` is `{Name, Type, Init}`;
+  `Init` indexes `Module.GlobalExpressions`. `Constant.Value`, `Constant.IsAbstract` and the types `ConstantValue`,
+  `ScalarValue`, `CompositeValue`, `ZeroConstantValue` are removed: the value was a second copy of the init (equal on
+  the whole corpus), and an abstract constant is one whose type is abstract. Every backend writes a constant from its
+  init, as Rust's writers do; SPIR-V now declares constants in the order of the global expressions, as Rust does (the
+  order of two goldens changes, nothing else). The validator rejects an out-of-range `Init`.
 - **Breaking: `ir` keeps the data model and the helpers a frontend or backend outside naga needs** (ADR-010 B7).
   New: `ir.Layouter` (`Update(m) error`, `Layout(h) TypeLayout{Size, Alignment}`, Rust's `proc::Layouter`) replaces
   `ir.TypeSize` and `ir.TypeAlignment` with the same numbers; `TypeResolution.Inner(types)` replaces `ir.TypeResInner`;
@@ -236,6 +242,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GLSL: 64-bit constants kept only their low 32 bits.** A `u64`/`i64` module constant was written through its low
+  word without the 64-bit suffix: `const big: u64 = 5000000000lu;` became `const uint64_t big = 705032704u;`. Module
+  constants are now written by the same literal writer as everything else (`5000000000ul`).
 - **DXIL: inlined helpers could read the wrong values.** The inliner's statement walker had no case for
   `workgroupUniformLoad`, ray queries, subgroup operations and image atomics, and did not remap the compare value of
   an atomic compare-exchange, so a helper inlined into its caller kept handles that pointed at unrelated caller

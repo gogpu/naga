@@ -324,14 +324,15 @@ func TestIntegration8_ConstantStruct(t *testing.T) {
 				Span: 8,
 			}},
 		},
-		Constants: []ir.Constant{
-			{Name: "", Type: tF32, Value: ir.ScalarValue{Bits: 0x41200000, Kind: ir.ScalarFloat}}, // 10.0
-			{Name: "", Type: tF32, Value: ir.ScalarValue{Bits: 0x41A00000, Kind: ir.ScalarFloat}}, // 20.0
-			{Name: "DEFAULT_CONFIG", Type: tStruct, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 1}}},
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{ty: tF32, lit: ir.LiteralF32(10)},
+		testConst{ty: tF32, lit: ir.LiteralF32(20)},
+		testConst{name: "DEFAULT_CONFIG", ty: tStruct, comps: []ir.ConstantHandle{0, 1}},
+	)
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "DEFAULT_CONFIG")
+	// A struct constant uses brace initialization.
+	mustContainMSL(t, result, "constant Config DEFAULT_CONFIG = Config {10.0, 20.0};")
 }
 
 // =============================================================================

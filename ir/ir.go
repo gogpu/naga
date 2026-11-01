@@ -556,50 +556,21 @@ const (
 // Contains reports whether every bit of b is in a.
 func (a StorageAccess) Contains(b StorageAccess) bool { return a&b == b }
 
-// Constant represents a constant value.
+// Constant is a module-scope constant, Rust naga's Constant { name, ty, init }.
+// Its value is its Init expression and nothing else: every reader takes it
+// from Module.GlobalExpressions[Init]. A constant of an abstract type
+// (AbstractInt, AbstractFloat, or a vector, matrix or array of them) comes
+// from a WGSL `const` without a concrete type; compaction removes it before
+// the module reaches a backend.
 type Constant struct {
-	Name  string
-	Type  TypeHandle
-	Value ConstantValue
-
-	// Init is a handle into Module.GlobalExpressions that holds the init expression
-	// for this constant. This mirrors Rust naga's Constant.init field.
-	// When GlobalExpressions is populated, this is the canonical init reference.
+	// Name is the constant's name; empty for an unnamed constant.
+	Name string
+	// Type is the constant's type.
+	Type TypeHandle
+	// Init is the constant's value: a handle into Module.GlobalExpressions,
+	// never into a function's expression arena.
 	Init ExpressionHandle
-
-	// IsAbstract indicates this constant originated from a WGSL `const` declaration
-	// without an explicit type (e.g., `const ONE = 1;`). In Rust naga, such constants
-	// retain abstract types and are removed by the compact pass before reaching backends.
-	// The MSL writer should skip abstract constants.
-	IsAbstract bool
 }
-
-// ConstantValue represents constant values.
-type ConstantValue interface {
-	constantValue()
-}
-
-// ScalarValue represents a scalar constant.
-type ScalarValue struct {
-	Bits uint64 // Bit representation
-	Kind ScalarKind
-}
-
-func (ScalarValue) constantValue() {}
-
-// CompositeValue represents a composite constant.
-type CompositeValue struct {
-	Components []ConstantHandle
-}
-
-func (CompositeValue) constantValue() {}
-
-// ZeroConstantValue represents a zero-initialized constant.
-// In MSL, this renders as "type {}" (brace initialization).
-// Matches Rust naga's use of ZeroValue for constant init expressions.
-type ZeroConstantValue struct{}
-
-func (ZeroConstantValue) constantValue() {}
 
 // GlobalVariable represents a global variable.
 type GlobalVariable struct {

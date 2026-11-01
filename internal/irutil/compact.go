@@ -228,7 +228,7 @@ func compactTypes(module *ir.Module) {
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
 		// Abstract types must not reach backends.
-		keep[i] = !isAbstractType(t.Inner, module.Types) && (referenced[i] || t.Name != "")
+		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || t.Name != "")
 	}
 
 	// Check if anything would be removed
@@ -380,10 +380,11 @@ func remapFunctionTypes(f *ir.Function, remap []ir.TypeHandle) {
 	}
 }
 
-// markTypeInnerRefs marks type handles referenced by a TypeInner.
-// Only types that use handles (not embedded values) are marked.
-// Abstract types are removed by compact and must never reach backends.
-func isAbstractType(inner ir.TypeInner, types []ir.Type) bool {
+// IsAbstractType reports whether inner is an abstract type: AbstractInt or
+// AbstractFloat, or a vector, matrix or array of them (Rust naga's
+// TypeInner::is_abstract). Abstract types, and the constants of such a type,
+// are removed by compact and must never reach backends.
+func IsAbstractType(inner ir.TypeInner, types []ir.Type) bool {
 	switch t := inner.(type) {
 	case ir.ScalarType:
 		return t.Kind == ir.ScalarAbstractInt || t.Kind == ir.ScalarAbstractFloat
@@ -393,12 +394,14 @@ func isAbstractType(inner ir.TypeInner, types []ir.Type) bool {
 		return t.Scalar.Kind == ir.ScalarAbstractInt || t.Scalar.Kind == ir.ScalarAbstractFloat
 	case ir.ArrayType:
 		if int(t.Base) < len(types) {
-			return isAbstractType(types[t.Base].Inner, types)
+			return IsAbstractType(types[t.Base].Inner, types)
 		}
 	}
 	return false
 }
 
+// markTypeInnerRefs marks type handles referenced by a TypeInner.
+// Only types that use handles (not embedded values) are marked.
 func markTypeInnerRefs(inner ir.TypeInner, referenced []bool) {
 	switch t := inner.(type) {
 	case ir.ArrayType:

@@ -352,25 +352,6 @@ func TestBindingInterface(t *testing.T) {
 	}
 }
 
-// --- ConstantValue interface tests ---
-
-func TestConstantValueInterface(t *testing.T) {
-	tests := []struct {
-		name string
-		val  ConstantValue
-	}{
-		{"Scalar", ScalarValue{Bits: 0, Kind: ScalarFloat}},
-		{"Composite", CompositeValue{Components: nil}},
-		{"Zero", ZeroConstantValue{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.val.constantValue()
-		})
-	}
-}
-
 // --- SwitchValue interface tests ---
 
 func TestSwitchValueInterface(t *testing.T) {

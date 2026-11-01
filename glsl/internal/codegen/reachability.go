@@ -337,8 +337,8 @@ func (c *reachabilityCollector) markGlobalReachable(h ir.GlobalVariableHandle) {
 	}
 }
 
-// markConstantReachable marks a constant and its type as reachable.
-// For composite constants, also marks sub-constants transitively.
+// markConstantReachable marks a constant and its type as reachable, and the
+// constants its init expression refers to, transitively.
 func (c *reachabilityCollector) markConstantReachable(h ir.ConstantHandle) {
 	if _, already := c.rs.constants[h]; already {
 		return
@@ -348,13 +348,25 @@ func (c *reachabilityCollector) markConstantReachable(h ir.ConstantHandle) {
 	if int(h) < len(c.module.Constants) {
 		constant := &c.module.Constants[h]
 		c.markTypeReachable(constant.Type)
+		c.markGlobalExprReachable(constant.Init)
+	}
+}
 
-		// For composite constants, recurse into components.
-		if cv, ok := constant.Value.(ir.CompositeValue); ok {
-			for _, comp := range cv.Components {
-				c.markConstantReachable(comp)
-			}
+// markGlobalExprReachable marks the constants a module-scope expression
+// refers to, through the components of composites and splats.
+func (c *reachabilityCollector) markGlobalExprReachable(h ir.ExpressionHandle) {
+	if int(h) >= len(c.module.GlobalExpressions) {
+		return
+	}
+	switch k := c.module.GlobalExpressions[h].Kind.(type) {
+	case ir.ExprConstant:
+		c.markConstantReachable(k.Constant)
+	case ir.ExprCompose:
+		for _, comp := range k.Components {
+			c.markGlobalExprReachable(comp)
 		}
+	case ir.ExprSplat:
+		c.markGlobalExprReachable(k.Value)
 	}
 }
 

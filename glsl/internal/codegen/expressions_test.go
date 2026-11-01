@@ -4,6 +4,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -1715,7 +1716,10 @@ func TestGLSL_ConstantExpression(t *testing.T) {
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 		Constants: []ir.Constant{
-			{Name: "PI", Type: tF32, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40490fdb}},
+			{Name: "PI", Type: tF32, Init: 0},
+		},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(math.Float32frombits(0x40490fdb))}},
 		},
 		Functions: []ir.Function{{
 			Name: "test_fn",
