@@ -97,8 +97,10 @@ int64_t int64_function(int64_t x) {
     val = (_e126 + clamp(_e127, _e128, _e129));
     int64_t _e132 = val;
     int64_t _e133 = val;
+    ivec2 _e134 = ivec2(_e133);
     int64_t _e135 = val;
-    val = (_e132 + ( + ivec2(_e133).x * ivec2(_e135).x + ivec2(_e133).y * ivec2(_e135).y));
+    ivec2 _e136 = ivec2(_e135);
+    val = (_e132 + ( + _e134.x * _e136.x + _e134.y * _e136.y));
     int64_t _e139 = val;
     int64_t _e140 = val;
     int64_t _e141 = val;
@@ -172,8 +174,10 @@ uint64_t uint64_function(uint64_t x_1) {
     val_1 = (_e121 + clamp(_e122, _e123, _e124));
     uint64_t _e127 = val_1;
     uint64_t _e128 = val_1;
+    uvec2 _e129 = uvec2(_e128);
     uint64_t _e130 = val_1;
-    val_1 = (_e127 + ( + uvec2(_e128).x * uvec2(_e130).x + uvec2(_e128).y * uvec2(_e130).y));
+    uvec2 _e131 = uvec2(_e130);
+    val_1 = (_e127 + ( + _e129.x * _e131.x + _e129.y * _e131.y));
     uint64_t _e134 = val_1;
     uint64_t _e135 = val_1;
     uint64_t _e136 = val_1;
