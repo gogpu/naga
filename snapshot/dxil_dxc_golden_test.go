@@ -275,7 +275,12 @@ func compareToGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile st
 	}
 	golden := string(goldenBytes)
 
-	dxilBytes, compileErr := dxil.Compile(mod, dxil.DefaultOptions())
+	// Rust's fake_missing_bindings default: the corpus has no binding maps,
+	// and num_workgroups without special constants keeps the b0 buffer DXC
+	// compiled the HLSL with.
+	opts := dxil.DefaultOptions()
+	opts.FakeMissingBindings = true
+	dxilBytes, compileErr := dxil.Compile(mod, opts)
 	if compileErr != nil {
 		return 0, 0, "", fmt.Errorf("naga dxil compile: %w", compileErr)
 	}

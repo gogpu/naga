@@ -76,9 +76,10 @@ type Options struct {
 	UseBypassHash bool
 
 	// BindingMap remaps WGSL @group(N) @binding(M) to DXIL (space, register)
-	// at emit time. If a shader binding is not present in the map, its raw
-	// WGSL numbers are used (current behavior, preserved for backward
-	// compatibility when the map is nil).
+	// at emit time. A nil map uses the raw WGSL numbers. A non-nil map,
+	// empty too, must list every resource the entry point uses: one without
+	// an entry is an error wrapping backend.ErrMissingBinding, unless
+	// FakeMissingBindings keeps it at its WGSL numbers.
 	//
 	// This is the DXIL analog of hlsl.Options.BindingMap. It is required
 	// when the shader is consumed by a pipeline whose root signature uses
@@ -103,11 +104,21 @@ type Options struct {
 	// (StructuredBuffer<uint> nagaGroup<N>SamplerIndexArray). Mirrors
 	// hlsl.Options.SamplerBufferBindingMap.
 	//
-	// When nil, falls back to the current defaults: each group's index
-	// buffer at (space=255, register=group). The D3D12 HAL should
-	// populate this map so that the generated DXIL matches the root
+	// When nil, each group's index buffer is at (space=255,
+	// register=group), Rust naga's fallback. A non-nil map without a group
+	// whose samplers the entry point uses is an error wrapping
+	// backend.ErrMissingBinding, unless FakeMissingBindings. The D3D12 HAL
+	// should populate this map so that the generated DXIL matches the root
 	// signature's SRV layout for sampler index buffers.
 	SamplerBufferBindingMap map[uint32]BindTarget
+
+	// FakeMissingBindings places what a non-nil BindingMap or
+	// SamplerBufferBindingMap leaves out where a nil map would, and reads
+	// num_workgroups without SpecialConstantsBinding from a constant buffer
+	// at b0 in space 0, instead of failing. Rust naga's
+	// fake_missing_bindings defaults to true; wgpu-hal passes false, the
+	// zero value here.
+	FakeMissingBindings bool
 
 	// FragmentEntryPoint is, for a vertex stage, the fragment stage of its
 	// pipeline: the vertex stage writes only the outputs at locations the
@@ -120,8 +131,12 @@ type Options struct {
 	// hlsl.Options.SpecialConstantsBinding: a vertex stage adds the first
 	// two to vertex_index and instance_index, which SV_VertexID and
 	// SV_InstanceID count from zero, and a compute stage reads
-	// num_workgroups from all three. Without it, num_workgroups comes from a
-	// constant buffer at b0 in space 0.
+	// num_workgroups from all three. A compute stage that reads
+	// num_workgroups without it is an error wrapping
+	// backend.ErrMissingBinding: the fallback constant buffer at b0 in
+	// space 0, which FakeMissingBindings keeps, can collide with the
+	// caller's own b0. Without it, vertex_index and instance_index count
+	// from zero, as in Rust naga.
 	SpecialConstantsBinding *BindTarget
 
 	// DynamicStorageBufferOffsetsTargets holds, by bind group, the constant
@@ -328,6 +343,45 @@ func checkInput(irModule *ir.Module, opts Options) error {
 	return nil
 }
 
+// checkBindings refuses what a non-nil map leaves out for the resources ep
+// uses (ADR-009 §6 rows 5 and 21), unless FakeMissingBindings: a resource
+// without a BindingMap entry, a group of samplers without a
+// SamplerBufferBindingMap entry, and num_workgroups without
+// SpecialConstantsBinding (FakeMissingBindings keeps the constant buffer at
+// b0 in space 0 then). A nil BindingMap places resources at their WGSL group
+// and binding, a nil SamplerBufferBindingMap the index buffer of group G at
+// register(tG, space255). The errors wrap backend.ErrMissingBinding.
+func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
+	if opts.FakeMissingBindings {
+		return nil
+	}
+	for h := range reachableGlobalsForEntry(irModule, ep) {
+		gv := &irModule.GlobalVariables[h]
+		if gv.Binding == nil {
+			continue
+		}
+		loc := BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
+		if _, ok := opts.BindingMap[loc]; opts.BindingMap != nil && !ok {
+			return fmt.Errorf("dxil: %w: %s at group %d, binding %d", backend.ErrMissingBinding, gv.Name, loc.Group, loc.Binding)
+		}
+		inner := irModule.Types[gv.Type].Inner
+		if ba, ok := inner.(ir.BindingArrayType); ok {
+			inner = irModule.Types[ba.Base].Inner
+		}
+		if _, isSampler := inner.(ir.SamplerType); isSampler && opts.SamplerBufferBindingMap != nil {
+			if _, ok := opts.SamplerBufferBindingMap[loc.Group]; !ok {
+				return fmt.Errorf("dxil: %w: the sampler index buffer of group %d has no SamplerBufferBindingMap entry",
+					backend.ErrMissingBinding, loc.Group)
+			}
+		}
+	}
+	if opts.SpecialConstantsBinding == nil && ep.Stage == ir.StageCompute && entryUsesNumWorkGroups(ep) {
+		return fmt.Errorf("dxil: %w: entry point %q reads num_workgroups, which needs SpecialConstantsBinding",
+			backend.ErrMissingBinding, ep.Name)
+	}
+	return nil
+}
+
 // Compile translates a naga IR module to DXIL bytecode wrapped in
 // a DXBC container.
 //
@@ -351,6 +405,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	ep := &irModule.EntryPoints[0]
+	if err := checkBindings(irModule, ep, opts); err != nil {
+		return nil, err
+	}
 	smMinor := autoUpgradeSMPre(irModule, ep, opts.ShaderModel.Minor)
 
 	// Inline user helpers and clone the module so we never mutate the caller's IR.

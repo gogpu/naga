@@ -117,8 +117,11 @@ func TestDxilValSummary(t *testing.T) {
 				SpecialTypes:      module.SpecialTypes,
 			}
 
+			// The binding-array sizes of the shader's Rust parameters, and
+			// Rust's fake_missing_bindings default for the rest.
 			shaderOpts := opts
 			shaderOpts.BindingMap = dxilBindingArraySizes(shader.name)
+			shaderOpts.FakeMissingBindings = true
 			dxilBytes, compileErr := dxil.Compile(singleEPModule, shaderOpts)
 			if compileErr != nil {
 				if firstErr == "" {
