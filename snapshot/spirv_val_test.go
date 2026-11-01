@@ -297,7 +297,7 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 		return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
 	}
 
-	return generateSPIRVBinary(module)
+	return generateSPIRVBinary(name, module)
 }
 
 // compareStructural compares structural elements between our disassembly and reference.

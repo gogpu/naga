@@ -29,46 +29,6 @@ var (
 	Version1_6 = Version{1, 6}
 )
 
-// BoundsCheckPolicy selects how generated code handles an index that is out
-// of bounds. Mirrors Rust naga's proc::BoundsCheckPolicy.
-type BoundsCheckPolicy uint8
-
-// BoundsCheckPolicy values.
-const (
-	// BoundsCheckUnchecked adds no checks (default). Out-of-bounds accesses
-	// are undefined behavior unless the driver or hardware checks them.
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict replaces an out-of-bounds index with an in-bounds
-	// one: GLSL.std.450 UMin(index, length - 1). WebGPU requires this
-	// behavior for array, vector and matrix accesses.
-	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite makes out-of-bounds reads return zero
-	// and out-of-bounds writes and atomics do nothing.
-	BoundsCheckReadZeroSkipWrite
-)
-
-// BoundsCheckPolicies selects a BoundsCheckPolicy per kind of access.
-// Mirrors Rust naga's proc::BoundsCheckPolicies.
-type BoundsCheckPolicies struct {
-	// Index applies to array, vector and matrix indices outside storage and
-	// uniform buffers: function, private and workgroup memory, and values.
-	Index BoundsCheckPolicy
-
-	// Buffer applies to indices into globals in the storage and uniform
-	// address spaces. A device with robust buffer access already confines
-	// these accesses to the buffer, so it can use BoundsCheckUnchecked.
-	Buffer BoundsCheckPolicy
-
-	// ImageLoad applies to the coordinates, array index, level and sample
-	// of image loads.
-	ImageLoad BoundsCheckPolicy
-
-	// BindingArray applies to indices into binding arrays. Out-of-bounds
-	// handling for binding arrays of textures and samplers is not supported
-	// with BoundsCheckReadZeroSkipWrite (as in Rust naga).
-	BindingArray BoundsCheckPolicy
-}
-
 // Capability represents a SPIR-V capability.
 // This is an alias because Capability values are used directly with
 // implementation types (ModuleBuilder, Backend) that remain aliases.
@@ -142,8 +102,18 @@ type Options struct {
 	// ForceLoopBounding inserts a decrementing counter to prevent infinite loops.
 	ForceLoopBounding bool
 
-	// BoundsCheckPolicies controls how out-of-bounds image accesses are handled.
-	BoundsCheckPolicies BoundsCheckPolicies
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
+	// which WebGPU requires; Rust naga's default is Unchecked, and wgpu-hal
+	// passes the policies of the device. Every field honors every policy:
+	// Restrict with OpExtInst UMin (index) and clamped coordinates (image
+	// loads), ReadZeroSkipWrite with a comparison and a selection, Unchecked
+	// with no code. The exceptions: an unbounded binding array under
+	// Restrict or ReadZeroSkipWrite needs its size in BindingMap
+	// (BindingArraySize), and ReadZeroSkipWrite cannot guard a runtime-sized
+	// array or a binding array of acceleration structures; Compile fails
+	// then.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// CapabilitiesAvailable limits which capabilities may be used.
 	CapabilitiesAvailable map[Capability]struct{}
@@ -956,16 +926,11 @@ func toCodegenOptions(o Options) codegen.Options {
 		ForcePointSize:          o.ForcePointSize,
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
 		ForceLoopBounding:       o.ForceLoopBounding,
-		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
-			Index:        codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
-			Buffer:       codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Buffer),
-			ImageLoad:    codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
-			BindingArray: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.BindingArray),
-		},
-		CapabilitiesAvailable: o.CapabilitiesAvailable,
-		RayQueryInitTracking:  o.RayQueryInitTracking,
-		BindingMap:            toCodegenBindingMap(o.BindingMap),
-		RequireBindings:       o.RequireBindings,
+		BoundsCheckPolicies:     o.BoundsCheckPolicies,
+		CapabilitiesAvailable:   o.CapabilitiesAvailable,
+		RayQueryInitTracking:    o.RayQueryInitTracking,
+		BindingMap:              toCodegenBindingMap(o.BindingMap),
+		RequireBindings:         o.RequireBindings,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ClampFragDepth:                o.ClampFragDepth,

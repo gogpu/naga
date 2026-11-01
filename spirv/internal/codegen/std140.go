@@ -6,6 +6,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -417,9 +418,9 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 	policy := b.options.BoundsCheckPolicies.Index
 	var defaultLabel uint32
 	switch policy {
-	case BoundsCheckRestrict:
+	case backend.BoundsCheckRestrict:
 		defaultLabel = cases[len(cases)-1]
-	case BoundsCheckReadZeroSkipWrite:
+	case backend.BoundsCheckReadZeroSkipWrite:
 		defaultLabel = merge
 	default:
 		defaultLabel = b.builder.AllocID()
@@ -439,8 +440,8 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 		incoming = append(incoming, column, label)
 	}
 	switch policy {
-	case BoundsCheckRestrict:
-	case BoundsCheckReadZeroSkipWrite:
+	case backend.BoundsCheckRestrict:
+	case backend.BoundsCheckReadZeroSkipWrite:
 		incoming = append(incoming, b.constantNull(columnTypeID), header.LabelID)
 	default:
 		fb.Consume(NewBlock(defaultLabel), Instruction{Opcode: OpUnreachable})

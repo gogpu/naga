@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // spvView indexes a decoded SPIR-V module for bounds-check assertions.
@@ -90,16 +92,28 @@ func (v *spvView) isConst(id, value uint32) bool {
 	return ok && c == value
 }
 
-func compileBoundsTest(t *testing.T, source string, policies BoundsCheckPolicies) *spvView {
+func compileBoundsTest(t *testing.T, source string, policies backend.BoundsCheckPolicies) *spvView {
 	t.Helper()
 	spv := compileWGSLForCapabilityTestWithOpts(t, source, Options{Version: Version1_3, BoundsCheckPolicies: policies})
 	validateWithVulkanSDK(t, spv)
 	return newSPVView(t, spv)
 }
 
+// indexBuffer returns policies with the given Index and Buffer and no checks
+// on image loads and binding arrays. The zero value of every field is
+// Restrict, so each test names all of them.
+func indexBuffer(index, buffer backend.BoundsCheckPolicy) backend.BoundsCheckPolicies {
+	return backend.BoundsCheckPolicies{
+		Index:        index,
+		Buffer:       buffer,
+		ImageLoad:    backend.BoundsCheckUnchecked,
+		BindingArray: backend.BoundsCheckUnchecked,
+	}
+}
+
 var (
-	restrictAll = BoundsCheckPolicies{Index: BoundsCheckRestrict, Buffer: BoundsCheckRestrict}
-	rzswAll     = BoundsCheckPolicies{Index: BoundsCheckReadZeroSkipWrite, Buffer: BoundsCheckReadZeroSkipWrite}
+	restrictAll = indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckRestrict)
+	rzswAll     = indexBuffer(backend.BoundsCheckReadZeroSkipWrite, backend.BoundsCheckReadZeroSkipWrite)
 )
 
 // TestBoundsCheckRestrict pins BoundsCheckPolicy Restrict as Rust naga's
@@ -214,11 +228,11 @@ fn main(@builtin(local_invocation_index) i: u32) {
     local[i] = buf[i];
 }`
 		// Rust choose_policy: storage/uniform pointers use `buffer`, the rest `index`.
-		onlyIndex := compileBoundsTest(t, source, BoundsCheckPolicies{Index: BoundsCheckRestrict})
+		onlyIndex := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckUnchecked))
 		if umins := onlyIndex.all(OpExtInst, GLSLstd450UMin); len(umins) != 1 || !onlyIndex.isConst(umins[0].words[6], 3) {
 			t.Errorf("Index=Restrict: want one UMin(i, 3) for the local array, got %d", len(umins))
 		}
-		onlyBuffer := compileBoundsTest(t, source, BoundsCheckPolicies{Buffer: BoundsCheckRestrict})
+		onlyBuffer := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckUnchecked, backend.BoundsCheckRestrict))
 		if umins := onlyBuffer.all(OpExtInst, GLSLstd450UMin); len(umins) != 1 || !onlyBuffer.isConst(umins[0].words[6], 15) {
 			t.Errorf("Buffer=Restrict: want one UMin(i, 15) for the storage array, got %d", len(umins))
 		}
@@ -457,7 +471,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
     var a: array<f32, 8>;
     a[i] = data.items[i];
     data.count = u32(a[i + 1u]);
-}`, BoundsCheckPolicies{})
+}`, indexBuffer(backend.BoundsCheckUnchecked, backend.BoundsCheckUnchecked))
 	if n := len(v.all(OpExtInst, GLSLstd450UMin)) + len(v.all(OpULessThan, 0)); n != 0 {
 		t.Errorf("Unchecked emitted %d bounds-check instructions", n)
 	}
@@ -483,11 +497,11 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		}
 		return got
 	}
-	index := compileBoundsTest(t, source, BoundsCheckPolicies{Index: BoundsCheckRestrict})
+	index := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckUnchecked))
 	if got := bounds(index); len(got) != 2 || got[4] != 1 || got[5] != 1 {
 		t.Errorf("Index=Restrict: UMin bounds %v, want private (4) and workgroup (5)", got)
 	}
-	buffer := compileBoundsTest(t, source, BoundsCheckPolicies{Buffer: BoundsCheckRestrict})
+	buffer := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckUnchecked, backend.BoundsCheckRestrict))
 	if got := bounds(buffer); len(got) != 1 || got[6] != 1 {
 		t.Errorf("Buffer=Restrict: UMin bounds %v, want uniform (6)", got)
 	}
@@ -507,7 +521,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
     out = m[i] * a[i + 1u];
 }`
 	t.Run("restrict", func(t *testing.T) {
-		v := compileBoundsTest(t, source, BoundsCheckPolicies{Index: BoundsCheckRestrict})
+		v := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckUnchecked))
 		got := map[uint32]int{}
 		for _, u := range v.all(OpExtInst, GLSLstd450UMin) {
 			got[v.consts[u.words[6]]]++
@@ -517,7 +531,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		}
 	})
 	t.Run("read_zero_skip_write", func(t *testing.T) {
-		v := compileBoundsTest(t, source, BoundsCheckPolicies{Index: BoundsCheckReadZeroSkipWrite})
+		v := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckReadZeroSkipWrite, backend.BoundsCheckUnchecked))
 		lts := v.all(OpULessThan, 0)
 		if len(lts) != 2 {
 			t.Fatalf("ULessThan count = %d, want 2", len(lts))

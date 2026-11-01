@@ -148,3 +148,86 @@ func TestZeroOptionsAreSafe(t *testing.T) {
 		})
 	}
 }
+
+// boundsShader indexes a local array, a storage array and a texture with
+// run-time values, so every bounds-check field has an access to guard.
+const boundsShader = `
+@group(0) @binding(0) var<storage, read_write> data: array<u32, 16>;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+@compute @workgroup_size(1)
+fn main(@builtin(local_invocation_index) i: u32) {
+    var local = array<u32, 4>(1u, 2u, 3u, 4u);
+    data[i] = local[i] + u32(textureLoad(tex, vec2<u32>(i, i), i).x);
+}`
+
+func boundsModule(t *testing.T) *ir.Module {
+	t.Helper()
+	ast, err := Parse(boundsShader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := LowerWithSource(ast, boundsShader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return module
+}
+
+func allPolicies(p backend.BoundsCheckPolicy) backend.BoundsCheckPolicies {
+	return backend.BoundsCheckPolicies{Index: p, Buffer: p, ImageLoad: p, BindingArray: p}
+}
+
+// boundsBackend compiles boundsShader with the given policies, and with the
+// policies left at their zero value.
+type boundsBackend struct {
+	compile  func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error)
+	withZero func(m *ir.Module) ([]byte, error)
+}
+
+func boundsBackends() map[string]boundsBackend {
+	return map[string]boundsBackend{
+		"spirv": {
+			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
+				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, BoundsCheckPolicies: p}).Compile(m)
+			},
+			withZero: func(m *ir.Module) ([]byte, error) {
+				return spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
+			},
+		},
+	}
+}
+
+// The zero BoundsCheckPolicies is Restrict on every field, which WebGPU
+// requires for array, vector and matrix accesses, in every backend that has
+// the policies. Rust naga's default is Unchecked; a caller asks for it. A
+// value outside the enum is an error.
+func TestZeroBoundsCheckPoliciesAreRestrict(t *testing.T) {
+	for name, b := range boundsBackends() {
+		t.Run(name, func(t *testing.T) {
+			zero, err := b.withZero(boundsModule(t))
+			if err != nil {
+				t.Fatalf("zero policies: %v", err)
+			}
+			restrict, err := b.compile(boundsModule(t), allPolicies(backend.BoundsCheckRestrict))
+			if err != nil {
+				t.Fatalf("Restrict: %v", err)
+			}
+			unchecked, err := b.compile(boundsModule(t), allPolicies(backend.BoundsCheckUnchecked))
+			if err != nil {
+				t.Fatalf("Unchecked: %v", err)
+			}
+			if !bytes.Equal(zero, restrict) {
+				t.Errorf("zero policies differ from Restrict")
+			}
+			if bytes.Equal(zero, unchecked) {
+				t.Errorf("zero policies compile the same as Unchecked")
+			}
+			bogus := allPolicies(backend.BoundsCheckUnchecked)
+			bogus.ImageLoad = 7
+			if _, err := b.compile(boundsModule(t), bogus); err == nil ||
+				!strings.Contains(err.Error(), "BoundsCheckPolicy(7) is not supported") {
+				t.Errorf("policy 7: err %v, want BoundsCheckPolicy(7) is not supported", err)
+			}
+		})
+	}
+}

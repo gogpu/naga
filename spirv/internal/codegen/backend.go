@@ -345,6 +345,12 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if m := b.options.ZeroInitializeWorkgroupMemory; m > backend.ZeroInitWorkgroupNone {
 		return nil, fmt.Errorf("spirv: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
+	p := b.options.BoundsCheckPolicies
+	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
+		if policy > backend.BoundsCheckUnchecked {
+			return nil, fmt.Errorf("spirv: BoundsCheckPolicies: %v is not supported", policy)
+		}
+	}
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
@@ -8393,6 +8399,8 @@ type imageCoordinates struct {
 	valueID uint32
 	typeID  uint32
 	size    int // 0 for scalar, 2/3/4 for vector
+	// unsigned: the components are u32 (i32 otherwise).
+	unsigned bool
 }
 
 // emitImageCoordinates builds a SPIR-V coordinate vector, combining coordinates
@@ -8422,7 +8430,14 @@ func (e *ExpressionEmitter) emitImageCoordinates(
 		if vec, ok := coordInner.(ir.VectorType); ok {
 			size = int(vec.Size)
 		}
-		return imageCoordinates{valueID: coordID, typeID: typeID, size: size}, nil
+		unsigned := false
+		switch t := coordInner.(type) {
+		case ir.ScalarType:
+			unsigned = t.Kind == ir.ScalarUint
+		case ir.VectorType:
+			unsigned = t.Scalar.Kind == ir.ScalarUint
+		}
+		return imageCoordinates{valueID: coordID, typeID: typeID, size: size, unsigned: unsigned}, nil
 	}
 
 	arrayIndexID, err := e.emitExpression(*arrayIndex)
@@ -8480,7 +8495,7 @@ func (e *ExpressionEmitter) emitImageCoordinates(
 	ib.AddWord(arrayIndexID)
 	e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
 
-	return imageCoordinates{valueID: combinedID, typeID: combinedTypeID, size: newSize}, nil
+	return imageCoordinates{valueID: combinedID, typeID: combinedTypeID, size: newSize, unsigned: componentScalar.Kind == ir.ScalarUint}, nil
 }
 
 // emitImageFetchOrRead emits the actual image access instruction.
@@ -8595,19 +8610,24 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 		sampleID = &sid
 	}
 
+	// OpImageQuerySize takes only a multisampled or storage image. A sampled
+	// image without a level (texture_external) has one level, so a check
+	// queries the size of level 0, the level OpImageFetch reads.
+	sizeLodZero := levelID == nil && sampleID == nil && imgType.Class != ir.ImageClassStorage
+
 	// Apply bounds check policy
 	var accessID uint32
 	policy := e.backend.options.BoundsCheckPolicies.ImageLoad
 
 	switch policy {
-	case BoundsCheckRestrict:
-		accessID, err = e.emitImageLoadRestrict(imageID, opcode, instrTypeID, coords, levelID, sampleID)
+	case backend.BoundsCheckRestrict:
+		accessID, err = e.emitImageLoadRestrict(imageID, opcode, instrTypeID, coords, levelID, sampleID, sizeLodZero)
 		if err != nil {
 			return 0, err
 		}
 
-	case BoundsCheckReadZeroSkipWrite:
-		accessID, err = e.emitImageLoadRZSW(imageID, opcode, instrTypeID, coords, levelID, sampleID)
+	case backend.BoundsCheckReadZeroSkipWrite:
+		accessID, err = e.emitImageLoadRZSW(imageID, opcode, instrTypeID, coords, levelID, sampleID, sizeLodZero)
 		if err != nil {
 			return 0, err
 		}
@@ -8632,12 +8652,35 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 	return accessID, nil
 }
 
+// emitImageSizeQuery returns the size of the image with its array layers
+// (Rust naga's write_coordinate_bounds): OpImageQuerySizeLod at levelID, or
+// at level 0 when lodZero is set (a sampled image read without a level),
+// else OpImageQuerySize.
+func (e *ExpressionEmitter) emitImageSizeQuery(typeID, imageID uint32, levelID *uint32, lodZero bool, i32TypeID uint32) uint32 {
+	if levelID == nil && lodZero {
+		zero := e.backend.builder.AddConstant(i32TypeID, 0)
+		levelID = &zero
+	}
+	sizeID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(typeID)
+	ib.AddWord(sizeID)
+	ib.AddWord(imageID)
+	if levelID != nil {
+		ib.AddWord(*levelID)
+		e.backend.builder.funcAppend(ib.Build(OpImageQuerySizeLod))
+	} else {
+		e.backend.builder.funcAppend(ib.Build(OpImageQuerySize))
+	}
+	return sizeID
+}
+
 // emitImageLoadRestrict implements Restrict bounds checking for image loads.
 // Clamps level/sample to valid range, queries image size, clamps coordinates.
 // Matching Rust naga's write_restricted_coordinates.
 func (e *ExpressionEmitter) emitImageLoadRestrict(
 	imageID uint32, opcode OpCode, instrTypeID uint32,
-	coords imageCoordinates, levelID, sampleID *uint32,
+	coords imageCoordinates, levelID, sampleID *uint32, sizeLodZero bool,
 ) (uint32, error) {
 	e.backend.addCapability(CapabilityImageQuery)
 
@@ -8696,33 +8739,34 @@ func (e *ExpressionEmitter) emitImageLoadRestrict(
 	}
 
 	// Query image size (using clamped level)
-	coordBoundsID := e.backend.builder.AllocID()
-	ib := e.newIB()
-	ib.AddWord(coords.typeID)
-	ib.AddWord(coordBoundsID)
-	ib.AddWord(imageID)
-	if levelID != nil {
-		ib.AddWord(*levelID)
-		e.backend.builder.funcAppend(ib.Build(OpImageQuerySizeLod))
-	} else {
-		e.backend.builder.funcAppend(ib.Build(OpImageQuerySize))
-	}
+	coordBoundsID := e.emitImageSizeQuery(coords.typeID, imageID, levelID, sizeLodZero, i32TypeID)
 
-	// Build "ones" for coordinate bounds: scalar 1 or vec of 1s
+	// Build "ones" for coordinate bounds: scalar 1 or vec of 1s. A
+	// composite's constituents must have its component type, so u32
+	// coordinates take a u32 one; Rust naga uses an i32 one for both, which
+	// spirv-val rejects for a uvec (OpISub takes either signedness).
 	var onesID uint32
 	if coords.size == 0 {
 		onesID = oneID
 	} else {
+		componentOne := oneID
+		if coords.unsigned {
+			u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			if err != nil {
+				return 0, err
+			}
+			componentOne = e.backend.builder.AddConstant(u32TypeID, 1)
+		}
 		ones := make([]uint32, coords.size)
 		for i := range ones {
-			ones[i] = oneID
+			ones[i] = componentOne
 		}
 		onesID = e.backend.builder.AddConstantComposite(coords.typeID, ones...)
 	}
 
 	// coordLimit = size - ones
 	coordLimitID := e.backend.builder.AllocID()
-	ib = e.newIB()
+	ib := e.newIB()
 	ib.AddWord(coords.typeID)
 	ib.AddWord(coordLimitID)
 	ib.AddWord(coordBoundsID)
@@ -8740,7 +8784,7 @@ func (e *ExpressionEmitter) emitImageLoadRestrict(
 // Matching Rust naga's write_conditional_image_access.
 func (e *ExpressionEmitter) emitImageLoadRZSW(
 	imageID uint32, opcode OpCode, instrTypeID uint32,
-	coords imageCoordinates, levelID, sampleID *uint32,
+	coords imageCoordinates, levelID, sampleID *uint32, sizeLodZero bool,
 ) (uint32, error) {
 	e.backend.addCapability(CapabilityImageQuery)
 
@@ -8766,9 +8810,28 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 	}
 	var phiEntries []phiEntry
 
-	// Current block ID for tracking Phi source blocks
-	// We record the block ID where we branch to merge (false path)
-	entryBlockID := e.currentBlock.LabelID
+	// branchIfTrue continues in a new block when condID holds and goes to
+	// the merge block with the null value otherwise. Like Rust naga's
+	// Selection::if_true, the first branch, whichever check it is, carries
+	// the OpSelectionMerge of the whole construct; an image without a level
+	// (multisampled, storage) starts with the sample or coordinate check.
+	needSelectionMerge := true
+	branchIfTrue := func(condID uint32) {
+		phiEntries = append(phiEntries, phiEntry{nullID, e.currentBlock.LabelID})
+		trueBlockID := e.backend.builder.AllocID()
+		if needSelectionMerge {
+			ib := e.newIB()
+			ib.AddWord(mergeBlockID)
+			ib.AddWord(0) // SelectionControl::None
+			e.backend.builder.funcAppend(ib.Build(OpSelectionMerge))
+			needSelectionMerge = false
+		}
+		e.consumeBlock(Instruction{
+			Opcode: OpBranchConditional,
+			Words:  []uint32{condID, trueBlockID, mergeBlockID},
+		})
+		e.setCurrentBlock(&Block{LabelID: trueBlockID})
+	}
 
 	// Check level bounds
 	if levelID != nil {
@@ -8788,29 +8851,7 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 		ib.AddWord(*levelID)
 		ib.AddWord(numLevelsID)
 		e.backend.builder.funcAppend(ib.Build(OpULessThan))
-
-		// SelectionMerge + BranchConditional
-		trueBlockID := e.backend.builder.AllocID()
-
-		ib = e.newIB()
-		ib.AddWord(mergeBlockID)
-		ib.AddWord(0) // SelectionControl::None
-		e.backend.builder.funcAppend(ib.Build(OpSelectionMerge))
-
-		// False path goes to merge with null
-		phiEntries = append(phiEntries, phiEntry{nullID, e.currentBlock.LabelID})
-
-		// Consume current block with BranchConditional
-		e.consumeBlock(Instruction{
-			Opcode: OpBranchConditional,
-			Words:  []uint32{lodCondID, trueBlockID, mergeBlockID},
-		})
-
-		// Start true block
-		trueBlock := &Block{LabelID: trueBlockID}
-		e.setCurrentBlock(trueBlock)
-	} else {
-		// No level check needed, but we still record entry block for Phi
+		branchIfTrue(lodCondID)
 	}
 
 	// Check sample bounds
@@ -8831,36 +8872,13 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 		ib.AddWord(*sampleID)
 		ib.AddWord(numSamplesID)
 		e.backend.builder.funcAppend(ib.Build(OpULessThan))
-
-		// False path goes to merge with null
-		phiEntries = append(phiEntries, phiEntry{nullID, e.currentBlock.LabelID})
-
-		trueBlockID := e.backend.builder.AllocID()
-
-		// BranchConditional (no SelectionMerge for nested checks)
-		e.consumeBlock(Instruction{
-			Opcode: OpBranchConditional,
-			Words:  []uint32{sampleCondID, trueBlockID, mergeBlockID},
-		})
-
-		trueBlock := &Block{LabelID: trueBlockID}
-		e.setCurrentBlock(trueBlock)
+		branchIfTrue(sampleCondID)
 	}
 
 	// Check coordinate bounds
 	{
 		// Query image size
-		coordBoundsID := e.backend.builder.AllocID()
-		ib := e.newIB()
-		ib.AddWord(coords.typeID)
-		ib.AddWord(coordBoundsID)
-		ib.AddWord(imageID)
-		if levelID != nil {
-			ib.AddWord(*levelID)
-			e.backend.builder.funcAppend(ib.Build(OpImageQuerySizeLod))
-		} else {
-			e.backend.builder.funcAppend(ib.Build(OpImageQuerySize))
-		}
+		coordBoundsID := e.emitImageSizeQuery(coords.typeID, imageID, levelID, sizeLodZero, i32TypeID)
 
 		// coords < size? (component-wise ULessThan)
 		var coordsBoolTypeID uint32
@@ -8875,7 +8893,7 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 		}
 
 		coordsCondsID := e.backend.builder.AllocID()
-		ib = e.newIB()
+		ib := e.newIB()
 		ib.AddWord(coordsBoolTypeID)
 		ib.AddWord(coordsCondsID)
 		ib.AddWord(coords.valueID)
@@ -8894,20 +8912,8 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 			coordCondID = allID
 		}
 
-		// False path goes to merge with null
-		phiEntries = append(phiEntries, phiEntry{nullID, e.currentBlock.LabelID})
-
-		accessBlockID := e.backend.builder.AllocID()
-
-		// BranchConditional
-		e.consumeBlock(Instruction{
-			Opcode: OpBranchConditional,
-			Words:  []uint32{coordCondID, accessBlockID, mergeBlockID},
-		})
-
-		// Access block — do the actual fetch
-		accessBlock := &Block{LabelID: accessBlockID}
-		e.setCurrentBlock(accessBlock)
+		// The access block does the actual fetch.
+		branchIfTrue(coordCondID)
 	}
 
 	// Perform the actual image access
@@ -8934,7 +8940,6 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 	}
 	e.backend.builder.funcAppend(ib.Build(OpPhi))
 
-	_ = entryBlockID
 	return phiResultID, nil
 }
 

@@ -220,7 +220,7 @@ func TestBindingMapBindingArraySize(t *testing.T) {
 // binding_array_layout_size: the length of an unbounded binding array for a
 // bounds check comes from the binding map; without an entry it stays an error.
 func TestBindingMapUnboundedBindingArrayBoundsCheck(t *testing.T) {
-	policies := BoundsCheckPolicies{Buffer: BoundsCheckRestrict, BindingArray: BoundsCheckRestrict}
+	policies := backend.BoundsCheckPolicies{Buffer: backend.BoundsCheckRestrict, BindingArray: backend.BoundsCheckRestrict}
 
 	t.Run("size_from_map", func(t *testing.T) {
 		spv, err := compileWGSLWithOpts(t, bindingArraySource(""), Options{

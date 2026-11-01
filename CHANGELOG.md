@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching runs (the GPU hangs or the device is lost) and reports it skipped with its card, as Rust wgpu's
   `FailureCase` skip. Format 1 cases still read; `skip` needs format 2. A case that requires a feature a backend
   never exposes is no longer compiled for it (`gles` and `shader-f16`).
+- **Breaking: one workgroup zero-init option** in `spirv`, `msl`, `hlsl`, `glsl` and `dxil`:
+  `ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode` (P1-API-002). `ZeroInitWorkgroupPolyfill`,
+  the zero value and Rust naga's default in every backend, stores zero from the generated code;
+  `ZeroInitWorkgroupNative` (`OpConstantNull` initializers) is SPIR-V only and an error elsewhere;
+  `ZeroInitWorkgroupNone` leaves the memory as it is. Replaces the `msl` and `hlsl` bools of that name, whose zero
+  value skipped the zeroing WebGPU requires, and `glsl`/`dxil` `SkipWorkgroupMemoryZeroInit`.
+- **Breaking: shared bounds-check policies.** `spirv.Options.BoundsCheckPolicies` and
+  `naga.CompileOptions.BoundsCheckPolicies` are `backend.BoundsCheckPolicies`; the constants follow Rust naga's
+  order, and the zero value is `BoundsCheckRestrict` on every field, which WebGPU requires (Rust's default is
+  `Unchecked`; a device with robust buffer and image access can set `Buffer` and `ImageLoad` to it). An unbounded
+  binding array under `Restrict` takes its size from the binding map (`BindingArraySize`), as wgpu passes it.
 
 ### Added
 
@@ -30,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V: checked image loads were invalid SPIR-V** in three shapes, found when `Restrict` became the default and
+  spirv-val ran over the corpus with it: `Restrict` on `u32` coordinates built its vector of ones from an `i32` one
+  (Rust naga does the same); `ReadZeroSkipWrite` on a multisampled or storage texture branched without an
+  `OpSelectionMerge`; and both queried a `texture_external` with `OpImageQuerySize`, which only multisampled and
+  storage images take (level 0 is queried now).
 - **DXIL: silent miscompiles of control flow.** A `break` in a `switch` inside a loop left the loop (P0-DXIL-057);
   a `return` inside control flow of an entry point did nothing, so out-of-range invocations past a bounds guard
   kept writing (P0-DXIL-052); `discard` was dropped (P0-DXIL-068). Every return of an entry point now branches to
@@ -74,18 +90,14 @@ backends. Thank you!
   `TranslationInfo.ImmediateItems`. This is Dawn's model. Rust naga's
   SPIR-V writer clamps to 0..1 by default instead; a nil option clamps
   nothing. (#124, by @roffe)
-- Choosing how workgroup memory is zeroed, as Rust naga allows for every
-  backend (#134, #135, by @roffe): one field
-  `ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode`
-  in `spirv`, `msl`, `hlsl`, `glsl` and `dxil` Options.
-  `backend.ZeroInitWorkgroupPolyfill`, the zero value, stores zero from the
-  generated code; `ZeroInitWorkgroupNative` gives the variables
-  `OpConstantNull` initializers for devices with
-  `shaderZeroInitializeWorkgroupMemory` (SPIR-V only, an error elsewhere);
-  `ZeroInitWorkgroupNone` leaves the memory as it is. **Breaking:** the
-  `msl` and `hlsl` bools of that name are gone, and an Options literal
-  that left them unset now zeroes workgroup memory (as `DefaultOptions`
-  and Rust always did).
+- Choosing how workgroup memory is zeroed: `spirv.Options.ZeroInitializeWorkgroupMemory`
+  (`ZeroInitWorkgroupPolyfill`, the zero value; `ZeroInitWorkgroupNative`
+  with `OpConstantNull` initializers for devices with
+  `shaderZeroInitializeWorkgroupMemory`; `ZeroInitWorkgroupNone`) and
+  `glsl.Options.SkipWorkgroupMemoryZeroInit`, as Rust naga allows for
+  every backend (#135, by @roffe); `dxil.Options.SkipWorkgroupMemoryZeroInit`
+  (#134, by @roffe). These options change to one shape across the
+  backends in 0.21.0.
 - `glsl.Options.BoundsCheckPolicies` gets `Index` and `Buffer`; `Restrict`
   clamps indices, so an index out of bounds cannot read outside an array
   on GL, where a robust context covers buffers only. (#120, by @roffe)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
@@ -166,8 +167,19 @@ func TestGoldenInventory(t *testing.T) {
 	}
 }
 
+// goldenSPIRV uses Rust naga's default bounds-check policy, Unchecked, as the
+// Rust snapshots of the same shaders do; the Restrict default is checked by
+// spirv-val over the whole corpus (TestSpirvValBinary) and by the bounds
+// tests of the spirv package.
 func goldenSPIRV(module *ir.Module, _ string) (string, error) {
-	binary, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(module)
+	opts := spirv.DefaultOptions()
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckUnchecked,
+		Buffer:       backend.BoundsCheckUnchecked,
+		ImageLoad:    backend.BoundsCheckUnchecked,
+		BindingArray: backend.BoundsCheckUnchecked,
+	}
+	binary, err := spirv.NewBackend(opts).Compile(module)
 	if err != nil {
 		return "", err
 	}

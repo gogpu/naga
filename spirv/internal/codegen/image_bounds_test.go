@@ -3,6 +3,7 @@ package codegen
 import (
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -46,7 +47,7 @@ func makeImageLoadModule() *ir.Module {
 func TestImageBoundsCheck_Unchecked(t *testing.T) {
 	module := makeImageLoadModule()
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.ImageLoad = BoundsCheckUnchecked
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckUnchecked
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -62,7 +63,7 @@ func TestImageBoundsCheck_Unchecked(t *testing.T) {
 func TestImageBoundsCheck_Restrict(t *testing.T) {
 	module := makeImageLoadModule()
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.ImageLoad = BoundsCheckRestrict
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckRestrict
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -88,7 +89,7 @@ func TestImageBoundsCheck_Restrict(t *testing.T) {
 func TestImageBoundsCheck_RZSW(t *testing.T) {
 	module := makeImageLoadModule()
 	opts := DefaultOptions()
-	opts.BoundsCheckPolicies.ImageLoad = BoundsCheckReadZeroSkipWrite
+	opts.BoundsCheckPolicies.ImageLoad = backend.BoundsCheckReadZeroSkipWrite
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -107,5 +108,57 @@ func TestImageBoundsCheck_RZSW(t *testing.T) {
 	}
 	if !divmodHasOpcode(spvBytes, OpPhi) {
 		t.Error("RZSW should emit OpPhi for merging zero/loaded values")
+	}
+}
+
+// TestImageBoundsCheckCoordinateSigns: a checked textureLoad is valid
+// SPIR-V for i32 and u32 coordinates, on sampled, arrayed, multisampled, 1D
+// and storage textures. Two bugs that the Restrict default exposed:
+//   - Restrict subtracts a vector of ones from the image size; its
+//     constituents must have the coordinates' type. Rust naga builds it from
+//     an i32 one (get_scope_constant), which spirv-val rejects in a uvec2
+//     (OpConstantComposite), so u32 coordinates were invalid there too.
+//   - ReadZeroSkipWrite put the OpSelectionMerge only on the level check, so
+//     an image without a level (multisampled, storage) branched without one.
+//     Rust's Selection::if_true puts it on the first check, whichever it is.
+func TestImageBoundsCheckCoordinateSigns(t *testing.T) {
+	for _, policy := range []backend.BoundsCheckPolicy{backend.BoundsCheckRestrict, backend.BoundsCheckReadZeroSkipWrite} {
+		for _, scalar := range []string{"i32", "u32"} {
+			source := `
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var arr: texture_2d_array<f32>;
+@group(0) @binding(2) var ms: texture_multisampled_2d<f32>;
+@group(0) @binding(3) var line: texture_1d<f32>;
+@group(0) @binding(4) var st: texture_storage_2d<r32float, read>;
+@fragment fn main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let c = vec2<` + scalar + `>(p.xy);
+    return textureLoad(tex, c, ` + scalar + `(1)) + textureLoad(arr, c, ` + scalar + `(2), ` + scalar + `(0))
+        + textureLoad(ms, c, ` + scalar + `(3)) + textureLoad(line, ` + scalar + `(p.x), ` + scalar + `(0))
+        + textureLoad(st, c);
+}`
+			opts := Options{Version: Version1_3, BoundsCheckPolicies: backend.BoundsCheckPolicies{ImageLoad: policy}}
+			t.Run(policy.String()+"/"+scalar, func(t *testing.T) {
+				validateWithVulkanSDK(t, compileWGSLForCapabilityTestWithOpts(t, source, opts))
+			})
+		}
+	}
+}
+
+// TestImageBoundsCheckExternalTexture: textureLoad on a texture_external has
+// no level, and OpImageQuerySize needs a multisampled or storage image, so a
+// checked load queries the size of level 0 with OpImageQuerySizeLod (the
+// level the unchecked OpImageFetch reads). Rust naga has no SPIR-V
+// texture_external (back/spv/image.rs: unimplemented).
+func TestImageBoundsCheckExternalTexture(t *testing.T) {
+	const source = `
+@group(0) @binding(0) var ext: texture_external;
+@fragment fn main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(ext, vec2<u32>(p.xy)) + textureLoad(ext, vec2<i32>(p.xy));
+}`
+	for _, policy := range []backend.BoundsCheckPolicy{backend.BoundsCheckRestrict, backend.BoundsCheckReadZeroSkipWrite, backend.BoundsCheckUnchecked} {
+		t.Run(policy.String(), func(t *testing.T) {
+			opts := Options{Version: Version1_3, BoundsCheckPolicies: backend.BoundsCheckPolicies{ImageLoad: policy}}
+			validateWithVulkanSDK(t, compileWGSLForCapabilityTestWithOpts(t, source, opts))
+		})
 	}
 }

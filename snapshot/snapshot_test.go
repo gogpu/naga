@@ -171,7 +171,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 
 	// Parse [bounds_check_policies] section (top-level, shared across backends)
 	params := mustRustParams(content)
-	opts.BoundsCheckPolicies = spirvBoundsCheckPolicies(params.boundsCheckPolicies)
+	opts.BoundsCheckPolicies = backendBoundsCheckPolicies(params.boundsCheckPolicies)
 
 	// [[spv.binding_map]]: remapped bindings and binding array sizes.
 	if len(params.spvBindingMap) > 0 {
@@ -243,19 +243,20 @@ func spvCapabilityByName(name string) (spirv.Capability, bool) {
 	return cap, ok
 }
 
-// spirvBoundsCheckPolicies converts the shader's [bounds_check_policies] to
-// spirv options; the fields correspond one to one.
-func spirvBoundsCheckPolicies(p rustBoundsCheckPolicies) spirv.BoundsCheckPolicies {
-	conv := func(v rustBoundsCheckPolicy) spirv.BoundsCheckPolicy {
+// backendBoundsCheckPolicies converts the shader's [bounds_check_policies] to
+// the shared policies; the fields correspond one to one, and an absent
+// field is Rust's default, Unchecked.
+func backendBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPolicies {
+	conv := func(v rustBoundsCheckPolicy) backend.BoundsCheckPolicy {
 		switch v {
 		case rustRestrict:
-			return spirv.BoundsCheckRestrict
+			return backend.BoundsCheckRestrict
 		case rustReadZeroSkipWrite:
-			return spirv.BoundsCheckReadZeroSkipWrite
+			return backend.BoundsCheckReadZeroSkipWrite
 		}
-		return spirv.BoundsCheckUnchecked
+		return backend.BoundsCheckUnchecked
 	}
-	return spirv.BoundsCheckPolicies{
+	return backend.BoundsCheckPolicies{
 		Index:        conv(p.index),
 		Buffer:       conv(p.buffer),
 		ImageLoad:    conv(p.imageLoad),
