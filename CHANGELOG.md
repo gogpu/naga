@@ -40,10 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `s0, space0`, comparison samplers at `s0, space1`), where the zero struct put both heaps in one register. A nil
   `SamplerBufferBindingMap` places group G's index buffer at `register(tG, space255)` (it was `t0, space0` for every
   group); a `texture_external` without an `ExternalTextureBindingMap` entry is an error (it was left undeclared).
-  The HLSL errors match `backend.ErrMissingBinding` with `errors.Is`.
+  The HLSL errors match `backend.ErrMissingBinding` with `errors.Is`. dxil gains `FakeMissingBindings` with the same
+  rules for `BindingMap` (a resource a non-nil map left out kept its WGSL numbers) and `SamplerBufferBindingMap`.
 - **Breaking: `num_workgroups` in HLSL needs `SpecialConstantsBinding`.** HLSL has no system value for it; without
   the binding it was written as `SV_GroupID`, the workgroup's ID instead of the count (Rust naga does the same). It is
-  an error now, also under `FakeMissingBindings`.
+  an error now, also under `FakeMissingBindings`. In DXIL it read a constant buffer at `b0, space0`, which can
+  collide with the caller's own `b0`; it is an error now, and `FakeMissingBindings` keeps that buffer.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

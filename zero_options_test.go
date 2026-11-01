@@ -422,4 +422,19 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	if err := hlslWith(nil, false); err != nil {
 		t.Errorf("hlsl, nil map: %v", err)
 	}
+
+	dxilWith := func(m dxil.BindingMap, fake bool) error {
+		_, err := dxil.Compile(bindingModule(t), dxil.Options{ShaderModel: dxil.SM6_0, BindingMap: m, FakeMissingBindings: fake})
+		return err
+	}
+	dxilPartial := dxil.BindingMap{{Group: 0, Binding: 0}: {}}
+	if err := dxilWith(dxilPartial, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("dxil, partial map: err = %v, want backend.ErrMissingBinding", err)
+	}
+	if err := dxilWith(dxilPartial, true); err != nil {
+		t.Errorf("dxil, partial map, FakeMissingBindings: %v", err)
+	}
+	if err := dxilWith(nil, false); err != nil {
+		t.Errorf("dxil, nil map: %v", err)
+	}
 }
