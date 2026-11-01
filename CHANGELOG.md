@@ -53,7 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   storage images take (level 0 is queried now).
 - **GLSL: a feature the target version lacks is an error**, as Rust naga's `check_availability` makes it, instead
   of GLSL the driver rejects: a compute shader, a storage buffer or `sample` interpolation on GLSL 3.30, and a
-  checked `textureLoad` level or sample on GLSL ES (which has no `textureQueryLevels`) compiled before. Features are
+  checked `textureLoad` level or sample on GLSL ES (which has no `textureQueryLevels`) compiled before. The error is a
+  `*glsl.MissingFeaturesError` (target version, Rust's feature names, and whether the ImageLoad checks asked for
+  them), for `errors.As`. Features are
   now collected only from the globals the entry point uses, as in Rust, so an entry point beside a storage buffer it
   does not use no longer asks for `GL_ARB_shader_storage_buffer_object`.
 - **DXIL: silent miscompiles of control flow.** A `break` in a `switch` inside a loop left the loop (P0-DXIL-057);

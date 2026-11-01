@@ -89,13 +89,7 @@ var featureNames = []struct {
 // String returns the names of the features joined by " | ", as Rust naga's
 // Display for Features.
 func (f Features) String() string {
-	var names []string
-	for _, n := range featureNames {
-		if f&n.feature != 0 {
-			names = append(names, n.name)
-		}
-	}
-	return strings.Join(names, " | ")
+	return strings.Join(f.Names(), " | ")
 }
 
 // checkAvailability returns an error naming the required features that
@@ -151,12 +145,38 @@ func (fm *featuresManager) checkAvailability(v Version) error {
 	if missing == 0 {
 		return nil
 	}
-	err := fmt.Errorf("GLSL %s doesn't support the required feature(s): %s", v, missing)
-	if missing&fm.forImageLoadChecks != 0 {
-		err = fmt.Errorf("%w (the ImageLoad bounds checks need them; set BoundsCheckPolicies.ImageLoad to Unchecked "+
-			"for this target, as wgpu-hal does below desktop GLSL 4.30)", err)
+	return &MissingFeaturesError{Version: v, Features: missing, ForImageLoadChecks: missing&fm.forImageLoadChecks != 0}
+}
+
+// MissingFeaturesError is Rust naga's Error::MissingFeatures: the entry
+// point needs Features that Version lacks. ForImageLoadChecks reports that
+// the ImageLoad bounds checks asked for some of them, so ImageLoad set to
+// Unchecked avoids the error. glsl.Compile returns it as
+// glsl.MissingFeaturesError.
+type MissingFeaturesError struct {
+	Version            Version
+	Features           Features
+	ForImageLoadChecks bool
+}
+
+func (e *MissingFeaturesError) Error() string {
+	msg := fmt.Sprintf("GLSL %s doesn't support the required feature(s): %s", e.Version, e.Features)
+	if e.ForImageLoadChecks {
+		msg += " (the ImageLoad bounds checks need them; set BoundsCheckPolicies.ImageLoad to Unchecked " +
+			"for this target, as wgpu-hal does below desktop GLSL 4.30)"
 	}
-	return err
+	return msg
+}
+
+// Names returns Rust naga's names of the features, in bit order.
+func (f Features) Names() []string {
+	var names []string
+	for _, n := range featureNames {
+		if f&n.feature != 0 {
+			names = append(names, n.name)
+		}
+	}
+	return names
 }
 
 func (fm *featuresManager) request(f Features) {
