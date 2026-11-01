@@ -144,6 +144,7 @@ const (
 	CapabilityStorageInputOutput16               Capability = 4436 // 16-bit input/output
 	CapabilityMultiView                          Capability = 4439 // MultiView extension
 	CapabilityFragmentBarycentricKHR             Capability = 5284 // Fragment barycentric
+	CapabilityDrawParameters                     Capability = 4427 // DrawIndex, BaseVertex, BaseInstance
 	CapabilityShaderNonUniform                   Capability = 5301 // NonUniform decorations
 	CapabilityAtomicFloat32AddEXT                Capability = 6033 // Float32 atomic add extension
 	CapabilityDotProductInput4x8BitPacked        Capability = 6018 // Required for packed 4x8 dot product
@@ -300,6 +301,8 @@ const (
 	BuiltInSubgroupID           BuiltIn = 40
 	BuiltInViewIndex            BuiltIn = 4440
 	BuiltInBaryCoordKHR         BuiltIn = 5286
+	BuiltInBaryCoordNoPerspKHR  BuiltIn = 5287
+	BuiltInDrawIndex            BuiltIn = 4426
 )
 
 // ExecutionModel represents a SPIR-V execution model.

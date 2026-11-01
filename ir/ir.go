@@ -686,6 +686,14 @@ const (
 	BuiltinPrimitiveCount
 	BuiltinPrimitives
 	BuiltinClipDistances
+	// BuiltinDrawIndex is the draw index of a multi-draw (WGSL draw_index,
+	// Rust naga's BuiltIn::DrawIndex).
+	BuiltinDrawIndex
+	// BuiltinBarycentricNoPerspective is the barycentric coordinates without
+	// perspective correction (WGSL barycentric_no_perspective, Rust naga's
+	// Barycentric { perspective: false }); BuiltinBarycentric is the
+	// perspective-correct one.
+	BuiltinBarycentricNoPerspective
 )
 
 // LocationBinding represents a location binding.

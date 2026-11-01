@@ -258,6 +258,60 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 	return out
 }
 
+// checkBuiltins refuses an entry point whose interface uses a built-in the
+// emitter has no signature element for. draw_index and point_size have no
+// D3D semantic (Rust naga's HLSL backend refuses them too); SV_Barycentrics is
+// not written yet (P2-DXIL-073). The semantic mapper's fallback would
+// otherwise name them SV_Unknown<N>.
+func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
+	check := func(b *ir.Binding) error {
+		if b == nil {
+			return nil
+		}
+		bi, ok := (*b).(ir.BuiltinBinding)
+		if !ok {
+			return nil
+		}
+		var name string
+		switch bi.Builtin {
+		case ir.BuiltinDrawIndex:
+			name = "draw_index"
+		case ir.BuiltinPointSize:
+			name = "point_size"
+		case ir.BuiltinBarycentric:
+			name = "barycentric"
+		case ir.BuiltinBarycentricNoPerspective:
+			name = "barycentric_no_perspective"
+		default:
+			return nil
+		}
+		return fmt.Errorf("dxil: entry point %q: built-in %s is not supported", ep.Name, name)
+	}
+	var bindings []*ir.Binding
+	for _, arg := range ep.Function.Arguments {
+		bindings = append(bindings, arg.Binding)
+		if st, ok := irModule.Types[arg.Type].Inner.(ir.StructType); ok {
+			for j := range st.Members {
+				bindings = append(bindings, st.Members[j].Binding)
+			}
+		}
+	}
+	if res := ep.Function.Result; res != nil {
+		bindings = append(bindings, res.Binding)
+		if st, ok := irModule.Types[res.Type].Inner.(ir.StructType); ok {
+			for j := range st.Members {
+				bindings = append(bindings, st.Members[j].Binding)
+			}
+		}
+	}
+	for _, b := range bindings {
+		if err := check(b); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // checkShaderModel refuses the entry point when a feature it uses needs a
 // newer shader model than sm, the newest such feature first, with a
 // *backend.ShaderModelError.
@@ -463,6 +517,9 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 
 	ep := &irModule.EntryPoints[0]
 	if err := checkBindings(irModule, ep, opts); err != nil {
+		return nil, err
+	}
+	if err := checkBuiltins(irModule, ep); err != nil {
 		return nil, err
 	}
 	if err := checkShaderModel(irModule, ep, opts.ShaderModel); err != nil {

@@ -34,9 +34,7 @@ var spirvVulkanTargets = []struct {
 // the message spirv-val gives at every target, and the card that fixes it. An
 // entry that no longer fails is an error, so the list shrinks with the fixes.
 var spirvVulkanKnown = map[string]struct{ message, card string }{
-	"barycentrics":     {"VUID-FragCoord-FragCoord-04212", "P1-IR-026"},
-	"draw-index":       {"VUID-FragCoord-FragCoord-04212", "P1-IR-026"},
-	"subgroup-barrier": {"ControlBarrier", "P2-SPV-013"},
+	"subgroup-barrier":                        {"ControlBarrier", "P2-SPV-013"},
 	"8820-multiple-local-invocation-index-id": {"VUID-StandaloneSpirv-OpEntryPoint-09658", "P2-SPV-014"},
 }
 

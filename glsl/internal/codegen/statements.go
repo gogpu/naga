@@ -582,7 +582,7 @@ func (w *Writer) writeDirectReturn(ret ir.StmtReturn) error {
 	}
 	switch b := (*w.entryPointResult.Binding).(type) {
 	case ir.BuiltinBinding:
-		outputName := glslBuiltIn(b.Builtin, true)
+		outputName := w.builtInName(b.Builtin, true)
 		w.WriteLine("%s = %s;", outputName, w.outputValue(w.entryPointResult.Binding, value))
 		// For vertex position output, add coordinate space adjustment and point size
 		if b.Builtin == ir.BuiltinPosition {

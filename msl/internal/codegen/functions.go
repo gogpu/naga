@@ -627,7 +627,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			// Direct argument with builtin binding
-			if builtin, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
+			if builtin, ok := (*arg.Binding).(ir.BuiltinBinding); ok && !isVarying(arg.Binding) {
 				attr := builtinInputAttribute(builtin.Builtin, ep.Stage)
 				if attr != "" {
 					w.requireBuiltinVersion(builtin.Builtin)
@@ -663,7 +663,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 				continue
 			}
 			builtin, ok := (*member.Binding).(ir.BuiltinBinding)
-			if !ok {
+			if !ok || isVarying(member.Binding) {
 				continue
 			}
 			attr := builtinInputAttribute(builtin.Builtin, ep.Stage)
@@ -806,7 +806,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 			if arg.Binding != nil {
 				// Direct argument with location binding — extract from varyings struct
-				if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
+				if isVarying(arg.Binding) {
 					if w.hasVaryings {
 						w.WriteLine("const auto %s = %s.%s;", argName, varyingsName, argName)
 					}
@@ -841,12 +841,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 				memberName := w.flattenedMemberNames[key]
 				if !doVPT {
 					// Normal mode: location members from varyings struct
-					if member.Binding != nil {
-						if _, isLoc := (*member.Binding).(ir.LocationBinding); isLoc {
-							if w.hasVaryings {
-								w.write("%s.", varyingsName)
-							}
-						}
+					if isVarying(member.Binding) && w.hasVaryings {
+						w.write("%s.", varyingsName)
 					}
 				}
 				// In VPT mode: location members are local variables, use directly.
@@ -937,6 +933,31 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	return nil
 }
 
+// isVarying reports whether an entry point input travels in the [[stage_in]]
+// struct: a location, or a barycentric built-in (Rust naga fc9060f5:
+// barycentric_coord is a stage_in attribute, not a separate parameter).
+func isVarying(b *ir.Binding) bool {
+	if b == nil {
+		return false
+	}
+	switch bb := (*b).(type) {
+	case ir.LocationBinding:
+		return true
+	case ir.BuiltinBinding:
+		return bb.Builtin == ir.BuiltinBarycentric || bb.Builtin == ir.BuiltinBarycentricNoPerspective
+	}
+	return false
+}
+
+// varyingAttribute returns the [[stage_in]] struct attribute of a varying.
+func (w *Writer) varyingAttribute(b ir.Binding, stage ir.ShaderStage, ty ir.TypeHandle) string {
+	if bb, ok := b.(ir.BuiltinBinding); ok {
+		w.requireBuiltinVersion(bb.Builtin)
+		return builtinInputAttribute(bb.Builtin, stage)
+	}
+	return locationInputAttribute(b.(ir.LocationBinding), stage, w.typeScalarKind(ty))
+}
+
 // writeEntryPointInputStruct writes the input struct for an entry point.
 // Matches Rust naga behavior: always emits `struct <name>Input { };` when
 // there are any arguments with bindings, even if the struct body is empty
@@ -950,7 +971,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 			continue
 		}
 		hasAnyBindingInputs = true
-		if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
+		if isVarying(arg.Binding) {
 			hasLocationInputs = true
 		}
 	}
@@ -971,17 +992,13 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	if hasLocationInputs {
 		emitInputStruct(structName, func() {
 			for i, arg := range fn.Arguments {
-				if arg.Binding == nil {
-					continue
-				}
-				loc, ok := (*arg.Binding).(ir.LocationBinding)
-				if !ok {
+				if !isVarying(arg.Binding) {
 					continue
 				}
 				argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)})
 				argType := w.writeTypeName(arg.Type, StorageAccess(0))
 
-				attr := locationInputAttribute(loc, ep.Stage, w.typeScalarKind(arg.Type))
+				attr := w.varyingAttribute(*arg.Binding, ep.Stage, arg.Type)
 				w.WriteLine("%s %s %s;", argType, argName, attr)
 			}
 		})
@@ -1030,12 +1047,9 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 				key := nameKey{kind: nameKeyStructMember, handle1: uint32(sa.tyH), handle2: uint32(memberIdx)}
 				baseName := w.getName(key)
 
-				isLocation := false
-				if member.Binding != nil {
-					if _, ok := (*member.Binding).(ir.LocationBinding); ok {
-						isLocation = true
-						hasLocations = true
-					}
+				isLocation := isVarying(member.Binding)
+				if isLocation {
+					hasLocations = true
 				}
 
 				var freshName string
@@ -1052,17 +1066,13 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 		emitInputStruct(structName, func() {
 			for _, sa := range structArgs {
 				for memberIdx, member := range sa.st.Members {
-					if member.Binding == nil {
-						continue
-					}
-					loc, ok := (*member.Binding).(ir.LocationBinding)
-					if !ok {
+					if !isVarying(member.Binding) {
 						continue // skip builtins — they become separate params
 					}
 					key := nameKey{kind: nameKeyStructMember, handle1: uint32(sa.tyH), handle2: uint32(memberIdx)}
 					memberName := w.flattenedMemberNames[key]
 					memberType := w.writeTypeName(member.Type, StorageAccess(0))
-					attr := locationInputAttribute(loc, ep.Stage, w.typeScalarKind(member.Type))
+					attr := w.varyingAttribute(*member.Binding, ep.Stage, member.Type)
 					w.WriteLine("%s %s %s;", memberType, memberName, attr)
 				}
 			}
@@ -1803,7 +1813,7 @@ func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage)
 //   - BuiltinViewIndex requires Metal 2.2+ (we use 2.3 to match Rust naga snapshot output)
 func (w *Writer) requireBuiltinVersion(builtin ir.BuiltinValue) {
 	switch builtin {
-	case ir.BuiltinBarycentric:
+	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:
 		w.requireVersion(Version2_3)
 	case ir.BuiltinViewIndex:
 		w.requireVersion(Version2_3)
@@ -1840,6 +1850,8 @@ func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string
 		return "[[threadgroups_per_grid]]"
 	case ir.BuiltinBarycentric:
 		return "[[barycentric_coord]]"
+	case ir.BuiltinBarycentricNoPerspective:
+		return "[[barycentric_coord, center_no_perspective]]"
 	case ir.BuiltinViewIndex:
 		return "[[amplification_id]]"
 	case ir.BuiltinPrimitiveIndex:

@@ -5330,7 +5330,13 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 		case "builtin":
 			if len(attr.Args) > 0 {
 				if id, ok := attr.Args[0].(*parser.Ident); ok {
-					var b ir.Binding = ir.BuiltinBinding{Builtin: l.builtin(id.Name)}
+					builtin, known := builtinTable[id.Name]
+					if !known {
+						// Rust naga's Error::UnknownBuiltin; it used to
+						// become position silently.
+						l.addError(fmt.Sprintf("unknown builtin: `%s`", id.Name), attr.Span)
+					}
+					var b ir.Binding = ir.BuiltinBinding{Builtin: builtin}
 					builtinBinding = &b
 				}
 			}
@@ -5781,42 +5787,37 @@ func (l *Lowerer) determineMeshTopology(st *ir.StructType) ir.MeshOutputTopology
 
 // builtinTable maps WGSL builtin names to IR builtin values.
 var builtinTable = map[string]ir.BuiltinValue{
-	"position":               ir.BuiltinPosition,
-	"vertex_index":           ir.BuiltinVertexIndex,
-	"instance_index":         ir.BuiltinInstanceIndex,
-	"front_facing":           ir.BuiltinFrontFacing,
-	"frag_depth":             ir.BuiltinFragDepth,
-	"local_invocation_id":    ir.BuiltinLocalInvocationID,
-	"local_invocation_index": ir.BuiltinLocalInvocationIndex,
-	"global_invocation_id":   ir.BuiltinGlobalInvocationID,
-	"workgroup_id":           ir.BuiltinWorkGroupID,
-	"num_workgroups":         ir.BuiltinNumWorkGroups,
-	"num_subgroups":          ir.BuiltinNumSubgroups,
-	"subgroup_id":            ir.BuiltinSubgroupID,
-	"subgroup_size":          ir.BuiltinSubgroupSize,
-	"subgroup_invocation_id": ir.BuiltinSubgroupInvocationID,
-	"barycentric":            ir.BuiltinBarycentric,
-	"view_index":             ir.BuiltinViewIndex,
-	"primitive_index":        ir.BuiltinPrimitiveIndex,
-	"sample_index":           ir.BuiltinSampleIndex,
-	"sample_mask":            ir.BuiltinSampleMask,
-	"mesh_task_size":         ir.BuiltinMeshTaskSize,
-	"cull_primitive":         ir.BuiltinCullPrimitive,
-	"point_index":            ir.BuiltinPointIndex,
-	"line_indices":           ir.BuiltinLineIndices,
-	"triangle_indices":       ir.BuiltinTriangleIndices,
-	"vertex_count":           ir.BuiltinVertexCount,
-	"vertices":               ir.BuiltinVertices,
-	"primitive_count":        ir.BuiltinPrimitiveCount,
-	"primitives":             ir.BuiltinPrimitives,
-	"clip_distances":         ir.BuiltinClipDistances,
-}
-
-func (l *Lowerer) builtin(name string) ir.BuiltinValue {
-	if b, ok := builtinTable[name]; ok {
-		return b
-	}
-	return ir.BuiltinPosition // Default
+	"position":                   ir.BuiltinPosition,
+	"vertex_index":               ir.BuiltinVertexIndex,
+	"instance_index":             ir.BuiltinInstanceIndex,
+	"front_facing":               ir.BuiltinFrontFacing,
+	"frag_depth":                 ir.BuiltinFragDepth,
+	"local_invocation_id":        ir.BuiltinLocalInvocationID,
+	"local_invocation_index":     ir.BuiltinLocalInvocationIndex,
+	"global_invocation_id":       ir.BuiltinGlobalInvocationID,
+	"workgroup_id":               ir.BuiltinWorkGroupID,
+	"num_workgroups":             ir.BuiltinNumWorkGroups,
+	"num_subgroups":              ir.BuiltinNumSubgroups,
+	"subgroup_id":                ir.BuiltinSubgroupID,
+	"subgroup_size":              ir.BuiltinSubgroupSize,
+	"subgroup_invocation_id":     ir.BuiltinSubgroupInvocationID,
+	"barycentric":                ir.BuiltinBarycentric,
+	"barycentric_no_perspective": ir.BuiltinBarycentricNoPerspective,
+	"draw_index":                 ir.BuiltinDrawIndex,
+	"view_index":                 ir.BuiltinViewIndex,
+	"primitive_index":            ir.BuiltinPrimitiveIndex,
+	"sample_index":               ir.BuiltinSampleIndex,
+	"sample_mask":                ir.BuiltinSampleMask,
+	"mesh_task_size":             ir.BuiltinMeshTaskSize,
+	"cull_primitive":             ir.BuiltinCullPrimitive,
+	"point_index":                ir.BuiltinPointIndex,
+	"line_indices":               ir.BuiltinLineIndices,
+	"triangle_indices":           ir.BuiltinTriangleIndices,
+	"vertex_count":               ir.BuiltinVertexCount,
+	"vertices":                   ir.BuiltinVertices,
+	"primitive_count":            ir.BuiltinPrimitiveCount,
+	"primitives":                 ir.BuiltinPrimitives,
+	"clip_distances":             ir.BuiltinClipDistances,
 }
 
 // addressSpaceTable maps WGSL address space words to IR address spaces, as

@@ -5,11 +5,13 @@
 ; Schema: 0
 
                OpCapability Shader
+               OpCapability DrawParameters
+         OpExtension %_1599492179 %_1599227979 %_1684105331 %_1683976805 %_1601659250 %_1634886000 %_1702126957 %_29554
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_12 "vertex" %_8 %_10
                OpMemberDecorate %_4 0 Offset 0
-               OpDecorate %_8 BuiltIn FragCoord
+               OpDecorate %_8 BuiltIn DrawIndex
                OpDecorate %_10 BuiltIn Position
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 0

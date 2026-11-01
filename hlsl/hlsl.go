@@ -574,7 +574,8 @@ func ScalarCast(k ir.ScalarKind) string {
 	return codegen.ScalarCast(k)
 }
 
-// BuiltInToSemantic converts a built-in value to its HLSL semantic string.
+// BuiltInToSemantic converts a built-in value to its HLSL semantic string, ""
+// for a built-in HLSL has no semantic for (draw index, point size).
 func BuiltInToSemantic(b ir.BuiltinValue) string {
 	return codegen.BuiltInToSemantic(b)
 }

@@ -167,6 +167,9 @@ type Options struct {
 	// TextureShadowLod enables GL_EXT_texture_shadow_lod (TEXTURE_SHADOW_LOD).
 	TextureShadowLod bool
 
+	// DrawParameters uses GL_ARB_shader_draw_parameters (DRAW_PARAMETERS).
+	DrawParameters bool
+
 	// BoundsCheckPolicies controls bounds checking for resource accesses.
 	// Matches Rust naga's proc::BoundsCheckPolicies.
 	BoundsCheckPolicies backend.BoundsCheckPolicies

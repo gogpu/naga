@@ -157,6 +157,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`@builtin(draw_index)` and `@builtin(barycentric_no_perspective)` compiled as the fragment coordinate.** The IR
+  had no such built-ins and the lowerer named every built-in it did not know `position`, with no error. The IR has
+  `BuiltinDrawIndex` and `BuiltinBarycentricNoPerspective` now (Rust naga's `DrawIndex` and
+  `Barycentric { perspective: false }`), and an unknown built-in name is an error. Every backend writes them or
+  refuses the entry point, as Rust naga does:
+  - SPIR-V: `BuiltIn DrawIndex` with `DrawParameters` and `SPV_KHR_shader_draw_parameters`; `BaryCoordNoPerspKHR`.
+  - GLSL: `gl_BaryCoordNoPerspEXT`. The draw index is `gl_DrawID` from GLSL 4.60. The new
+    `glsl.Options.DrawParameters` (Rust's `DRAW_PARAMETERS`) says the device has `GL_ARB_shader_draw_parameters`:
+    the draw index is then `gl_DrawIDARB` at any desktop version, and `instance_index` adds `gl_BaseInstanceARB`
+    instead of the `naga_vs_first_instance` uniform. Below 4.60 without it, and on GLSL ES, the draw index is an
+    error (`DRAW_INDEX`); Rust writes `gl_DrawID`, which no earlier GLSL declares.
+  - HLSL: `noperspective float3 … : SV_Barycentrics`. SV_Barycentrics and SV_ViewID need shader model 6.1, so
+    barycentrics below it are a `*backend.ShaderModelError` too (Rust writes them at any model). The draw index and
+    point size have no semantic and are refused ("Unsupported builtin" in Rust); they were written `SV_Position`.
+  - MSL: `[[barycentric_coord, center_no_perspective]]`, MSL 2.3. Barycentrics are now members of the `[[stage_in]]`
+    struct, as in Rust naga (fc9060f5). The draw index is refused (Rust's `UnsupportedBuiltIn`).
+  - DXIL: the draw index, point size and both barycentrics are refused; the semantic mapper named them
+    `SV_Unknown<N>`, so the corpus barycentrics and draw-index shaders passed the validator with a wrong signature.
+  - SPIR-V refuses an entry point with a built-in it has no mapping for, instead of writing `Position`.
 - **SPIR-V 1.5 and later: no explicit layout on Function and Private variables.** Vulkan forbids `ArrayStride`,
   `Offset` and `MatrixStride` on the types of Function and Private variables from SPIR-V 1.5 on
   (VUID-StandaloneSpirv-None-10684), and the validation layer rejected every shader with a local or private array or
@@ -201,11 +220,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
-- **SPIR-V for Vulkan** (found by the new Vulkan-environment validation): `@builtin(draw_index)` and
-  `@builtin(barycentric_no_perspective)` have no IR built-in and are written as other built-ins (P1-IR-026);
-  `subgroupBarrier` uses memory semantics Vulkan rejects (P2-SPV-013); the workgroup zero-initialization of an entry
-  point that reads `local_invocation_id` and `local_invocation_index` declares a second LocalInvocationId input
-  (P2-SPV-014).
+- **SPIR-V for Vulkan** (found by the new Vulkan-environment validation): `subgroupBarrier` uses memory semantics
+  Vulkan rejects (P2-SPV-013); the workgroup zero-initialization of an entry point that reads `local_invocation_id`
+  and `local_invocation_index` declares a second LocalInvocationId input (P2-SPV-014).
+- **DXIL:** `@builtin(barycentric)` and `@builtin(barycentric_no_perspective)` are refused; SV_Barycentrics is not
+  written yet (P2-DXIL-073). HLSL writes it from shader model 6.1.
 - **HLSL through FXC:** a `return` inside a `switch` inside a loop of a helper becomes the case's `break` in FXC's
   output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
   path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known
