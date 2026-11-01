@@ -113,14 +113,19 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 
 ### With Options
 
+The zero value of every options struct is the safe one: SPIR-V 1.0, bounds checks on (`Restrict`), loops bounded,
+workgroup memory zeroed, every binding required, no optional capability. Ask for more explicitly:
+
 ```go
 opts := naga.CompileOptions{
-    SPIRVVersion: spirv.Version1_3,
-    Debug:        true,   // Include debug names
-    Validate:     true,   // Enable IR validation
+    SPIRV:        spirv.Options{Version: spirv.Version1_3}, // subgroup operations need 1.3
+    Capabilities: valid.CapShaderFloat16,                   // the device's features
 }
-spirv, err := naga.CompileWithOptions(source, opts)
+spirvBytes, err := naga.CompileWithOptions(source, opts)
 ```
+
+A backend never raises the target version a shader needs: it refuses with an error that names the feature and the
+version (`errors.Is(err, backend.ErrUnsupported)`).
 
 ### CLI Tool
 
@@ -159,128 +164,83 @@ go install github.com/gogpu/naga/cmd/texture_compile@latest
 texture_compile shader.wgsl
 ```
 
-### Multiple Backends
+### Parse, Validate, Write Any Backend
+
+The same steps as Rust naga: parse WGSL to IR, validate it with the device's capabilities, then hand the module to
+any backend. Every backend has the one contract `Compile(*ir.Module, Options) (output, TranslationInfo, error)`.
 
 ```go
-// Parse and lower WGSL to IR (shared across all backends)
-ast, _ := naga.Parse(source)
-module, _ := naga.Lower(ast)
+module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+if err != nil {
+    var pe *wgsl.ParseError
+    if errors.As(err, &pe) {
+        fmt.Println(pe.Format(source, "shader.wgsl")) // labelled source lines, as Rust naga prints them
+    }
+    return err
+}
+info, err := valid.Validate(module, valid.Options{Capabilities: valid.CapShaderFloat16})
+if err != nil {
+    return err // a valid.Errors: every problem, errors.As finds each *valid.Error
+}
+_ = info // per entry point: the globals it uses and how (bind group layouts, workgroup size limits)
 
-// Generate SPIR-V (Vulkan)
-spirvBytes, _ := naga.GenerateSPIRV(module, spirv.Options{})
-
-// Generate MSL (Metal)
-mslCode, _, _ := msl.Compile(module, msl.DefaultOptions())
-
-// Generate GLSL (OpenGL)
-glslCode, _, _ := glsl.Compile(module, glsl.DefaultOptions())
-
-// Generate HLSL (DirectX 11/12)
-hlslCode, _, _ := hlsl.Compile(module, hlsl.DefaultOptions())
-
-// Generate DXIL (DirectX 12, SM 6.0 — experimental)
-dxilBytes, _ := dxil.Compile(module, dxil.DefaultOptions())
+spirvBytes, _, err := spirv.Compile(module, spirv.Options{})                            // Vulkan
+mslCode, _, err := msl.Compile(module, msl.Options{})                                   // Metal
+glslCode, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version450})    // OpenGL; one entry point
+hlslCode, _, err := hlsl.Compile(module, hlsl.Options{})                                // Direct3D through FXC/DXC
+dxilBytes, _, err := dxil.Compile(module, dxil.Options{})                               // Direct3D 12, no compiler
 ```
 
-### Individual Stages
-
-```go
-// Parse WGSL to AST
-ast, err := naga.Parse(source)
-
-// Lower AST to IR
-module, err := naga.Lower(ast)
-
-// Validate IR
-errors, err := naga.Validate(module)
-
-// Generate SPIR-V
-spirvOpts := spirv.Options{Version: spirv.Version1_3, Debug: true}
-spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
-```
+GLSL and DXIL write one entry point: select it with `Options.EntryPoint = &backend.EntryPointSelector{Stage, Name}`
+when the module has several.
 
 ### Pipeline Constants
 
-`override` declarations get their values per pipeline. Lower once, then
-process the module for each pipeline before any backend (as wgpu does):
+`override` declarations get their values per pipeline. Parse and validate once, then process the module for each
+pipeline before any backend, as wgpu does:
 
 ```go
-module, err := naga.Lower(ast)
-
-pipelineModule, err := naga.ProcessOverrides(module, naga.OverrideOptions{
+pipelineModule, pipelineInfo, err := naga.ProcessOverrides(module, info, naga.OverrideOptions{
     Constants:  naga.PipelineConstants{"gain": 1.5, "13": 64}, // name, or @id
-    EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: "main"},
+    EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "main"},
 })
 // errors.Is(err, naga.ErrOverrideMissingValue), *naga.PipelineConstantError, ...
 
-code, _, err := msl.Compile(pipelineModule, msl.DefaultOptions())
+code, _, err := msl.Compile(pipelineModule, msl.Options{})
 ```
 
-`naga.Compile` applies the defaults. A backend given a module that still uses
-overrides returns an error wrapping `ir.ErrUnresolvedOverride`.
+`naga.Compile` applies the overrides' defaults. A backend given a module that still uses overrides returns an error
+wrapping `ir.ErrUnresolvedOverride`.
 
 ---
 
 ## Architecture
 
 ```
-naga/                              ~323K LOC total
-├── wgsl/              # WGSL frontend (~19.5K LOC)
-│   ├── token.go       # Token types (120+)
-│   ├── lexer.go       # Tokenizer
-│   ├── ast.go         # AST types
-│   ├── parser.go      # Recursive descent parser
-│   └── lower.go       # AST → IR converter
-├── ir/                # Intermediate representation (~6.5K LOC)
-│   ├── ir.go          # Core types (Module, Type, Function)
-│   ├── expression.go  # 30+ expression kinds
-│   ├── statement.go   # 20+ statement kinds
-│   ├── validate.go    # IR validation
-│   ├── resolve.go     # Type inference
-│   └── registry.go    # Type deduplication
-├── spirv/             # SPIR-V backend (~10.8K LOC)
-│   ├── spirv.go       # SPIR-V constants and opcodes
-│   ├── block.go       # Block ownership model (Rust naga pattern)
-│   ├── writer.go      # Binary module builder
-│   ├── backend.go     # IR → SPIR-V translator
-│   └── ray_query.go   # Ray query helper functions
-├── msl/               # MSL backend (~14.2K LOC)
-│   ├── backend.go     # Public API, Options, Compile()
-│   ├── writer.go      # MSL code writer
-│   ├── types.go       # Type generation
-│   ├── expressions.go # Expression codegen
-│   ├── statements.go  # Statement codegen
-│   ├── functions.go   # Entry points and functions
-│   └── keywords.go    # MSL/C++ reserved words
-├── glsl/              # GLSL backend (~7.8K LOC)
-│   ├── backend.go     # Public API, version targeting
-│   ├── writer.go      # GLSL code writer
-│   ├── types.go       # Type generation
-│   ├── expressions.go # Expression codegen
-│   ├── statements.go  # Statement codegen
-│   └── keywords.go    # Reserved word escaping
-├── hlsl/              # HLSL backend (~13.6K LOC)
-│   ├── backend.go     # Public API, Options, Compile()
-│   ├── writer.go      # HLSL code writer
-│   ├── types.go       # Type generation
-│   ├── expressions.go # Expression codegen
-│   ├── statements.go  # Statement codegen
-│   ├── storage.go     # Buffer/atomic operations
-│   ├── functions.go   # Entry points with semantics
-│   └── keywords.go    # HLSL reserved words
-├── dxil/              # DXIL backend (~50K LOC, 172/237 IDxcValidator)
-│   ├── dxil.go        # Public API: Compile(), DefaultOptions()
-│   └── internal/      # All implementation internal
-│       ├── bitcode/   # LLVM 3.7 bit-level writer
-│       ├── module/    # DXIL module + bitcode serialization
-│       ├── container/ # DXBC container (ISG1/OSG1/PSG1/PSV0/SFI0/HASH)
-│       └── emit/      # naga IR → DXIL lowering (all shader stages)
-├── naga.go            # Public API
+naga/
+├── naga.go, overrides.go, compact.go   # Compile, CompileWithOptions, ProcessOverrides, Compact
+├── wgsl/        # WGSL frontend: Parse → *ir.Module (lexer, parser, lowerer in wgsl/internal)
+├── ir/          # the IR data model (Rust naga's naga::ir): Module, types, expressions, statements, Layouter
+├── valid/       # validation (Rust naga's valid): Validate, Options, ModuleInfo, Capabilities
+├── backend/     # what every backend shares: bounds-check policies, entry point selector, shader model, errors
+├── spirv/       # SPIR-V backend (Vulkan)
+├── msl/         # Metal Shading Language backend
+├── glsl/        # GLSL backend (OpenGL 3.3+, OpenGL ES 3.0+)
+├── hlsl/        # HLSL backend (Direct3D through FXC or DXC)
+├── dxil/        # DXIL backend (Direct3D 12 without a shader compiler)
+│   └── internal/  # bitcode writer, DXIL module, DXBC container, IR → DXIL emitter, optimization passes
+├── internal/    # shared implementation: typifier, constant evaluator, override processing, IR passes
+├── testdata/    # GPU readback corpus (read by gogpu/wgpu) and vendored third-party shaders
+├── snapshot/    # golden tests against Rust naga's outputs, DXC roundtrip, spirv-val and IDxcValidator
 └── cmd/
-    ├── nagac/         # CLI compiler
-    ├── spvdis/        # SPIR-V disassembler
-    └── texture_compile/ # Texture shader testing
+    ├── nagac/            # CLI compiler
+    ├── spvdis/           # SPIR-V disassembler
+    ├── dxilval/          # DXIL validation through dxil.dll (Windows)
+    └── texture_compile/  # texture shader testing
 ```
+
+Each package's implementation lives in its `internal/` directory; the package itself is the public API that
+pkg.go.dev shows.
 
 ## Supported WGSL Features
 

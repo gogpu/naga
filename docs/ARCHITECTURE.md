@@ -16,22 +16,22 @@ dependencies.
                      └────────┬─────────┘
                               │
                      ┌────────▼─────────┐
-                     │      Lexer       │  wgsl/lexer.go
+                     │      Lexer       │  wgsl/internal/parser/lexer.go
                      │  (120+ tokens)   │
                      └────────┬─────────┘
                               │
                      ┌────────▼─────────┐
-                     │      Parser      │  wgsl/parser.go
+                     │      Parser      │  wgsl/internal/parser/parser.go
                      │   (recursive     │
                      │     descent)     │
                      └────────┬─────────┘
                               │
                      ┌────────▼─────────┐
-                     │       AST        │  wgsl/ast.go
+                     │       AST        │  wgsl/internal/parser/ast.go
                      └────────┬─────────┘
                               │
                      ┌────────▼─────────┐
-                     │     Lowerer      │  wgsl/lower.go
+                     │     Lowerer      │  wgsl/internal/lower/
                      │    (AST → IR)    │
                      └────────┬─────────┘
                               │
@@ -43,7 +43,7 @@ dependencies.
                      └────────┬─────────┘
                               │
                      ┌────────▼─────────┐
-                     │    Validator     │  ir/validate.go
+                     │    Validator     │  valid/validate.go
                      └────────┬─────────┘
                               │
            ┌──────────┬───────┴───────┬──────────┬─────────┐
@@ -59,26 +59,33 @@ dependencies.
 ## Package Structure
 
 ```
-naga/                              ~323K LOC total
-├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
-├── wgsl/                          # WGSL frontend (~20K LOC)
-│   ├── wgsl.go                    # Public API: Parse, Lower (real types)
+naga/
+├── naga.go, overrides.go, compact.go  # Public API: Compile, CompileWithOptions, ProcessOverrides, Compact
+├── wgsl/                          # WGSL frontend
+│   ├── wgsl.go                    # Public API: Parse, ParseOptions, ParseInfo, ParseError
 │   └── internal/
 │       ├── parser/                # Lexer, token, parser, AST, errors
-│       └── lower/                 # AST → IR lowerer (~10K LOC)
+│       └── lower/                 # AST → IR lowerer
 │
-├── ir/                            # Intermediate Representation (~6.5K LOC)
+├── ir/                            # The IR data model (Rust naga::ir); imports no other naga package
 │   ├── ir.go                      # Module, Type, Function, EntryPoint, handles
-│   ├── expression.go              # 30+ expression kinds (incl. subgroup, ray query)
-│   ├── statement.go               # 20+ statement kinds (incl. subgroup, ray query)
-│   ├── validate.go                # IR validation
-│   └── resolve.go                 # Type inference engine
+│   ├── expression.go              # expression kinds (incl. subgroup, ray query)
+│   ├── statement.go               # statement kinds (incl. subgroup, ray query)
+│   └── layouter.go                # Layouter: sizes and alignments (Rust proc::Layouter)
+│
+├── valid/                         # Validation (Rust naga::valid): Validate, Options, ModuleInfo, Capabilities
+│
+├── backend/                       # Types every backend shares: bounds-check policies, entry point selector,
+│                                  # shader model, zero-init mode, errors (ErrUnsupported, ErrMissingBinding)
 │
 ├── internal/                      # Shared internal packages
+│   ├── typifier/                  # The one expression typifier (Rust proc::Typifier) for validator, backends, frontend
 │   ├── textutil/                  # IndentWriter (DRY for glsl/hlsl/msl)
-│   ├── backend/                   # Shared namer, sig packing, interface ordering
-│   ├── registry/                  # Type deduplication registry (from ir/)
-│   └── consteval/                 # Constant evaluator shared by the WGSL frontend (~3K LOC)
+│   ├── d3d/                       # Shared namer, sig packing, interface ordering (hlsl, dxil)
+│   ├── irutil/                    # Compaction, inlining, type reordering, handle walkers
+│   ├── overrides/                 # Pipeline-constant processing (Rust back::pipeline_constants)
+│   ├── registry/                  # Type deduplication registry
+│   └── consteval/                 # Constant evaluator shared by the WGSL frontend
 │
 ├── spirv/                         # SPIR-V backend (~12.5K LOC)
 │   ├── spirv.go                   # Public API: Options, Backend (DXIL pattern)
@@ -96,8 +103,8 @@ naga/                              ~323K LOC total
 │   ├── hlsl.go                    # Public API: Compile, Options (real types)
 │   └── internal/codegen/          # ALL implementation (DXIL pattern)
 │
-├── dxil/                          # DXIL backend (~50K LOC, 172/237 IDxcValidator, experimental)
-│   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel
+├── dxil/                          # DXIL backend (experimental; IDxcValidator and DXC parity measured by snapshot tests)
+│   ├── dxil.go                    # Public API: Compile, Options, Validate
 │   ├── sig_usage.go               # Input signature Used mask analysis
 │   ├── validate.go                # IDxcValidator integration
 │   └── internal/                  # ALL implementation internal
@@ -113,6 +120,7 @@ naga/                              ~323K LOC total
 └── cmd/
     ├── nagac/                     # CLI compiler
     ├── spvdis/                    # SPIR-V disassembler
+    ├── dxilval/                   # DXIL validation through dxil.dll (Windows)
     └── texture_compile/           # Texture shader testing tool
 ```
 
@@ -120,7 +128,7 @@ naga/                              ~323K LOC total
 
 ### Stage 1: Lexer
 
-**File:** `wgsl/lexer.go` (~460 LOC)
+**File:** `wgsl/internal/parser/lexer.go`
 
 Converts WGSL source into a stream of tokens. Handles:
 - 120+ token types (keywords, operators, type names, literals)
@@ -130,7 +138,7 @@ Converts WGSL source into a stream of tokens. Handles:
 
 ### Stage 2: Parser
 
-**File:** `wgsl/parser.go` (~1800 LOC)
+**File:** `wgsl/internal/parser/parser.go`
 
 Recursive descent parser that builds an AST. Key features:
 - Abstract type constructors without template params (`vec3(1,2,3)`)
@@ -147,7 +155,7 @@ Recursive descent parser that builds an AST. Key features:
 
 ### Stage 3: Lowerer
 
-**Files:** `wgsl/internal/lower/` (~10K LOC)
+**Files:** `wgsl/internal/lower/`
 
 Converts AST into typed IR. This is the largest and most complex frontend stage:
 - **Type resolution** via `TypeRegistry` (deduplication by structural equality)
@@ -163,13 +171,13 @@ Converts AST into typed IR. This is the largest and most complex frontend stage:
 
 ### Stage 4: Validation
 
-**File:** `ir/validate.go` (~750 LOC)
+**File:** `valid/validate.go` (public: `valid.Validate`)
 
 Validates the IR module for correctness:
 - Type consistency (scalar widths, vector sizes, matrix dimensions)
 - Handle validity (all references point to existing objects)
 - Control flow (break/continue only in loops, return in functions)
-- Binding uniqueness (no duplicate `@group`/`@binding` pairs)
+- Binding uniqueness per entry point (no two resources one entry point uses at one `@group`/`@binding`, as Rust)
 - Entry point requirements (vertex needs `@builtin(position)`)
 
 ### Stage 5: Backend Code Generation
@@ -182,7 +190,7 @@ Five backends share the same IR but produce different outputs:
 | **MSL** | Text (C++ dialect) | Metal | Bounds check policies |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
 | **HLSL** | Text | DirectX 11/12 | Shader model selection, semantics |
-| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | 172/237 IDxcValidator (Rust naga corpus), 103/182 DXC golden parity. DCE, SROA, mem2reg optimization passes. Experimental. |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | IDxcValidator over the Rust naga corpus and DXC roundtrip parity (snapshot tests). DCE, SROA, mem2reg optimization passes. Experimental. |
 
 ## Intermediate Representation
 

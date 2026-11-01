@@ -25,7 +25,7 @@
 //	    log.Println(w.Message)
 //	}
 //
-// The module is not validated: ir.Validate checks it against the
+// The module is not validated: valid.Validate checks it against the
 // capabilities the device has, and a backend (spirv, msl, glsl, hlsl, dxil)
 // compiles it.
 //

@@ -129,7 +129,7 @@ func Lower(ast *parser.Module) (*ir.Module, error) {
 
 // LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
 // The lowerer is always permissive — all valid WGSL types are accepted.
-// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
+// Capability validation is performed by valid.Validate after lowering.
 func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
@@ -140,7 +140,7 @@ func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
 // The lowerer is always permissive — all valid WGSL types are accepted.
-// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
+// Capability validation is performed by valid.Validate after lowering.
 func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) {
 	return lowerImpl(ast, source)
 }

@@ -15,7 +15,7 @@ import (
 
 // ParseOptions configures [Parse]. The zero value is Rust naga's
 // front::wgsl::Options::new(): every extension the parser knows is accepted,
-// and validation (ir.Validate) decides which capabilities a module may use.
+// and validation (valid.Validate) decides which capabilities a module may use.
 type ParseOptions struct{}
 
 // ParseInfo is what [Parse] reports besides the module.
@@ -120,7 +120,7 @@ func (e *ParseError) Format(source, path string) string {
 
 // Parse parses WGSL source and lowers it to an IR module, as Rust naga's
 // front::wgsl::Frontend::parse. A syntax or semantic error is a *ParseError.
-// The module is not validated: call ir.Validate with the capabilities the
+// The module is not validated: call valid.Validate with the capabilities the
 // device has.
 func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	// Spans are 32-bit byte offsets, as Rust naga's.
