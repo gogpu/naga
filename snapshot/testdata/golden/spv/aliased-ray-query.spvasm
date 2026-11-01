@@ -212,7 +212,7 @@
                OpStore %_163 %_152
          %_164 = OpSignBitSet %_10 %_140 %_84
                OpSelectionMerge %_166 0
-               OpBranchConditional %_143 %_165 %_166
+               OpBranchConditional %_164 %_165 %_166
          %_165 = OpLabel
          Op6018 %_5 %_167 %_124 %_23
          %_168 = OpAccessChain %_21 %_128 %_84

@@ -270,6 +270,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend. Special types and a mesh entry point's output types are now kept and renumbered, as Rust naga's compaction
   does. gfx-rs/wgpu's seven ray query examples are vendored and compiled with every backend that writes ray queries.
   Found by @ahmedtd while porting the examples to gogpu/wgpu (gogpu/wgpu#369).
+- **SPIR-V ray queries, as Rust naga 55534165.** The committed and candidate intersection helpers read barycentrics
+  and front face for every hit, not only triangle hits (they branched on "not none" instead of "triangle"), and
+  `rayQueryProceed` called `OpRayQueryProceedKHR` again after traversal had finished, which SPIR-V leaves undefined
+  (HLSL does not); it now returns false without the call, as Rust naga does.
 - **Validator: two entry points may put their own resource at one binding.** Any two globals with the same
   `@group`/`@binding` in a module were rejected; as Rust naga, a collision is now checked per entry point, among the
   globals it uses, callees included ("Entry point main at Compute is invalid: Bindings for [1] conflict with other

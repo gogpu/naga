@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 162
+; Bound: 166
 ; Schema: 0
 
                OpCapability Shader
@@ -62,7 +62,7 @@
          %_140 = OpTypePointer Function %_35
          %_141 = OpTypeFunction %_35 %_15 %_17
          %_146 = OpConstantFalse %_35
-         %_154 = OpConstant %_6 6
+         %_158 = OpConstant %_6 6
          %_11 = OpVariable %_10 UniformConstant
          %_38 = OpFunction %_2 None %_37
          %_39 = OpFunctionParameter %_15
@@ -153,18 +153,22 @@
          %_148 = OpLoad %_6 %_144
          %_151 = OpBitwiseAnd %_6 %_148 %_85
          %_152 = OpLessOrGreater %_35 %_151 %_20
+         %_153 = OpBitwiseAnd %_6 %_148 %_29
+         %_154 = OpLessOrGreater %_35 %_153 %_20
+         %_155 = OpIsFinite %_35 %_154
+         %_156 = OpIsInf %_35 %_155 %_152
                OpSelectionMerge %_149 0
-               OpBranchConditional %_152 %_150 %_149
+               OpBranchConditional %_156 %_150 %_149
          %_150 = OpLabel
-         Op4477 %_35 %_153 %_143
-               OpStore %_147 %_153
-         %_155 = OpIsNormal %_6 %_153 %_88 %_154
-         %_156 = OpBitwiseOr %_6 %_148 %_155
-               OpStore %_144 %_156
+         Op4477 %_35 %_157 %_143
+               OpStore %_147 %_157
+         %_159 = OpIsNormal %_6 %_157 %_88 %_158
+         %_160 = OpBitwiseOr %_6 %_148 %_159
+               OpStore %_144 %_160
                OpBranch %_149
          %_149 = OpLabel
-         %_157 = OpLoad %_35 %_147
-               OpReturnValue %_157
+         %_161 = OpLoad %_35 %_147
+               OpReturnValue %_161
                OpFunctionEnd
          %_13 = OpFunction %_2 None %_12
          %_14 = OpLabel
@@ -196,14 +200,14 @@
                OpStore %_129 %_139
                OpBranch %_120
          %_120 = OpLabel
-         %_158 = OpFunctionCall %_35 %_142 %_16 %_19
-               OpSelectionMerge %_161 0
-               OpBranchConditional %_158 %_159 %_160
-         %_159 = OpLabel
-               OpBranch %_161
-         %_160 = OpLabel
+         %_162 = OpFunctionCall %_35 %_142 %_16 %_19
+               OpSelectionMerge %_165 0
+               OpBranchConditional %_162 %_163 %_164
+         %_163 = OpLabel
+               OpBranch %_165
+         %_164 = OpLabel
                OpBranch %_122
-         %_161 = OpLabel
+         %_165 = OpLabel
                OpBranch %_121
          %_121 = OpLabel
                OpBranch %_119

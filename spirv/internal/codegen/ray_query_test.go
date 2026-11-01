@@ -55,6 +55,99 @@ fn main() {
 	}
 }
 
+const rayQueryIntersectionShader = `
+@group(0) @binding(0) var acc_struct: acceleration_structure;
+
+@compute @workgroup_size(1)
+fn main() {
+    var rq: ray_query;
+    rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 100.0, vec3f(0.0), vec3f(0.0, 0.0, 1.0)));
+    rayQueryProceed(&rq);
+    let intersection = rayQueryGetCommittedIntersection(&rq);
+    _ = intersection.barycentrics;
+}
+`
+
+// resultsOf returns the result ids of every instruction with opcode op that
+// has a result type and a result id.
+func resultsOf(instrs []spirvInstruction, op OpCode) map[uint32]spirvInstruction {
+	out := map[uint32]spirvInstruction{}
+	for _, in := range instrs {
+		if in.opcode == op && len(in.words) > 2 {
+			out[in.words[2]] = in
+		}
+	}
+	return out
+}
+
+// The barycentrics and front face of an intersection exist only for a
+// triangle hit, so the helper that fills the intersection struct branches on
+// kind == triangle. It branched on kind != none instead, the condition of the
+// enclosing branch, and read them for procedural hits too; Rust naga fixed the
+// same bug in 55534165 (spv/ray/query.rs: branch_conditional(tri_comp_id)).
+func TestRayQueryIntersectionTriangleBranch(t *testing.T) {
+	instrs := decodeSPIRVInstructions(compileWGSLForCapabilityTestWithOpts(t, rayQueryIntersectionShader, DefaultOptions()))
+	triangle := resultsOf(instrs, OpIEqual)
+	notNone := resultsOf(instrs, OpINotEqual)
+	byTriangle, byNotNone := 0, map[uint32]int{}
+	for _, in := range instrs {
+		if in.opcode != OpBranchConditional {
+			continue
+		}
+		cond := in.words[1]
+		if _, ok := triangle[cond]; ok {
+			byTriangle++
+		}
+		if _, ok := notNone[cond]; ok {
+			byNotNone[cond]++
+		}
+	}
+	if byTriangle == 0 {
+		t.Error("no branch on kind == triangle: barycentrics and front face are read for every hit")
+	}
+	for id, n := range byNotNone {
+		if n > 1 {
+			t.Errorf("kind != none (%%%d) is the condition of %d branches, want 1", id, n)
+		}
+	}
+}
+
+// OpRayQueryProceedKHR returns false once traversal is done, and calling it
+// again is undefined behavior in SPIR-V (not in HLSL). With init tracking the
+// proceed helper must skip it once the tracker has FINISHED_TRAVERSAL:
+// branch on initialized && !finished, as Rust naga since 55534165.
+func TestRayQueryProceedSkippedAfterTraversal(t *testing.T) {
+	instrs := decodeSPIRVInstructions(compileWGSLForCapabilityTestWithOpts(t, rayQueryIntersectionShader, DefaultOptions()))
+	ands := resultsOf(instrs, OpLogicalAnd)
+	nots := resultsOf(instrs, OpLogicalNot)
+	for i, in := range instrs {
+		if in.opcode != OpRayQueryProceedKHR {
+			continue
+		}
+		var guard *spirvInstruction
+		for j := i - 1; j >= 0; j-- {
+			if instrs[j].opcode == OpBranchConditional {
+				guard = &instrs[j]
+				break
+			}
+		}
+		if guard == nil {
+			t.Fatal("OpRayQueryProceedKHR is not guarded by a conditional branch")
+		}
+		and, ok := ands[guard.words[1]]
+		if !ok {
+			t.Fatalf("OpRayQueryProceedKHR is guarded by %%%d, not by initialized && !finished", guard.words[1])
+		}
+		_, notA := nots[and.words[3]]
+		_, notB := nots[and.words[4]]
+		if !notA && !notB {
+			t.Error("the guard of OpRayQueryProceedKHR does not negate the finished-traversal check")
+		}
+		return
+	}
+	t.Fatal("no OpRayQueryProceedKHR")
+}
+
 // TestRayQueryInitTrackingDisabled verifies that when RayQueryInitTracking=false,
 // the validation branches are simplified (no init flag checks).
 func TestRayQueryInitTrackingDisabled(t *testing.T) {
