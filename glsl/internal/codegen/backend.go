@@ -214,8 +214,10 @@ type Options struct {
 	// When set, layout(binding = N) qualifiers are emitted.
 	BindingMap map[BindingMapKey]uint8
 
-	// SkipWorkgroupMemoryZeroInit leaves workgroup variables as they are.
-	SkipWorkgroupMemoryZeroInit bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// shared variables they use: Polyfill (zero) or None; Native is an
+	// error.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ClampFragDepth clamps the depth a fragment entry point writes to the
 	// range at byte ClampFragDepth.Offset of its immediate data (see the
@@ -339,6 +341,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	}
 	if p := options.BoundsCheckPolicies; p.Index == BoundsCheckReadZeroSkipWrite || p.Buffer == BoundsCheckReadZeroSkipWrite {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: the index and buffer bounds checks support Restrict only")
+	}
+	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 
 	// Create writer

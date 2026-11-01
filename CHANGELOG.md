@@ -74,14 +74,18 @@ backends. Thank you!
   `TranslationInfo.ImmediateItems`. This is Dawn's model. Rust naga's
   SPIR-V writer clamps to 0..1 by default instead; a nil option clamps
   nothing. (#124, by @roffe)
-- Choosing how workgroup memory is zeroed: `spirv.Options.ZeroInitializeWorkgroupMemory`
-  (`ZeroInitWorkgroupPolyfill`, the zero value; `ZeroInitWorkgroupNative`
-  with `OpConstantNull` initializers for devices with
-  `shaderZeroInitializeWorkgroupMemory`; `ZeroInitWorkgroupNone`) and
-  `glsl.Options.SkipWorkgroupMemoryZeroInit`, as Rust naga allows for
-  every backend (#135, by @roffe); `dxil.Options.SkipWorkgroupMemoryZeroInit`
-  (#134, by @roffe). These options change to one shape across the
-  backends in 0.21.0.
+- Choosing how workgroup memory is zeroed, as Rust naga allows for every
+  backend (#134, #135, by @roffe): one field
+  `ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode`
+  in `spirv`, `msl`, `hlsl`, `glsl` and `dxil` Options.
+  `backend.ZeroInitWorkgroupPolyfill`, the zero value, stores zero from the
+  generated code; `ZeroInitWorkgroupNative` gives the variables
+  `OpConstantNull` initializers for devices with
+  `shaderZeroInitializeWorkgroupMemory` (SPIR-V only, an error elsewhere);
+  `ZeroInitWorkgroupNone` leaves the memory as it is. **Breaking:** the
+  `msl` and `hlsl` bools of that name are gone, and an Options literal
+  that left them unset now zeroes workgroup memory (as `DefaultOptions`
+  and Rust always did).
 - `glsl.Options.BoundsCheckPolicies` gets `Index` and `Buffer`; `Restrict`
   clamps indices, so an index out of bounds cannot read outside an array
   on GL, where a robust context covers buffers only. (#120, by @roffe)

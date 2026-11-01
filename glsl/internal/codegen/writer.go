@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
@@ -2149,7 +2150,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 	// Workgroup variable zero initialization (compute shaders only).
 	// Rust naga: if zero_initialize_workgroup_memory && compute stage
-	if ep.Stage == ir.StageCompute && !w.options.SkipWorkgroupMemoryZeroInit {
+	if ep.Stage == ir.StageCompute && w.options.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupPolyfill {
 		w.writeWorkgroupVarInit()
 	}
 

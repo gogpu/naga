@@ -41,3 +41,18 @@ func TestZeroValuesAreSafe(t *testing.T) {
 		t.Errorf("zero ZeroInitializeWorkgroupMemoryMode = %d, want ZeroInitWorkgroupPolyfill", mode)
 	}
 }
+
+// The mode names are Rust naga's ZeroInitializeWorkgroupMemoryMode variants;
+// error messages of every backend print them.
+func TestZeroInitializeWorkgroupMemoryModeString(t *testing.T) {
+	for mode, want := range map[backend.ZeroInitializeWorkgroupMemoryMode]string{
+		backend.ZeroInitWorkgroupPolyfill: "Polyfill",
+		backend.ZeroInitWorkgroupNative:   "Native",
+		backend.ZeroInitWorkgroupNone:     "None",
+		7:                                 "ZeroInitializeWorkgroupMemoryMode(7)",
+	} {
+		if got := mode.String(); got != want {
+			t.Errorf("%d.String() = %q, want %q", uint8(mode), got, want)
+		}
+	}
+}

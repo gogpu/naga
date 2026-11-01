@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -915,7 +916,7 @@ func (w *Writer) writeResultType(result *ir.FunctionResult) string {
 // needWorkgroupInit returns true if the entry point needs workgroup variable
 // zero-initialization. Matches Rust naga's need_workgroup_variables_initialization.
 func (w *Writer) needWorkgroupInit(ep *ir.EntryPoint) bool {
-	if !w.options.ZeroInitializeWorkgroupMemory {
+	if w.options.ZeroInitializeWorkgroupMemory != backend.ZeroInitWorkgroupPolyfill {
 		return false
 	}
 	// Only compute-like entry points

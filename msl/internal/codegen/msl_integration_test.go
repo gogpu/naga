@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -1130,7 +1131,7 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 }
 `
 	opts := DefaultOptions()
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "threadgroup_barrier")
 }

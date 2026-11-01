@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 )
 
-func TestSkipWorkgroupMemoryZeroInit(t *testing.T) {
+func TestZeroInitializeWorkgroupMemory(t *testing.T) {
 	const src = `
 var<workgroup> shared_data: array<u32, 64>;
 @group(0) @binding(0) var<storage, read_write> out: array<u32>;
@@ -17,13 +18,14 @@ fn main(@builtin(local_invocation_index) i: u32) {
 }
 `
 	module := lowerWGSL(t, src)
-	for _, skip := range []bool{false, true} {
-		code, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version430, SkipWorkgroupMemoryZeroInit: skip})
+	for _, mode := range []backend.ZeroInitializeWorkgroupMemoryMode{backend.ZeroInitWorkgroupPolyfill, backend.ZeroInitWorkgroupNone} {
+		code, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version430, ZeroInitializeWorkgroupMemory: mode})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if zeroed := strings.Contains(code, "shared_data = "); zeroed == skip {
-			t.Errorf("SkipWorkgroupMemoryZeroInit %v: zeroed = %v\n%s", skip, zeroed, code)
+		want := mode == backend.ZeroInitWorkgroupPolyfill
+		if zeroed := strings.Contains(code, "shared_data = "); zeroed != want {
+			t.Errorf("ZeroInitializeWorkgroupMemory %v: zeroed = %v\n%s", mode, zeroed, code)
 		}
 	}
 }

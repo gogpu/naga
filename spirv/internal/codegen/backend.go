@@ -342,6 +342,9 @@ func (b *Backend) newIB() *InstructionBuilder {
 // The Backend is automatically reset before each compilation, so
 // a single Backend instance can be reused across multiple Compile calls.
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
+	if m := b.options.ZeroInitializeWorkgroupMemory; m > backend.ZeroInitWorkgroupNone {
+		return nil, fmt.Errorf("spirv: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}

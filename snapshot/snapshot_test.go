@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
@@ -2453,7 +2454,10 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 		if strings.HasPrefix(trimmed, "zero_initialize_workgroup_memory") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
-				opts.ZeroInitializeWorkgroupMemory = strings.TrimSpace(parts[1]) == "true"
+				opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupNone
+				if strings.TrimSpace(parts[1]) == "true" {
+					opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
+				}
 			}
 		}
 		if strings.HasPrefix(trimmed, "force_loop_bounding") {

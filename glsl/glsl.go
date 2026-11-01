@@ -176,11 +176,14 @@ type Options struct {
 	// When set, layout(binding = N) qualifiers are emitted.
 	BindingMap map[BindingMapKey]uint8
 
-	// SkipWorkgroupMemoryZeroInit leaves the workgroup variables of a
-	// compute entry point as they are instead of zeroing them as WebGPU
-	// requires. The inverse of Rust naga's zero_initialize_workgroup_memory,
-	// so the zero value behaves like Rust's default.
-	SkipWorkgroupMemoryZeroInit bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// shared variables they use, as WebGPU requires. The zero value,
+	// backend.ZeroInitWorkgroupPolyfill, stores zero to them from the first
+	// invocation and adds a barrier, as Rust naga's default
+	// zero_initialize_workgroup_memory: true does. ZeroInitWorkgroupNone
+	// leaves them as they are; ZeroInitWorkgroupNative is an error, OpenGL
+	// has no way to ask for it.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ClampFragDepth, when set, clamps the depth a fragment entry point
 	// writes to the range in two f32, min then max, at byte offset
@@ -349,7 +352,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		BindingMap:     bindingMap,
 		ClampFragDepth: o.ClampFragDepth,
 
-		SkipWorkgroupMemoryZeroInit: o.SkipWorkgroupMemoryZeroInit,
+		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 	}
 }
 

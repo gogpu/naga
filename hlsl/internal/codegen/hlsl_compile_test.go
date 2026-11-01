@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -897,7 +898,7 @@ fn main_fn() -> i32 {
 func TestCompile_WorkgroupVariables(t *testing.T) {
 	opts := DefaultOptions()
 	opts.FakeMissingBindings = true
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 
 	src := `
 var<workgroup> counter: u32;

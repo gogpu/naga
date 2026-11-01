@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -657,7 +658,7 @@ struct Out { v: f32 };
 }
 `
 	opts := DefaultOptions()
-	opts.ZeroInitializeWorkgroupMemory = true
+	opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupPolyfill
 	code := compileWGSLWithOpts(t, src, opts)
 	mustContainMSL(t, code, "threadgroup")
 	mustContainMSL(t, code, "threadgroup_barrier")

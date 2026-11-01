@@ -218,10 +218,10 @@ type Options struct {
 	// BoundsCheckPolicies controls bounds checking behavior.
 	BoundsCheckPolicies BoundsCheckPolicies
 
-	// ZeroInitializeWorkgroupMemory enables zero-initialization of
-	// workgroup (threadgroup) memory at the start of compute shaders.
-	// This adds overhead but ensures defined behavior.
-	ZeroInitializeWorkgroupMemory bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// threadgroup variables they use: Polyfill (zero) or None; Native is an
+	// error.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// ForceLoopBounding adds loop iteration limits to prevent infinite loops.
 	// Recommended for untrusted shaders.
@@ -333,10 +333,9 @@ type VertexBufferMapping struct {
 // DefaultOptions returns sensible default options for MSL generation.
 func DefaultOptions() Options {
 	return Options{
-		LangVersion:                   Version2_1,
-		BoundsCheckPolicies:           DefaultBoundsCheckPolicies(),
-		ZeroInitializeWorkgroupMemory: true,
-		ForceLoopBounding:             true,
+		LangVersion:         Version2_1,
+		BoundsCheckPolicies: DefaultBoundsCheckPolicies(),
+		ForceLoopBounding:   true,
 	}
 }
 
@@ -374,6 +373,9 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 		options.LangVersion = Version2_1
 	}
 	options.AllowAndForcePointSize = options.AllowAndForcePointSize || pipeline.AllowAndForcePointSize
+	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
+		return "", TranslationInfo{}, fmt.Errorf("msl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+	}
 
 	// Overrides must have been replaced by naga.ProcessOverrides.
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {

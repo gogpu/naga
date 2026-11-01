@@ -8,6 +8,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
 )
@@ -69,7 +70,9 @@ func scalarizedModule(t *testing.T, src string, zero bool) *ir.Module {
 		t.Fatalf("prepare: %v", err)
 	}
 	opts := DefaultOptions()
-	opts.SkipWorkgroupMemoryZeroInit = !zero
+	if !zero {
+		opts.ZeroInitializeWorkgroupMemory = backend.ZeroInitWorkgroupNone
+	}
 	if err := prepareEntryPoint(m, &m.EntryPoints[0], opts); err != nil {
 		t.Fatalf("prepare entry point: %v", err)
 	}

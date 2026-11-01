@@ -6,6 +6,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -40,10 +41,10 @@ type Options struct {
 	// not found in BindingMap. Useful for testing or simple shaders.
 	FakeMissingBindings bool
 
-	// ZeroInitializeWorkgroupMemory emits code to zero-initialize
-	// groupshared variables at the start of compute shaders.
-	// Required for portability as HLSL doesn't guarantee zero initialization.
-	ZeroInitializeWorkgroupMemory bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// groupshared variables they use: Polyfill (zero) or None; Native is an
+	// error.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 
 	// RestrictIndexing adds bounds checks to array/buffer accesses.
 	// Prevents undefined behavior from out-of-bounds reads/writes.
@@ -101,10 +102,9 @@ func DefaultOptions() *Options {
 			StandardSamplers:   BindTarget{Space: 0, Register: 0},
 			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
 		},
-		FakeMissingBindings:           true,
-		ZeroInitializeWorkgroupMemory: true,
-		RestrictIndexing:              true,
-		ForceLoopBounding:             true,
+		FakeMissingBindings: true,
+		RestrictIndexing:    true,
+		ForceLoopBounding:   true,
 	}
 }
 
@@ -216,6 +216,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	// Apply defaults for nil options
 	if options == nil {
 		options = DefaultOptions()
+	}
+	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
+		return "", nil, fmt.Errorf("hlsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 
 	// Create writer

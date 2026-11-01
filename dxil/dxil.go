@@ -25,6 +25,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/container"
 	"github.com/gogpu/naga/dxil/internal/emit"
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -137,11 +138,14 @@ type Options struct {
 	// its own indices with BindTarget.RestrictIndexing.
 	RestrictIndexing bool
 
-	// SkipWorkgroupMemoryZeroInit leaves workgroup memory as it is. By
-	// default a compute entry point stores zero to the workgroup variables it
-	// uses before running, as WebGPU requires and as
-	// hlsl.Options.ZeroInitializeWorkgroupMemory does.
-	SkipWorkgroupMemoryZeroInit bool
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
+	// groupshared variables they use, as WebGPU requires. The zero value,
+	// backend.ZeroInitWorkgroupPolyfill, stores zero to them from the first
+	// invocation and adds a group barrier, as
+	// hlsl.Options.ZeroInitializeWorkgroupMemory does. ZeroInitWorkgroupNone
+	// leaves them as they are; ZeroInitWorkgroupNative is an error, Direct3D
+	// has no way to ask for it.
+	ZeroInitializeWorkgroupMemory backend.ZeroInitializeWorkgroupMemoryMode
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -284,6 +288,9 @@ func checkInput(irModule *ir.Module, opts Options) error {
 	}
 	if len(irModule.EntryPoints) == 0 {
 		return fmt.Errorf("dxil: module has no entry points")
+	}
+	if m := opts.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
+		return fmt.Errorf("dxil: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 	for loc, tgt := range opts.BindingMap {
 		if tgt.DynamicStorageBufferSizeIndex != nil && tgt.DynamicStorageBufferOffsetsIndex == nil {
@@ -3187,7 +3194,7 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 // point uses and splits its composite workgroup variables into scalars.
 func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
-	if !opts.SkipWorkgroupMemoryZeroInit {
+	if opts.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupPolyfill {
 		zeroInitWorkgroupMemory(irModule, ep)
 	}
 	return scalarizeWorkgroupMemory(irModule, ep)
