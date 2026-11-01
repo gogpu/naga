@@ -59,10 +59,14 @@ type CompileOptions struct {
 	// until SPIRV.Version gives one; the backend never raises it.
 	SPIRV spirv.Options
 
-	// Capabilities is what the IR validator allows beyond the core: the
-	// zero value rejects f64, i64, u64 and f16, as Rust naga's default
-	// does. Use [valid.CapFloat64], [valid.CapShaderInt64], [valid.CapShaderFloat16]
-	// to enable one, or [valid.CapAll] to permit everything.
+	// Capabilities is what the IR validator allows beyond core WebGPU: the
+	// zero value rejects every optional feature (f64, i64, u64, f16,
+	// subgroups, 64-bit and f32 atomics, ray queries, mesh shaders, binding
+	// arrays, ...), as Rust naga's default does. Enable one with its
+	// valid.Cap* constant, for example [valid.CapShaderFloat16] or
+	// [valid.CapSubgroup], or [valid.CapAll] to permit everything. The
+	// subgroup stages and operations are derived from it as
+	// [valid.Options] documents.
 	Capabilities valid.Capabilities
 
 	// SkipValidation compiles the module without validating it first. The

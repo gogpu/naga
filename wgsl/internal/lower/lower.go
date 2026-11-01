@@ -7356,14 +7356,24 @@ func (l *Lowerer) lowerAtomicStore(args []parser.Expr, target *[]ir.Statement) (
 		return 0, err
 	}
 
-	// Rust naga emits a plain Store for atomicStore, not an Atomic statement.
-	// See naga/src/front/wgsl/lower/mod.rs around line 2895.
+	// Rust naga emits a plain Store for atomicStore, not an Atomic statement,
+	// after finishing the emitter so that the value is emitted before the
+	// Store, and restarts it after (front/wgsl/lower/mod.rs, "atomicStore").
+	emitting := l.emitStateStart != nil
+	if emitting {
+		l.emitFinish(*l.emitStateStart, target)
+	}
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtStore{
 			Pointer: pointer,
 			Value:   value,
 		},
 	})
+	if emitting {
+		newStart := l.currentExprIdx
+		l.emitStateStart = &newStart
+		l.currentEmitTarget = target
+	}
 
 	return 0, nil // No return value
 }

@@ -164,6 +164,16 @@ const f16Shader = "enable f16;\n" +
 const f16Bindings = `"bindings": [{"binding": 0, "kind": "storage-read", "words": [1]},
   {"binding": 1, "kind": "storage-rw", "len": 1, "expect": [[3]]}]}`
 
+// TestEveryRequirementGrantsCapabilities: a feature a case may require
+// grants the capabilities wgpu grants for it, so its shader validates.
+func TestEveryRequirementGrantsCapabilities(t *testing.T) {
+	for _, r := range knownRequirements {
+		if featureCapabilities[r] == 0 {
+			t.Errorf("requirement %q grants no capability", r)
+		}
+	}
+}
+
 func TestModuleF16(t *testing.T) {
 	spec := `{"format": 1, "desc": "d", "entry": "main", "workgroups": [1, 1, 1], "requires": ["shader-f16"], ` + f16Bindings
 	if err := check(t, f16Shader, spec); err != nil {

@@ -3,7 +3,6 @@ package valid
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
@@ -34,10 +33,18 @@ func (e Error) Error() string {
 
 // validator validates IR modules.
 type validator struct {
-	module       *ir.Module
-	capabilities Capabilities
-	errors       []Error
-	context      validationContext
+	module             *ir.Module
+	capabilities       Capabilities
+	subgroupStages     ShaderStages
+	subgroupOperations SubgroupOperationSet
+	// functionStages are the stages each module function may run in, by
+	// FunctionHandle, as far as validated (Rust's available_stages).
+	functionStages []ShaderStages
+	// validatedFunctions is how many module functions have their
+	// functionStages.
+	validatedFunctions int
+	errors             []Error
+	context            validationContext
 }
 
 // validationContext holds current validation context.
@@ -47,7 +54,21 @@ type validationContext struct {
 	functionName   string
 	flow           controlFlowAbility
 	expressionUsed map[ir.ExpressionHandle]bool
+	// stages are the stages the function may run in: Rust naga's
+	// FunctionInfo::available_stages, narrowed so far by the subgroup
+	// operations and the calls.
+	stages ShaderStages
+	// inScope holds, by handle, the expressions a statement may use at the
+	// statement being validated (Rust naga's valid_expression_set);
+	// scopeList is the order they came into scope, so that a block can
+	// drop its own (valid_expression_list).
+	inScope   []bool
+	scopeList []ir.ExpressionHandle
 }
+
+// allStages is Rust's ShaderStages::all(): a function that does nothing
+// stage-specific runs in any stage.
+const allStages = ^ShaderStages(0)
 
 // controlFlowAbility is what a statement may do to leave the block it is
 // in: Rust naga's ControlFlowAbility (valid/function.rs). A function body
@@ -70,6 +91,21 @@ type Options struct {
 	// is the single gate for capabilities: neither the frontends nor the
 	// backends check them.
 	Capabilities Capabilities
+
+	// SubgroupStages are the stages a subgroup operation may run in (Rust
+	// naga's Validator::subgroup_stages). Zero derives them from
+	// Capabilities, as Rust's Validator::new: CapSubgroup gives the fragment
+	// and compute-like stages, CapSubgroupVertexStage adds the vertex stage.
+	// A non-zero set replaces the derived one. An entry point whose stage
+	// is outside the set and that reaches a subgroup operation is an error.
+	SubgroupStages ShaderStages
+
+	// SubgroupOperations are the subgroup operations the module may use
+	// (Rust naga's Validator::subgroup_operations). Zero derives them from
+	// Capabilities, as Rust's Validator::new: CapSubgroup gives every
+	// operation, none without it. A non-zero set replaces the derived one.
+	// Every subgroup operation still needs CapSubgroup.
+	SubgroupOperations SubgroupOperationSet
 }
 
 // Errors is the error Validate returns: every problem it found,
@@ -106,10 +142,12 @@ func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 	}
 
 	v := &validator{
-		module:       module,
-		capabilities: opts.Capabilities,
-		errors:       make([]Error, 0),
+		module:         module,
+		capabilities:   opts.Capabilities,
+		functionStages: make([]ShaderStages, len(module.Functions)),
+		errors:         make([]Error, 0),
 	}
+	v.subgroupStages, v.subgroupOperations = subgroupSets(opts)
 
 	v.validateModule()
 
@@ -138,9 +176,7 @@ func (v *validator) validateEntryPointBindings(info ModuleInfo) {
 				continue
 			}
 			if seen[*gv.Binding] {
-				stage := ep.Stage.String()
-				v.addError(fmt.Sprintf("Entry point %s at %s is invalid: Bindings for [%d] conflict with other resource",
-					ep.Name, strings.ToUpper(stage[:1])+stage[1:], h))
+				v.entryPointError(ep, fmt.Sprintf("Bindings for [%d] conflict with other resource", h))
 			}
 			seen[*gv.Binding] = true
 		}
@@ -154,6 +190,7 @@ func (v *validator) validateModule() {
 
 	// Validate constants
 	v.validateConstants()
+	v.validateGlobalExpressionLiterals()
 
 	// Validate global variables
 	v.validateGlobalVariables()
@@ -196,6 +233,61 @@ func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.Scalar
 		if !v.capabilities.Contains(CapShaderFloat16) {
 			v.addError(fmt.Sprintf("type [%d]%s: f16 requires the SHADER_FLOAT16 capability", handle, context))
 		}
+	case scalar.Width == 2 && (scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint):
+		name := "i16"
+		if scalar.Kind == ir.ScalarUint {
+			name = "u16"
+		}
+		if !v.capabilities.Contains(CapShaderInt16) {
+			v.addError(fmt.Sprintf("type [%d]%s: %s requires the SHADER_INT16 capability", handle, context, name))
+		}
+	}
+}
+
+// typeCapability reports a type that needs a capability outside the set:
+// Rust naga's TypeError::MissingCapability (valid/type.rs) under
+// ValidationError::Type.
+func (v *validator) typeCapability(handle ir.TypeHandle, c Capabilities) {
+	v.addError(fmt.Sprintf("Type [%d] '%s' is invalid: Capability %s is required",
+		handle, v.module.Types[handle].Name, c.rustDebug()))
+}
+
+// checkTypeCapabilities checks the capabilities a type needs beyond its
+// scalar width (valid/type.rs validate_type): 64-bit and f32 atomics, ray
+// queries and acceleration structures, @blend_src members.
+func (v *validator) checkTypeCapabilities(handle ir.TypeHandle, inner ir.TypeInner) {
+	switch t := inner.(type) {
+	case ir.AtomicType:
+		switch {
+		case (t.Scalar.Kind == ir.ScalarSint || t.Scalar.Kind == ir.ScalarUint) && t.Scalar.Width == 8:
+			if v.capabilities&(CapShaderInt64AtomicAllOps|CapShaderInt64AtomicMinMax) == 0 {
+				v.typeCapability(handle, CapShaderInt64AtomicAllOps)
+			}
+		case t.Scalar.Kind == ir.ScalarFloat && t.Scalar.Width == 4:
+			if !v.capabilities.Contains(CapShaderFloat32Atomic) {
+				v.typeCapability(handle, CapShaderFloat32Atomic)
+			}
+		}
+	case ir.RayQueryType:
+		if !v.capabilities.Contains(CapRayQuery) {
+			v.typeCapability(handle, CapRayQuery)
+		}
+	case ir.AccelerationStructureType:
+		// RAY_TRACING_PIPELINE or RAY_QUERY; Rust reports the second.
+		if !v.capabilities.Contains(capRayTracingPipeline) && !v.capabilities.Contains(CapRayQuery) {
+			v.typeCapability(handle, CapRayQuery)
+		}
+	case ir.StructType:
+		for _, m := range t.Members {
+			if m.Binding == nil {
+				continue
+			}
+			if loc, ok := (*m.Binding).(ir.LocationBinding); ok && loc.BlendSrc != nil &&
+				!v.capabilities.Contains(CapDualSourceBlending) {
+				v.typeCapability(handle, CapDualSourceBlending)
+				return
+			}
+		}
 	}
 }
 
@@ -205,6 +297,7 @@ func (v *validator) validateType(handle ir.TypeHandle, typ *ir.Type) {
 		v.addError(fmt.Sprintf("type %d has nil inner type", handle))
 		return
 	}
+	v.checkTypeCapabilities(handle, typ.Inner)
 
 	switch inner := typ.Inner.(type) {
 	case ir.ScalarType:
@@ -307,6 +400,45 @@ func (v *validator) validateConstants() {
 	}
 }
 
+// validateGlobalExpressionLiterals checks the width of every literal among
+// the global expressions against the capabilities, as Rust naga's
+// validate_const_expression does (ValidationError::ConstExpression).
+func (v *validator) validateGlobalExpressionLiterals() {
+	for i, e := range v.module.GlobalExpressions {
+		if lit, ok := e.Kind.(ir.Literal); ok {
+			if msg := v.literalWidthError(lit.Value); msg != "" {
+				v.addError(fmt.Sprintf("Constant expression [%d] is invalid: %s", i, msg))
+			}
+		}
+	}
+}
+
+// literalWidthError returns Rust naga's WidthError::MissingCapability text
+// for a literal whose scalar needs a capability outside the set (Rust's
+// validate_literal, check_width), or "".
+func (v *validator) literalWidthError(lit ir.LiteralValue) string {
+	var name, flag string
+	var need Capabilities
+	switch lit.(type) {
+	case ir.LiteralF64:
+		name, flag, need = "f64", "FLOAT64", CapFloat64
+	case ir.LiteralF16:
+		// Rust's text names the flag FLOAT16.
+		name, flag, need = "f16", "FLOAT16", CapShaderFloat16
+	case ir.LiteralI64:
+		name, flag, need = "i64", "SHADER_INT64", CapShaderInt64
+	case ir.LiteralU64:
+		name, flag, need = "u64", "SHADER_INT64", CapShaderInt64
+	default:
+		return ""
+	}
+	if v.capabilities.Contains(need) {
+		return ""
+	}
+	// %#q backquotes, as Rust's text does: Using `u64` values ...
+	return fmt.Sprintf("Using %#q values requires the %#q flag", name, "naga::valid::Capabilities::"+flag)
+}
+
 // validateGlobalVariables checks all global variables.
 func (v *validator) validateGlobalVariables() {
 	names := make(map[string]bool)
@@ -317,6 +449,10 @@ func (v *validator) validateGlobalVariables() {
 				v.addError(fmt.Sprintf("duplicate global variable name %q", gv.Name))
 			}
 			names[gv.Name] = true
+		}
+
+		if c := v.globalVariableCapability(&v.module.GlobalVariables[i]); c != 0 {
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: Capability %s is not supported", i, gv.Name, c.rustDebug()))
 		}
 
 		if !v.isValidTypeHandle(gv.Type) {
@@ -346,6 +482,66 @@ func (v *validator) validateGlobalVariables() {
 	}
 }
 
+// globalVariableCapability returns the capability a global variable needs
+// and the set lacks, or 0: the capability part of Rust naga's
+// validate_global_var (valid/interface.rs). A binding array needs the
+// capability of its resource kind and is then checked as its element.
+func (v *validator) globalVariableCapability(gv *ir.GlobalVariable) Capabilities {
+	if !v.isValidTypeHandle(gv.Type) {
+		return 0
+	}
+	missing := func(c Capabilities) Capabilities {
+		if v.capabilities.Contains(c) {
+			return 0
+		}
+		return c
+	}
+	inner := gv.Type
+	if ba, ok := v.module.Types[gv.Type].Inner.(ir.BindingArrayType); ok {
+		if !v.isValidTypeHandle(ba.Base) {
+			return 0
+		}
+		inner = ba.Base
+		var need Capabilities
+		switch gv.Space {
+		case ir.SpaceStorage:
+			need = CapStorageBufferBindingArray
+		case ir.SpaceUniform:
+			need = CapBufferBindingArray
+		case ir.SpaceHandle:
+			switch base := v.module.Types[ba.Base].Inner.(type) {
+			case ir.ImageType:
+				switch base.Class {
+				case ir.ImageClassStorage:
+					need = CapStorageTextureBindingArray
+				case ir.ImageClassSampled, ir.ImageClassDepth:
+					need = CapTextureAndSamplerBindingArray
+				}
+			case ir.SamplerType:
+				need = CapTextureAndSamplerBindingArray
+			case ir.AccelerationStructureType:
+				need = CapAccelerationStructureBindingArray
+			}
+		}
+		if c := missing(need); c != 0 {
+			return c
+		}
+	}
+	switch gv.Space {
+	case ir.SpaceHandle:
+		if img, ok := v.module.Types[inner].Inner.(ir.ImageType); ok && img.Class == ir.ImageClassStorage {
+			switch img.StorageFormat {
+			case ir.StorageFormatR16Unorm, ir.StorageFormatR16Snorm, ir.StorageFormatRg16Unorm,
+				ir.StorageFormatRg16Snorm, ir.StorageFormatRgba16Unorm, ir.StorageFormatRgba16Snorm:
+				return missing(CapStorageTexture16BitNormFormats)
+			}
+		}
+	case ir.SpaceTaskPayload:
+		return missing(CapMeshShader)
+	}
+	return 0
+}
+
 // validateFunctions checks all functions.
 func (v *validator) validateFunctions() {
 	names := make(map[string]bool)
@@ -367,6 +563,8 @@ func (v *validator) validateFunctions() {
 		}
 
 		v.validateFunction(fn)
+		v.functionStages[i] = v.context.stages
+		v.validatedFunctions = i + 1
 	}
 }
 
@@ -381,6 +579,15 @@ func (v *validator) validateFunctions() {
 func (v *validator) validateFunction(fn *ir.Function) {
 	types, typeErr := typifier.Function(v.module, fn)
 	v.context.types = types
+	v.context.stages = allStages
+	// The expressions evaluated before the function runs are in scope
+	// everywhere; every other one comes into scope at its Emit or at the
+	// statement that gives it its value (Rust's validate_function).
+	v.context.inScope = make([]bool, len(fn.Expressions))
+	v.context.scopeList = v.context.scopeList[:0]
+	for i := range fn.Expressions {
+		v.context.inScope[i] = fn.Expressions[i].Kind != nil && fn.Expressions[i].NeedsPreEmit()
+	}
 	errorsBefore := len(v.errors)
 
 	// Validate arguments
@@ -415,6 +622,7 @@ func (v *validator) validateFunction(fn *ir.Function) {
 	// Validate expressions
 	for i, expr := range fn.Expressions {
 		v.validateExpression(ir.ExpressionHandle(i), &expr)
+		v.context.stages &= v.expressionStages(expr.Kind)
 	}
 
 	// Validate body
@@ -435,7 +643,9 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 
 	switch kind := expr.Kind.(type) {
 	case ir.Literal:
-		// Literals are always valid
+		if msg := v.literalWidthError(kind.Value); msg != "" {
+			v.addErrorInExpression(handle, msg)
+		}
 
 	case ir.ExprConstant:
 		if !v.isValidConstantHandle(kind.Constant) {
@@ -651,8 +861,17 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 	}
 }
 
-// validateBlock validates a block of statements.
+// validateBlock validates a block of statements; the expressions it brings
+// into scope leave scope at its end (Rust's validate_block).
 func (v *validator) validateBlock(block ir.Block) {
+	mark := len(v.context.scopeList)
+	v.validateBlockImpl(block)
+	v.dropScope(mark)
+}
+
+// validateBlockImpl validates a block of statements and leaves what it
+// brought into scope in scope (Rust's validate_block_impl).
+func (v *validator) validateBlockImpl(block ir.Block) {
 	for i, stmt := range block {
 		v.validateStatement(i, &stmt)
 	}
@@ -665,6 +884,48 @@ func (v *validator) validateBlockWith(block ir.Block, flow controlFlowAbility) {
 	v.context.flow = flow
 	v.validateBlock(block)
 	v.context.flow = saved
+}
+
+// dropScope takes out of scope what came into it after mark.
+func (v *validator) dropScope(mark int) {
+	for _, h := range v.context.scopeList[mark:] {
+		v.context.inScope[h] = false
+	}
+	v.context.scopeList = v.context.scopeList[:mark]
+}
+
+// notInScopeText is Rust naga's ExpressionError::NotInScope.
+const notInScopeText = "Used by a statement before it was introduced into the scope by any of the dominating blocks"
+
+// inScope reports whether a statement may use h here. A handle out of range
+// is reported by the handle checks, not as out of scope.
+func (v *validator) inScope(h ir.ExpressionHandle) bool {
+	return int(h) >= len(v.context.inScope) || v.context.inScope[h]
+}
+
+// useExpression checks that a statement's operand is in scope: an
+// expression emitted before it in its block or a block around it, the
+// result of a statement before it, or one evaluated before the function
+// runs (Rust's FunctionError::Expression { source: NotInScope }).
+func (v *validator) useExpression(h ir.ExpressionHandle) {
+	if !v.inScope(h) {
+		v.addErrorInExpression(h, notInScopeText)
+	}
+}
+
+// introduce brings h into scope, at its Emit or at the statement that gives
+// it its value; already in scope, it is Rust's
+// FunctionError::ExpressionAlreadyInScope.
+func (v *validator) introduce(h ir.ExpressionHandle) {
+	if int(h) >= len(v.context.inScope) {
+		return
+	}
+	if v.context.inScope[h] {
+		v.addErrorInExpression(h, fmt.Sprintf("Expression [%d] can't be introduced - it's already in scope", h))
+		return
+	}
+	v.context.inScope[h] = true
+	v.context.scopeList = append(v.context.scopeList, h)
 }
 
 // validateStatement validates a single statement.
@@ -688,6 +949,9 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 			if kind.Range.Start >= kind.Range.End {
 				v.addErrorInStatement(index, fmt.Sprintf("emit range start %d >= end %d", kind.Range.Start, kind.Range.End))
 			}
+			for h := kind.Range.Start; h < kind.Range.End && h < ir.ExpressionHandle(exprCount); h++ {
+				v.introduce(h)
+			}
 		}
 
 	case ir.StmtBlock:
@@ -697,6 +961,7 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Condition) {
 			v.addErrorInStatement(index, fmt.Sprintf("condition expression %d does not exist", kind.Condition))
 		}
+		v.useExpression(kind.Condition)
 		v.validateBlock(kind.Accept)
 		v.validateBlock(kind.Reject)
 
@@ -704,6 +969,7 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Selector) {
 			v.addErrorInStatement(index, fmt.Sprintf("selector expression %d does not exist", kind.Selector))
 		}
+		v.useExpression(kind.Selector)
 		hasDefault := false
 		for _, c := range kind.Cases {
 			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
@@ -719,14 +985,22 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		}
 
 	case ir.StmtLoop:
-		v.validateBlockWith(kind.Body, v.context.flow&abilityReturn|abilityBreak|abilityContinue)
-		v.validateBlockWith(kind.Continuing, 0)
+		// The continuing block and the break-if see the body's scope.
+		mark := len(v.context.scopeList)
+		saved := v.context.flow
+		v.context.flow = saved&abilityReturn | abilityBreak | abilityContinue
+		v.validateBlockImpl(kind.Body)
+		v.context.flow = 0
+		v.validateBlockImpl(kind.Continuing)
+		v.context.flow = saved
 
 		if kind.BreakIf != nil {
 			if !v.isValidExpressionHandle(*kind.BreakIf) {
 				v.addErrorInStatement(index, fmt.Sprintf("break-if expression %d does not exist", *kind.BreakIf))
 			}
+			v.useExpression(*kind.BreakIf)
 		}
+		v.dropScope(mark)
 
 	// The messages are Rust naga's FunctionError texts.
 	case ir.StmtBreak:
@@ -747,14 +1021,18 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 			if !v.isValidExpressionHandle(*kind.Value) {
 				v.addErrorInStatement(index, fmt.Sprintf("return value expression %d does not exist", *kind.Value))
 			}
+			v.useExpression(*kind.Value)
 		}
 
 	case ir.StmtKill:
 		// Allowed anywhere in a fragment shader, a continuing block too
 		// (Rust naga checks only the stage).
 
-	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
-		// Barriers are always valid
+	case ir.StmtControlBarrier:
+		v.checkBarrier(index, kind.Flags)
+
+	case ir.StmtMemoryBarrier:
+		v.checkBarrier(index, kind.Flags)
 
 	case ir.StmtStore:
 		if !v.isValidExpressionHandle(kind.Pointer) {
@@ -763,6 +1041,20 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Value) {
 			v.addErrorInStatement(index, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
+		// Rust checks the scope of the value only: the pointer is a chain
+		// of accesses to a variable, walked without its types.
+		v.useExpression(kind.Value)
+
+	case ir.StmtImageAtomic:
+		v.useExpression(kind.Coordinate)
+		if kind.ArrayIndex != nil {
+			v.useExpression(*kind.ArrayIndex)
+		}
+		v.checkImageAtomic(index, kind)
+		v.useExpression(kind.Value)
+
+	case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+		v.validateSubgroupStatement(index, kind)
 
 	case ir.StmtImageStore:
 		if !v.isValidExpressionHandle(kind.Image) {
@@ -777,6 +1069,11 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Value) {
 			v.addErrorInStatement(index, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
+		v.useExpression(kind.Coordinate)
+		if kind.ArrayIndex != nil {
+			v.useExpression(*kind.ArrayIndex)
+		}
+		v.useExpression(kind.Value)
 
 	case ir.StmtAtomic:
 		if !v.isValidExpressionHandle(kind.Pointer) {
@@ -788,6 +1085,15 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if kind.Result != nil && !v.isValidExpressionHandle(*kind.Result) {
 			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", *kind.Result))
 		}
+		v.useExpression(kind.Pointer)
+		v.useExpression(kind.Value)
+		v.checkAtomic(index, kind)
+		if xchg, ok := kind.Fun.(ir.AtomicExchange); ok && xchg.Compare != nil {
+			v.useExpression(*xchg.Compare)
+		}
+		if kind.Result != nil {
+			v.introduce(*kind.Result)
+		}
 
 	case ir.StmtWorkGroupUniformLoad:
 		if !v.isValidExpressionHandle(kind.Pointer) {
@@ -796,25 +1102,64 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Result) {
 			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", kind.Result))
 		}
+		v.useExpression(kind.Pointer)
+		v.introduce(kind.Result)
 
 	case ir.StmtCall:
-		if !v.isValidFunctionHandle(kind.Function) {
-			v.addErrorInStatement(index, fmt.Sprintf("function %d does not exist", kind.Function))
-		}
-		for i, arg := range kind.Arguments {
-			if !v.isValidExpressionHandle(arg) {
-				v.addErrorInStatement(index, fmt.Sprintf("argument %d expression %d does not exist", i, arg))
-			}
-		}
-		if kind.Result != nil && !v.isValidExpressionHandle(*kind.Result) {
-			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", *kind.Result))
-		}
+		v.validateCall(index, kind)
 
 	case ir.StmtRayQuery:
 		if !v.isValidExpressionHandle(kind.Query) {
 			v.addErrorInStatement(index, fmt.Sprintf("query expression %d does not exist", kind.Query))
 		}
+		switch fun := kind.Fun.(type) {
+		case ir.RayQueryInitialize:
+			v.useExpression(fun.AccelerationStructure)
+			v.useExpression(fun.Descriptor)
+		case ir.RayQueryProceed:
+			v.introduce(fun.Result)
+		case ir.RayQueryGenerateIntersection:
+			v.useExpression(fun.HitT)
+		}
 	}
+}
+
+// validateCall checks a call: its handles, that its arguments are in
+// scope, and its result comes into scope (Rust's validate_call). The
+// caller can run only in the stages the callee can.
+func (v *validator) validateCall(index int, call ir.StmtCall) {
+	if !v.isValidFunctionHandle(call.Function) {
+		v.addErrorInStatement(index, fmt.Sprintf("function %d does not exist", call.Function))
+	}
+	for i, arg := range call.Arguments {
+		if !v.isValidExpressionHandle(arg) {
+			v.addErrorInStatement(index, fmt.Sprintf("argument %d expression %d does not exist", i, arg))
+		} else if !v.inScope(arg) {
+			v.addErrorInExpression(arg, fmt.Sprintf("Call to [%d] is invalid: Argument %d expression is invalid: %s",
+				call.Function, i, notInScopeText))
+		}
+	}
+	if call.Result != nil {
+		if !v.isValidExpressionHandle(*call.Result) {
+			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", *call.Result))
+		} else if v.context.inScope[*call.Result] {
+			v.addErrorInExpression(*call.Result, fmt.Sprintf("Call to [%d] is invalid: Result expression [%d] has already been introduced earlier",
+				call.Function, *call.Result))
+		} else {
+			v.introduce(*call.Result)
+		}
+	}
+	v.context.stages &= v.calleeStages(call.Function)
+}
+
+// calleeStages are the stages a call of fn can run in. A function is
+// validated before the functions after it, which are the only ones that
+// may call it (Rust's handle order).
+func (v *validator) calleeStages(fn ir.FunctionHandle) ShaderStages {
+	if int(fn) < v.validatedFunctions {
+		return v.functionStages[fn]
+	}
+	return allStages
 }
 
 // validateEntryPoints checks all entry points.
@@ -857,6 +1202,7 @@ func (v *validator) validateEntryPoints() {
 			}
 		}
 
+		v.checkEntryPointCapabilities(&v.module.EntryPoints[i])
 		v.validateVaryings(&v.module.EntryPoints[i])
 
 		// The body is validated like any function's (Rust validates entry
@@ -866,8 +1212,12 @@ func (v *validator) validateEntryPoints() {
 			functionName:   ep.Name,
 			flow:           abilityReturn,
 			expressionUsed: make(map[ir.ExpressionHandle]bool),
+			scopeList:      v.context.scopeList,
 		}
 		v.validateFunction(fn)
+		if v.context.stages&stageBit(ep.Stage) == 0 {
+			v.entryPointError(&v.module.EntryPoints[i], "Uses operations forbidden at this stage")
+		}
 	}
 }
 
@@ -902,6 +1252,12 @@ func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeH
 		}
 		return
 	}
+	if b, ok := (*binding).(ir.BuiltinBinding); ok {
+		if c := builtinCapability(b.Builtin); c != 0 && !v.capabilities.Contains(c) {
+			v.addError(fmt.Sprintf("entry point %q: %s: Capability %s is not supported", ep.Name, where, c.rustDebug()))
+		}
+		return
+	}
 	loc, ok := (*binding).(ir.LocationBinding)
 	if !ok {
 		return
@@ -918,10 +1274,16 @@ func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle,
 	if !v.isValidTypeHandle(ty) {
 		return ""
 	}
+	if loc.PerPrimitive && !v.capabilities.Contains(CapMeshShader) {
+		return "Capability " + CapMeshShader.rustDebug() + " is not supported"
+	}
 	perVertex := loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex
 	if perVertex {
 		if stage != ir.StageFragment {
 			return "Interpolation PerVertex is only valid for stage Fragment"
+		}
+		if !v.capabilities.Contains(CapPerVertex) {
+			return "Capability " + CapPerVertex.rustDebug() + " is not supported"
 		}
 		if loc.Sampling != nil && *loc.Sampling != ir.SamplingCenter {
 			return "Per vertex can only have Center sampling or no sampling modifier"
