@@ -313,26 +313,34 @@ func TestBuiltinOutputAttribute(t *testing.T) {
 }
 
 func TestResolveInterpolationString(t *testing.T) {
+	loc := func(i ir.Interpolation, s *ir.Sampling) ir.LocationBinding {
+		return ir.LocationBinding{Interpolation: &i, Sampling: s}
+	}
+	samp := func(s ir.Sampling) *ir.Sampling { return &s }
 	tests := []struct {
-		name   string
-		interp *ir.Interpolation
-		want   string
+		name string
+		loc  ir.LocationBinding
+		want string
 	}{
-		{"nil_default", nil, "center_perspective"},
-		{"flat", &ir.Interpolation{Kind: ir.InterpolationFlat}, "flat"},
-		{"linear_center", &ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingCenter}, "center_no_perspective"},
-		{"linear_centroid", &ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingCentroid}, "centroid_no_perspective"},
-		{"linear_sample", &ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingSample}, "sample_no_perspective"},
-		{"perspective_center", &ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingCenter}, "center_perspective"},
-		{"perspective_centroid", &ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingCentroid}, "centroid_perspective"},
-		{"perspective_sample", &ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingSample}, "sample_perspective"},
+		{"nil_default", ir.LocationBinding{}, "center_perspective"},
+		{"flat", loc(ir.InterpolationFlat, nil), "flat"},
+		{"flat_first", loc(ir.InterpolationFlat, samp(ir.SamplingFirst)), "flat"},
+		{"flat_either", loc(ir.InterpolationFlat, samp(ir.SamplingEither)), "flat"},
+		{"linear_none", loc(ir.InterpolationLinear, nil), "center_no_perspective"},
+		{"linear_center", loc(ir.InterpolationLinear, samp(ir.SamplingCenter)), "center_no_perspective"},
+		{"linear_centroid", loc(ir.InterpolationLinear, samp(ir.SamplingCentroid)), "centroid_no_perspective"},
+		{"linear_sample", loc(ir.InterpolationLinear, samp(ir.SamplingSample)), "sample_no_perspective"},
+		{"perspective_center", loc(ir.InterpolationPerspective, samp(ir.SamplingCenter)), "center_perspective"},
+		{"perspective_centroid", loc(ir.InterpolationPerspective, samp(ir.SamplingCentroid)), "centroid_perspective"},
+		{"perspective_sample", loc(ir.InterpolationPerspective, samp(ir.SamplingSample)), "sample_perspective"},
+		{"per_primitive", ir.LocationBinding{PerPrimitive: true}, "flat"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveInterpolationString(tt.interp)
+			got := resolveInterpolationString(tt.loc)
 			if got != tt.want {
-				t.Errorf("resolveInterpolationString(%+v) = %q, want %q", tt.interp, got, tt.want)
+				t.Errorf("resolveInterpolationString(%+v) = %q, want %q", tt.loc, got, tt.want)
 			}
 		})
 	}

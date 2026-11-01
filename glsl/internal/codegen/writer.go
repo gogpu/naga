@@ -1590,6 +1590,90 @@ func (w *Writer) writeVaryingDeclarations() {
 	}
 }
 
+// glslInterpolation is Rust naga's glsl_interpolation (back/glsl/conv.rs).
+// Per-vertex inputs have no GLSL qualifier (Rust: unreachable);
+// checkVaryingInterpolation refuses them.
+func glslInterpolation(i ir.Interpolation) string {
+	switch i {
+	case ir.InterpolationLinear:
+		return "noperspective"
+	case ir.InterpolationFlat:
+		return "flat"
+	default:
+		return "smooth"
+	}
+}
+
+// glslSampling is Rust naga's glsl_sampling: the auxiliary qualifier of a
+// sampling, "" for center and either; first is refused by
+// checkVaryingInterpolation (FirstSamplingNotSupported).
+func glslSampling(s ir.Sampling) string {
+	switch s {
+	case ir.SamplingCentroid:
+		return "centroid"
+	case ir.SamplingSample:
+		return "sample"
+	default:
+		return ""
+	}
+}
+
+// checkVaryingInterpolation refuses what GLSL cannot declare on the entry
+// point's interpolated varyings (vertex outputs, fragment inputs): first
+// sampling (Rust's FirstSamplingNotSupported) and per_vertex interpolation
+// (Rust: unreachable in glsl_interpolation). A per-primitive location, which
+// only mesh shading has, is refused in any direction.
+func checkVaryingInterpolation(module *ir.Module, ep *ir.EntryPoint) error {
+	check := func(binding *ir.Binding, isOutput bool) error {
+		if binding == nil {
+			return nil
+		}
+		loc, ok := (*binding).(ir.LocationBinding)
+		if !ok {
+			return nil
+		}
+		if loc.PerPrimitive {
+			return unsupported.Errorf("glsl: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
+		}
+		interpolated := (ep.Stage == ir.StageVertex && isOutput) || (ep.Stage == ir.StageFragment && !isOutput)
+		if !interpolated {
+			return nil
+		}
+		if loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex {
+			return unsupported.Errorf("glsl: entry point %q: location %d: per_vertex interpolation is not supported", ep.Name, loc.Location)
+		}
+		if loc.Sampling != nil && *loc.Sampling == ir.SamplingFirst {
+			return unsupported.Errorf("glsl: entry point %q: location %d: `First` sampling is unsupported", ep.Name, loc.Location)
+		}
+		return nil
+	}
+	walk := func(binding *ir.Binding, ty ir.TypeHandle, isOutput bool) error {
+		if binding != nil {
+			return check(binding, isOutput)
+		}
+		if int(ty) < len(module.Types) {
+			if st, ok := module.Types[ty].Inner.(ir.StructType); ok {
+				for i := range st.Members {
+					if err := check(st.Members[i].Binding, isOutput); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}
+	for i := range ep.Function.Arguments {
+		arg := &ep.Function.Arguments[i]
+		if err := walk(arg.Binding, arg.Type, false); err != nil {
+			return err
+		}
+	}
+	if res := ep.Function.Result; res != nil {
+		return walk(res.Binding, res.Type, true)
+	}
+	return nil
+}
+
 // writeVarying writes a single varying (in/out) declaration.
 // For struct types, expands into individual member declarations.
 func (w *Writer) writeVarying(binding *ir.Binding, typeHandle ir.TypeHandle, stage ir.ShaderStage, isOutput bool) {
@@ -1663,26 +1747,19 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 	// Rust naga: interpolation only for vertex output and fragment input
 	emitInterp := (stage == ir.StageVertex && isOutput) || (stage == ir.StageFragment && !isOutput)
 
+	// Rust naga's write_varying: the interpolation qualifier, then the
+	// sampling one, each only when the binding has it (glsl_interpolation,
+	// glsl_sampling in back/glsl/conv.rs). checkVaryingInterpolation refused
+	// per_vertex and first sampling before writing.
 	interpQual := ""
 	if emitInterp {
 		if loc.Interpolation != nil {
-			switch loc.Interpolation.Kind {
-			case ir.InterpolationFlat:
-				interpQual = "flat "
-			case ir.InterpolationLinear:
-				interpQual = "noperspective "
-			case ir.InterpolationPerspective:
-				interpQual = "smooth "
+			interpQual = glslInterpolation(*loc.Interpolation) + " "
+		}
+		if loc.Sampling != nil {
+			if q := glslSampling(*loc.Sampling); q != "" {
+				interpQual += q + " "
 			}
-			// Add sampling qualifier
-			switch loc.Interpolation.Sampling {
-			case ir.SamplingCentroid:
-				interpQual += "centroid "
-			case ir.SamplingSample:
-				interpQual += "sample "
-			}
-		} else {
-			interpQual = "smooth "
 		}
 	}
 

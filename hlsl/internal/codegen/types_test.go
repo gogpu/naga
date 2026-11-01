@@ -731,7 +731,7 @@ func TestGetInterpolationModifier(t *testing.T) {
 			"flat interpolation",
 			ir.LocationBinding{
 				Location:      0,
-				Interpolation: &ir.Interpolation{Kind: ir.InterpolationFlat, Sampling: ir.SamplingCenter},
+				Interpolation: ptrTo(ir.InterpolationFlat), Sampling: ptrTo(ir.SamplingCenter),
 			},
 			"nointerpolation",
 		},
@@ -739,7 +739,7 @@ func TestGetInterpolationModifier(t *testing.T) {
 			"linear noperspective",
 			ir.LocationBinding{
 				Location:      0,
-				Interpolation: &ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingCenter},
+				Interpolation: ptrTo(ir.InterpolationLinear), Sampling: ptrTo(ir.SamplingCenter),
 			},
 			"noperspective",
 		},
@@ -747,7 +747,7 @@ func TestGetInterpolationModifier(t *testing.T) {
 			"centroid sampling",
 			ir.LocationBinding{
 				Location:      0,
-				Interpolation: &ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingCentroid},
+				Interpolation: ptrTo(ir.InterpolationPerspective), Sampling: ptrTo(ir.SamplingCentroid),
 			},
 			"centroid",
 		},
@@ -755,7 +755,7 @@ func TestGetInterpolationModifier(t *testing.T) {
 			"sample sampling",
 			ir.LocationBinding{
 				Location:      0,
-				Interpolation: &ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingSample},
+				Interpolation: ptrTo(ir.InterpolationPerspective), Sampling: ptrTo(ir.SamplingSample),
 			},
 			"sample",
 		},
@@ -763,7 +763,7 @@ func TestGetInterpolationModifier(t *testing.T) {
 			"flat with centroid",
 			ir.LocationBinding{
 				Location:      0,
-				Interpolation: &ir.Interpolation{Kind: ir.InterpolationFlat, Sampling: ir.SamplingCentroid},
+				Interpolation: ptrTo(ir.InterpolationFlat), Sampling: ptrTo(ir.SamplingCentroid),
 			},
 			"nointerpolation centroid",
 		},

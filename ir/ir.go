@@ -721,40 +721,106 @@ const (
 	BuiltinBarycentricNoPerspective
 )
 
-// LocationBinding represents a location binding.
+// LocationBinding is a user-defined input or output at a @location: Rust
+// naga's Binding::Location.
+//
+// The WGSL frontend fills Interpolation and Sampling from
+// @interpolate(kind[, sampling]) and gives a float binding without the
+// attribute Perspective and Center (Rust's apply_default_interpolation). An
+// integer binding keeps no interpolation: on a vertex output or a fragment
+// input it must be written @interpolate(flat), which Validate checks.
 type LocationBinding struct {
-	Location      uint32
+	Location uint32
+	// Interpolation is Rust's interpolation: Option<Interpolation>; nil is
+	// None.
 	Interpolation *Interpolation
+	// Sampling is Rust's sampling: Option<Sampling>; nil is None, as in
+	// @interpolate(flat) or @interpolate(linear).
+	Sampling *Sampling
 	// BlendSrc is the dual-source blending index (@blend_src attribute).
 	// Nil when not using dual-source blending.
 	BlendSrc *uint32
+	// PerPrimitive is Rust's per_primitive (@per_primitive, mesh shaders):
+	// the value is per primitive, not interpolated. It is set on a mesh
+	// shader's primitive outputs and the fragment inputs that read them.
+	PerPrimitive bool
 }
 
 func (LocationBinding) binding() {}
 
-// Interpolation represents interpolation settings.
-type Interpolation struct {
-	Kind     InterpolationKind
-	Sampling InterpolationSampling
+// Interpolation is how a value is interpolated across a primitive: Rust
+// naga's Interpolation, the first word of WGSL's @interpolate.
+type Interpolation uint8
+
+const (
+	// InterpolationPerspective is perspective-correct interpolation (WGSL
+	// perspective, GLSL smooth); the default for floats.
+	InterpolationPerspective Interpolation = iota
+	// InterpolationLinear is linear, non-perspective-correct interpolation
+	// (WGSL linear, GLSL noperspective).
+	InterpolationLinear
+	// InterpolationFlat is no interpolation (WGSL flat): the value of one
+	// vertex, chosen by the sampling.
+	InterpolationFlat
+	// InterpolationPerVertex is a fragment input holding the values of the
+	// primitive's three vertices, an array<T, 3> (WGSL per_vertex, which
+	// needs `enable wgpu_per_vertex`).
+	InterpolationPerVertex
+)
+
+// String returns Rust's name of the value.
+func (i Interpolation) String() string {
+	switch i {
+	case InterpolationPerspective:
+		return "Perspective"
+	case InterpolationLinear:
+		return "Linear"
+	case InterpolationFlat:
+		return "Flat"
+	case InterpolationPerVertex:
+		return "PerVertex"
+	}
+	return "Interpolation(" + strconv.Itoa(int(i)) + ")"
 }
 
-// InterpolationKind represents interpolation kinds.
-type InterpolationKind uint8
+// Sampling is where in the pixel a value is interpolated, or which vertex a
+// flat value comes from: Rust naga's Sampling, the second word of WGSL's
+// @interpolate.
+type Sampling uint8
 
 const (
-	InterpolationFlat InterpolationKind = iota
-	InterpolationLinear
-	InterpolationPerspective
-)
-
-// InterpolationSampling represents interpolation sampling.
-type InterpolationSampling uint8
-
-const (
-	SamplingCenter InterpolationSampling = iota
+	// SamplingCenter interpolates at the pixel center (WGSL center).
+	SamplingCenter Sampling = iota
+	// SamplingCentroid interpolates at a point inside the primitive's
+	// covered samples (WGSL centroid).
 	SamplingCentroid
+	// SamplingSample interpolates at each sample, running the fragment
+	// shader per sample (WGSL sample).
 	SamplingSample
+	// SamplingFirst takes a flat value from the primitive's first vertex
+	// (WGSL first).
+	SamplingFirst
+	// SamplingEither takes a flat value from the first or the last vertex,
+	// as the implementation chooses (WGSL either).
+	SamplingEither
 )
+
+// String returns Rust's name of the value.
+func (s Sampling) String() string {
+	switch s {
+	case SamplingCenter:
+		return "Center"
+	case SamplingCentroid:
+		return "Centroid"
+	case SamplingSample:
+		return "Sample"
+	case SamplingFirst:
+		return "First"
+	case SamplingEither:
+		return "Either"
+	}
+	return "Sampling(" + strconv.Itoa(int(s)) + ")"
+}
 
 // TypeResolution represents the resolved type of an expression.
 // It can either reference a type in the module's type arena (Handle)

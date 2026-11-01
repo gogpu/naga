@@ -14,11 +14,11 @@ struct VertexOutput {
 struct PrimitiveOutput {
     uint3 indices_ : SV_Position;
     bool cull : SV_Position;
-    float4 colorMask : LOC1;
+    float4 colorMask : LOC1 : primitive;
 };
 
 struct PrimitiveInput {
-    float4 colorMask : LOC1;
+    float4 colorMask : LOC1 : primitive;
 };
 
 struct MeshOutput {
@@ -34,7 +34,7 @@ groupshared MeshOutput mesh_output;
 
 struct FragmentInput_fs_main {
     float4 color : LOC0;
-    float4 colorMask : LOC1;
+    float4 colorMask : LOC1 : primitive;
     float4 position : SV_Position;
 };
 

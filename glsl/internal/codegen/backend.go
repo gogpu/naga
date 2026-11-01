@@ -301,6 +301,11 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 
 	// Create writer
 	w := newWriter(module, &options)
+	if ep := w.getSelectedEntryPoint(); ep != nil {
+		if err := checkVaryingInterpolation(module, ep); err != nil {
+			return "", TranslationInfo{}, err
+		}
+	}
 
 	// Generate GLSL code
 	if err := w.writeModule(); err != nil {

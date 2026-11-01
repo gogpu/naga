@@ -191,6 +191,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variable or a storage image, rejects a write-only storage variable (Rust's "Storage address space doesn't support
   write-only access") and an access on any other space; hand-built IR states the access. Migration: `StorageRead` →
   `StorageAccessLoad`, `StorageReadWrite` → `StorageAccessLoad | StorageAccessStore`.
+- **Breaking: interpolation and sampling are separate, as Rust** (ADR-010 E4). `ir.LocationBinding` has
+  `Interpolation *ir.Interpolation` and `Sampling *ir.Sampling` (nil = none, Rust's `Option`) and `PerPrimitive bool`;
+  `ir.Interpolation` is `Perspective, Linear, Flat, PerVertex` and `ir.Sampling` is `Center, Centroid, Sample, First,
+  Either`, in Rust's order. `ir.InterpolationKind`, `ir.InterpolationSampling` and the old `Interpolation{Kind,
+  Sampling}` struct are removed. WGSL `@interpolate(flat, first | either)`, `@interpolate(per_vertex)` (with `enable
+  wgpu_per_vertex`) and `@per_primitive` (with `enable wgpu_mesh_shader`) are now represented and written as Rust
+  writes them:
+  - SPIR-V `PerVertexKHR` with `FragmentBarycentricKHR`;
+  - MSL `vertex_value<T>` (MSL 4.0);
+  - HLSL `nointerpolation` + `GetAttributeAtVertex` (shader model 6.1) and `: primitive`.
+
+  GLSL refuses `first` sampling (Rust's `FirstSamplingNotSupported`), `per_vertex` and `per_primitive`. DXIL refuses
+  `per_vertex` and `per_primitive` (P2-DXIL-074), and SPIR-V and MSL refuse `per_primitive` (no mesh shaders yet).
+  **Behaviour:** an integer `@location` input of a fragment shader or output of a vertex shader must be
+  `@interpolate(flat)`, as WGSL requires; it was made flat silently, and `ir.Validate` now rejects it with Rust's
+  message, as it rejects the other interpolation/sampling combinations Rust's validator rejects. Output for shaders
+  without `@interpolate` is unchanged.
 
 ### Added
 

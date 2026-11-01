@@ -406,13 +406,11 @@ func (w *Writer) checkVaryingBinding(binding *ir.Binding, typeHandle ir.TypeHand
 	}
 	switch b := (*binding).(type) {
 	case ir.LocationBinding:
-		if b.Interpolation != nil {
-			if b.Interpolation.Kind == ir.InterpolationLinear {
-				w.features.request(FeatureNoPerspective)
-			}
-			if b.Interpolation.Sampling == ir.SamplingSample {
-				w.features.request(FeatureSampleQualifier)
-			}
+		if b.Interpolation != nil && *b.Interpolation == ir.InterpolationLinear {
+			w.features.request(FeatureNoPerspective)
+		}
+		if b.Sampling != nil && *b.Sampling == ir.SamplingSample {
+			w.features.request(FeatureSampleQualifier)
 		}
 		if b.BlendSrc != nil {
 			w.features.request(FeatureDualSourceBlending)

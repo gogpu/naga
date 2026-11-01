@@ -62,9 +62,12 @@ var dxilDxcSkipShaders = map[string]string{
 	// Backend gaps:
 	"ray-query":                  "ray-query expressions not implemented",
 	"ray-query-no-init-tracking": "ray-query expressions not implemented",
-	"f16":                        "f16 multi-feature blocking",
-	"globals":                    "complex globals access patterns",
-	"arrays":                     "array record format gaps",
+	// fs_main reads @per_primitive inputs, which DXIL refuses (P2-DXIL-074);
+	// its golden came from HLSL without the `: primitive` qualifier.
+	"mesh-shader": "per_primitive inputs refused (P2-DXIL-074)",
+	"f16":         "f16 multi-feature blocking",
+	"globals":     "complex globals access patterns",
+	"arrays":      "array record format gaps",
 }
 
 // TestDxilDxcGolden is the parity test. For each shader it loads the saved

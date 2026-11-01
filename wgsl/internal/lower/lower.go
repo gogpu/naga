@@ -77,6 +77,10 @@ type Lowerer struct {
 	// of assignment statements (e.g., v.xz = vec2(1,2)).
 	enableSwizzleAssignment bool
 
+	// enables holds the shader's enable extensions by name, for the
+	// attributes that need one (Rust naga's EnableExtensions::require).
+	enables map[string]bool
+
 	// emitStateStart tracks the start of the current pending emit range.
 	// Set by emitStart(), cleared by emitFinish(). Used by lowerCall()
 	// to flush pending argument sub-expressions before the StmtCall,
@@ -192,6 +196,10 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 			if ext == "swizzle_assignment" {
 				l.enableSwizzleAssignment = true
 			}
+			if l.enables == nil {
+				l.enables = make(map[string]bool, 2)
+			}
+			l.enables[ext] = true
 		}
 	}
 
@@ -5361,13 +5369,24 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 				}
 			}
 		case "interpolate":
-			interp := l.parseInterpolateAttr(attr)
+			interp, sampling := l.parseInterpolateAttr(attr)
 			if interp != nil {
 				if locBinding == nil {
 					locBinding = &ir.LocationBinding{}
 				}
 				locBinding.Interpolation = interp
+				locBinding.Sampling = sampling
 			}
+		case "per_primitive":
+			// Rust naga's BindingParser: per_primitive needs
+			// `enable wgpu_mesh_shader`.
+			if !l.requireEnable("wgpu_mesh_shader", attr.Span) {
+				continue
+			}
+			if locBinding == nil {
+				locBinding = &ir.LocationBinding{}
+			}
+			locBinding.PerPrimitive = true
 		}
 	}
 
@@ -5394,115 +5413,109 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 	return nil
 }
 
-// parseInterpolateAttr parses @interpolate(kind[, sampling]) into an Interpolation.
-func (l *Lowerer) parseInterpolateAttr(attr *parser.Attribute) *ir.Interpolation {
+// requireEnable reports whether the shader enables ext; if not, it records
+// Rust naga's EnableExtensionNotEnabled at span.
+func (l *Lowerer) requireEnable(ext string, span parser.Span) bool {
+	if l.enables[ext] {
+		return true
+	}
+	l.addError(fmt.Sprintf("the `%s` enable extension is not enabled", ext), span)
+	return false
+}
+
+// parseInterpolateAttr parses @interpolate(kind[, sampling]) into Rust
+// naga's two options (front/wgsl/parse/conv.rs map_interpolation and
+// map_sampling): an unknown word is Rust's UnknownAttribute, per_vertex
+// needs `enable wgpu_per_vertex`, and a missing sampling is nil.
+func (l *Lowerer) parseInterpolateAttr(attr *parser.Attribute) (*ir.Interpolation, *ir.Sampling) {
 	if len(attr.Args) == 0 {
-		return nil
+		return nil, nil
 	}
 	kindIdent, ok := attr.Args[0].(*parser.Ident)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	var kind ir.InterpolationKind
+	var kind ir.Interpolation
 	switch kindIdent.Name {
-	case "flat":
-		kind = ir.InterpolationFlat
 	case "linear":
 		kind = ir.InterpolationLinear
+	case "flat":
+		kind = ir.InterpolationFlat
 	case "perspective":
 		kind = ir.InterpolationPerspective
-	default:
-		return nil
-	}
-
-	sampling := ir.SamplingCenter // default
-	if len(attr.Args) >= 2 {
-		if sampIdent, ok := attr.Args[1].(*parser.Ident); ok {
-			switch sampIdent.Name {
-			case "center":
-				sampling = ir.SamplingCenter
-			case "centroid":
-				sampling = ir.SamplingCentroid
-			case "sample":
-				sampling = ir.SamplingSample
-			}
+	case "per_vertex":
+		if !l.requireEnable("wgpu_per_vertex", kindIdent.Span) {
+			return nil, nil
 		}
+		kind = ir.InterpolationPerVertex
+	default:
+		l.addError(fmt.Sprintf("unknown attribute: `%s`", kindIdent.Name), kindIdent.Span)
+		return nil, nil
 	}
 
-	return &ir.Interpolation{
-		Kind:     kind,
-		Sampling: sampling,
+	if len(attr.Args) < 2 {
+		return &kind, nil
 	}
+	sampIdent, ok := attr.Args[1].(*parser.Ident)
+	if !ok {
+		return &kind, nil
+	}
+	var sampling ir.Sampling
+	switch sampIdent.Name {
+	case "center":
+		sampling = ir.SamplingCenter
+	case "centroid":
+		sampling = ir.SamplingCentroid
+	case "sample":
+		sampling = ir.SamplingSample
+	case "first":
+		sampling = ir.SamplingFirst
+	case "either":
+		sampling = ir.SamplingEither
+	default:
+		l.addError(fmt.Sprintf("unknown attribute: `%s`", sampIdent.Name), sampIdent.Span)
+		return &kind, nil
+	}
+	return &kind, &sampling
 }
 
-// applyDefaultInterpolation applies the default interpolation for a binding
-// based on the type, matching Rust naga's Binding::apply_default_interpolation.
-//
-// For Location bindings with no explicit interpolation:
-// - Float scalar/vector/matrix -> Perspective + Center
-// - Integer/bool scalar/vector -> Flat (no sampling)
-//
-// This ensures that integer Location bindings get the Flat decoration in SPIR-V
-// (per Vulkan VUID-StandaloneSpirv-Flat-04744) and that the IR matches Rust naga's
-// expected interpolation values for all I/O bindings.
-// applyDefaultInterpolation modifies a *ir.Binding in place if it is a LocationBinding
-// without explicit interpolation. Returns the (possibly modified) binding.
+// applyDefaultInterpolation is Rust naga's
+// Binding::apply_default_interpolation (front/interpolator.rs): a location
+// binding without interpolation whose type's scalar kind is float gets
+// Perspective and Center. Any other binding is returned unchanged; an
+// integer one keeps no interpolation, and Validate requires an explicit
+// @interpolate(flat) where it is interpolated (upstream b051a87e).
 func (l *Lowerer) applyDefaultInterpolation(binding *ir.Binding, typeHandle ir.TypeHandle) *ir.Binding {
 	if binding == nil {
 		return nil
 	}
 	loc, ok := (*binding).(ir.LocationBinding)
-	if !ok {
-		return binding
-	}
-	// Only apply defaults if interpolation is not already set
-	if loc.Interpolation != nil {
+	if !ok || loc.Interpolation != nil {
 		return binding
 	}
 	if int(typeHandle) >= len(l.module.Types) {
 		return binding
 	}
-	inner := l.module.Types[typeHandle].Inner
-	var interp *ir.Interpolation
-	switch t := inner.(type) {
+	var kind ir.ScalarKind
+	switch t := l.module.Types[typeHandle].Inner.(type) {
 	case ir.ScalarType:
-		switch t.Kind {
-		case ir.ScalarFloat:
-			interp = &ir.Interpolation{
-				Kind:     ir.InterpolationPerspective,
-				Sampling: ir.SamplingCenter,
-			}
-		case ir.ScalarUint, ir.ScalarSint, ir.ScalarBool:
-			interp = &ir.Interpolation{
-				Kind: ir.InterpolationFlat,
-			}
-		}
+		kind = t.Kind
 	case ir.VectorType:
-		switch t.Scalar.Kind {
-		case ir.ScalarFloat:
-			interp = &ir.Interpolation{
-				Kind:     ir.InterpolationPerspective,
-				Sampling: ir.SamplingCenter,
-			}
-		case ir.ScalarUint, ir.ScalarSint, ir.ScalarBool:
-			interp = &ir.Interpolation{
-				Kind: ir.InterpolationFlat,
-			}
-		}
+		kind = t.Scalar.Kind
 	case ir.MatrixType:
-		// Matrices are always float, so Perspective + Center
-		interp = &ir.Interpolation{
-			Kind:     ir.InterpolationPerspective,
-			Sampling: ir.SamplingCenter,
-		}
+		kind = t.Scalar.Kind
+	default:
+		return binding
 	}
-	if interp != nil {
-		loc.Interpolation = interp
-		var b ir.Binding = loc
-		return &b
+	if kind != ir.ScalarFloat {
+		return binding
 	}
-	return binding
+	interp, sampling := ir.InterpolationPerspective, ir.SamplingCenter
+	loc.Interpolation = &interp
+	loc.Sampling = &sampling
+	var b ir.Binding = loc
+	return &b
 }
 
 func (l *Lowerer) entryPointStage(attrs []parser.Attribute) *ir.ShaderStage {

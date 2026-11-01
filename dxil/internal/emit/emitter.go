@@ -2549,20 +2549,24 @@ func describeIRType(irMod *ir.Module, th ir.TypeHandle) (int64, int64) {
 // Mirrors dxil.go:psvInterpolationMode — direction-aware: only the
 // CARRIER directions (vertex out, fragment in) emit a non-Undefined
 // interp value; vertex in, fragment out, compute, etc. emit 0.
-func interpolationModeForBinding(interp *ir.Interpolation, isFragment, isOutput bool) uint8 {
+func interpolationModeForBinding(loc ir.LocationBinding, isFragment, isOutput bool) uint8 {
 	isVertex := !isFragment
 	carries := (isVertex && isOutput) || (isFragment && !isOutput)
 	if !carries {
 		return 0
 	}
-	if interp == nil {
+	if loc.Interpolation == nil {
 		return 2 // Linear (perspective) — default for both carriers
 	}
-	switch interp.Kind {
+	var sampling ir.Sampling // None is center
+	if loc.Sampling != nil {
+		sampling = *loc.Sampling
+	}
+	switch *loc.Interpolation {
 	case ir.InterpolationFlat:
-		return 1 // Constant
+		return 1 // Constant, whatever the sampling (nointerpolation)
 	case ir.InterpolationLinear:
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCentroid:
 			return 5
 		case ir.SamplingSample:
@@ -2571,7 +2575,7 @@ func interpolationModeForBinding(interp *ir.Interpolation, isFragment, isOutput 
 			return 4
 		}
 	case ir.InterpolationPerspective:
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCentroid:
 			return 3
 		case ir.SamplingSample:
@@ -2663,7 +2667,7 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 			// outputs with @interpolate(flat) get bitcode interp=0
 			// (Undefined) while PSV0 gets interp=1 (Constant), and
 			// dxil.dll rejects with "SigOutputElement mismatch".
-			info.interpMode = int64(interpolationModeForBinding(b.Interpolation, isFragment, isOutput))
+			info.interpMode = int64(interpolationModeForBinding(b, isFragment, isOutput))
 		}
 	default:
 		info.semName = dxilArbitrarySemantic
@@ -2763,10 +2767,10 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
 	interpFnIn := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
+		return d3d.SigPackInterp(interpolationModeForBinding(loc, isFragment, false))
 	}
 	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, true))
+		return d3d.SigPackInterp(interpolationModeForBinding(loc, isFragment, true))
 	}
 
 	// Inputs: flatten args + struct members into a single binding list.

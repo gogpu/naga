@@ -232,8 +232,9 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 
 // checkShaderModel refuses what Options.ShaderModel cannot express, as Rust
 // naga's ShaderModelTooLow (back/hlsl/writer.rs): a mesh or task entry point
-// below 6.5, and the view index (SV_ViewID) or barycentrics (SV_Barycentrics)
-// below 6.1, with a *backend.ShaderModelError.
+// below 6.5, and the view index (SV_ViewID), barycentrics (SV_Barycentrics)
+// or a per-vertex input (GetAttributeAtVertex) below 6.1, with a
+// *backend.ShaderModelError.
 func checkShaderModel(module *ir.Module, options *Options) error {
 	tooLow := func(feature string, required ShaderModel) error {
 		return fmt.Errorf("hlsl: %w", &backend.ShaderModelError{
@@ -255,6 +256,9 @@ func checkShaderModel(module *ir.Module, options *Options) error {
 		feature := func(b *ir.Binding) string {
 			if b == nil {
 				return ""
+			}
+			if isPerVertexBinding(b) {
+				return "per_vertex fragment inputs" // GetAttributeAtVertex
 			}
 			bi, ok := (*b).(ir.BuiltinBinding)
 			switch {

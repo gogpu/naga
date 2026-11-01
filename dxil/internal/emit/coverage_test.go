@@ -1439,24 +1439,34 @@ func TestDescribeIRType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestInterpolationModeForBinding(t *testing.T) {
+	loc := func(i ir.Interpolation, s *ir.Sampling) ir.LocationBinding {
+		return ir.LocationBinding{Interpolation: &i, Sampling: s}
+	}
+	samp := func(s ir.Sampling) *ir.Sampling { return &s }
+	// Modes are DXC's DXIL::InterpolationMode.
 	tests := []struct {
 		name       string
-		interp     *ir.Interpolation
+		loc        ir.LocationBinding
 		isFragment bool
 		isOutput   bool
+		want       uint8
 	}{
-		{"flat", &ir.Interpolation{Kind: ir.InterpolationFlat}, true, false},
-		{"perspective", &ir.Interpolation{Kind: ir.InterpolationPerspective}, true, false},
-		{"linear", &ir.Interpolation{Kind: ir.InterpolationLinear}, true, false},
-		{"nil_frag_input", nil, true, false},
-		{"nil_frag_output", nil, true, true},
-		{"nil_vert_output", nil, false, true},
+		{"flat", loc(ir.InterpolationFlat, nil), true, false, 1},
+		{"flat_first", loc(ir.InterpolationFlat, samp(ir.SamplingFirst)), true, false, 1},
+		{"flat_either", loc(ir.InterpolationFlat, samp(ir.SamplingEither)), false, true, 1},
+		{"perspective", loc(ir.InterpolationPerspective, nil), true, false, 2},
+		{"perspective_centroid", loc(ir.InterpolationPerspective, samp(ir.SamplingCentroid)), true, false, 3},
+		{"linear", loc(ir.InterpolationLinear, nil), true, false, 4},
+		{"linear_sample", loc(ir.InterpolationLinear, samp(ir.SamplingSample)), false, true, 7},
+		{"nil_frag_input", ir.LocationBinding{}, true, false, 2},
+		{"nil_frag_output", ir.LocationBinding{}, true, true, 0},
+		{"nil_vert_output", ir.LocationBinding{}, false, true, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := interpolationModeForBinding(tt.interp, tt.isFragment, tt.isOutput)
-			// Just verify it returns a valid value (uint8 range).
-			_ = got
+			if got := interpolationModeForBinding(tt.loc, tt.isFragment, tt.isOutput); got != tt.want {
+				t.Errorf("mode %d, want %d", got, tt.want)
+			}
 		})
 	}
 }

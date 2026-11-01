@@ -1541,11 +1541,9 @@ func TestWriteModifier(t *testing.T) {
 	interpKind := ir.InterpolationFlat
 	interpSampling := ir.SamplingCenter
 	locBinding := ir.Binding(ir.LocationBinding{
-		Location: 0,
-		Interpolation: &ir.Interpolation{
-			Kind:     interpKind,
-			Sampling: interpSampling,
-		},
+		Location:      0,
+		Interpolation: &interpKind,
+		Sampling:      &interpSampling,
 	})
 	w.writeModifier(&locBinding)
 	out = output(w)
