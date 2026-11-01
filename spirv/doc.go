@@ -12,26 +12,14 @@
 //
 // Compile translates naga IR modules to SPIR-V binary format:
 //
-//	binary, info, err := spirv.Compile(irModule, spirv.DefaultOptions())
+//	binary, info, err := spirv.Compile(irModule, spirv.Options{})
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
-// # Binary Writer
-//
-// The package also provides a low-level binary writer for constructing
-// SPIR-V modules programmatically using ModuleBuilder:
-//
-//	builder := spirv.NewModuleBuilder(spirv.Version1_3)
-//	builder.AddCapability(spirv.CapabilityShader)
-//	builder.SetMemoryModel(spirv.AddressingModelLogical, spirv.MemoryModelGLSL450)
-//
-//	// Add types
-//	floatType := builder.AddTypeFloat(32)
-//	vec4Type := builder.AddTypeVector(floatType, 4)
-//
-//	// Build binary
-//	binary := builder.Build()
+// The binary writer, opcodes and the other SPIR-V enumerations are internal,
+// as in Rust naga (back::spv); the public surface is Compile, its Options and
+// TranslationInfo, Version, Capability and the binding map types.
 //
 // # References
 //

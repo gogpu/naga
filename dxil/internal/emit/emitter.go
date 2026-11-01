@@ -415,7 +415,7 @@ const (
 )
 
 // BindingLocation identifies a resource in the source shader.
-// Mirror of dxil.BindingLocation kept in this internal package so that
+// Mirror of ir.ResourceBinding kept in this internal package so that
 // emit does not have to import the public dxil package (which would
 // create an import cycle since dxil imports emit).
 type BindingLocation struct {

@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
 )
@@ -28,7 +29,7 @@ func TestRefusalsAreErrUnsupported(t *testing.T) {
 		}},
 		{"msl built-in", func() error { _, _, err := msl.Compile(drawIndex, msl.Options{}); return err }},
 		{"glsl version (MissingFeaturesError)", func() error { _, _, err := glsl.Compile(drawIndex, glsl.Options{}); return err }},
-		{"hlsl built-in (*hlsl.Error)", func() error { _, _, err := hlsl.Compile(drawIndex, hlsl.Options{}); return err }},
+		{"hlsl built-in", func() error { _, _, err := hlsl.Compile(drawIndex, hlsl.Options{}); return err }},
 		{"hlsl shader model (ShaderModelError)", func() error { _, _, err := hlsl.Compile(bary, hlsl.Options{}); return err }},
 		{"dxil built-in", func() error { _, err := dxilBlob(drawIndex, dxil.Options{}); return err }},
 	} {
@@ -38,7 +39,7 @@ func TestRefusalsAreErrUnsupported(t *testing.T) {
 		}
 	}
 
-	partial := map[spirv.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
+	partial := map[ir.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
 	_, err := spirvBinary(bindingModule(t), spirv.Options{Version: spirv.Version1_3, BindingMap: partial})
 	if !errors.Is(err, backend.ErrMissingBinding) || errors.Is(err, backend.ErrUnsupported) {
 		t.Errorf("missing binding: error %v, want ErrMissingBinding and not ErrUnsupported", err)

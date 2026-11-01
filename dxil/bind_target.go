@@ -3,17 +3,7 @@
 
 package dxil
 
-// BindingLocation identifies a resource in the source shader.
-// It maps a WGSL @group/@binding pair (equivalently, a SPIR-V
-// DescriptorSet/Binding pair) to the corresponding DXIL register binding
-// via BindingMap.
-type BindingLocation struct {
-	// Group corresponds to WGSL @group or SPIR-V DescriptorSet.
-	Group uint32
-
-	// Binding corresponds to WGSL @binding or SPIR-V Binding.
-	Binding uint32
-}
+import "github.com/gogpu/naga/ir"
 
 // BindTarget specifies the DXIL register binding for a resource.
 // DXIL uses (space, register) just like HLSL — a resource declared at
@@ -81,7 +71,7 @@ type OffsetsBindTarget struct {
 // different register scheme than the raw WGSL binding numbers — notably
 // wgpu/hal/dx12, which assigns registers via monotonic per-class counters
 // (SRV=t0,t1,... / UAV=u0,u1,... / CBV=b0,b1,...).
-type BindingMap map[BindingLocation]BindTarget
+type BindingMap map[ir.ResourceBinding]BindTarget
 
 // SamplerHeapBindTargets specifies binding targets for the synthesized
 // sampler heap arrays (nagaSamplerHeap / nagaComparisonSamplerHeap).

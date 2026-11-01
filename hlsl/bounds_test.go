@@ -40,7 +40,7 @@ func TestBindingArrayRestrict(t *testing.T) {
 @fragment fn main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
     return textureLoad(textures[i], vec2<i32>(0), 0);
 }`
-	binding := hlsl.ResourceBinding{Group: 0, Binding: 0}
+	binding := ir.ResourceBinding{Group: 0, Binding: 0}
 
 	code, _, err := hlsl.Compile(lowerBoundsSource(t, sized), hlsl.Options{FakeMissingBindings: true})
 	if err != nil {
@@ -52,7 +52,7 @@ func TestBindingArrayRestrict(t *testing.T) {
 
 	size := uint32(16)
 	code, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), hlsl.Options{
-		BindingMap: map[hlsl.ResourceBinding]hlsl.BindTarget{binding: {BindingArraySize: &size}},
+		BindingMap: map[ir.ResourceBinding]hlsl.BindTarget{binding: {BindingArraySize: &size}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,13 +86,13 @@ struct U { values: array<vec4<f32>, 4> }
     var local = array<f32, 3>(1.0, 2.0, 3.0);
     return u.values[i] * local[i];
 }`
-	binding := hlsl.ResourceBinding{Group: 0, Binding: 0}
+	binding := ir.ResourceBinding{Group: 0, Binding: 0}
 	compile := func(index, buffer backend.BoundsCheckPolicy, restrictBinding bool) string {
 		t.Helper()
 		p := uncheckedPolicies()
 		p.Index, p.Buffer = index, buffer
 		code, _, err := hlsl.Compile(lowerBoundsSource(t, source), hlsl.Options{
-			BindingMap:          map[hlsl.ResourceBinding]hlsl.BindTarget{binding: {RestrictIndexing: restrictBinding}},
+			BindingMap:          map[ir.ResourceBinding]hlsl.BindTarget{binding: {RestrictIndexing: restrictBinding}},
 			BoundsCheckPolicies: p,
 		})
 		if err != nil {

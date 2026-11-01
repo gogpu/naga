@@ -345,11 +345,11 @@ func bindingModule(t *testing.T) *ir.Module {
 // keeps the resource at its WGSL group and binding. A nil map is the
 // documented identity mapping and never an error.
 func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
-	spirvWith := func(m map[spirv.ResourceBinding]spirv.BindingInfo, fake bool) error {
+	spirvWith := func(m map[ir.ResourceBinding]spirv.BindingInfo, fake bool) error {
 		_, err := spirvBinary(bindingModule(t), spirv.Options{Version: spirv.Version1_3, BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
-	partial := map[spirv.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
+	partial := map[ir.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
 	if err := spirvWith(partial, false); !errors.Is(err, backend.ErrMissingBinding) {
 		t.Errorf("spirv, partial map: err = %v, want backend.ErrMissingBinding", err)
 	}
@@ -379,11 +379,11 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 		t.Errorf("msl, nil map: %v", err)
 	}
 
-	glslWith := func(m map[glsl.BindingMapKey]uint8, fake bool) error {
+	glslWith := func(m map[ir.ResourceBinding]uint8, fake bool) error {
 		_, _, err := glsl.Compile(bindingModule(t), glsl.Options{LangVersion: glsl.Version430, BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
-	glslPartial := map[glsl.BindingMapKey]uint8{{Group: 0, Binding: 0}: 0}
+	glslPartial := map[ir.ResourceBinding]uint8{{Group: 0, Binding: 0}: 0}
 	if err := glslWith(glslPartial, false); !errors.Is(err, backend.ErrMissingBinding) {
 		t.Errorf("glsl, partial map: err = %v, want backend.ErrMissingBinding", err)
 	}
@@ -394,11 +394,11 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 		t.Errorf("glsl, nil map: %v", err)
 	}
 
-	hlslWith := func(m map[hlsl.ResourceBinding]hlsl.BindTarget, fake bool) error {
+	hlslWith := func(m map[ir.ResourceBinding]hlsl.BindTarget, fake bool) error {
 		_, _, err := hlsl.Compile(bindingModule(t), hlsl.Options{BindingMap: m, FakeMissingBindings: fake})
 		return err
 	}
-	hlslPartial := map[hlsl.ResourceBinding]hlsl.BindTarget{{Group: 0, Binding: 0}: {}}
+	hlslPartial := map[ir.ResourceBinding]hlsl.BindTarget{{Group: 0, Binding: 0}: {}}
 	if err := hlslWith(hlslPartial, false); !errors.Is(err, backend.ErrMissingBinding) {
 		t.Errorf("hlsl, partial map: err = %v, want backend.ErrMissingBinding", err)
 	}
