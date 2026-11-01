@@ -218,19 +218,7 @@ type extInstInfo struct {
 func compileSPIRV(t *testing.T, source string) []byte {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

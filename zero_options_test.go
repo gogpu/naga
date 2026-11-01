@@ -14,6 +14,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // zeroOptionsShader is a compute entry point that reads workgroup memory, so
@@ -28,11 +29,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 
 func zeroOptionsModule(t *testing.T) *ir.Module {
 	t.Helper()
-	ast, err := Parse(zeroOptionsShader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := LowerWithSource(ast, zeroOptionsShader)
+	module, _, err := wgsl.Parse(zeroOptionsShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,11 +161,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 
 func boundsModule(t *testing.T) *ir.Module {
 	t.Helper()
-	ast, err := Parse(boundsShader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := LowerWithSource(ast, boundsShader)
+	module, _, err := wgsl.Parse(boundsShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,11 +283,7 @@ fn main() {
 func TestZeroOptionsBoundLoops(t *testing.T) {
 	module := func(t *testing.T) *ir.Module {
 		t.Helper()
-		ast, err := Parse(loopShader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		m, err := LowerWithSource(ast, loopShader)
+		m, _, err := wgsl.Parse(loopShader, wgsl.ParseOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,11 +332,7 @@ fn main() { a[0] = b[1]; }`
 
 func bindingModule(t *testing.T) *ir.Module {
 	t.Helper()
-	ast, err := Parse(bindingShader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := LowerWithSource(ast, bindingShader)
+	m, _, err := wgsl.Parse(bindingShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,12 +441,11 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	const subgroups = `
 @group(0) @binding(0) var<storage, read_write> out: u32;
 @compute @workgroup_size(64) fn main(@builtin(subgroup_size) n: u32) { out = subgroupAdd(n); }`
-	ast, err := Parse(subgroups)
+	m, _, err := wgsl.Parse(subgroups, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := LowerWithCapabilities(ast, subgroups, ir.CapAll)
-	if err != nil {
+	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := spirvBinary(m, spirv.Options{}); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
@@ -556,7 +540,7 @@ func TestZeroCompileOptions(t *testing.T) {
 	if _, err := Compile(f64Shader); err == nil || !strings.Contains(err.Error(), "validation") {
 		t.Errorf("zero options, f64: err = %v, want a validation error", err)
 	}
-	if _, err := CompileWithOptions(f64Shader, CompileOptions{Capabilities: CapFloat64}); err != nil {
+	if _, err := CompileWithOptions(f64Shader, CompileOptions{Capabilities: ir.CapFloat64}); err != nil {
 		t.Errorf("CapFloat64: %v", err)
 	}
 	if _, err := CompileWithOptions(f64Shader, CompileOptions{SkipValidation: true}); err != nil {

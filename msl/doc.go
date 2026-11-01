@@ -75,4 +75,9 @@
 //   - naga_modf: modf with WGSL-compatible result struct
 //   - naga_frexp: frexp with WGSL-compatible result struct
 //   - _mslBufferSizes: Struct for runtime-sized array buffer sizes
+//
+// # Concurrency
+//
+// Every exported function is safe for concurrent use. Compile never modifies
+// its input module, so one module can be compiled for several targets at once.
 package msl

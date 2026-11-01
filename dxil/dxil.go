@@ -17,6 +17,12 @@
 //   - Mesa's src/microsoft/compiler/ (C, MIT license)
 //   - LLVM 3.7 Bitcode Format: https://releases.llvm.org/3.7.1/docs/BitCodeFormat.html
 //   - INF-0004 Validator Hashing: https://github.com/microsoft/hlsl-specs
+//
+// # Concurrency
+//
+// Every exported function is safe for concurrent use. Compile never modifies
+// its input module (it works on a copy), so one module can be compiled for
+// several targets at once.
 package dxil
 
 import (
@@ -35,6 +41,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -285,7 +292,7 @@ func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 		default:
 			return nil
 		}
-		return fmt.Errorf("dxil: entry point %q: built-in %s is not supported", ep.Name, name)
+		return unsupported.Errorf("dxil: entry point %q: built-in %s is not supported", ep.Name, name)
 	}
 	var bindings []*ir.Binding
 	for _, arg := range ep.Function.Arguments {
@@ -372,12 +379,12 @@ func checkInput(irModule *ir.Module, opts Options) error {
 		return fmt.Errorf("dxil: module has no entry points")
 	}
 	if m := opts.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
-		return fmt.Errorf("dxil: ZeroInitializeWorkgroupMemory %v is not supported", m)
+		return unsupported.Errorf("dxil: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 	p := opts.BoundsCheckPolicies
 	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
 		if policy > backend.BoundsCheckUnchecked {
-			return fmt.Errorf("dxil: BoundsCheckPolicies: %v is not supported", policy)
+			return unsupported.Errorf("dxil: BoundsCheckPolicies: %v is not supported", policy)
 		}
 	}
 	for _, f := range []struct {
@@ -385,7 +392,7 @@ func checkInput(irModule *ir.Module, opts Options) error {
 		policy backend.BoundsCheckPolicy
 	}{{"Index", p.Index}, {"Buffer", p.Buffer}, {"BindingArray", p.BindingArray}} {
 		if f.policy == backend.BoundsCheckReadZeroSkipWrite {
-			return fmt.Errorf("dxil: BoundsCheckPolicies.%s: ReadZeroSkipWrite is not supported; use Restrict or Unchecked", f.name)
+			return unsupported.Errorf("dxil: BoundsCheckPolicies.%s: ReadZeroSkipWrite is not supported; use Restrict or Unchecked", f.name)
 		}
 	}
 	for loc, tgt := range opts.BindingMap {
@@ -475,7 +482,7 @@ func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
 		return backend.ShaderModel{Major: 6, Minor: 0}, nil
 	}
 	if sm.Major != 6 || sm.Minor > 9 {
-		return sm, fmt.Errorf("dxil: shader model %v is not supported (6.0 to 6.9 are)", sm)
+		return sm, unsupported.Errorf("dxil: shader model %v is not supported (6.0 to 6.9 are)", sm)
 	}
 	return sm, nil
 }

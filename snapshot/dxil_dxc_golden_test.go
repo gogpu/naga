@@ -96,13 +96,8 @@ func TestDxilDxcGolden(t *testing.T) {
 			continue
 		}
 
-		ast, parseErr := parseWGSL(shader.source)
+		module, parseErr := parseWGSL(shader.source)
 		if parseErr != nil {
-			skipCount++
-			continue
-		}
-		module, lowerErr := lowerToIR(ast, shader.source)
-		if lowerErr != nil {
 			skipCount++
 			continue
 		}

@@ -70,17 +70,10 @@ func TestDxilValSummary(t *testing.T) {
 		shader := &shaders[i]
 
 		// Step 1: Parse WGSL → IR.
-		ast, parseErr := parseWGSL(shader.source)
+		module, parseErr := parseWGSL(shader.source)
 		if parseErr != nil {
 			compileFailCount++
 			results = append(results, result{shader.name, "compile_fail", parseErr.Error()})
-			continue
-		}
-
-		module, lowerErr := lowerToIR(ast, shader.source)
-		if lowerErr != nil {
-			compileFailCount++
-			results = append(results, result{shader.name, "compile_fail", lowerErr.Error()})
 			continue
 		}
 
@@ -239,14 +232,9 @@ func TestDxilValGGProduction(t *testing.T) {
 				t.Fatalf("read %s: %v", path, rerr)
 			}
 
-			ast, perr := parseWGSL(string(src))
+			module, perr := parseWGSL(string(src))
 			if perr != nil {
 				failures = append(failures, path+": parse: "+perr.Error())
-				continue
-			}
-			module, lerr := lowerToIR(ast, string(src))
-			if lerr != nil {
-				failures = append(failures, path+": lower: "+lerr.Error())
 				continue
 			}
 			if len(module.EntryPoints) == 0 {

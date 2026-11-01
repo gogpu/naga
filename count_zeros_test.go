@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/wgsl"
 )
 
 const countZerosShader = `
@@ -72,11 +73,7 @@ func TestCountZeros(t *testing.T) {
 		t.Errorf("SPIR-V: %d FindILsb, %d clamped to 32, want 3 and 3", len(lsbs), clamped)
 	}
 
-	ast, err := naga.Parse(countZerosShader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := naga.LowerWithSource(ast, countZerosShader)
+	module, _, err := wgsl.Parse(countZerosShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

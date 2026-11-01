@@ -12,15 +12,7 @@ import (
 
 func lowerBoundsSource(t *testing.T, source string) *ir.Module {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,19 +17,7 @@ import (
 func compileWGSLToHLSL(t *testing.T, source string) string {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}
@@ -838,17 +826,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 `
 	// Compile per-entry-point (as DX12 backend does)
 	for _, epName := range []string{"vs_main", "fs_main"} {
-		lexer := wgsl.NewLexer(source)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			t.Fatalf("Tokenize failed: %v", err)
-		}
-		parser := wgsl.NewParser(tokens)
-		ast, err := parser.Parse()
-		if err != nil {
-			t.Fatalf("Parse failed: %v", err)
-		}
-		module, err := wgsl.LowerWithSource(ast, source)
+		module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 		if err != nil {
 			t.Fatalf("Lower failed: %v", err)
 		}
@@ -974,19 +952,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 func compileWGSLToHLSLWithOpts(t *testing.T, source string, opts hlsl.Options) string {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}
@@ -1022,17 +988,7 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `
 
 	// Parse and lower the WGSL to get the IR module for building BindingMap.
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

@@ -51,19 +51,7 @@ type shaderFile struct {
 func compileToIR(t *testing.T, name, source string) *ir.Module {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("[%s] tokenize failed: %v", name, err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("[%s] parse failed: %v", name, err)
-	}
-
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("[%s] lower failed: %v", name, err)
 	}

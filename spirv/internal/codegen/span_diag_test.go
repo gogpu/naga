@@ -195,17 +195,7 @@ func nameOrEmpty(id uint32, names map[uint32]string) string {
 
 // TestSpanIRDump dumps the naga IR for the span shader to see expression handles.
 func TestSpanIRDump(t *testing.T) {
-	lexer := wgsl.NewLexer(spanTestShader)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(spanTestShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}

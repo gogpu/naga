@@ -5,6 +5,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1269,7 +1270,7 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 		return e.emitStmtSubgroupGather(fn, sk)
 
 	default:
-		return fmt.Errorf("unsupported statement kind: %T", sk)
+		return unsupported.Errorf("unsupported statement kind: %T", sk)
 	}
 }
 
@@ -1558,7 +1559,7 @@ func (e *Emitter) emitEntryReturnValue(fn *ir.Function, ret ir.StmtReturn) error
 			}
 			return nil
 		}
-		return fmt.Errorf("unsupported return type: %T", resultType.Inner)
+		return unsupported.Errorf("unsupported return type: %T", resultType.Inner)
 	}
 
 	numComps := componentCount(resultType.Inner)
@@ -1754,7 +1755,7 @@ func (e *Emitter) emitPromotedStructReturn(fn *ir.Function, varIdx uint32, st *i
 			}
 		}
 		if !ok {
-			return fmt.Errorf("output-promoted struct member %d: unsupported type", idx)
+			return unsupported.Errorf("output-promoted struct member %d: unsupported type", idx)
 		}
 
 		ol := overloadForScalar(scalar)
@@ -2722,7 +2723,7 @@ func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
 		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID, ol)
 
 	default:
-		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
+		return unsupported.Errorf("unsupported atomic function: %T", atomic.Fun)
 	}
 }
 
@@ -3043,7 +3044,7 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWXchg, ptrID)
 
 	default:
-		return fmt.Errorf("unsupported workgroup atomic function: %T", atomic.Fun)
+		return unsupported.Errorf("unsupported workgroup atomic function: %T", atomic.Fun)
 	}
 }
 
@@ -4220,7 +4221,7 @@ func (e *Emitter) dispatchImageAtomic(fn *ir.Function, imgAtomic ir.StmtImageAto
 		}
 		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicExchange, valueID, ol)
 	default:
-		return fmt.Errorf("StmtImageAtomic: unsupported atomic function: %T", imgAtomic.Fun)
+		return unsupported.Errorf("StmtImageAtomic: unsupported atomic function: %T", imgAtomic.Fun)
 	}
 }
 
@@ -4446,7 +4447,7 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 		}
 
 	default:
-		return fmt.Errorf("unsupported collective operation: %d", op.CollectiveOp)
+		return unsupported.Errorf("unsupported collective operation: %d", op.CollectiveOp)
 	}
 
 	e.exprValues[op.Result] = resultID
@@ -4641,7 +4642,7 @@ func (e *Emitter) emitStmtSubgroupGather(fn *ir.Function, gather ir.StmtSubgroup
 		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, opVal})
 
 	default:
-		return fmt.Errorf("unsupported gather mode: %T", gather.Mode)
+		return unsupported.Errorf("unsupported gather mode: %T", gather.Mode)
 	}
 
 	e.exprValues[gather.Result] = resultID
@@ -4851,7 +4852,7 @@ func (e *Emitter) emitStmtRayQuery(fn *ir.Function, rq ir.StmtRayQuery) error {
 		return e.emitRayQueryConfirmIntersection(fn, rq.Query)
 
 	default:
-		return fmt.Errorf("unsupported ray query function: %T", rq.Fun)
+		return unsupported.Errorf("unsupported ray query function: %T", rq.Fun)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // TestCompileSimpleVertexShader tests compilation of a basic vertex shader.
@@ -164,7 +165,7 @@ fn main( { // Missing closing parenthesis
     return vec4<f32>(0.0);
 }
 `
-	_, err := Parse(source)
+	_, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err == nil {
 		t.Fatal("Expected parse error for syntax error, got nil")
 	}
@@ -180,14 +181,8 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }
 `
-	// Stage 1: Parse
-	ast, err := Parse(source)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	// Stage 2: Lower
-	module, err := Lower(ast)
+	// Stage 1: Parse and lower
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}
@@ -196,7 +191,7 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 	}
 
 	// Stage 3: Validate (expect validation errors for minimal shader)
-	if _, err := Validate(module, ir.ValidateOptions{}); err != nil {
+	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
 
@@ -377,13 +372,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 `
 
 	// Test Parse stage
-	ast, err := Parse(source)
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	// Test Lower stage
-	module, err := Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}
@@ -392,7 +381,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	}
 
 	// Test Validate stage
-	if _, err := Validate(module, ir.ValidateOptions{}); err != nil {
+	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
 
@@ -401,7 +390,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 		Version: spirv.Version1_3,
 		Debug:   false,
 	}
-	spirvBytes, err := GenerateSPIRV(module, spirvOpts)
+	spirvBytes, _, err := spirv.Compile(module, spirvOpts)
 	if err != nil {
 		t.Fatalf("GenerateSPIRV failed: %v", err)
 	}

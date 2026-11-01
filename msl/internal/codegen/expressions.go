@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -301,7 +302,7 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		return w.writeRayQueryGetIntersection(k)
 
 	default:
-		return fmt.Errorf("unsupported expression kind: %T", kind)
+		return unsupported.Errorf("unsupported expression kind: %T", kind)
 	}
 }
 
@@ -421,7 +422,7 @@ func (w *Writer) writeLiteral(lit ir.Literal) error {
 		}
 
 	default:
-		return fmt.Errorf("unsupported literal type: %T", lit.Value)
+		return unsupported.Errorf("unsupported literal type: %T", lit.Value)
 	}
 	return nil
 }
@@ -1480,7 +1481,7 @@ func (w *Writer) writeUnary(unary ir.ExprUnary) error {
 	case ir.UnaryBitwiseNot:
 		op = "~"
 	default:
-		return fmt.Errorf("unsupported unary operator: %v", unary.Op)
+		return unsupported.Errorf("unsupported unary operator: %v", unary.Op)
 	}
 
 	w.write("%s(", op)
@@ -1621,7 +1622,7 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 	case ir.BinaryShiftRight:
 		op = ">>"
 	default:
-		return fmt.Errorf("unsupported binary operator: %v", binary.Op)
+		return unsupported.Errorf("unsupported binary operator: %v", binary.Op)
 	}
 
 	// Write left operand, with packed vec3 wrapping if multiplying by a matrix.
@@ -3245,7 +3246,7 @@ func (w *Writer) writeImageQuery(query ir.ExprImageQuery) error {
 		w.write(".get_num_samples()")
 
 	default:
-		return fmt.Errorf("unsupported image query: %T", query.Query)
+		return unsupported.Errorf("unsupported image query: %T", query.Query)
 	}
 	return nil
 }

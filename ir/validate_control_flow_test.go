@@ -14,15 +14,8 @@ import (
 
 // lowerWGSLNoFatal is lowerWGSL returning the frontend's error.
 func lowerWGSLNoFatal(source string) (*ir.Module, error) {
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		return nil, err
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		return nil, err
-	}
-	return wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+	return module, err
 }
 
 // TestValidateControlFlowAbilities follows Rust naga's ControlFlowAbility

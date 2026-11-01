@@ -14,15 +14,7 @@ import (
 // error instead of failing the test.
 func compileWGSLWithOpts(t *testing.T, source string, opts Options) ([]byte, error) {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize: %v", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}

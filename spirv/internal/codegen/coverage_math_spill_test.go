@@ -419,17 +419,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 // compileWGSLModule is a helper that parses+lowers WGSL and returns the ir.Module.
 func compileWGSLModule(t *testing.T, source string) *ir.Module {
 	t.Helper()
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

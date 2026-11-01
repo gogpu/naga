@@ -10,17 +10,7 @@ import (
 func compileWGSLForInt64AtomicPolicy(t *testing.T, source string) (string, error) {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize WGSL: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("parse WGSL: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower WGSL: %v", err)
 	}

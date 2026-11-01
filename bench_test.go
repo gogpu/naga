@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // ---------------------------------------------------------------------------
@@ -287,11 +288,7 @@ func BenchmarkCompileAllBackends(b *testing.B) {
 	source := shaderTriangleVertexFragment
 
 	// Pre-parse and lower once; we benchmark only the backend emit phase
-	ast, err := Parse(source)
-	if err != nil {
-		b.Fatalf("parse failed: %v", err)
-	}
-	module, err := Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		b.Fatalf("lower failed: %v", err)
 	}
@@ -399,11 +396,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 
 		var result string
 		for i := 0; i < b.N; i++ {
-			ast, err := Parse(source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-			module, err := Lower(ast)
+			module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 			if err != nil {
 				b.Fatalf("lower failed: %v", err)
 			}
@@ -423,11 +416,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 
 		var result string
 		for i := 0; i < b.N; i++ {
-			ast, err := Parse(source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-			module, err := Lower(ast)
+			module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 			if err != nil {
 				b.Fatalf("lower failed: %v", err)
 			}
@@ -447,11 +436,7 @@ func BenchmarkFullPipeline(b *testing.B) {
 
 		var result string
 		for i := 0; i < b.N; i++ {
-			ast, err := Parse(source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-			module, err := Lower(ast)
+			module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 			if err != nil {
 				b.Fatalf("lower failed: %v", err)
 			}
@@ -466,11 +451,11 @@ func BenchmarkFullPipeline(b *testing.B) {
 }
 
 // ---------------------------------------------------------------------------
-// Individual pipeline stage benchmarks (parse, lower, generate)
+// Individual pipeline stage benchmarks (parse and lower, generate)
 // ---------------------------------------------------------------------------
 
-// BenchmarkParse benchmarks WGSL parsing (tokenization + AST construction)
-// for shaders of different complexity.
+// BenchmarkParse benchmarks the WGSL frontend (tokenization, parsing and
+// lowering to IR, one wgsl.Parse call) for shaders of different complexity.
 func BenchmarkParse(b *testing.B) {
 	for _, sc := range shadersByComplexity {
 		b.Run(sc.name, func(b *testing.B) {
@@ -479,33 +464,9 @@ func BenchmarkParse(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				ast, err := Parse(sc.source)
+				module, _, err := wgsl.Parse(sc.source, wgsl.ParseOptions{})
 				if err != nil {
 					b.Fatalf("parse failed: %v", err)
-				}
-				runtime.KeepAlive(ast)
-			}
-		})
-	}
-}
-
-// BenchmarkLower benchmarks AST-to-IR lowering for shaders of different complexity.
-func BenchmarkLower(b *testing.B) {
-	for _, sc := range shadersByComplexity {
-		b.Run(sc.name, func(b *testing.B) {
-			ast, err := Parse(sc.source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-
-			b.ReportAllocs()
-			b.SetBytes(int64(len(sc.source)))
-			b.ResetTimer()
-
-			for i := 0; i < b.N; i++ {
-				module, lErr := LowerWithSource(ast, sc.source)
-				if lErr != nil {
-					b.Fatalf("lower failed: %v", lErr)
 				}
 				runtime.KeepAlive(module)
 			}
@@ -517,11 +478,7 @@ func BenchmarkLower(b *testing.B) {
 func BenchmarkValidate(b *testing.B) {
 	for _, sc := range shadersByComplexity {
 		b.Run(sc.name, func(b *testing.B) {
-			ast, err := Parse(sc.source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-			module, err := Lower(ast)
+			module, _, err := wgsl.Parse(sc.source, wgsl.ParseOptions{})
 			if err != nil {
 				b.Fatalf("lower failed: %v", err)
 			}
@@ -530,7 +487,7 @@ func BenchmarkValidate(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				info, vErr := Validate(module, ir.ValidateOptions{Capabilities: ir.CapAll})
+				info, vErr := ir.Validate(module, ir.ValidateOptions{Capabilities: ir.CapAll})
 				if vErr != nil {
 					b.Fatalf("validate failed: %v", vErr)
 				}
@@ -545,11 +502,7 @@ func BenchmarkValidate(b *testing.B) {
 func BenchmarkGenerateSPIRV(b *testing.B) {
 	for _, sc := range shadersByComplexity {
 		b.Run(sc.name, func(b *testing.B) {
-			ast, err := Parse(sc.source)
-			if err != nil {
-				b.Fatalf("parse failed: %v", err)
-			}
-			module, err := Lower(ast)
+			module, _, err := wgsl.Parse(sc.source, wgsl.ParseOptions{})
 			if err != nil {
 				b.Fatalf("lower failed: %v", err)
 			}

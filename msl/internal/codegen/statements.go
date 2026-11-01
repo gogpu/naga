@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -126,7 +127,7 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeSubgroupGather(k)
 
 	default:
-		return fmt.Errorf("unsupported statement kind: %T", kind)
+		return unsupported.Errorf("unsupported statement kind: %T", kind)
 	}
 }
 
@@ -1613,7 +1614,7 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		case ir.AtomicMax:
 			opName = "max"
 		default:
-			return fmt.Errorf("unsupported 64-bit image atomic operation")
+			return unsupported.Errorf("unsupported 64-bit image atomic operation")
 		}
 	} else {
 		switch imgAtomic.Fun.(type) {
@@ -1634,7 +1635,7 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		case ir.AtomicExchange:
 			opName = "exchange"
 		default:
-			return fmt.Errorf("unsupported image atomic operation")
+			return unsupported.Errorf("unsupported image atomic operation")
 		}
 	}
 
@@ -1703,7 +1704,7 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		// atomic_store_explicit is void, takes pointer, value, and memory order.
 		return w.writeAtomicStore(atomic)
 	default:
-		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
+		return unsupported.Errorf("unsupported atomic function: %T", atomic.Fun)
 	}
 
 	w.WriteIndent()
@@ -1977,7 +1978,7 @@ func (w *Writer) writeRayQuery(rayQuery ir.StmtRayQuery) error {
 		// RAY_QUERY_MODERN_SUPPORT=false: not supported, skip
 
 	default:
-		return fmt.Errorf("unsupported ray query function: %T", rayQuery.Fun)
+		return unsupported.Errorf("unsupported ray query function: %T", rayQuery.Fun)
 	}
 	return nil
 }
@@ -2176,7 +2177,7 @@ func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOp
 	case ir.SubgroupOperationXor:
 		funcName = "simd_xor"
 	default:
-		return fmt.Errorf("unsupported subgroup operation: %d", op.Op)
+		return unsupported.Errorf("unsupported subgroup operation: %d", op.Op)
 	}
 
 	// Write result assignment
@@ -2296,7 +2297,7 @@ func (w *Writer) writeSubgroupGather(gather ir.StmtSubgroupGather) error {
 		w.write(", %du)", xorMask)
 
 	default:
-		return fmt.Errorf("unsupported gather mode: %T", gather.Mode)
+		return unsupported.Errorf("unsupported gather mode: %T", gather.Mode)
 	}
 
 	w.write(";\n")

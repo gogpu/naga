@@ -12,6 +12,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/textutil"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -2164,7 +2165,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	case ir.StageVertex, ir.StageFragment, ir.StageCompute:
 		// supported
 	default:
-		return fmt.Errorf("glsl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
+		return unsupported.Errorf("glsl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
 	}
 
 	// Entry point function is stored inline (not in Functions[])

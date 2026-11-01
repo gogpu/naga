@@ -92,20 +92,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // TestSDFCircleSPIRV compiles the SDF circle shader and dumps a human-readable SPIR-V disassembly.
 func TestSDFCircleSPIRV(t *testing.T) {
 	// Parse WGSL
-	lexer := wgsl.NewLexer(sdfCircleWGSL)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	// Lower AST to IR
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(sdfCircleWGSL, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

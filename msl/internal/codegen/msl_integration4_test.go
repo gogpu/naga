@@ -171,11 +171,7 @@ func TestIntegration_CompileWithPipelineVertex(t *testing.T) {
     return vec4(1.0);
 }
 `
-	lexer := wgsl.NewLexer(src)
-	tokens, _ := lexer.Tokenize()
-	parser := wgsl.NewParser(tokens)
-	ast, _ := parser.Parse()
-	module, _ := wgsl.Lower(ast)
+	module, _, _ := wgsl.Parse(src, wgsl.ParseOptions{})
 
 	opts := DefaultOptions()
 	pipeline := PipelineOptions{
@@ -204,11 +200,7 @@ func TestIntegration_CompileWithPipelineFragment(t *testing.T) {
     return vec4(1.0);
 }
 `
-	lexer := wgsl.NewLexer(src)
-	tokens, _ := lexer.Tokenize()
-	parser := wgsl.NewParser(tokens)
-	ast, _ := parser.Parse()
-	module, _ := wgsl.Lower(ast)
+	module, _, _ := wgsl.Parse(src, wgsl.ParseOptions{})
 
 	opts := DefaultOptions()
 	pipeline := PipelineOptions{
@@ -609,11 +601,7 @@ struct Out { v: f32 };
 @group(0) @binding(1) var<storage, read_write> out: Out;
 @compute @workgroup_size(1) fn main() { out.v = inp.v * BRIGHTNESS; }
 `
-	lexer := wgsl.NewLexer(src)
-	tokens, _ := lexer.Tokenize()
-	parser := wgsl.NewParser(tokens)
-	ast, _ := parser.Parse()
-	module, _ := wgsl.Lower(ast)
+	module, _, _ := wgsl.Parse(src, wgsl.ParseOptions{})
 
 	opts := DefaultOptions()
 	module = processOverridesForTest(t, module, map[string]float64{"BRIGHTNESS": 2.5})

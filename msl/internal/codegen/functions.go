@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -544,7 +545,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	case ir.StageCompute:
 		stageKeyword = "kernel"
 	default:
-		return fmt.Errorf("msl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
+		return unsupported.Errorf("msl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
 	}
 
 	// Return type

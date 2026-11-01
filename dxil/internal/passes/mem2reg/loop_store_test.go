@@ -24,15 +24,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
         result[j] = j + 1u;
     }
 }`
-	tokens, err := wgsl.NewLexer(src).Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := wgsl.LowerWithSource(ast, src)
+	m, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

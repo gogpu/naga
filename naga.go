@@ -5,9 +5,12 @@
 //   - MSL — Metal Shading Language for macOS/iOS
 //   - GLSL — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
 //   - HLSL — High Level Shading Language for DirectX
+//   - DXIL — DirectX Intermediate Language for Direct3D 12
 //
-// The package provides a simple, high-level API for shader compilation as well as
-// lower-level access to individual compilation stages.
+// This package is the one-call path from WGSL to SPIR-V, plus pipeline
+// constants. Each language has its own package: a frontend's Parse
+// (wgsl.Parse) gives an IR module, ir.Validate checks it, and a backend's
+// Compile (spirv, msl, glsl, hlsl, dxil) writes it.
 //
 // Example usage (SPIR-V):
 //
@@ -22,39 +25,26 @@
 //	    log.Fatal(err)
 //	}
 //
-// For MSL output, use the msl package:
+// For MSL output:
 //
-//	module, _ := naga.Lower(ast)
-//	mslCode, info, err := msl.Compile(module, msl.DefaultOptions())
+//	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+//	...
+//	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil { ... }
+//	mslCode, info, err := msl.Compile(module, msl.Options{})
 //
-// For GLSL output, use the glsl package:
+// # Concurrency
 //
-//	module, _ := naga.Lower(ast)
-//	glslCode, info, err := glsl.Compile(module, glsl.DefaultOptions())
+// Every exported function is safe for concurrent use. ProcessOverrides never
+// modifies its input module; its result may share unmodified parts of it.
 package naga
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
 	"github.com/gogpu/naga/wgsl"
-)
-
-// Capability constants re-exported from ir for convenience.
-// See [ir.Capabilities] for full documentation.
-const (
-	// CapFloat64 enables f64 scalar type.
-	CapFloat64 = ir.CapFloat64
-
-	// CapShaderInt64 enables i64 and u64 scalar types.
-	CapShaderInt64 = ir.CapShaderInt64
-
-	// CapShaderFloat16 enables f16 scalar type.
-	CapShaderFloat16 = ir.CapShaderFloat16
-
-	// CapAll enables all capabilities.
-	CapAll = ir.CapAll
 )
 
 // CompileOptions configures shader compilation.
@@ -68,8 +58,8 @@ type CompileOptions struct {
 
 	// Capabilities is what the IR validator allows beyond the core: the
 	// zero value rejects f64, i64, u64 and f16, as Rust naga's default
-	// does. Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to
-	// enable one, or [CapAll] to permit everything.
+	// does. Use [ir.CapFloat64], [ir.CapShaderInt64], [ir.CapShaderFloat16]
+	// to enable one, or [ir.CapAll] to permit everything.
 	Capabilities ir.Capabilities
 
 	// SkipValidation compiles the module without validating it first. The
@@ -83,9 +73,6 @@ func DefaultOptions() CompileOptions {
 }
 
 // Compile compiles WGSL source code to SPIR-V binary using default options.
-//
-// This is the simplest way to compile a shader. For more control, use CompileWithOptions
-// or the individual Parse/Lower/Generate functions.
 func Compile(source string) ([]byte, error) {
 	return CompileWithOptions(source, DefaultOptions())
 }
@@ -93,25 +80,24 @@ func Compile(source string) ([]byte, error) {
 // CompileWithOptions compiles WGSL source code to SPIR-V binary with custom options.
 //
 // The compilation pipeline is:
-//  1. Parse WGSL source to AST
-//  2. Lower AST to IR (intermediate representation)
-//  3. Validate IR (if enabled)
-//  4. Replace overrides by their defaults (ProcessOverrides with no pipeline
+//  1. Parse WGSL to IR (wgsl.Parse); a *wgsl.ParseError is returned wrapped,
+//     with its line and column
+//  2. Validate IR (if enabled)
+//  3. Replace overrides by their defaults (ProcessOverrides with no pipeline
 //     constants), as Rust naga's CLI does; an override without a default is
-//     an error. For pipeline constants use Parse, Lower, ProcessOverrides
-//     and a backend.
-//  5. Generate SPIR-V binary
+//     an error. For pipeline constants use wgsl.Parse, ProcessOverrides and a
+//     backend.
+//  4. Generate SPIR-V binary
 func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
-	// Parse WGSL to AST
-	ast, err := Parse(source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
-	}
-
-	// Lower AST to IR (always permissive — capability enforcement is in the validator)
-	module, err := wgsl.LowerWithSource(ast, source)
-	if err != nil {
-		return nil, fmt.Errorf("lowering error: %w", err)
+		var pe *wgsl.ParseError
+		if errors.As(err, &pe) {
+			if loc, ok := pe.Location(source); ok {
+				return nil, fmt.Errorf("wgsl:%d:%d: %w", loc.Line, loc.Column, err)
+			}
+		}
+		return nil, fmt.Errorf("wgsl: %w", err)
 	}
 
 	// Validate IR unless skipped (includes capability checks)
@@ -126,98 +112,7 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("pipeline constants: %w", err)
 	}
 
-	spirvBytes, err := GenerateSPIRV(module, opts.SPIRV)
-	if err != nil {
-		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
-	}
-
-	return spirvBytes, nil
-}
-
-// Parse parses WGSL source code to AST (Abstract Syntax Tree).
-//
-// This is the first stage of compilation. The AST represents the syntactic
-// structure of the shader but does not include semantic information like types.
-func Parse(source string) (*wgsl.Module, error) {
-	// Tokenize
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return nil, fmt.Errorf("tokenization error: %w", err)
-	}
-
-	// Parse to AST
-	parser := wgsl.NewParser(tokens)
-	module, err := parser.Parse()
-	if err != nil {
-		return nil, fmt.Errorf("parse error: %w", err)
-	}
-
-	return module, nil
-}
-
-// Lower converts WGSL AST to IR (Intermediate Representation).
-// All capabilities are enabled (permissive mode for tools and tests).
-// For strict capability validation, use [LowerWithCapabilities].
-//
-// The IR is a lower-level representation that includes type information,
-// resolved identifiers, and a simpler structure suitable for code generation.
-func Lower(ast *wgsl.Module) (*ir.Module, error) {
-	return LowerWithSource(ast, "")
-}
-
-// LowerWithSource converts WGSL AST to IR, keeping source for error messages.
-// All capabilities are enabled (permissive mode for tools and tests).
-// For strict capability validation, use [LowerWithCapabilities].
-//
-// When source is provided, errors will include line:column information
-// and can show source context using ErrorList.FormatAll().
-func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
-	module, err := wgsl.LowerWithSource(ast, source)
-	if err != nil {
-		return nil, err
-	}
-	return module, nil
-}
-
-// LowerWithCapabilities converts WGSL AST to IR with explicit capability control.
-// The lowerer is always permissive; capability validation is performed by the
-// validator after lowering. Types that require specific capabilities (f64, i64,
-// u64, f16) produce validation errors unless the corresponding flag is set.
-func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities) (*ir.Module, error) {
-	// Lower permissively — all types are accepted during lowering.
-	module, err := wgsl.LowerWithSource(ast, source)
-	if err != nil {
-		return nil, err
-	}
-	// Validate with capability restrictions.
-	if _, err := ir.Validate(module, ir.ValidateOptions{Capabilities: caps}); err != nil {
-		return nil, fmt.Errorf("validation failed: %w", err)
-	}
-	return module, nil
-}
-
-// Validate validates an IR module for correctness with the capabilities opts
-// allows.
-//
-// Validation checks include:
-//   - Type consistency
-//   - Reference validity (all handles point to valid objects)
-//   - Control flow validity (structured control flow rules)
-//   - Binding uniqueness (no duplicate @group/@binding)
-//
-// It is [ir.Validate]: the result tells which globals each entry point uses,
-// and an invalid module returns an [ir.ValidationErrors].
-func Validate(module *ir.Module, opts ir.ValidateOptions) (ir.ModuleInfo, error) {
-	return ir.Validate(module, opts)
-}
-
-// GenerateSPIRV generates SPIR-V binary from IR module.
-//
-// This is the final stage of compilation. The output is a binary blob
-// that can be directly consumed by Vulkan or other SPIR-V consumers.
-func GenerateSPIRV(module *ir.Module, opts spirv.Options) ([]byte, error) {
-	spirvBytes, _, err := spirv.Compile(module, opts)
+	spirvBytes, _, err := spirv.Compile(module, opts.SPIRV)
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
 	}

@@ -280,12 +280,7 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	// 4. Generate SPIR-V binary
 	// We skip IR validation to match what the snapshot test does (it skips on compile error).
 
-	ast, err := parseWGSL(source)
-	if err != nil {
-		return nil, err
-	}
-
-	module, err := lowerToIR(ast, source)
+	module, err := parseWGSL(source)
 	if err != nil {
 		return nil, err
 	}

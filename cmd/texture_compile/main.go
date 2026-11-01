@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 const textureShader = `
@@ -50,17 +50,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 `
 
 func main() {
-	// Parse WGSL
-	ast, err := naga.Parse(textureShader)
+	// Parse WGSL to IR
+	ir, _, err := wgsl.Parse(textureShader, wgsl.ParseOptions{})
 	if err != nil {
 		fmt.Println("Parse error:", err)
-		os.Exit(1)
-	}
-
-	// Lower to IR
-	ir, err := naga.Lower(ast)
-	if err != nil {
-		fmt.Println("Lower error:", err)
 		os.Exit(1)
 	}
 

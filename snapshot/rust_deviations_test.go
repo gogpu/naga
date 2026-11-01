@@ -3,11 +3,13 @@ package snapshot_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // deviationKind classifies a known difference between our output and Rust's.
@@ -462,13 +464,13 @@ type unsupportedShader struct {
 var rustUnsupportedShaders = map[string]unsupportedShader{
 	"cooperative-matrix": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "cooperative matrix types (coop_mat8x8<f32, A>, enable wgpu_cooperative_matrix) are not parsed",
-		ErrorContains: "line 12, column 37: expected ;, got ,"},
+		ErrorContains: "12:37: expected ;, got ,"},
 	"cooperative-matrix-mixed-accumulator": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "cooperative matrix types (coop_mat8x8<f32, A>, enable wgpu_cooperative_matrix) are not parsed",
-		ErrorContains: "line 12, column 58: expected ;, got ,"},
+		ErrorContains: "12:58: expected ;, got ,"},
 	"debug-printf": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "debugPrintf with a string literal format argument is not parsed",
-		ErrorContains: "line 5, column 17: unexpected token Error in expression"},
+		ErrorContains: "5:17: unexpected token Error in expression"},
 	"int16": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "16-bit integer types (i16, u16) are not supported",
 		ErrorContains: "unknown type: i16"},
@@ -491,10 +493,22 @@ func lowerCorpusShader(t *testing.T, shader shaderFile) (*ir.Module, bool) {
 		}
 		return module, true
 	}
+	// The recorded text is "<line>:<column>: <message>" for a parse error, so
+	// an error that moves is a change too.
+	described := ""
+	if err != nil {
+		described = err.Error()
+		var pe *wgsl.ParseError
+		if errors.As(err, &pe) {
+			if loc, ok := pe.Location(shader.source); ok {
+				described = fmt.Sprintf("%d:%d: %s", loc.Line, loc.Column, pe.Message)
+			}
+		}
+	}
 	switch {
 	case err == nil:
 		t.Errorf("%s now lowers: remove it from rustUnsupportedShaders (%s)", shader.name, u.Card)
-	case !strings.Contains(err.Error(), u.ErrorContains):
+	case !strings.Contains(described, u.ErrorContains):
 		t.Errorf("%s: lowering error changed (rustUnsupportedShaders expects %q): %v", shader.name, u.ErrorContains, err)
 	default:
 		t.Logf("unsupported shader (%s): %s", u.Card, u.Reason)

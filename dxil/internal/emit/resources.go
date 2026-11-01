@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -875,7 +876,7 @@ func (e *Emitter) emitImageQuery(fn *ir.Function, query ir.ExprImageQuery) (int,
 		return extractID, nil
 
 	default:
-		return 0, fmt.Errorf("ExprImageQuery: unsupported query type %T", query.Query)
+		return 0, unsupported.Errorf("ExprImageQuery: unsupported query type %T", query.Query)
 	}
 }
 

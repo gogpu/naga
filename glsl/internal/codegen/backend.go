@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -284,14 +285,14 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	p := options.BoundsCheckPolicies
 	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
 		if policy > backend.BoundsCheckUnchecked {
-			return "", TranslationInfo{}, fmt.Errorf("glsl: BoundsCheckPolicies: %v is not supported", policy)
+			return "", TranslationInfo{}, unsupported.Errorf("glsl: BoundsCheckPolicies: %v is not supported", policy)
 		}
 	}
 	if p.Index == backend.BoundsCheckReadZeroSkipWrite || p.Buffer == backend.BoundsCheckReadZeroSkipWrite {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: the index and buffer bounds checks support Restrict only")
 	}
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
-		return "", TranslationInfo{}, fmt.Errorf("glsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+		return "", TranslationInfo{}, unsupported.Errorf("glsl: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 
 	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {

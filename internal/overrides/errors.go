@@ -3,6 +3,8 @@ package overrides
 import (
 	"errors"
 	"fmt"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // The kinds of pipeline-constant error, Rust naga's PipelineConstantError
@@ -14,7 +16,8 @@ var (
 	ErrValueOutOfRange       = errors.New("pipeline constant value does not fit the override's type")
 	ErrNegativeWorkgroupSize = errors.New("workgroup_size override isn't strictly positive")
 	ErrNegativeMeshOutputMax = errors.New("max vertices or max primitives is negative")
-	ErrEntryPointNotFound    = errors.New("entry point not found")
+	// ErrEntryPointNotFound is the backends' sentinel: one concept, one value.
+	ErrEntryPointNotFound = backend.ErrEntryPointNotFound
 )
 
 // KeyError is an error about one pipeline constant or override.

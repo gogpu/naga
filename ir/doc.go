@@ -28,4 +28,10 @@
 // This IR design is inspired by:
 //   - naga (Rust): https://github.com/gfx-rs/wgpu/tree/trunk/naga
 //   - SPIR-V specification: https://www.khronos.org/registry/SPIR-V/
+//
+// # Concurrency
+//
+// Every exported function is safe for concurrent use. Validate and the other
+// functions that take a module never modify it; a function that returns a
+// module may share unmodified parts of its input with it.
 package ir

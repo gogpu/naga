@@ -84,11 +84,7 @@ func TestSpirvValVulkan(t *testing.T) {
 // compileSPIRVAt compiles a corpus shader as TestSpirvValBinary does, at
 // version.
 func compileSPIRVAt(name, source string, version spirv.Version) ([]byte, error) {
-	ast, err := parseWGSL(source)
-	if err != nil {
-		return nil, err
-	}
-	module, err := lowerToIR(ast, source)
+	module, err := parseWGSL(source)
 	if err != nil {
 		return nil, err
 	}

@@ -107,17 +107,7 @@ var mslBenchShaders = []mslBenchCase{
 // mslParseToIR parses WGSL source and lowers to IR.
 func mslParseToIR(b *testing.B, source string) *ir.Module {
 	b.Helper()
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		b.Fatalf("tokenize failed: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		b.Fatalf("parse failed: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		b.Fatalf("lower failed: %v", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // entryPointShader has one entry point per stage. Each calls a function only
@@ -31,11 +32,7 @@ fn barriers() { workgroupBarrier(); }
 
 func entryPointModule(t *testing.T) *ir.Module {
 	t.Helper()
-	ast, err := Parse(entryPointShader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := LowerWithSource(ast, entryPointShader)
+	module, _, err := wgsl.Parse(entryPointShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

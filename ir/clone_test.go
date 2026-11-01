@@ -49,15 +49,7 @@ fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 func lowerWGSL(t *testing.T, source string) *ir.Module {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}
@@ -105,15 +97,7 @@ func TestCloneNil(t *testing.T) {
 }
 
 func BenchmarkModuleClone(b *testing.B) {
-	tokens, err := wgsl.NewLexer(cloneIsolationShader).Tokenize()
-	if err != nil {
-		b.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		b.Fatal(err)
-	}
-	module, err := wgsl.LowerWithSource(ast, cloneIsolationShader)
+	module, _, err := wgsl.Parse(cloneIsolationShader, wgsl.ParseOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}

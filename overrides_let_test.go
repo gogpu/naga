@@ -82,7 +82,7 @@ override k: i32 = 3;
 			if tc.fun != 0 && !hasMath(out, tc.fun) {
 				t.Errorf("math function %d was folded; it uses a let and must stay a run-time call", tc.fun)
 			}
-			if _, err := naga.GenerateSPIRV(out, spirv.Options{Version: spirv.Version1_3}); err != nil {
+			if _, _, err := spirv.Compile(out, spirv.Options{Version: spirv.Version1_3}); err != nil {
 				t.Errorf("SPIR-V: %v", err)
 			}
 		})
@@ -138,7 +138,7 @@ override k: f32 = 1.0;
 			if err != nil {
 				t.Fatalf("ProcessOverrides: %v", err)
 			}
-			if _, err := naga.GenerateSPIRV(out, spirv.Options{Version: spirv.Version1_3}); err != nil {
+			if _, _, err := spirv.Compile(out, spirv.Options{Version: spirv.Version1_3}); err != nil {
 				t.Errorf("SPIR-V: %v", err)
 			}
 		})

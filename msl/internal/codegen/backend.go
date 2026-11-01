@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -358,7 +359,7 @@ func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
 		}
 		for _, b := range bindings {
 			if refused(b) {
-				return fmt.Errorf("msl: entry point %q: built-in draw_index is not supported", ep.Name)
+				return unsupported.Errorf("msl: entry point %q: built-in draw_index is not supported", ep.Name)
 			}
 		}
 	}
@@ -373,12 +374,12 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	}
 	options.AllowAndForcePointSize = options.AllowAndForcePointSize || pipeline.AllowAndForcePointSize
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
-		return "", TranslationInfo{}, fmt.Errorf("msl: ZeroInitializeWorkgroupMemory %v is not supported", m)
+		return "", TranslationInfo{}, unsupported.Errorf("msl: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 	p := options.BoundsCheckPolicies
 	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
 		if policy > backend.BoundsCheckUnchecked {
-			return "", TranslationInfo{}, fmt.Errorf("msl: BoundsCheckPolicies: %v is not supported", policy)
+			return "", TranslationInfo{}, unsupported.Errorf("msl: BoundsCheckPolicies: %v is not supported", policy)
 		}
 	}
 

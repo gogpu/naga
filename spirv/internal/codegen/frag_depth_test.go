@@ -85,15 +85,7 @@ var<immediate> im: Immediates;
 		t.Errorf("%d push constant variables, want 1:\n%s", n, text)
 	}
 
-	tokens, err := wgsl.NewLexer(src).Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

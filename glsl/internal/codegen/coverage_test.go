@@ -911,17 +911,7 @@ fn cs_main() {
 
 // compileWGSLHelper compiles WGSL to GLSL, returning result and error without failing.
 func compileWGSLHelper(source string, opts Options) (string, TranslationInfo, error) {
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return "", TranslationInfo{}, err
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		return "", TranslationInfo{}, err
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		return "", TranslationInfo{}, err
 	}

@@ -56,7 +56,7 @@ type OverrideOptions struct {
 //
 // Errors: a *PipelineConstantError for a constant (errors.Is with
 // ErrOverrideNotFound, ErrOverrideMissingValue, ErrOverrideValueNotFinite,
-// ErrOverrideValueOutOfRange); ErrEntryPointNotFound;
+// ErrOverrideValueOutOfRange); backend.ErrEntryPointNotFound;
 // ErrNegativeWorkgroupSize; ErrNegativeMeshOutputMax; an evaluation error of
 // an expression that becomes constant (for example a division by zero after
 // substitution); or an invalid processed module. Keys are checked in sorted
@@ -107,6 +107,4 @@ var (
 	// ErrNegativeMeshOutputMax: a mesh output limit given by an override is
 	// negative.
 	ErrNegativeMeshOutputMax = overrides.ErrNegativeMeshOutputMax
-	// ErrEntryPointNotFound: OverrideOptions.EntryPoint selects no entry point.
-	ErrEntryPointNotFound = overrides.ErrEntryPointNotFound
 )
