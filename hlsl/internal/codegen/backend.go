@@ -230,6 +230,48 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 	return nil
 }
 
+// checkShaderModel refuses what Options.ShaderModel cannot express, as Rust
+// naga's ShaderModelTooLow (back/hlsl/writer.rs): a mesh or task entry point
+// below 6.5, and the view index (SV_ViewID) below 6.1, with a
+// *backend.ShaderModelError.
+func checkShaderModel(module *ir.Module, options *Options) error {
+	tooLow := func(feature string, required ShaderModel) error {
+		return fmt.Errorf("hlsl: %w", &backend.ShaderModelError{
+			Feature:   feature,
+			Required:  backend.ShaderModel{Major: required.Major(), Minor: required.Minor()},
+			Requested: backend.ShaderModel{Major: options.ShaderModel.Major(), Minor: options.ShaderModel.Minor()},
+		})
+	}
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		if !selects(options.EntryPoint, ep) {
+			continue
+		}
+		if (ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask) && options.ShaderModel < ShaderModel6_5 {
+			return tooLow("a mesh or task shader", ShaderModel6_5)
+		}
+		usesViewIndex := func(b *ir.Binding) bool {
+			if b == nil {
+				return false
+			}
+			bi, ok := (*b).(ir.BuiltinBinding)
+			return ok && bi.Builtin == ir.BuiltinViewIndex
+		}
+		for _, arg := range ep.Function.Arguments {
+			found := usesViewIndex(arg.Binding)
+			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for _, m := range st.Members {
+					found = found || usesViewIndex(m.Binding)
+				}
+			}
+			if found && options.ShaderModel < ShaderModel6_1 {
+				return tooLow("the view index", ShaderModel6_1)
+			}
+		}
+	}
+	return nil
+}
+
 // selects reports whether sel selects ep; a nil sel selects every entry point.
 func selects(sel *backend.EntryPointSelector, ep *ir.EntryPoint) bool {
 	return sel == nil || (ep.Name == sel.Name && ep.Stage == sel.Stage)
@@ -294,6 +336,9 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	}
 	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
 		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
+	if err := checkShaderModel(module, options); err != nil {
+		return "", nil, err
 	}
 	if err := checkNumWorkgroups(module, options); err != nil {
 		return "", nil, err

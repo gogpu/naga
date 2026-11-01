@@ -43,8 +43,12 @@ type Options struct {
 	// ShaderModel is the shader model of the DXIL, 6.0 to 6.9; the zero
 	// value is 6.0, another version is an error. The container part headers
 	// and !dx.shaderModel carry the same version. A shader that uses a
-	// feature of a newer model (16-bit types 6.2, ray queries 6.5, 64-bit
-	// atomics 6.6, ...) gets that model's minor version.
+	// feature of a newer model (the view index 6.1, 16-bit types 6.2, ray
+	// queries and mesh shaders 6.5, 64-bit atomics 6.6) is an error, a
+	// *backend.ShaderModelError: pass the device's highest supported model. Known
+	// gap (P1-DXIL-072): storage buffers are written with raw buffer
+	// operations, which raise the model to 6.2 (6.3 for 64-bit elements),
+	// where DXC writes bufferLoad and bufferStore below 6.2.
 	ShaderModel backend.ShaderModel
 
 	// EntryPoint is the entry point the container holds. A DXIL container
@@ -253,33 +257,31 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 	return out
 }
 
-// autoUpgradeSMPre returns the minimum SM minor version required by the
-// module's features that can be determined before DCE (inlining/optimization).
-// Post-DCE upgrades (rawBuffer, int64 buffer) are applied separately after
-// reachableGlobals is computed.
-func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) uint32 {
-	// Mesh/amplification shaders require SM 6.5 minimum.
-	if (ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask) && smMinor < 5 {
-		smMinor = 5
+// checkShaderModel refuses the entry point when a feature it uses needs a
+// newer shader model than sm, the newest such feature first, with a
+// *backend.ShaderModelError.
+func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderModel) error {
+	for _, r := range []struct {
+		minor   uint8
+		feature string
+		uses    bool
+	}{
+		// 64-bit atomic operations: SM 6.6 per DXC's validator.
+		{6, "a 64-bit atomic operation", moduleUsesInt64Atomics(irModule)},
+		{5, "a mesh or task shader", ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask},
+		{5, "a ray query", moduleUsesRayQuery(irModule)},
+		// f16 is written as native 16-bit types, DXC's
+		// -enable-16bit-types (quantizeToF16 uses legacy ops, SM 6.0).
+		{2, "a 16-bit type", moduleUsesLowPrecision(irModule)},
+		// dx.op.viewID (opcode 138).
+		{1, "the view index", moduleUsesViewID(irModule)},
+	} {
+		if r.uses && sm.Minor < r.minor {
+			return fmt.Errorf("dxil: %w", &backend.ShaderModelError{
+				Feature: r.feature, Required: backend.ShaderModel{Major: 6, Minor: r.minor}, Requested: sm})
+		}
 	}
-	// Ray query requires SM 6.5.
-	if moduleUsesRayQuery(irModule) && smMinor < 5 {
-		smMinor = 5
-	}
-	// 64-bit atomic operations require SM 6.6+ per dxc validator.
-	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
-		smMinor = 6
-	}
-	// f16 is written as native 16-bit types, DXC's -enable-16bit-types,
-	// which need SM 6.2. QuantizeF16 uses legacy ops (SM 6.0).
-	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
-		smMinor = 2
-	}
-	// dx.op.viewID (opcode 138) is valid from SM 6.1.
-	if moduleUsesViewID(irModule) && smMinor < 1 {
-		smMinor = 1
-	}
-	return smMinor
+	return nil
 }
 
 // prepareModule clones the IR module, inlines every user function into the
@@ -462,7 +464,10 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	if err := checkBindings(irModule, ep, opts); err != nil {
 		return nil, err
 	}
-	smMinor := autoUpgradeSMPre(irModule, ep, uint32(opts.ShaderModel.Minor))
+	if err := checkShaderModel(irModule, ep, opts.ShaderModel); err != nil {
+		return nil, err
+	}
+	smMinor := uint32(opts.ShaderModel.Minor)
 
 	// Inline user helpers and clone the module so we never mutate the caller's IR.
 	var inlineErr error

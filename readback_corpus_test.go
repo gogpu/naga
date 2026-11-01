@@ -321,6 +321,12 @@ func compileCorpusHLSL(t *testing.T, v *corpusValidators, m *ir.Module, entry st
 
 func compileCorpusDXIL(_ *testing.T, v *corpusValidators, m *ir.Module, _ string) error {
 	blob, _, err := dxil.Compile(m, dxil.DefaultOptions())
+	// A case that needs a newer shader model is compiled at it, as wgpu asks
+	// for the device's highest one (dxil.Compile refuses, never raises).
+	var smErr *backend.ShaderModelError
+	if errors.As(err, &smErr) {
+		blob, _, err = dxil.Compile(m, dxil.Options{ShaderModel: smErr.Required})
+	}
 	if err != nil {
 		return err
 	}

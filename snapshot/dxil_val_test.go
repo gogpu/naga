@@ -116,7 +116,7 @@ func TestDxilValSummary(t *testing.T) {
 			shaderOpts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 			shaderOpts.BindingMap = dxilBindingArraySizes(shader.name)
 			shaderOpts.FakeMissingBindings = true
-			dxilBytes, _, compileErr := dxil.Compile(module, shaderOpts)
+			dxilBytes, compileErr := dxilAtNeededModel(module, shaderOpts)
 			if compileErr != nil {
 				if firstErr == "" {
 					firstErr = compileErr.Error()
@@ -259,7 +259,7 @@ func TestDxilValGGProduction(t *testing.T) {
 				epOpts.EntryPoint = &backend.EntryPointSelector{
 					Stage: module.EntryPoints[j].Stage, Name: module.EntryPoints[j].Name,
 				}
-				blob, _, cerr := dxil.Compile(module, epOpts)
+				blob, cerr := dxilAtNeededModel(module, epOpts)
 				if cerr != nil {
 					failures = append(failures, path+"/"+module.EntryPoints[j].Name+": compile: "+cerr.Error())
 					continue

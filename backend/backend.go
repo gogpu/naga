@@ -153,6 +153,21 @@ func (sm ShaderModel) String() string {
 // naga reports it as EntryPointNotFound.
 var ErrEntryPointNotFound = errors.New("entry point not found")
 
+// ShaderModelError is a feature of the shader that needs a newer shader model
+// than Options.ShaderModel (hlsl and dxil). The backends never raise the
+// model: DXC's validator rejects a module whose target model is below what
+// its features need (SmIncompatibleShaderModel), and Rust naga's HLSL writer
+// refuses with ShaderModelTooLow. Pass the device's highest supported model.
+type ShaderModelError struct {
+	Feature   string
+	Required  ShaderModel
+	Requested ShaderModel
+}
+
+func (e *ShaderModelError) Error() string {
+	return e.Feature + " needs shader model " + e.Required.String() + ", Options.ShaderModel is " + e.Requested.String()
+}
+
 // ErrMissingBinding reports a resource the module uses that has no entry in a
 // non-nil binding map. Every backend's error for it wraps this value. Rust
 // naga reports it as MissingBinding.

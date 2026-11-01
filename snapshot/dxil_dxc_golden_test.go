@@ -273,7 +273,7 @@ func compareToGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile st
 	// corpus shaders that have it.
 	opts.ImmediatesTarget = &dxil.BindTarget{}
 	opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
-	dxilBytes, _, compileErr := dxil.Compile(mod, opts)
+	dxilBytes, compileErr := dxilAtNeededModel(mod, opts)
 	if compileErr != nil {
 		return 0, 0, "", fmt.Errorf("naga dxil compile: %w", compileErr)
 	}

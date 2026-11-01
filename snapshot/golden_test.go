@@ -1,6 +1,7 @@
 package snapshot_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -287,6 +288,13 @@ func goldenHLSL(module *ir.Module, shader string) (string, error) {
 		opts.ImmediatesTarget = &hlsl.BindTarget{}
 	}
 	code, _, err := hlsl.Compile(module, opts)
+	// A shader that needs a newer shader model (mesh shaders, the view
+	// index) is written at it: the backend refuses rather than raises it.
+	var smErr *backend.ShaderModelError
+	if errors.As(err, &smErr) {
+		opts.ShaderModel = smErr.Required
+		code, _, err = hlsl.Compile(module, opts)
+	}
 	return code, err
 }
 
