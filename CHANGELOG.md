@@ -264,6 +264,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL output is the same on every run.** Promoting locals to SSA values walked the variables in map order where it
+  creates phis and zero values, so a shader with several promoted locals (gg's `flatten.wgsl` and `path_count.wgsl`)
+  got its phis in a different order on each compile; every order was equivalent, but the bytes changed and pipeline
+  caches missed. Since 0.17.4, which added this pass. A new test compiles every corpus shader and gg's production shaders with each backend
+  several times and requires the same bytes. gg's shaders are now vendored, with their license and provenance, so the
+  gg production test runs everywhere instead of skipping when no gg checkout sits next to naga.
 - **DXIL: analyses skipped operands of some expressions and statements.** Dead-code elimination, input-usage masks
   and the emitter's handle visitors missed image sample and query levels, a ray query's intersection operand, an
   atomic compare-exchange's compare value, subgroup shuffle/broadcast lanes and ray-query function operands, so an
@@ -359,6 +365,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
   path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known
   failure on dx12-fxc.
+- **DXIL, since 0.20.5:** gg's `blend.wgsl` fragment entry point compiles to DXIL the validator rejects ("Invalid
+  type for value"). 0.20.5 stopped dropping stores that live locals read, which keeps code alive that hits a latent
+  emitter bug (P0-DXIL-077).
 
 ## [0.20.5] - 2026-10-31
 
