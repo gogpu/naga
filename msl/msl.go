@@ -168,10 +168,11 @@ type Options struct {
 	// slots. These slots depend on which globals the module has, so
 	// naga.ProcessOverrides with an EntryPoint, which removes unused globals,
 	// can move them. Pass a map for stable slots (Rust naga requires one).
-	// The entry of an entry point must give every resource it uses a slot of
-	// its kind, and the sizes and immediates buffers it needs, or Compile
-	// fails, unless FakeMissingBindings is set. An entry point the map has
-	// no entry for gets the automatic slots.
+	// A non-nil map, empty too, must give every resource an entry point uses
+	// a slot of its kind in that entry point's entry, and the sizes and
+	// immediates buffers it needs; an entry point without an entry has none.
+	// Otherwise Compile fails with an error wrapping
+	// backend.ErrMissingBinding, unless FakeMissingBindings is set.
 	PerEntryPointMap map[string]EntryPointResources
 
 	// InlineSamplers defines constexpr samplers to be inlined into the code.
@@ -204,8 +205,10 @@ type Options struct {
 	// force_loop_bounding defaults to true, and wgpu-hal passes true.
 	SkipLoopBounding bool
 
-	// FakeMissingBindings generates placeholder bindings for resources
-	// that are referenced but not in the PerEntryPointMap.
+	// FakeMissingBindings writes a placeholder attribute, [[user(fake0)]],
+	// for a resource a non-nil PerEntryPointMap gives no slot, instead of
+	// failing. Rust naga's fake_missing_bindings defaults to true; wgpu-hal
+	// passes false, the zero value here.
 	FakeMissingBindings bool
 
 	// AllowAndForcePointSize forces point size output for vertex shaders.

@@ -28,7 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a non-nil map, empty too, must list every resource, or compiling fails with an error wrapping
   `backend.ErrMissingBinding` unless `FakeMissingBindings` is set, as wgpu-hal runs Rust naga
   (`fake_missing_bindings: false`). spirv: `RequireBindings` (off at zero, so a missing entry was silently kept at
-  its WGSL binding) is replaced by `FakeMissingBindings`.
+  its WGSL binding) is replaced by `FakeMissingBindings`. msl: a nil `PerEntryPointMap` numbers the resources
+  automatically, as before; a non-nil one must have an entry for every entry point that uses resources (an entry
+  point it left out got automatic slots before), and `FakeMissingBindings` writes Rust's placeholders only for
+  resources a non-nil map leaves out.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

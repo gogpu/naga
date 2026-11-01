@@ -965,13 +965,14 @@ func TestCompile_FakeMissingBindings(t *testing.T) {
 
 	opts := DefaultOptions()
 	opts.FakeMissingBindings = true
+	opts.PerEntryPointMap = map[string]EntryPointResources{} // nil would number the resources
 
 	result, _, err := Compile(module, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
 
-	// With FakeMissingBindings, resources get [[user(fake0)]] attributes
+	// With FakeMissingBindings, resources a map leaves out get [[user(fake0)]] attributes
 	mustContainMSL(t, result, "[[user(fake0)]]")
 }
 

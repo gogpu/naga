@@ -278,6 +278,9 @@ func goldenMSL(module *ir.Module, _ string) (string, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
 	opts.FakeMissingBindings = true
+	// Rust's empty per_entry_point_map: placeholders for every resource, as
+	// the Rust snapshots of the same shaders have them.
+	opts.PerEntryPointMap = map[string]msl.EntryPointResources{}
 	code, _, err := msl.Compile(module, opts)
 	return code, err
 }
