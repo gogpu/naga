@@ -33,6 +33,41 @@
       "gitBlob": "687bb5718d3efadd0c861e421b8e731197804caa"
     },
     {
+      "path": "examples/features/src/ray_aabb_compute/shader.wgsl",
+      "sha256": "cd2416a212eea33c4310e410fcd23539920af5583073f4c9bc1a615e72725c85",
+      "gitBlob": "dfe82b03bad1727e567f85b2a21fb675f7f7da45"
+    },
+    {
+      "path": "examples/features/src/ray_cube_compute/shader.wgsl",
+      "sha256": "c34d61534f9e2ba6604cdbfadce8bafca067c1dd041ff04318a441b95b675277",
+      "gitBlob": "8a4e64ef1c82a4e9599a5d1b843b31854f081a51"
+    },
+    {
+      "path": "examples/features/src/ray_cube_fragment/shader.wgsl",
+      "sha256": "dc4d93c9d4b8993b2987902b09b3a8539b6eb63a5df6de6e8c1d05e85f134afc",
+      "gitBlob": "bb2ddb65e2161e8ca080f1718b1ecf145814e9fe"
+    },
+    {
+      "path": "examples/features/src/ray_cube_normals/shader.wgsl",
+      "sha256": "f039d05e50834df13422574f81689c0763eb2b435f84c8392112c2051ee04053",
+      "gitBlob": "35c3898e70c4f948007f2988d9372e7563bcfa6e"
+    },
+    {
+      "path": "examples/features/src/ray_scene/shader.wgsl",
+      "sha256": "e6790da935ed495e3e3c2fd6c5e7a91953ced0be2b0e323e8bd1c92ef51c5ef3",
+      "gitBlob": "c7e75d5117af59010bad292ba88679f0b17c7324"
+    },
+    {
+      "path": "examples/features/src/ray_shadows/shader.wgsl",
+      "sha256": "03c65c0e7a12c8aef5420a6342e16e032756d884a193700e7d56dcc6e6c0c44e",
+      "gitBlob": "7cb8faa44a24e28e97e955491897432a5d34987e"
+    },
+    {
+      "path": "examples/features/src/ray_traced_triangle/shader.wgsl",
+      "sha256": "014170398cfaa76b4a7cdccfe287d81f2b831bc57e4cd0aabd26c50fe1fff44b",
+      "gitBlob": "fafd5fac6ab703a6ca258670f171771fd7d62717"
+    },
+    {
       "path": "examples/features/src/render_to_texture/shader.wgsl",
       "sha256": "180b9a7bb6e7890b6128d11b1b660f45496f14b42b824a60e4d85501b52ca120",
       "gitBlob": "f7131a1be1960dcfca463f905c105a0670d422f8"
