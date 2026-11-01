@@ -179,7 +179,7 @@ type Options struct {
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
 	// which WebGPU requires; Rust naga's default is Unchecked, and wgpu-hal's
-	// Metal backend passes ReadZeroSkipWrite (DefaultBoundsCheckPolicies).
+	// Metal backend passes ReadZeroSkipWrite on every field.
 	// Every field honors every policy, as Rust naga's MSL writer does:
 	// Restrict with metal::min on the index (a runtime-sized array takes its
 	// length from the sizes buffer) and on image coordinates,
@@ -332,23 +332,10 @@ type TranslationInfo struct {
 	RequiresSizesBuffer bool
 }
 
-// DefaultBoundsCheckPolicies returns ReadZeroSkipWrite on every field, the
-// policies of DefaultOptions and of wgpu's native default.
-func DefaultBoundsCheckPolicies() backend.BoundsCheckPolicies {
-	return backend.BoundsCheckPolicies{
-		Index:        backend.BoundsCheckReadZeroSkipWrite,
-		Buffer:       backend.BoundsCheckReadZeroSkipWrite,
-		ImageLoad:    backend.BoundsCheckReadZeroSkipWrite,
-		BindingArray: backend.BoundsCheckReadZeroSkipWrite,
-	}
-}
-
-// DefaultOptions returns sensible default options for MSL generation.
+// DefaultOptions returns the zero Options, the safe defaults: MSL 2.1,
+// Restrict bounds checks, bounded loops.
 func DefaultOptions() Options {
-	return Options{
-		LangVersion:         Version2_1,
-		BoundsCheckPolicies: DefaultBoundsCheckPolicies(),
-	}
+	return Options{}
 }
 
 // Compile generates MSL source code from an IR module.

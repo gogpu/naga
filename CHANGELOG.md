@@ -86,6 +86,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ask for SPIR-V 1.3, and `naga.Compile` now writes SPIR-V 1.0, Rust naga's default; a shader that needs a newer
   version (subgroup operations need 1.3) is an error until `SPIRV.Version` gives one. gg's 25 production shaders
   compile and pass spirv-val at the zero options.
+- **Breaking: every `DefaultOptions()` is the zero `Options`.** They had drifted from the safe zero values:
+  `msl.DefaultOptions` gave `ReadZeroSkipWrite` everywhere (now `Restrict`), `spirv.DefaultOptions` SPIR-V 1.1 with
+  native f16 inputs and outputs (now 1.0 and the f32 polyfill; native f16 IO needs `SHADER_F16` and device support, so
+  it is opt-in). `glsl` (3.30), `dxil` (shader model 6.0) and `hlsl` behave as before. `msl.DefaultBoundsCheckPolicies`
+  is removed: wgpu's Metal policies are `ReadZeroSkipWrite` on every field of `backend.BoundsCheckPolicies`.
 - **Breaking: the three meanings of "capabilities" have three names.** `spirv.Options.Capabilities` (extra
   capabilities to declare) is `ExtraCapabilities`; `spirv.Options.CapabilitiesAvailable` (the allowed set, Rust naga's
   `capabilities`) is `AllowedCapabilities`; `naga.CompileOptions.Capabilities` (what the IR validator allows) stays.

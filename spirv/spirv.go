@@ -210,13 +210,10 @@ type BindingInfo struct {
 	BindingArraySize *uint32
 }
 
-// DefaultOptions returns sensible default options.
+// DefaultOptions returns the zero Options, the safe defaults: SPIR-V 1.0,
+// Restrict bounds checks, bounded loops, f16 inputs and outputs through f32.
 func DefaultOptions() Options {
-	return Options{
-		Version:                 Version1_1,
-		Debug:                   false,
-		UseStorageInputOutput16: true,
-	}
+	return Options{}
 }
 
 // --- Implementation types (aliases — complex types with methods) ---
