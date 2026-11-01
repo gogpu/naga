@@ -436,17 +436,6 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 	if bai, ok := fn.Expressions[ai.Base].Kind.(ir.ExprAccessIndex); ok {
 		innerTy := e.resolveAccessIndexResultType(fn, bai)
 		if arrTy, isArr := innerTy.(ir.ArrayType); isArr {
-			// Workgroup globals: the validator rejects GEP-of-GEP chains
-			// from a TGSM (addrspace 3) global with 'TGSM pointers must
-			// originate from an unambiguous TGSM global variable'. The
-			// chain `globals_struct.arr[i]` therefore needs a SINGLE flat
-			// GEP with all indices [0, structField, arrayIndex] instead
-			// of two separate GEPs %x = struct_gep; %y = arr_gep %x.
-			// Mirrors Mesa nir_to_dxil deref_to_gep which walks the deref
-			// chain and emits one flat gep per shared variable access.
-			if id, handled := e.tryFlatGEPWorkgroupNested(fn, ai, bai); handled {
-				return id, nil
-			}
 			// Local-var nested array: the inner GEP produced an i32* (or
 			// equivalent scalar pointer) because typeToDXIL flattens nested
 			// arrays to a single dim. A second GEP with the inner-array
@@ -456,17 +445,12 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 			if id, handled := e.tryFlatGEPLocalVarNested(fn, ai.Base, e.getIntConstID(int64(ai.Index))); handled {
 				return id, nil
 			}
-			// The base produced a pointer to an array. GEP into element ai.Index.
-			// For decomposed workgroup struct members the GEP must target
-			// addrspace 3 so the validator's TGSM-origin check succeeds.
+			// The base produced a pointer to an array. GEP into element
+			// ai.Index. Never workgroup memory: scalarizeWorkgroupMemory
+			// leaves no array inside a workgroup variable.
 			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, arrTy)
 			if err2 == nil {
-				indexIDConst := e.getIntConstID(int64(ai.Index))
-				addrSpace := uint8(0)
-				if _, isWG := e.globalVarModuleVars[baseID]; isWG {
-					addrSpace = 3
-				}
-				return e.emitArrayGEPAS(baseID, arrayDxilTy, indexIDConst, addrSpace)
+				return e.emitArrayGEP(baseID, arrayDxilTy, e.getIntConstID(int64(ai.Index)))
 			}
 		}
 	}
@@ -585,29 +569,6 @@ func (e *Emitter) tryStructVectorComponentAccess(fn *ir.Function, outer ir.ExprA
 	return e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID}), true
 }
 
-// workgroupFieldOrigin records that an emitted GEP value is a struct-field
-// pointer derived from a workgroup addrspace(3) global. It lets downstream
-// emitters (notably emitArrayLoad) re-root per-element GEPs directly at the
-// global so the DXIL validator's TGSM-origin check succeeds.
-type workgroupFieldOrigin struct {
-	globalAllocaID int          // emitter value ID of the workgroup global
-	structTy       *module.Type // source struct type for the root GEP
-	fieldFlatIdx   int          // flat field index into structTy
-	memberTy       *module.Type // DXIL type of the field (e.g. [512 x i32])
-}
-
-// workgroupElemOrigin records that a pointer value was produced by a
-// single-step array-element GEP off a workgroup addrspace(3) global.
-// Decomposed per-field struct/array load/store paths use it to re-root
-// each field GEP directly at the global so the TGSM-origin analysis
-// succeeds instead of rejecting GEP-of-GEP.
-type workgroupElemOrigin struct {
-	globalAllocaID int          // emitter value ID of the workgroup global
-	arrayTy        *module.Type // source [N x T] array type for the root GEP
-	elemIndexID    int          // emitter value ID of the element index (runtime or const)
-	elemTy         *module.Type // DXIL type of the array element (e.g. struct S)
-}
-
 // emitGlobalStructGEP emits a GEP instruction to access a struct member from a
 // global variable alloca. Computes the flat index to match the DXIL struct layout.
 func (e *Emitter) emitGlobalStructGEP(allocaID int, dxilStructTy *module.Type, varHandle ir.GlobalVariableHandle, memberIndex int) (int, error) {
@@ -630,26 +591,12 @@ func (e *Emitter) emitGlobalStructGEP(allocaID int, dxilStructTy *module.Type, v
 	} else {
 		memberDXILTy = e.mod.GetFloatType(32)
 	}
-	// Workgroup globals live in addrspace(3); propagate to the field pointer
-	// so the validator sees the right type. The TGSM origin check is
-	// data-flow, not type-based, so we ALSO record the origin below.
-	addrSpace := uint8(0)
-	if gv.Space == ir.SpaceWorkGroup {
-		addrSpace = 3
-	}
-	resultPtrTy := e.mod.GetPointerTypeAS(memberDXILTy, addrSpace)
+	// Never a workgroup struct: scalarizeWorkgroupMemory splits those into
+	// one variable per member.
+	resultPtrTy := e.mod.GetPointerType(memberDXILTy)
 	zeroID := e.getIntConstID(0)
 	indexID := e.getIntConstID(int64(flatIndex))
-	id := e.addGEPInstr(dxilStructTy, resultPtrTy, allocaID, []int{zeroID, indexID})
-	if addrSpace == 3 && e.workgroupFieldPtrs != nil {
-		e.workgroupFieldPtrs[id] = workgroupFieldOrigin{
-			globalAllocaID: allocaID,
-			structTy:       dxilStructTy,
-			fieldFlatIdx:   flatIndex,
-			memberTy:       memberDXILTy,
-		}
-	}
-	return id, nil
+	return e.addGEPInstr(dxilStructTy, resultPtrTy, allocaID, []int{zeroID, indexID}), nil
 }
 
 // tryGlobalVarArrayAccess checks if the dynamic Access base is a global variable
@@ -668,24 +615,13 @@ func (e *Emitter) tryGlobalVarArrayAccess(fn *ir.Function, acc ir.ExprAccess, in
 	if !hasTy || allocaTy.Kind != module.TypeArray {
 		return -1, nil
 	}
-	// Workgroup arrays require addrspace 3 on the element pointer and the
-	// result must be tracked as a workgroup-elem origin so decomposed
-	// struct/array loads/stores can re-root at the global (TGSM-origin rule).
+	// Workgroup arrays require addrspace 3 on the element pointer.
 	addrSpace := uint8(0)
 	if int(gv.Variable) < len(e.ir.GlobalVariables) &&
 		e.ir.GlobalVariables[gv.Variable].Space == ir.SpaceWorkGroup {
 		addrSpace = 3
 	}
-	id, err := e.emitArrayGEPAS(allocaID, allocaTy, indexID, addrSpace)
-	if err == nil && addrSpace == 3 && e.workgroupElemPtrs != nil && allocaTy.ElemType != nil {
-		e.workgroupElemPtrs[id] = workgroupElemOrigin{
-			globalAllocaID: allocaID,
-			arrayTy:        allocaTy,
-			elemIndexID:    indexID,
-			elemTy:         allocaTy.ElemType,
-		}
-	}
-	return id, err
+	return e.emitArrayGEPAS(allocaID, allocaTy, indexID, addrSpace)
 }
 
 // tryLocalVarAccessIndex checks if the AccessIndex base is a local variable
@@ -764,65 +700,6 @@ func (e *Emitter) scaleIndexForVecArray(fn *ir.Function, varIdx uint32, indexID 
 	return e.addBinOpInstr(i32Ty, BinOpMul, indexID, vecWidthID)
 }
 
-// tryFlatGEPWorkgroupNested handles the access pattern
-//
-//	ExprAccessIndex(ExprAccessIndex(ExprGlobalVariable<workgroup>, fieldIdx), elemIdx)
-//
-// by emitting a SINGLE flat GEP with three indices [0, fieldIdx, elemIdx]
-// rooted directly at the workgroup global. The validator rejects the
-// equivalent chain of two GEPs as 'TGSM pointers must originate from an
-// unambiguous TGSM global variable' because GEP-of-GEP loses the
-// origin tracking. Returns (-1, false) if the chain doesn't match.
-//
-// Reference: Mesa nir_to_dxil deref_to_gep walks the entire deref chain
-// and emits gep_indices[0] = global_var, then one index per deref step.
-func (e *Emitter) tryFlatGEPWorkgroupNested(fn *ir.Function, ai, bai ir.ExprAccessIndex) (int, bool) {
-	// Inner base must be an ExprGlobalVariable for a workgroup-space global.
-	gv, ok := fn.Expressions[bai.Base].Kind.(ir.ExprGlobalVariable)
-	if !ok {
-		return -1, false
-	}
-	if int(gv.Variable) >= len(e.ir.GlobalVariables) {
-		return -1, false
-	}
-	if e.ir.GlobalVariables[gv.Variable].Space != ir.SpaceWorkGroup {
-		return -1, false
-	}
-	// The struct DXIL type must match the cached alloca type so the GEP's
-	// source-element-type operand is the original struct.
-	allocaID, hasAlloca := e.globalVarAllocas[gv.Variable]
-	if !hasAlloca {
-		return -1, false
-	}
-	structTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
-	if !hasTy || structTy.Kind != module.TypeStruct {
-		return -1, false
-	}
-	// Look up the array's element type from the IR struct member.
-	gvType := e.ir.Types[e.ir.GlobalVariables[gv.Variable].Type]
-	st, isStruct := gvType.Inner.(ir.StructType)
-	if !isStruct || int(bai.Index) >= len(st.Members) {
-		return -1, false
-	}
-	memberType := e.ir.Types[st.Members[bai.Index].Type]
-	arrType, isArr := memberType.Inner.(ir.ArrayType)
-	if !isArr {
-		return -1, false
-	}
-	elemInner := e.ir.Types[arrType.Base].Inner
-	elemDxilTy, err := typeToDXIL(e.mod, e.ir, elemInner)
-	if err != nil {
-		return -1, false
-	}
-	// Build the GEP: source elem type = struct, indices = [0, fieldIdx, arrIdx].
-	zeroID := e.getIntConstID(0)
-	fieldID := e.getIntConstID(int64(bai.Index))
-	arrIdxID := e.getIntConstID(int64(ai.Index))
-	resultPtrTy := e.mod.GetPointerTypeAS(elemDxilTy, 3)
-	id := e.addGEPInstr(structTy, resultPtrTy, allocaID, []int{zeroID, fieldID, arrIdxID})
-	return id, true
-}
-
 // tryAccessIndexArrayGEP checks if the Access base is an AccessIndex that
 // produced a pointer to an array (struct member that is an array type).
 // If so, emits a flat GEP or array GEP as appropriate. Returns (id, true)
@@ -845,14 +722,9 @@ func (e *Emitter) tryAccessIndexArrayGEP(fn *ir.Function, acc ir.ExprAccess, bas
 	if err != nil {
 		return 0, false
 	}
-	// Decomposed workgroup struct members are addrspace(3) globals.
-	// The GEP result pointer must carry addrspace 3 so the validator's
-	// TGSM-origin check succeeds on downstream load/store/atomicrmw.
-	addrSpace := uint8(0)
-	if _, isWG := e.globalVarModuleVars[baseID]; isWG {
-		addrSpace = 3
-	}
-	id, err := e.emitArrayGEPAS(baseID, arrayDxilTy, indexID, addrSpace)
+	// Never workgroup memory: scalarizeWorkgroupMemory leaves no array
+	// inside a workgroup variable.
+	id, err := e.emitArrayGEP(baseID, arrayDxilTy, indexID)
 	if err != nil {
 		return 0, false
 	}
@@ -874,8 +746,7 @@ func (e *Emitter) tryAccessIndexArrayGEP(fn *ir.Function, acc ir.ExprAccess, bas
 // produced an i32* but the outer GEP is typed as if the source were a
 // `[4 x i32]*`.
 //
-// The fix mirrors tryFlatGEPWorkgroupNested: emit a SINGLE GEP with the
-// flattened scalar index `idx0 * (N1*N2*...) + idx1 * (N2*...) + ...`,
+// The fix: emit a SINGLE GEP with the flattened scalar index `idx0 * (N1*N2*...) + idx1 * (N2*...) + ...`,
 // rooted directly at the local variable's flattened array alloca. This is
 // what DXC's SROA + GVN + LLVM's instcombine collapse the two-GEP chain into.
 //
@@ -1052,21 +923,6 @@ func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex
 		return -1, nil
 	}
 
-	// Decomposed struct workgroup var: the per-member global is already
-	// created during decomposeWorkgroupStruct. Return it directly instead
-	// of emitting a GEP into a monolithic struct. The member global is a
-	// top-level addrspace(3) global with the member's own type (array,
-	// scalar, etc.), so downstream code treats it as any other workgroup
-	// global -- no struct GEP needed.
-	if allocaID == -1 {
-		key := wgMemberKey{varHandle: gv.Variable, memberIndex: int(ai.Index)}
-		memberID, found := e.decomposedWGMembers[key]
-		if !found {
-			return -1, fmt.Errorf("decomposed workgroup member (%d, %d) not found", gv.Variable, ai.Index)
-		}
-		return memberID, nil
-	}
-
 	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
 	if !hasTy {
 		return -1, nil
@@ -1083,17 +939,7 @@ func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex
 		addrSpace = 3
 	}
 	if allocaTy.Kind == module.TypeArray {
-		indexID := e.getIntConstID(int64(ai.Index))
-		id, err := e.emitArrayGEPAS(allocaID, allocaTy, indexID, addrSpace)
-		if err == nil && addrSpace == 3 && e.workgroupElemPtrs != nil && allocaTy.ElemType != nil {
-			e.workgroupElemPtrs[id] = workgroupElemOrigin{
-				globalAllocaID: allocaID,
-				arrayTy:        allocaTy,
-				elemIndexID:    indexID,
-				elemTy:         allocaTy.ElemType,
-			}
-		}
-		return id, err
+		return e.emitArrayGEPAS(allocaID, allocaTy, e.getIntConstID(int64(ai.Index)), addrSpace)
 	}
 	if allocaTy.Kind == module.TypeStruct {
 		return e.emitGlobalStructGEP(allocaID, allocaTy, gv.Variable, int(ai.Index))
@@ -5063,15 +4909,9 @@ func (e *Emitter) tryGlobalVarAllocaLoad(fn *ir.Function, ptrHandle ir.Expressio
 
 // emitArrayLoad decomposes an array load into per-element GEP + scalar loads.
 // DXIL does not support aggregate (array) type loads, so we load each element
-// individually and track them as components.
-//
-// TGSM origin handling: if basePtrID was produced by a single struct-field GEP
-// off a workgroup addrspace(3) global (tracked in e.workgroupFieldPtrs), each
-// per-element GEP must be rooted DIRECTLY at the global with three indices
-// [0, fieldFlatIdx, i] instead of chaining off the field pointer. The DXIL
-// validator's TGSM-origin check is data-flow-based and rejects GEP-of-GEP
-// chains with 'TGSM pointers must originate from an unambiguous TGSM global
-// variable'. Mesa's nir_to_dxil collapses the same pattern via its deref-walk.
+// individually and track them as components. A workgroup array (one of
+// scalars: scalarizeWorkgroupMemory splits every other) is an addrspace(3)
+// global, and each element GEP is rooted at it.
 func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error) {
 	elemTy := arrayTy.ElemType
 	if elemTy == nil {
@@ -5082,16 +4922,8 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 		return e.getIntConstID(0), nil
 	}
 
-	// If basePtrID came from a struct-field GEP off a workgroup global,
-	// switch to rooting each element GEP at the global with a 3-index path.
-	wgOrigin, rootAtGlobal := workgroupFieldRoot(e, basePtrID)
-
-	// Decomposed workgroup struct members are addrspace(3) globals.
-	// They are NOT in workgroupFieldPtrs but ARE in globalVarModuleVars.
 	addrSpace := uint8(0)
-	if rootAtGlobal {
-		addrSpace = 3
-	} else if _, isWG := e.globalVarModuleVars[basePtrID]; isWG {
+	if _, isWG := e.globalVarModuleVars[basePtrID]; isWG {
 		addrSpace = 3
 	}
 	resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
@@ -5100,20 +4932,7 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 
 	componentIDs := make([]int, numElems)
 	for i := 0; i < numElems; i++ {
-		indexID := e.getIntConstID(int64(i))
-
-		var gepID int
-		if rootAtGlobal {
-			fieldID := e.getIntConstID(int64(wgOrigin.fieldFlatIdx))
-			gepID = e.addGEPInstr(
-				wgOrigin.structTy,
-				resultPtrTy,
-				wgOrigin.globalAllocaID,
-				[]int{zeroID, fieldID, indexID},
-			)
-		} else {
-			gepID = e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
-		}
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, e.getIntConstID(int64(i))})
 
 		valueID := e.allocValue()
 		instr := &module.Instruction{
@@ -5129,16 +4948,6 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 
 	e.pendingComponents = componentIDs
 	return componentIDs[0], nil
-}
-
-// workgroupFieldRoot returns the workgroup-global origin info for basePtrID
-// if it was produced by a struct-field GEP off an addrspace(3) global.
-func workgroupFieldRoot(e *Emitter, basePtrID int) (workgroupFieldOrigin, bool) {
-	if e.workgroupFieldPtrs == nil {
-		return workgroupFieldOrigin{}, false
-	}
-	origin, ok := e.workgroupFieldPtrs[basePtrID]
-	return origin, ok
 }
 
 // tryStructVectorMemberLoad detects loads of a vector-typed field from a local
@@ -5275,41 +5084,20 @@ func (e *Emitter) emitStructLoad(basePtrID int, dxilStructTy *module.Type) (int,
 }
 
 // emitStructLoadAS is emitStructLoad with an explicit addrspace for the
-// per-field pointers. Workgroup (groupshared) struct loads hit this path
-// with addrspace=3; the validator rejects 0x80aa0009 "Explicit load/store
-// type does not match pointee type of pointer operand" when the per-field
-// GEP result pointer type's addrspace diverges from the base pointer's.
-//
-// When basePtrID was produced by a single-step array GEP off a workgroup
-// global (tracked in workgroupElemPtrs), each per-field GEP is re-rooted
-// DIRECTLY at the global with indices [0, elemIdx, fieldN]. Otherwise the
-// DXIL validator rejects GEP-of-GEP as 'TGSM pointers must originate from
-// an unambiguous TGSM global variable'. Mesa nir_to_dxil collapses the
-// equivalent chain via its deref-walk pass.
+// per-field pointers: the per-field GEP result pointer's addrspace must be
+// the base pointer's, or the validator rejects 0x80aa0009 "Explicit
+// load/store type does not match pointee type of pointer operand".
 func (e *Emitter) emitStructLoadAS(basePtrID int, dxilStructTy *module.Type, addrSpace uint8) (int, error) {
 	if len(dxilStructTy.StructElems) == 0 {
 		return e.getIntConstID(0), nil
 	}
 
-	elemOrigin, hasElemOrigin := e.workgroupElemRoot(basePtrID)
-
 	zeroID := e.getIntConstID(0)
 	componentIDs := make([]int, len(dxilStructTy.StructElems))
 
 	for i, elemTy := range dxilStructTy.StructElems {
-		indexID := e.getIntConstID(int64(i))
 		resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
-		var gepID int
-		if hasElemOrigin {
-			gepID = e.addGEPInstr(
-				elemOrigin.arrayTy,
-				resultPtrTy,
-				elemOrigin.globalAllocaID,
-				[]int{zeroID, elemOrigin.elemIndexID, indexID},
-			)
-		} else {
-			gepID = e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
-		}
+		gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, e.getIntConstID(int64(i))})
 
 		align := e.alignForType(elemTy)
 		valueID := e.allocValue()
@@ -5326,18 +5114,6 @@ func (e *Emitter) emitStructLoadAS(basePtrID int, dxilStructTy *module.Type, add
 
 	e.pendingComponents = componentIDs
 	return componentIDs[0], nil
-}
-
-// workgroupElemRoot returns the workgroup-element origin info for basePtrID
-// if it was produced by a single-step array-element GEP off an addrspace(3)
-// global. Used by decomposed struct/array load/store paths to re-root per-
-// field GEPs directly at the global (TGSM-origin rule).
-func (e *Emitter) workgroupElemRoot(basePtrID int) (workgroupElemOrigin, bool) {
-	if e.workgroupElemPtrs == nil {
-		return workgroupElemOrigin{}, false
-	}
-	origin, ok := e.workgroupElemPtrs[basePtrID]
-	return origin, ok
 }
 
 // resolvePointerAddrSpace walks the pointer expression back to its root
@@ -5670,21 +5446,13 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	// or node record destination to atomic operation'. The proper DXIL
 	// encoding is a top-level @globalshared.X = addrspace(3) global,
 	// matching DXC's groupshared HLSL lowering.
-	//
-	// For struct-typed workgroup vars, DXC decomposes the struct into
-	// separate per-member globals, each with its own MSVC-mangled name
-	// containing the struct type name and member index suffix. The
-	// emitter value ID stored in globalVarAllocas is a sentinel (-1)
-	// indicating decomposition; actual member globals are in
-	// decomposedWGMembers keyed by (varHandle, memberIndex).
 	if gv.Space == ir.SpaceWorkGroup {
+		if !FlatWorkgroupType(e.ir, gv.Type) {
+			return 0, fmt.Errorf("internal error: workgroup variable %q holds a %T: the scalarization pass splits workgroup memory into scalars and arrays of scalars before the emitter",
+				gv.Name, irType.Inner)
+		}
 		if e.globalVarModuleVars == nil {
 			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
-		}
-
-		// Struct-typed workgroup vars: decompose into per-member globals.
-		if st, isSt := irType.Inner.(ir.StructType); isSt {
-			return e.decomposeWorkgroupStruct(varHandle, gv, st, irType.Name)
 		}
 
 		modGV := e.mod.AddGlobalVar(GroupsharedName(e.ir, gv), elemTy, 3)
@@ -5742,81 +5510,20 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	return valueID, nil
 }
 
-// decomposeWorkgroupStruct creates per-member addrspace(3) globals for a
-// struct-typed workgroup variable, matching DXC's groupshared decomposition.
-//
-// DXC flattens each struct member into its own global with an MSVC-mangled
-// name:  \01?<var>@@3U<StructType>@@A.<memberIdx>
-// Multi-dimensional arrays get a ".1dim" suffix after flattening to 1D.
-// Atomic members are unwrapped to their scalar type.
-//
-// The sentinel value -1 is stored in globalVarAllocas to indicate that this
-// global has been decomposed. Member globals are in decomposedWGMembers.
-func (e *Emitter) decomposeWorkgroupStruct(
-	varHandle ir.GlobalVariableHandle,
-	gv *ir.GlobalVariable,
-	st ir.StructType,
-	structTypeName string,
-) (int, error) {
-	varName := gv.Name
-	if len(varName) > 0 && varName[len(varName)-1] >= '0' && varName[len(varName)-1] <= '9' {
-		varName += "_"
-	}
-
-	// Name prefix: \01?<var>@@3U<StructName>@@A
-	namePrefix := "\x01?" + varName + "@@3U" + structTypeName + "@@A"
-
-	for i, m := range st.Members {
-		memberIRType := e.ir.Types[m.Type]
-		memberTy, err := typeToDXIL(e.mod, e.ir, memberIRType.Inner)
-		if err != nil {
-			return 0, fmt.Errorf("workgroup struct member %d (%s): %w", i, m.Name, err)
+// FlatWorkgroupType reports whether a workgroup variable of type ty is one
+// the emitter takes: a scalar, an atomic, or an array of either. The dxil
+// package's scalarizeWorkgroupMemory splits every other into those.
+func FlatWorkgroupType(irMod *ir.Module, ty ir.TypeHandle) bool {
+	switch t := irMod.Types[ty].Inner.(type) {
+	case ir.ScalarType, ir.AtomicType:
+		return true
+	case ir.ArrayType:
+		switch irMod.Types[t.Base].Inner.(type) {
+		case ir.ScalarType, ir.AtomicType:
+			return true
 		}
-
-		// Build the per-member mangled name with member index suffix.
-		// Multi-dimensional arrays that get flattened to 1D get ".1dim".
-		suffix := fmt.Sprintf(".%d", i)
-		if isMultiDimArray(e.ir, memberIRType.Inner) {
-			suffix += ".1dim"
-		}
-		mangledName := namePrefix + suffix
-
-		modGV := e.mod.AddGlobalVar(mangledName, memberTy, 3)
-		modGV.Alignment = globalVarAlignment(memberTy)
-		// DXC emits decomposed workgroup members with `undef` initializer
-		// and external linkage (linkage=0). The disassembly shows
-		// `addrspace(3) global [N x T] undef` without `external` or
-		// `internal` keyword (external is the default in LLVM IR text).
-		modGV.Initializer = e.mod.AddUndefConst(memberTy)
-		modGV.Linkage = 0 // external (override auto=internal for init'd globals)
-		emitterID := e.allocValue()
-		e.globalVarModuleVars[emitterID] = modGV
-
-		key := wgMemberKey{varHandle: varHandle, memberIndex: i}
-		e.decomposedWGMembers[key] = emitterID
-		e.decomposedWGMemberTypes[key] = memberTy
 	}
-
-	// Store sentinel -1 in globalVarAllocas to mark this var as decomposed.
-	// tryGlobalVarAccessIndex checks this to redirect member accesses.
-	e.globalVarAllocas[varHandle] = -1
-
-	// Return -1; callers should access members via tryGlobalVarAccessIndex,
-	// not the base variable directly.
-	return -1, nil
-}
-
-// isMultiDimArray returns true if the given IR type is an array whose element
-// type is also an array (i.e., array<array<T, N>, M>). DXC appends ".1dim" to
-// the decomposed member name for such cases after flattening to 1D.
-func isMultiDimArray(irMod *ir.Module, inner ir.TypeInner) bool {
-	arr, ok := inner.(ir.ArrayType)
-	if !ok {
-		return false
-	}
-	elemInner := irMod.Types[arr.Base].Inner
-	_, isNestedArr := elemInner.(ir.ArrayType)
-	return isNestedArr
+	return false
 }
 
 // resolveLoadType determines the DXIL type produced by loading from the given

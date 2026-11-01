@@ -2002,31 +2002,14 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 // store per field, each through a per-field GEP that inherits the base
 // pointer's addrspace. Callers must have already emitted the value
 // expression — per-component IDs are sourced via getComponentID.
-//
-// TGSM origin handling: when basePtrID came from a single-step array GEP
-// off a workgroup global (workgroupElemPtrs), each field GEP is re-rooted
-// directly at the global with indices [0, elemIdx, fieldN]. Same reason
-// as emitStructLoadAS — validator's TGSM-origin analysis rejects GEP-of-GEP.
 func (e *Emitter) emitStructStoreDecomposed(basePtrID int, dxilStructTy *module.Type, valueHandle ir.ExpressionHandle, addrSpace uint8) error {
 	if len(dxilStructTy.StructElems) == 0 {
 		return nil
 	}
-	elemOrigin, hasElemOrigin := e.workgroupElemRoot(basePtrID)
 	zeroID := e.getIntConstID(0)
 	for i, elemTy := range dxilStructTy.StructElems {
-		indexID := e.getIntConstID(int64(i))
 		resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
-		var gepID int
-		if hasElemOrigin {
-			gepID = e.addGEPInstr(
-				elemOrigin.arrayTy,
-				resultPtrTy,
-				elemOrigin.globalAllocaID,
-				[]int{zeroID, elemOrigin.elemIndexID, indexID},
-			)
-		} else {
-			gepID = e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
-		}
+		gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, e.getIntConstID(int64(i))})
 
 		compID := e.getComponentID(valueHandle, i)
 		align := e.alignForType(elemTy)
@@ -2054,23 +2037,11 @@ func (e *Emitter) emitArrayStoreDecomposed(basePtrID int, arrayTy *module.Type, 
 	if numElems == 0 {
 		return nil
 	}
-	elemOrigin, hasElemOrigin := e.workgroupElemRoot(basePtrID)
 	zeroID := e.getIntConstID(0)
 	resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
 	align := e.alignForType(elemTy)
 	for i := 0; i < numElems; i++ {
-		indexID := e.getIntConstID(int64(i))
-		var gepID int
-		if hasElemOrigin {
-			gepID = e.addGEPInstr(
-				elemOrigin.arrayTy,
-				resultPtrTy,
-				elemOrigin.globalAllocaID,
-				[]int{zeroID, elemOrigin.elemIndexID, indexID},
-			)
-		} else {
-			gepID = e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
-		}
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, e.getIntConstID(int64(i))})
 
 		compID := e.getComponentID(valueHandle, i)
 		instr := &module.Instruction{
