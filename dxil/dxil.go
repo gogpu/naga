@@ -54,7 +54,7 @@ type Options struct {
 	// and !dx.shaderModel carry the same version. A shader that uses a
 	// feature of a newer model (the view index 6.1, 16-bit types 6.2, ray
 	// queries and mesh shaders 6.5, 64-bit atomics 6.6) is an error, a
-	// *backend.ShaderModelError: pass the device's highest supported model. So
+	// *backend.VersionError: pass the device's highest supported model. So
 	// is, for now, a storage buffer whose element has more than four
 	// components (6.2) or 64-bit elements (6.3): it is written with raw
 	// buffer operations, where DXC writes bufferLoad and bufferStore below
@@ -341,7 +341,7 @@ func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 
 // checkShaderModel refuses the entry point when a feature it uses needs a
 // newer shader model than sm, the newest such feature first, with a
-// *backend.ShaderModelError.
+// *backend.VersionError (shaderModelTooLow).
 func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderModel) error {
 	lowPrecision, err := moduleUsesLowPrecision(irModule)
 	if err != nil {
@@ -363,11 +363,22 @@ func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderM
 		{1, "the view index", moduleUsesViewID(irModule)},
 	} {
 		if r.uses && sm.Minor < r.minor {
-			return fmt.Errorf("dxil: %w", &backend.ShaderModelError{
-				Feature: r.feature, Required: backend.ShaderModel{Major: 6, Minor: r.minor}, Requested: sm})
+			return shaderModelTooLow(r.feature, r.minor, sm)
 		}
 	}
 	return nil
+}
+
+// shaderModelTooLow is the refusal of a feature that needs shader model
+// 6.<minor> when Options.ShaderModel is requested: a *backend.VersionError
+// in backend.VersionShaderModel, wrapped as every dxil error.
+func shaderModelTooLow(feature string, minor uint8, requested backend.ShaderModel) error {
+	return fmt.Errorf("dxil: %w", &backend.VersionError{
+		Space:     backend.VersionShaderModel,
+		Feature:   feature,
+		Required:  backend.Version{Major: 6, Minor: minor},
+		Requested: backend.Version(requested),
+	})
 }
 
 // prepareModule clones the IR module, inlines every user function into the
@@ -595,14 +606,12 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	// 6.2: our limit, not the shader's, refused as loudly as a feature
 	// (P1-DXIL-072).
 	if reachableUsesInt64Buffer(irModule, reachableGlobals) && smMinor < 3 {
-		return nil, fmt.Errorf("dxil: %w", &backend.ShaderModelError{
-			Feature:  "a storage buffer with 64-bit elements (written with raw buffer operations, P1-DXIL-072)",
-			Required: backend.ShaderModel{Major: 6, Minor: 3}, Requested: opts.ShaderModel})
+		return nil, shaderModelTooLow(
+			"a storage buffer with 64-bit elements (written with raw buffer operations, P1-DXIL-072)", 3, opts.ShaderModel)
 	}
 	if reachableUsesRawBufferAccess(irModule, reachableGlobals) && smMinor < 2 {
-		return nil, fmt.Errorf("dxil: %w", &backend.ShaderModelError{
-			Feature:  "a storage buffer element of more than four components (written with raw buffer operations, P1-DXIL-072)",
-			Required: backend.ShaderModel{Major: 6, Minor: 2}, Requested: opts.ShaderModel})
+		return nil, shaderModelTooLow(
+			"a storage buffer element of more than four components (written with raw buffer operations, P1-DXIL-072)", 2, opts.ShaderModel)
 	}
 
 	// Pre-compute per-input-arg component usage masks from IR body analysis.

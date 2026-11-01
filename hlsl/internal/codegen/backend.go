@@ -235,13 +235,14 @@ func checkBoundsCheckPolicies(p backend.BoundsCheckPolicies) error {
 // naga's ShaderModelTooLow (back/hlsl/writer.rs): a mesh or task entry point
 // below 6.5, and the view index (SV_ViewID), barycentrics (SV_Barycentrics)
 // or a per-vertex input (GetAttributeAtVertex) below 6.1, with a
-// *backend.ShaderModelError.
+// *backend.VersionError in backend.VersionShaderModel.
 func checkShaderModel(module *ir.Module, options *Options) error {
 	tooLow := func(feature string, required ShaderModel) error {
-		return fmt.Errorf("hlsl: %w", &backend.ShaderModelError{
+		return fmt.Errorf("hlsl: %w", &backend.VersionError{
+			Space:     backend.VersionShaderModel,
 			Feature:   feature,
-			Required:  backend.ShaderModel{Major: required.Major(), Minor: required.Minor()},
-			Requested: backend.ShaderModel{Major: options.ShaderModel.Major(), Minor: options.ShaderModel.Minor()},
+			Required:  backend.Version{Major: required.Major(), Minor: required.Minor()},
+			Requested: backend.Version{Major: options.ShaderModel.Major(), Minor: options.ShaderModel.Minor()},
 		})
 	}
 	for i := range module.EntryPoints {

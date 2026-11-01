@@ -52,10 +52,10 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 		bytes, _, cerr := dxil.Compile(module, opts)
 		// An entry point that needs a newer shader model is validated at it,
 		// the model a device that supports it is asked for.
-		var smErr *backend.ShaderModelError
-		if errors.As(cerr, &smErr) {
+		var vErr *backend.VersionError
+		if errors.As(cerr, &vErr) && vErr.Space == backend.VersionShaderModel {
 			epOpts := opts
-			epOpts.ShaderModel = smErr.Required
+			epOpts.ShaderModel = backend.ShaderModel(vErr.Required)
 			bytes, _, cerr = dxil.Compile(module, epOpts)
 		}
 		if cerr != nil {

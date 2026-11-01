@@ -15,9 +15,9 @@ import (
 // of raising the model).
 func dxilAtNeededModel(module *ir.Module, opts dxil.Options) ([]byte, error) {
 	blob, _, err := dxil.Compile(module, opts)
-	var smErr *backend.ShaderModelError
-	if errors.As(err, &smErr) {
-		opts.ShaderModel = smErr.Required
+	var vErr *backend.VersionError
+	if errors.As(err, &vErr) && vErr.Space == backend.VersionShaderModel {
+		opts.ShaderModel = backend.ShaderModel(vErr.Required)
 		blob, _, err = dxil.Compile(module, opts)
 	}
 	return blob, err

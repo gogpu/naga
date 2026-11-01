@@ -190,9 +190,10 @@ func TestBarycentricNoPerspectiveBuiltin(t *testing.T) {
 		// SV_Barycentrics is a shader model 6.1 semantic; Rust writes it at
 		// any model.
 		_, _, err := hlsl.Compile(module, hlsl.Options{})
-		var smErr *backend.ShaderModelError
-		if !errors.As(err, &smErr) || smErr.Required != (backend.ShaderModel{Major: 6, Minor: 1}) {
-			t.Fatalf("shader model 5.1: error %v, want a ShaderModelError for 6.1", err)
+		var vErr *backend.VersionError
+		if !errors.As(err, &vErr) || vErr.Space != backend.VersionShaderModel ||
+			vErr.Required != (backend.Version{Major: 6, Minor: 1}) {
+			t.Fatalf("shader model 5.1: error %v, want a shader model VersionError for 6.1", err)
 		}
 		src, _, err := hlsl.Compile(module, hlsl.Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 1}})
 		if err != nil {
@@ -204,7 +205,13 @@ func TestBarycentricNoPerspectiveBuiltin(t *testing.T) {
 	})
 	t.Run("msl", func(t *testing.T) {
 		// Rust naga fc9060f5: barycentrics travel in the [[stage_in]] struct.
-		src, _, err := msl.Compile(module, msl.Options{EntryPoint: fs})
+		// They need MSL 2.3: the zero version, 2.1, is refused, not raised.
+		_, _, err := msl.Compile(module, msl.Options{EntryPoint: fs})
+		var vErr *backend.VersionError
+		if !errors.As(err, &vErr) || vErr.Space != backend.VersionMSL || vErr.Required != (backend.Version{Major: 2, Minor: 3}) {
+			t.Fatalf("MSL 2.1: error %v, want an MSL VersionError for 2.3", err)
+		}
+		src, _, err := msl.Compile(module, msl.Options{EntryPoint: fs, LangVersion: msl.Version2_3})
 		if err != nil {
 			t.Fatal(err)
 		}

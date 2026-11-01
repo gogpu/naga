@@ -2,9 +2,10 @@ package codegen
 
 import (
 	"encoding/binary"
-	"strings"
+	"errors"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -14,8 +15,7 @@ import (
 
 func compileModuleWithOptions(t *testing.T, module *ir.Module, opts Options) []byte {
 	t.Helper()
-	backend := NewBackend(opts)
-	spvBytes, err := backend.Compile(module)
+	spvBytes, err := NewBackend(opts).Compile(module)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -365,9 +365,14 @@ func TestCapability_SubgroupBuiltins(t *testing.T) {
 
 			// Below SPIR-V 1.3 the backend refuses them instead of raising
 			// the version the caller asked for.
-			if _, err := NewBackend(DefaultOptions()).Compile(module); err == nil ||
-				!strings.Contains(err.Error(), "need SPIR-V 1.3") {
-				t.Errorf("SPIR-V 1.1: err = %v, want need SPIR-V 1.3", err)
+			_, err = NewBackend(DefaultOptions()).Compile(module)
+			var vErr *backend.VersionError
+			if !errors.As(err, &vErr) || vErr.Space != backend.VersionSPIRV ||
+				vErr.Required != (backend.Version{Major: 1, Minor: 3}) || vErr.Requested != (backend.Version{Major: 1, Minor: 1}) {
+				t.Fatalf("SPIR-V 1.1: err = %v, want a SPIR-V VersionError requiring 1.3", err)
+			}
+			if want := "spirv: a subgroup built-in needs SPIR-V 1.3, Options.Version is 1.1"; err.Error() != want {
+				t.Errorf("SPIR-V 1.1: err = %q, want %q", err, want)
 			}
 		})
 	}

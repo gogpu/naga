@@ -29,7 +29,7 @@ struct RayDesc {
     metal::float3 dir;
 };
 
-kernel void main_(
+[[max_total_threads_per_threadgroup(1)]] kernel void main_(
   metal::raytracing::instance_acceleration_structure acc [[user(fake0)]]
 ) {
     uint i = 0u;

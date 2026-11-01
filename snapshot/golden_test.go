@@ -182,7 +182,7 @@ func goldenSPIRV(module *ir.Module, shader string) (string, error) {
 	// A shader that needs a newer version than the default (subgroup
 	// operations need 1.3), which the backend refuses to raise, takes the
 	// one its Rust parameters give.
-	if err != nil && strings.Contains(err.Error(), "need SPIR-V") {
+	if vErr := (*backend.VersionError)(nil); errors.As(err, &vErr) && vErr.Space == backend.VersionSPIRV {
 		opts.Version = readRustSPVConfig(shader).Version
 		binary, err = spirvBinary(module, opts)
 	}
@@ -290,15 +290,15 @@ func goldenHLSL(module *ir.Module, shader string) (string, error) {
 	code, _, err := hlsl.Compile(module, opts)
 	// A shader that needs a newer shader model (mesh shaders, the view
 	// index) is written at it: the backend refuses rather than raises it.
-	var smErr *backend.ShaderModelError
-	if errors.As(err, &smErr) {
-		opts.ShaderModel = smErr.Required
+	var vErr *backend.VersionError
+	if errors.As(err, &vErr) && vErr.Space == backend.VersionShaderModel {
+		opts.ShaderModel = backend.ShaderModel(vErr.Required)
 		code, _, err = hlsl.Compile(module, opts)
 	}
 	return code, err
 }
 
-func goldenMSL(module *ir.Module, _ string) (string, error) {
+func goldenMSL(module *ir.Module, shader string) (string, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
 	// The goldens check ReadZeroSkipWrite, the policy they were written with.
@@ -313,7 +313,33 @@ func goldenMSL(module *ir.Module, _ string) (string, error) {
 	// the Rust snapshots of the same shaders have them.
 	opts.PerEntryPointMap = map[string]msl.EntryPointResources{}
 	code, _, err := msl.Compile(module, opts)
+	// A shader that needs a newer MSL than 1.0, which the backend refuses
+	// rather than raises, takes the version its Rust parameters give, as
+	// goldenSPIRV does, or the one goldenMSLVersions gives.
+	var vErr *backend.VersionError
+	if errors.As(err, &vErr) && vErr.Space == backend.VersionMSL {
+		rust, rustErr := readRustMSLConfig(shader)
+		if rustErr != nil {
+			return "", rustErr
+		}
+		opts.LangVersion = rust.LangVersion
+		if v, ok := goldenMSLVersions[shader]; ok {
+			opts.LangVersion = v
+		}
+		code, _, err = msl.Compile(module, opts)
+	}
 	return code, err
+}
+
+// goldenMSLVersions is the MSL version of the goldens of shaders that Rust
+// does not test on Metal, so their parameters give none, and that need more
+// than 1.0: the lowest version Rust's MSL writer accepts for them.
+var goldenMSLVersions = map[string]msl.Version{
+	"9105-primitive-index-ordering": msl.Version2_3,       // @builtin(primitive_index)
+	"invariant":                     msl.Version2_1,       // @invariant
+	"multiview_webgl":               {Major: 2, Minor: 2}, // @builtin(view_index)
+	"primitive-index-gles":          msl.Version2_3,       // @builtin(primitive_index)
+	"push-constants":                msl.Version1_2,       // @builtin(instance_index)
 }
 
 // uncheckedPolicies is Rust naga's default bounds-check policy, Unchecked, on

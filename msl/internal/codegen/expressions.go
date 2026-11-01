@@ -1631,6 +1631,14 @@ func (w *Writer) writeSelect(sel ir.ExprSelect) error {
 func (w *Writer) writeMath(mathExpr ir.ExprMath) error {
 	funcName := mathFunctionName(mathExpr.Fun)
 
+	// MSL 1.2 added the integer functions that extract, insert and reverse
+	// bits: Rust refuses them below it (writer.rs, UnsupportedFunction).
+	if feature, ok := bitFunctions[mathExpr.Fun]; ok {
+		if err := w.requireVersion(Version1_2, feature); err != nil {
+			return err
+		}
+	}
+
 	// Handle special cases that don't follow the standard pattern
 	switch mathExpr.Fun {
 	case ir.MathSign:

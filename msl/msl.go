@@ -155,8 +155,12 @@ type EntryPointResources struct {
 
 // Options configures MSL code generation.
 type Options struct {
-	// LangVersion is the target MSL version.
-	// Defaults to Version2_1 if zero.
+	// LangVersion is the MSL version written in the header and the
+	// highest one the output may use; the zero value is 2.1 (Rust naga's
+	// default is 1.0). The backend never raises it: a feature of a newer
+	// MSL is an error, a *backend.VersionError in backend.VersionMSL that
+	// names the feature and the version it needs, as Rust naga refuses it.
+	// Pass the device's highest supported version.
 	LangVersion Version
 
 	// PerEntryPointMap maps entry point names to their resource bindings.

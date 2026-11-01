@@ -449,8 +449,9 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := spirvBinary(m, spirv.Options{}); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
-		t.Errorf("subgroups at the zero version: err = %v, want need SPIR-V 1.3", err)
+	if _, err := spirvBinary(m, spirv.Options{}); err == nil ||
+		!strings.Contains(err.Error(), "needs SPIR-V 1.3, Options.Version is 1.0") {
+		t.Errorf("subgroups at the zero version: err = %v, want needs SPIR-V 1.3, Options.Version is 1.0", err)
 	}
 	spv, err = spirvBinary(m, spirv.Options{Version: spirv.Version1_3})
 	if err != nil || spv[5] != 3 {

@@ -24,12 +24,23 @@
 //
 // # MSL Language Versions
 //
-// The backend supports MSL 1.2 through 3.0. Features used depend on the target version:
-//   - MSL 1.2: Basic shaders, most texture operations
-//   - MSL 2.0: Tessellation, indirect command buffers
-//   - MSL 2.1: Improved array handling
-//   - MSL 2.3: Ray tracing, 64-bit atomics
-//   - MSL 3.0: Mesh shaders, extended features
+// Options.LangVersion is the version the output is written for (zero: 2.1).
+// The backend never raises it: a shader that needs a newer MSL is refused
+// with a *backend.VersionError, as Rust naga refuses it. The versions some
+// features need:
+//   - MSL 1.2: @builtin(instance_index), @blend_src, reverseBits,
+//     extractBits, insertBits, writable storage buffers in fragment shaders,
+//     writable storage textures in vertex and fragment shaders, read-write
+//     storage textures
+//   - MSL 2.0: binding arrays of samplers, textures and read-only or
+//     write-only storage textures
+//   - MSL 2.1: @invariant
+//   - MSL 2.2: @builtin(view_index)
+//   - MSL 2.3: @builtin(primitive_index), @builtin(barycentric)
+//   - MSL 2.4: ray queries
+//   - MSL 3.0: binding arrays of read-write storage textures, mesh shaders
+//   - MSL 3.1: 64-bit storage textures (r64uint, r64sint)
+//   - MSL 4.0: @interpolate(per_vertex)
 //
 // # Type Mapping
 //

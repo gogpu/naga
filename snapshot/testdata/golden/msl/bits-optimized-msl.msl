@@ -1,4 +1,4 @@
-// language: metal1.0
+// language: metal2.1
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -11,7 +11,7 @@ struct DefaultConstructible {
 };
 
 
-kernel void main_(
+[[max_total_threads_per_threadgroup(1)]] kernel void main_(
 ) {
     int i = 0;
     metal::int2 i2_ = metal::int2(0);
@@ -34,13 +34,13 @@ kernel void main_(
     metal::float2 _e36 = f2_;
     u = as_type<uint>(half2(_e36));
     metal::int4 _e38 = i4_;
-    u = uint((_e38[0] & 0xFF) | ((_e38[1] & 0xFF) << 8) | ((_e38[2] & 0xFF) << 16) | ((_e38[3] & 0xFF) << 24));
+    u = as_type<uint>(packed_char4(_e38));
     metal::uint4 _e40 = u4_;
-    u = (_e40[0] & 0xFF) | ((_e40[1] & 0xFF) << 8) | ((_e40[2] & 0xFF) << 16) | ((_e40[3] & 0xFF) << 24);
+    u = as_type<uint>(packed_uchar4(_e40));
     metal::int4 _e42 = i4_;
-    u = uint((metal::clamp(_e42, -128, 127)[0] & 0xFF) | ((metal::clamp(_e42, -128, 127)[1] & 0xFF) << 8) | ((metal::clamp(_e42, -128, 127)[2] & 0xFF) << 16) | ((metal::clamp(_e42, -128, 127)[3] & 0xFF) << 24));
+    u = as_type<uint>(packed_char4(metal::clamp(_e42, -128, 127)));
     metal::uint4 _e44 = u4_;
-    u = (metal::clamp(_e44, 0, 255)[0] & 0xFF) | ((metal::clamp(_e44, 0, 255)[1] & 0xFF) << 8) | ((metal::clamp(_e44, 0, 255)[2] & 0xFF) << 16) | ((metal::clamp(_e44, 0, 255)[3] & 0xFF) << 24);
+    u = as_type<uint>(packed_uchar4(metal::clamp(_e44, 0, 255)));
     uint _e46 = u;
     f4_ = metal::unpack_snorm4x8_to_float(_e46);
     uint _e48 = u;
@@ -52,9 +52,9 @@ kernel void main_(
     uint _e54 = u;
     f2_ = float2(as_type<half2>(_e54));
     uint _e56 = u;
-    i4_ = (int4(_e56, _e56 >> 8, _e56 >> 16, _e56 >> 24) << 24 >> 24);
+    i4_ = int4(as_type<packed_char4>(_e56));
     uint _e58 = u;
-    u4_ = (uint4(_e58, _e58 >> 8, _e58 >> 16, _e58 >> 24) << 24 >> 24);
+    u4_ = uint4(as_type<packed_uchar4>(_e58));
     int _e60 = i;
     int _e61 = i;
     i = metal::insert_bits(_e60, _e61, metal::min(5u, 32u), metal::min(10u, 32u - metal::min(5u, 32u)));

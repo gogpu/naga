@@ -574,15 +574,20 @@ func (b *Backend) requireAllCapabilities(caps ...Capability) bool {
 	return true
 }
 
-// requireVersion records an error when the module's version is older than
-// minVersion, which feature needs; Compile returns the first one. As Rust
-// naga does for mesh and ray-tracing shaders (Error::SpirvVersionTooLow), the
-// backend never raises the version the caller asked for: a module newer than
-// the device takes fails only at pipeline creation.
+// requireVersion records a *backend.VersionError when the module's version
+// is older than minVersion, which feature needs; Compile returns the first
+// one. As Rust naga does for mesh and ray-tracing shaders
+// (Error::SpirvVersionTooLow), the backend never raises the version the
+// caller asked for: a module newer than the device takes fails only at
+// pipeline creation.
 func (b *Backend) requireVersion(minVersion Version, feature string) {
 	if versionLess(b.options.Version, minVersion) && b.versionErr == nil {
-		b.versionErr = fmt.Errorf("spirv: %s need SPIR-V %d.%d, and Options.Version is %d.%d",
-			feature, minVersion.Major, minVersion.Minor, b.options.Version.Major, b.options.Version.Minor)
+		b.versionErr = fmt.Errorf("spirv: %w", &backend.VersionError{
+			Space:     backend.VersionSPIRV,
+			Feature:   feature,
+			Required:  backend.Version{Major: minVersion.Major, Minor: minVersion.Minor},
+			Requested: backend.Version{Major: b.options.Version.Major, Minor: b.options.Version.Minor},
+		})
 	}
 }
 
@@ -2415,7 +2420,7 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		// Rust require_any picks first from [GroupNonUniform, SubgroupBallotKHR]
 		// when capabilities_available is None (default), so only GroupNonUniform.
 		b.addCapability(CapabilityGroupNonUniform)
-		b.requireVersion(Version1_3, "subgroup built-ins")
+		b.requireVersion(Version1_3, "a subgroup built-in")
 	}
 }
 
@@ -10512,7 +10517,7 @@ func (e *ExpressionEmitter) emitSubgroupResultRef(handle ir.ExpressionHandle) (u
 
 // emitSubgroupBallot emits a SubgroupBallot statement.
 func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error {
-	e.backend.requireVersion(Version1_3, "subgroup operations")
+	e.backend.requireVersion(Version1_3, "a subgroup operation")
 	e.backend.addCapability(CapabilityGroupNonUniformBallot)
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
@@ -10555,7 +10560,7 @@ func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error
 
 // emitSubgroupCollectiveOperation emits a SubgroupCollectiveOperation statement.
 func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroupCollectiveOperation) error {
-	e.backend.requireVersion(Version1_3, "subgroup operations")
+	e.backend.requireVersion(Version1_3, "a subgroup operation")
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return err
@@ -10671,7 +10676,7 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 
 // emitSubgroupGather emits a SubgroupGather statement.
 func (e *ExpressionEmitter) emitSubgroupGather(stmt ir.StmtSubgroupGather) error {
-	e.backend.requireVersion(Version1_3, "subgroup operations")
+	e.backend.requireVersion(Version1_3, "a subgroup operation")
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return err

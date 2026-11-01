@@ -161,23 +161,89 @@ var ErrEntryPointNotFound = errors.New("entry point not found")
 // errors.Is; the message says what and why.
 var ErrUnsupported = errors.New("unsupported")
 
-// ShaderModelError is a feature of the shader that needs a newer shader model
-// than Options.ShaderModel (hlsl and dxil). The backends never raise the
-// model: DXC's validator rejects a module whose target model is below what
-// its features need (SmIncompatibleShaderModel), and Rust naga's HLSL writer
-// refuses with ShaderModelTooLow. Pass the device's highest supported model.
-type ShaderModelError struct {
-	Feature   string
-	Required  ShaderModel
-	Requested ShaderModel
+// VersionSpace names the kind of version a VersionError is about: the
+// option a backend takes for the version of its target.
+type VersionSpace uint8
+
+// VersionSpace values.
+const (
+	// VersionSPIRV is a SPIR-V version, spirv's Options.Version.
+	VersionSPIRV VersionSpace = iota + 1
+	// VersionShaderModel is a DirectX shader model, Options.ShaderModel of
+	// hlsl and dxil.
+	VersionShaderModel
+	// VersionMSL is a Metal Shading Language version, msl's
+	// Options.LangVersion.
+	VersionMSL
+)
+
+// String returns "SPIR-V", "shader model" or "MSL".
+func (s VersionSpace) String() string {
+	switch s {
+	case VersionSPIRV:
+		return "SPIR-V"
+	case VersionShaderModel:
+		return "shader model"
+	case VersionMSL:
+		return "MSL"
+	}
+	return "VersionSpace(" + strconv.Itoa(int(s)) + ")"
 }
 
-func (e *ShaderModelError) Error() string {
-	return e.Feature + " needs shader model " + e.Required.String() + ", Options.ShaderModel is " + e.Requested.String()
+// option returns the name of the Options field that holds a version of
+// this space.
+func (s VersionSpace) option() string {
+	switch s {
+	case VersionSPIRV:
+		return "Version"
+	case VersionShaderModel:
+		return "ShaderModel"
+	case VersionMSL:
+		return "LangVersion"
+	}
+	return "version"
 }
 
-// Unwrap returns ErrUnsupported: the target model cannot express the feature.
-func (e *ShaderModelError) Unwrap() error { return ErrUnsupported }
+// Version is a major.minor version in a VersionSpace.
+type Version struct {
+	Major uint8
+	Minor uint8
+}
+
+// String returns the version as "6.5".
+func (v Version) String() string {
+	return strconv.Itoa(int(v.Major)) + "." + strconv.Itoa(int(v.Minor))
+}
+
+// VersionError is a feature of the shader that needs a newer version of the
+// target than the options ask for: a SPIR-V version (spirv), a shader model
+// (hlsl, dxil) or an MSL version (msl). The backends never raise the
+// version: a module newer than the device fails only when the driver loads
+// it, as Rust naga refuses too (SpirvVersionTooLow, ShaderModelTooLow, the
+// MSL writer's Unsupported* errors). Pass the device's highest supported
+// version. Every backend returns it wrapped, so find it with errors.As.
+type VersionError struct {
+	// Space is the kind of version.
+	Space VersionSpace
+	// Feature is what needs the version, in WGSL terms where WGSL has them.
+	Feature string
+	// Required is the lowest version that has Feature.
+	Required Version
+	// Requested is the version the options ask for.
+	Requested Version
+}
+
+// Error returns "<feature> needs <space> <required>, Options.<field> is
+// <requested>", such as "a ray query needs MSL 2.4, Options.LangVersion is
+// 2.1".
+func (e *VersionError) Error() string {
+	return e.Feature + " needs " + e.Space.String() + " " + e.Required.String() +
+		", Options." + e.Space.option() + " is " + e.Requested.String()
+}
+
+// Unwrap returns ErrUnsupported: the target version cannot express the
+// feature.
+func (e *VersionError) Unwrap() error { return ErrUnsupported }
 
 // ErrMissingBinding reports a resource the module uses that has no entry in a
 // non-nil binding map. Every backend's error for it wraps this value. Rust

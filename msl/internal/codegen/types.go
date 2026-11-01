@@ -412,11 +412,8 @@ func (w *Writer) imageTypeName(img ir.ImageType, _ StorageAccess) string {
 			sampleType = typeFloat
 		}
 	case ir.ImageClassStorage:
+		// An r64 format below MSL 3.1 was refused (check64BitTextureVersion).
 		sampleType = storageFormatToMSLType(img.StorageFormat)
-		// R64 formats require Metal 3.1 for int64 atomic textures
-		if img.StorageFormat == ir.StorageFormatR64Uint || img.StorageFormat == ir.StorageFormatR64Sint {
-			w.requireVersion(Version3_1)
-		}
 	default:
 		sampleType = typeFloat
 	}

@@ -27,7 +27,11 @@ func TestMSL_UnsupportedMeshShader(t *testing.T) {
 			},
 		}},
 	}
-	_, _, err := Compile(mod, DefaultOptions())
+	// At MSL 3.0, which has mesh shading: below it the version is refused
+	// first (TestLangVersionRefused).
+	opts := DefaultOptions()
+	opts.LangVersion = Version3_0
+	_, _, err := Compile(mod, opts)
 	if err == nil {
 		t.Fatal("expected error for mesh shader in MSL")
 	}
@@ -56,7 +60,11 @@ func TestMSL_UnsupportedTaskShader(t *testing.T) {
 			},
 		}},
 	}
-	_, _, err := Compile(mod, DefaultOptions())
+	// At MSL 3.0, which has mesh shading: below it the version is refused
+	// first (TestLangVersionRefused).
+	opts := DefaultOptions()
+	opts.LangVersion = Version3_0
+	_, _, err := Compile(mod, opts)
 	if err == nil {
 		t.Fatal("expected error for task shader in MSL")
 	}
