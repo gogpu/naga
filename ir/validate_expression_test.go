@@ -39,7 +39,7 @@ func uint32Ptr(v uint32) *uint32 {
 // expectValidationErrors validates a module and expects specific error messages.
 func expectValidationErrors(t *testing.T, module *Module, expectedSubstrings ...string) {
 	t.Helper()
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func expectValidationErrors(t *testing.T, module *Module, expectedSubstrings ...
 // expectNoValidationErrors validates a module and expects no errors.
 func expectNoValidationErrors(t *testing.T, module *Module) {
 	t.Helper()
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}

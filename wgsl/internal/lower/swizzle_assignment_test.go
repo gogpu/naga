@@ -1278,8 +1278,8 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					}
 				}
 			}
-			if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
-				t.Errorf("validation: %v %v", err, errs)
+			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+				t.Errorf("validation: %v", err)
 			}
 		})
 	}

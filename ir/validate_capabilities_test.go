@@ -22,7 +22,7 @@ func newModuleWithType(inner TypeInner) *Module {
 // expectCapErrors validates a module with given caps and expects errors containing substrings.
 func expectCapErrors(t *testing.T, module *Module, caps Capabilities, expectedSubstrings ...string) {
 	t.Helper()
-	errors, err := ValidateWithCapabilities(module, caps)
+	errors, err := validateErrs(module, caps)
 	if err != nil {
 		t.Fatalf("ValidateWithCapabilities returned error: %v", err)
 	}
@@ -46,7 +46,7 @@ func expectCapErrors(t *testing.T, module *Module, caps Capabilities, expectedSu
 // expectNoCapErrors validates a module with given caps and expects no errors.
 func expectNoCapErrors(t *testing.T, module *Module, caps Capabilities) {
 	t.Helper()
-	errors, err := ValidateWithCapabilities(module, caps)
+	errors, err := validateErrs(module, caps)
 	if err != nil {
 		t.Fatalf("ValidateWithCapabilities returned error: %v", err)
 	}
@@ -180,8 +180,8 @@ func TestValidateWithCapabilities_AtomicTypes(t *testing.T) {
 	}
 }
 
-func TestValidateWithCapabilities_BackwardCompatibility(t *testing.T) {
-	// Validate() (without capabilities) uses CapAll — should accept everything.
+func TestValidateCapAllAcceptsEveryScalar(t *testing.T) {
+	// CapAll accepts every scalar type.
 	m := &Module{
 		Types: []Type{
 			{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}},
@@ -192,7 +192,7 @@ func TestValidateWithCapabilities_BackwardCompatibility(t *testing.T) {
 		},
 	}
 
-	errors, err := Validate(m)
+	errors, err := validateErrs(m, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestValidateWithCapabilities_MultipleCaps(t *testing.T) {
 	}
 
 	// Only CapFloat64 — i64 should be rejected
-	errors, err := ValidateWithCapabilities(m, CapFloat64)
+	errors, err := validateErrs(m, CapFloat64)
 	if err != nil {
 		t.Fatalf("ValidateWithCapabilities returned error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestValidateWithCapabilities_NoCaps(t *testing.T) {
 		},
 	}
 
-	errors, err := ValidateWithCapabilities(m, 0)
+	errors, err := validateErrs(m, 0)
 	if err != nil {
 		t.Fatalf("ValidateWithCapabilities returned error: %v", err)
 	}

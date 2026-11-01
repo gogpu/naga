@@ -86,8 +86,8 @@ func TestScalarizedWorkgroupIRValidates(t *testing.T) {
 	for _, tt := range workgroupCompositeCases {
 		t.Run(tt.name, func(t *testing.T) {
 			m := scalarizedModule(t, workgroupCompositeSource(tt.decls, tt.body), true)
-			if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
-				t.Fatalf("validate: %v %v", err, errs)
+			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+				t.Fatalf("validate: %v", err)
 			}
 			for _, e := range emitScopeErrors(&m.EntryPoints[0].Function) {
 				t.Error(e)

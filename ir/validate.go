@@ -56,37 +56,61 @@ const (
 	abilityContinue
 )
 
-// Validate checks the IR module for correctness.
-// All capabilities are enabled (CapAll) — backward-compatible with existing callers.
-// For strict capability validation, use [ValidateWithCapabilities].
-func Validate(module *Module) ([]ValidationError, error) {
-	return ValidateWithCapabilities(module, CapAll)
+// ValidateOptions configures Validate. The zero value is WebGPU core: no
+// optional capability.
+type ValidateOptions struct {
+	// Capabilities are the optional features the module may use; a type or
+	// operation that needs one outside the set is a validation error. This
+	// is the single gate for capabilities: neither the frontends nor the
+	// backends check them.
+	Capabilities Capabilities
 }
 
-// ValidateWithCapabilities checks the IR module for correctness, enforcing
-// capability restrictions on scalar types.
-//
-// Types that require specific capabilities (f64, i64, u64, f16) produce
-// validation errors unless the corresponding capability flag is set.
-// This is the SINGLE gate for capability validation — neither the lowerer
-// nor the backends check capabilities.
-func ValidateWithCapabilities(module *Module, caps Capabilities) ([]ValidationError, error) {
+// ValidationErrors is the error Validate returns: every problem it found,
+// where Rust naga stops at the first. errors.As finds a *ValidationError.
+type ValidationErrors []ValidationError
+
+// Error reports the first error and how many follow.
+func (e ValidationErrors) Error() string {
+	switch len(e) {
+	case 0:
+		return "no validation errors"
+	case 1:
+		return e[0].Error()
+	}
+	return fmt.Sprintf("%s (and %d more)", e[0].Error(), len(e)-1)
+}
+
+// Unwrap returns each error, for errors.As and errors.Is.
+func (e ValidationErrors) Unwrap() []error {
+	errs := make([]error, len(e))
+	for i := range e {
+		errs[i] = &e[i]
+	}
+	return errs
+}
+
+// Validate checks the module for correctness (Rust naga's
+// Validator::validate) and returns what a WebGPU implementation needs from
+// it: per function and entry point, the globals it uses and how. A module
+// with problems returns a ValidationErrors.
+func Validate(module *Module, opts ValidateOptions) (ModuleInfo, error) {
 	if module == nil {
-		return nil, fmt.Errorf("module is nil")
+		return ModuleInfo{}, fmt.Errorf("module is nil")
 	}
 
 	v := &validator{
 		module:       module,
-		capabilities: caps,
+		capabilities: opts.Capabilities,
 		errors:       make([]ValidationError, 0),
 	}
 
 	v.validateModule()
 
 	if len(v.errors) > 0 {
-		return v.errors, nil
+		return ModuleInfo{}, ValidationErrors(v.errors)
 	}
-	return nil, nil
+	return analyzeModule(module), nil
 }
 
 // validateModule validates the complete module.

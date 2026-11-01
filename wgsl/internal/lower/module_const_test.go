@@ -101,8 +101,8 @@ func TestModuleConstFromAbstract(t *testing.T) {
 					t.Errorf("type [%d] %v is abstract; compact must remove abstract types", i, ty.Inner)
 				}
 			}
-			if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
-				t.Errorf("validation: %v %v", err, errs)
+			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+				t.Errorf("validation: %v", err)
 			}
 		})
 	}

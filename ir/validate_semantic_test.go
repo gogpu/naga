@@ -18,7 +18,7 @@ func containsError(errors []ValidationError, substring string) bool {
 // expectErrors validates the module and asserts at least one error matches.
 func expectErrors(t *testing.T, module *Module, expectedSubstrings ...string) {
 	t.Helper()
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 				}},
 			},
 		}
-		errors, err := Validate(module)
+		errors, err := validateErrs(module, CapAll)
 		if err != nil {
 			t.Fatalf("Validate returned error: %v", err)
 		}
@@ -1293,7 +1293,7 @@ func TestValidateSemantic_ValidScalarWidths(t *testing.T) {
 				{Name: "s", Inner: ScalarType{Kind: ScalarFloat, Width: width}},
 			},
 		}
-		errors, err := Validate(module)
+		errors, err := validateErrs(module, CapAll)
 		if err != nil {
 			t.Fatalf("width %d: Validate returned error: %v", width, err)
 		}
@@ -1319,7 +1319,7 @@ func TestValidateSemantic_ValidBreakInsideLoop(t *testing.T) {
 			},
 		},
 	}
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -1344,7 +1344,7 @@ func TestValidateSemantic_ValidContinueInsideLoop(t *testing.T) {
 			},
 		},
 	}
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -1376,7 +1376,7 @@ func TestValidateSemantic_NestedLoopBreakContinue(t *testing.T) {
 			},
 		},
 	}
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -1391,7 +1391,7 @@ func TestValidateSemantic_ValidComputeWorkgroup(t *testing.T) {
 			{Name: "main", Stage: StageCompute, Function: Function{Name: "cs"}, Workgroup: [3]uint32{64, 1, 1}},
 		},
 	}
-	errors, err := Validate(module)
+	errors, err := validateErrs(module, CapAll)
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
