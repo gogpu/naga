@@ -34,9 +34,11 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computin
 import (
     "fmt"
     "github.com/gogpu/naga"
-    "github.com/gogpu/naga/spirv"
-    "github.com/gogpu/naga/msl"
     "github.com/gogpu/naga/glsl"
+    "github.com/gogpu/naga/msl"
+    "github.com/gogpu/naga/spirv"
+    "github.com/gogpu/naga/valid"
+    "github.com/gogpu/naga/wgsl"
 )
 
 source := `
@@ -49,14 +51,18 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 // Simple: WGSL → SPIR-V (one call)
 spirvBytes, err := naga.Compile(source)
 
-// Multi-backend: Parse → Lower → Generate
-ast, _ := naga.Parse(source)
-module, _ := naga.Lower(ast)
+// Multi-backend: Parse → Validate → any backend (example_test.go keeps this running)
+module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+info, err := valid.Validate(module, valid.Options{}) // zero Options = WebGPU core, no optional capability
+module, _, err = naga.ProcessOverrides(module, info, naga.OverrideOptions{})
 
-spirvBytes, _ := naga.GenerateSPIRV(module, spirv.Options{})
-mslCode, _, _ := msl.Compile(module, msl.DefaultOptions())
-glslCode, _, _ := glsl.Compile(module, glsl.DefaultOptions())
+spirvBytes, _, err := spirv.Compile(module, spirv.Options{})
+mslCode, _, err := msl.Compile(module, msl.Options{})
+glslCode, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.Version450})
 ```
+
+Every zero-value `Options` is the safe one (bounds checks on, loops bounded, workgroup memory zeroed, every binding
+required); a backend never raises a target version, it refuses with an error wrapping `backend.ErrUnsupported`.
 
 ## Build & Test
 
