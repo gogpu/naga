@@ -404,7 +404,7 @@ func TestMSL_AddressSpaceName_Extended(t *testing.T) {
 		{ir.SpaceFunction, "thread"},
 		{ir.SpaceWorkGroup, "threadgroup"},
 		{ir.SpaceHandle, ""},
-		{ir.SpacePushConstant, "constant"},
+		{ir.SpaceImmediate, "constant"},
 	}
 
 	for _, tt := range tests {

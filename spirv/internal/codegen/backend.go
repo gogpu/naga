@@ -1239,8 +1239,6 @@ func addressSpaceToStorageClass(space ir.AddressSpace) (StorageClass, error) {
 		return StorageClassUniform, nil
 	case ir.SpaceStorage:
 		return StorageClassStorageBuffer, nil
-	case ir.SpacePushConstant:
-		return StorageClassPushConstant, nil
 	case ir.SpaceHandle:
 		return StorageClassUniformConstant, nil
 	case ir.SpaceImmediate:
@@ -1962,7 +1960,7 @@ func (b *Backend) getStorageAccessFlags(global ir.GlobalVariable) (hasLoad bool,
 // needs the Block decoration per Vulkan SPIR-V requirements.
 func (b *Backend) needsBlockDecoration(space ir.AddressSpace, typeHandle ir.TypeHandle) bool {
 	switch space {
-	case ir.SpaceUniform, ir.SpaceStorage, ir.SpacePushConstant, ir.SpaceImmediate:
+	case ir.SpaceUniform, ir.SpaceStorage, ir.SpaceImmediate:
 		return b.isStructType(typeHandle)
 	default:
 		return false

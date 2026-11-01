@@ -2232,7 +2232,7 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 		var resType container.PSVResourceType
 		var resKind container.PSVResourceKind
 		switch gv.Space {
-		case ir.SpaceUniform, ir.SpacePushConstant, ir.SpaceImmediate:
+		case ir.SpaceUniform, ir.SpaceImmediate:
 			class = classCBV
 			resType = container.PSVResTypeCBV
 			resKind = container.PSVResKindCBuffer

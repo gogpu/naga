@@ -367,7 +367,6 @@ func TestAddressSpace(t *testing.T) {
 		{"WorkGroup", SpaceWorkGroup},
 		{"Uniform", SpaceUniform},
 		{"Storage", SpaceStorage},
-		{"PushConstant", SpacePushConstant},
 		{"Handle", SpaceHandle},
 		{"Immediate", SpaceImmediate},
 		{"TaskPayload", SpaceTaskPayload},

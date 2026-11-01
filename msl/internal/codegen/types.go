@@ -344,7 +344,7 @@ func addressSpaceName(space ir.AddressSpace) string {
 		return "threadgroup"
 	case ir.SpaceHandle:
 		return "" // Handles don't have address space qualifiers
-	case ir.SpacePushConstant, ir.SpaceImmediate:
+	case ir.SpaceImmediate:
 		return "constant"
 	default:
 		return ""

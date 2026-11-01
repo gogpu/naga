@@ -161,7 +161,7 @@ func (e *Emitter) analyzeResources() {
 		// Push constants / immediate data may not have explicit bindings.
 		// Create a synthetic binding for them so they can be accessed as CBV.
 		if gv.Binding == nil {
-			if gv.Space == ir.SpacePushConstant || gv.Space == ir.SpaceImmediate {
+			if gv.Space == ir.SpaceImmediate {
 				// Assign to group=0, binding=nextCBV to avoid conflict.
 				gv.Binding = &ir.ResourceBinding{
 					Group:   0,
@@ -289,7 +289,7 @@ func (e *Emitter) appendRootConstantBuffers(rangeCounters *[4]int) {
 // Returns the class and true if it is a resource; false if it is not.
 func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 	switch gv.Space {
-	case ir.SpaceUniform, ir.SpacePushConstant, ir.SpaceImmediate:
+	case ir.SpaceUniform, ir.SpaceImmediate:
 		// Uniform, push constant, and immediate data are all accessed as CBV in DXIL.
 		// Push constants map to a constant buffer (b-register).
 		return resourceClassCBV, true

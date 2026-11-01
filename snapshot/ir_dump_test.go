@@ -681,8 +681,8 @@ func addressSpaceStr(s ir.AddressSpace) string {
 		return "Uniform"
 	case ir.SpaceStorage:
 		return "Storage"
-	case ir.SpacePushConstant:
-		return "PushConstant"
+	case ir.SpaceImmediate:
+		return "Immediate"
 	case ir.SpaceHandle:
 		return "Handle"
 	default:

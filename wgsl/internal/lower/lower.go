@@ -790,7 +790,10 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		return fmt.Errorf("global var %s: %w", v.Name, err)
 	}
 
-	space := l.addressSpace(v.AddressSpace)
+	space, err := l.addressSpace(v.AddressSpace)
+	if err != nil {
+		return fmt.Errorf("global var %s: %w", v.Name, err)
+	}
 
 	// Samplers and textures must use SpaceHandle (maps to UniformConstant in SPIR-V)
 	// This is required by Vulkan: "Variables identified with the UniformConstant
@@ -4585,7 +4588,10 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		if err != nil {
 			return 0, err
 		}
-		space := l.addressSpace(t.AddressSpace)
+		space, err := l.addressSpace(t.AddressSpace)
+		if err != nil {
+			return 0, err
+		}
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
 	case *parser.BindingArrayType:
 		base, err := l.resolveType(t.Element)
@@ -5813,24 +5819,34 @@ func (l *Lowerer) builtin(name string) ir.BuiltinValue {
 	return ir.BuiltinPosition // Default
 }
 
-// addressSpaceTable maps WGSL address space names to IR address spaces.
+// addressSpaceTable maps WGSL address space words to IR address spaces, as
+// Rust naga's front/wgsl/parse/conv.rs map_address_space.
 var addressSpaceTable = map[string]ir.AddressSpace{
-	"function":      ir.SpaceFunction,
-	"private":       ir.SpacePrivate,
-	"workgroup":     ir.SpaceWorkGroup,
-	"uniform":       ir.SpaceUniform,
-	"storage":       ir.SpaceStorage,
-	"push_constant": ir.SpacePushConstant,
-	"task_payload":  ir.SpaceTaskPayload,
-	"handle":        ir.SpaceHandle,
-	"immediate":     ir.SpaceImmediate,
+	"function":     ir.SpaceFunction,
+	"private":      ir.SpacePrivate,
+	"workgroup":    ir.SpaceWorkGroup,
+	"uniform":      ir.SpaceUniform,
+	"storage":      ir.SpaceStorage,
+	"immediate":    ir.SpaceImmediate,
+	"task_payload": ir.SpaceTaskPayload,
 }
 
-func (l *Lowerer) addressSpace(space string) ir.AddressSpace {
-	if s, ok := addressSpaceTable[space]; ok {
-		return s
+// addressSpace resolves the address space word of a var or pointer type. No
+// word means handle (Rust's var_address_space): the type of such a global
+// must be a handle type, which validation checks. An unknown word is an
+// error with Rust's message; `push_constant`, the word immediate data had
+// before gpuweb renamed it, gets the new word in the message too.
+func (l *Lowerer) addressSpace(space string) (ir.AddressSpace, error) {
+	if space == "" {
+		return ir.SpaceHandle, nil
 	}
-	return ir.SpaceFunction // Default
+	if s, ok := addressSpaceTable[space]; ok {
+		return s, nil
+	}
+	if space == "push_constant" {
+		return 0, fmt.Errorf("unknown address space: `%s`; it was renamed to `immediate`", space)
+	}
+	return 0, fmt.Errorf("unknown address space: `%s`", space)
 }
 
 // isOpaqueResourceType checks if a type is an opaque resource (sampler or image/texture).

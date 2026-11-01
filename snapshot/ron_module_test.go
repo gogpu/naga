@@ -54,7 +54,7 @@ type ronOverride struct {
 
 type ronGlobalVariable struct {
 	Name    *string
-	Space   string // "Storage", "Private", "WorkGroup", "Handle", "Uniform", "PushConstant", "TaskPayload"
+	Space   string // "Storage", "Private", "WorkGroup", "Handle", "Uniform", "Immediate", "TaskPayload"
 	Access  string // for Storage: "LOAD", "LOAD | STORE", etc.
 	Binding *ronResourceBinding
 	Ty      uint32

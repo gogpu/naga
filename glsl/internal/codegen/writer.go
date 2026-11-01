@@ -1127,9 +1127,6 @@ func (w *Writer) writeGlobalVariables() error {
 			baseType := w.getBaseTypeName(global.Type)
 			arraySuffix := w.getArraySuffix(global.Type)
 			w.WriteLine("shared %s %s%s;", baseType, name, arraySuffix)
-		case ir.SpacePushConstant:
-			// Push constants emitted as uniform blocks
-			w.writeUniformVariable(name, typeName, global)
 		case ir.SpaceImmediate:
 			// Immediate data (pipeline constants) — Rust uses special naming
 			stage := w.currentEntryPointStage()

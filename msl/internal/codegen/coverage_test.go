@@ -192,7 +192,6 @@ func TestNeedsPassThrough(t *testing.T) {
 		{ir.SpaceWorkGroup, true},
 		{ir.SpaceImmediate, true},
 		{ir.SpaceFunction, false},
-		{ir.SpacePushConstant, false},
 	}
 
 	for _, tt := range tests {
@@ -1306,13 +1305,13 @@ func TestCompile_EmptyBlock(t *testing.T) {
 }
 
 // =============================================================================
-// Compile-level coverage: PushConstant address space
+// Compile-level coverage: Immediate address space
 // =============================================================================
 
-func TestAddressSpaceName_PushConstant(t *testing.T) {
-	got := addressSpaceName(ir.SpacePushConstant)
+func TestAddressSpaceName_Immediate(t *testing.T) {
+	got := addressSpaceName(ir.SpaceImmediate)
 	if got != "constant" {
-		t.Errorf("addressSpaceName(SpacePushConstant) = %q, want %q", got, "constant")
+		t.Errorf("addressSpaceName(SpaceImmediate) = %q, want %q", got, "constant")
 	}
 }
 
