@@ -123,7 +123,7 @@ func markAliveFromStmt(stmt *ir.Statement, fn *ir.Function, alive []bool) {
 	case ir.StmtWorkGroupUniformLoad:
 		markExprAlive(s.Pointer, alive)
 		markExprAlive(s.Result, alive)
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 		// No expressions.
 	case ir.StmtKill:
 		// No expressions.

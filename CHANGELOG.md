@@ -177,6 +177,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch with `backend.ErrUnsupported` and `backend.ErrMissingBinding`. `hlsl.TranslationInfo` keeps
   `EntryPointNames`, as Rust's reflection; `UsedFeatures`, `RequiredShaderModel`, `RegisterBindings` and
   `HelperFunctions` are removed. No public package declares a type alias any more.
+- **Breaking: two barrier statements, as Rust** (ADR-010 E3). `ir.StmtBarrier` is `ir.StmtControlBarrier`, and the new
+  `ir.StmtMemoryBarrier{Flags}` (Rust's `Statement::MemoryBarrier`) orders memory without synchronizing execution, so
+  a SPIR-V `OpMemoryBarrier` has an IR form for the SPIR-V and GLSL frontends. Every backend writes it as Rust does:
+  SPIR-V `OpMemoryBarrier`, GLSL `memoryBarrier*()` without `barrier()`, HLSL `DeviceMemoryBarrier()` /
+  `GroupMemoryBarrier()`, MSL `threadgroup_barrier` (Metal has no memory-only barrier), DXIL `dx.op.barrier` without
+  the thread-group sync (DXC's lowering of the HLSL intrinsics). WGSL has no memory barrier; its output is unchanged.
 
 ### Added
 

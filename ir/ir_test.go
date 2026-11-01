@@ -255,7 +255,7 @@ func TestStatementKindInterfaceImplementation(t *testing.T) {
 		{"StmtContinue", StmtContinue{}},
 		{"StmtReturn", StmtReturn{}},
 		{"StmtKill", StmtKill{}},
-		{"StmtBarrier", StmtBarrier{}},
+		{"StmtControlBarrier", StmtControlBarrier{}},
 		{"StmtStore", StmtStore{}},
 		{"StmtImageStore", StmtImageStore{}},
 		{"StmtAtomic", StmtAtomic{}},

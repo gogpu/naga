@@ -215,7 +215,7 @@ func (w *Writer) countStmtRefs(block ir.Block, count func(ir.ExpressionHandle)) 
 			count(s.Pointer)
 		case ir.StmtRayQuery:
 			count(s.Query)
-		case ir.StmtBarrier:
+		case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 			// no expression refs
 		case ir.StmtBreak, ir.StmtContinue, ir.StmtKill:
 			// no expression refs
@@ -276,8 +276,11 @@ func (w *Writer) writeStatement(kind ir.StatementKind) error {
 		return w.writeReturnStatement(s)
 	case ir.StmtKill:
 		return w.writeKillStatement()
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		return w.writeBarrierStatement(s)
+	case ir.StmtMemoryBarrier:
+		w.writeMemoryBarrierStatement(s)
+		return nil
 	case ir.StmtStore:
 		return w.writeStoreStatement(s)
 	case ir.StmtImageStore:
@@ -926,7 +929,7 @@ func (w *Writer) writeKillStatement() error {
 // =============================================================================
 
 // writeBarrierStatement writes a memory barrier statement.
-func (w *Writer) writeBarrierStatement(s ir.StmtBarrier) error {
+func (w *Writer) writeBarrierStatement(s ir.StmtControlBarrier) error {
 	// Determine which barriers are needed based on flags
 	hasWorkgroup := s.Flags&ir.BarrierWorkGroup != 0
 	hasStorage := s.Flags&ir.BarrierStorage != 0
@@ -948,6 +951,21 @@ func (w *Writer) writeBarrierStatement(s ir.StmtBarrier) error {
 	_ = hasSubgroup
 
 	return nil
+}
+
+// writeMemoryBarrierStatement is Rust naga's write_memory_barrier
+// (back/hlsl/writer.rs:4890): the barriers without the group sync.
+func (w *Writer) writeMemoryBarrierStatement(s ir.StmtMemoryBarrier) {
+	if s.Flags&ir.BarrierStorage != 0 {
+		w.WriteLine("DeviceMemoryBarrier();")
+	}
+	if s.Flags&ir.BarrierWorkGroup != 0 {
+		w.WriteLine("GroupMemoryBarrier();")
+	}
+	// SUB_GROUP does not exist in DirectX.
+	if s.Flags&ir.BarrierTexture != 0 {
+		w.WriteLine("DeviceMemoryBarrier();")
+	}
 }
 
 // =============================================================================

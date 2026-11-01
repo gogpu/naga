@@ -164,7 +164,7 @@ func TestWriteBarrier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newWriter(&ir.Module{}, &Options{LangVersion: Version430})
-			err := w.writeBarrier(ir.StmtBarrier{Flags: tt.flags})
+			err := w.writeBarrier(ir.StmtControlBarrier{Flags: tt.flags})
 			if err != nil {
 				t.Fatalf("writeBarrier() error = %v", err)
 			}

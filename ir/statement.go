@@ -125,14 +125,24 @@ type StmtKill struct{}
 
 func (StmtKill) statementKind() {}
 
-// StmtBarrier synchronizes invocations within the work group.
+// StmtControlBarrier synchronizes invocations within the work group.
 // The Barrier flags control which memory accesses should be synchronized.
 // If empty, this becomes purely an execution barrier.
-type StmtBarrier struct {
+type StmtControlBarrier struct {
 	Flags BarrierFlags
 }
 
-func (StmtBarrier) statementKind() {}
+func (StmtControlBarrier) statementKind() {}
+
+// StmtMemoryBarrier orders the memory accesses Flags names without
+// synchronizing execution (Rust naga's Statement::MemoryBarrier; SPIR-V
+// OpMemoryBarrier). WGSL has no such statement; the SPIR-V and GLSL frontends
+// produce it.
+type StmtMemoryBarrier struct {
+	Flags BarrierFlags
+}
+
+func (StmtMemoryBarrier) statementKind() {}
 
 // BarrierFlags represents memory barrier flags using bitflags pattern.
 type BarrierFlags uint32

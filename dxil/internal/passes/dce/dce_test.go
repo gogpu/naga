@@ -285,7 +285,7 @@ func TestMixedLiveAndDeadLocals(t *testing.T) {
 	}
 }
 
-// TestBarrierKeptEvenIfSurroundingCodeDead verifies that StmtBarrier
+// TestBarrierKeptEvenIfSurroundingCodeDead verifies that StmtControlBarrier
 // is preserved even when there's no other live code.
 func TestBarrierKeptEvenIfSurroundingCodeDead(t *testing.T) {
 	mod := &ir.Module{}
@@ -303,7 +303,7 @@ func TestBarrierKeptEvenIfSurroundingCodeDead(t *testing.T) {
 	fn.Body = ir.Block{
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: val, End: val + 1}}},
 		{Kind: ir.StmtStore{Pointer: lvHandle, Value: val}},
-		{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+		{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 		{Kind: ir.StmtReturn{}},
 	}
 
@@ -314,7 +314,7 @@ func TestBarrierKeptEvenIfSurroundingCodeDead(t *testing.T) {
 	hasReturn := false
 	for _, s := range fn.Body {
 		switch s.Kind.(type) {
-		case ir.StmtBarrier:
+		case ir.StmtControlBarrier:
 			hasBarrier = true
 		case ir.StmtReturn:
 			hasReturn = true
@@ -404,7 +404,7 @@ func TestCallWithSideEffectsIsLive(t *testing.T) {
 			{
 				Name: "helper_with_effects",
 				Body: ir.Block{
-					{Kind: ir.StmtBarrier{}},
+					{Kind: ir.StmtControlBarrier{}},
 				},
 			},
 		},
@@ -536,7 +536,7 @@ func TestIfWithSideEffectsPreserved(t *testing.T) {
 		{Kind: ir.StmtIf{
 			Condition: condVal,
 			Accept: ir.Block{
-				{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+				{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 			},
 			Reject: ir.Block{},
 		}},

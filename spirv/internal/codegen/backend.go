@@ -6870,8 +6870,11 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtAtomic:
 		return e.emitAtomic(kind)
 
-	case ir.StmtBarrier:
-		return e.emitBarrier(kind)
+	case ir.StmtControlBarrier:
+		return e.emitBarrier(kind.Flags, true)
+
+	case ir.StmtMemoryBarrier:
+		return e.emitBarrier(kind.Flags, false)
 
 	case ir.StmtSwitch:
 		return e.emitSwitch(kind)
@@ -9607,60 +9610,56 @@ func (b *Backend) emitVec4F32Type() (uint32, error) {
 // OpTypeSampledImage represents OpTypeSampledImage opcode.
 const OpTypeSampledImage OpCode = 27
 
-// emitBarrier emits a barrier statement.
-func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
+// emitBarrier emits OpControlBarrier for a control barrier and
+// OpMemoryBarrier for a memory barrier, as Rust naga's write_control_barrier
+// and write_memory_barrier (back/spv/writer.rs:2781-2853).
+func (e *ExpressionEmitter) emitBarrier(flags ir.BarrierFlags, control bool) error {
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
 		return err
 	}
 
 	// Memory scope: Device if STORAGE, Subgroup if SUB_GROUP, else Workgroup.
-	// Matches Rust naga writer.rs:1816-1822.
 	var memoryScope uint32
-	if stmt.Flags&ir.BarrierStorage != 0 {
+	if flags&ir.BarrierStorage != 0 {
 		memoryScope = ScopeDevice
-	} else if stmt.Flags&ir.BarrierSubGroup != 0 {
+	} else if flags&ir.BarrierSubGroup != 0 {
 		memoryScope = ScopeSubgroup
 	} else {
 		memoryScope = ScopeWorkgroup
 	}
 
-	// Memory semantics based on barrier flags.
-	// Matches Rust naga writer.rs:1823-1839.
 	semantics := MemorySemanticsAcquireRelease
-	if stmt.Flags&ir.BarrierStorage != 0 {
+	if flags&ir.BarrierStorage != 0 {
 		semantics |= MemorySemanticsUniformMemory
 	}
-	if stmt.Flags&ir.BarrierWorkGroup != 0 {
+	if flags&ir.BarrierWorkGroup != 0 {
 		semantics |= MemorySemanticsWorkgroupMemory
 	}
-	if stmt.Flags&ir.BarrierSubGroup != 0 {
+	if flags&ir.BarrierSubGroup != 0 {
 		semantics |= MemorySemanticsSubgroupMemory
 	}
-	if stmt.Flags&ir.BarrierTexture != 0 {
+	if flags&ir.BarrierTexture != 0 {
 		semantics |= MemorySemanticsImageMemory
 	}
 
-	// Execution scope: Subgroup if SUB_GROUP, else Workgroup.
-	// Matches Rust naga writer.rs:1840-1844.
-	var execScope uint32
-	if stmt.Flags&ir.BarrierSubGroup != 0 {
-		execScope = ScopeSubgroup
-	} else {
-		execScope = ScopeWorkgroup
-	}
-
-	execScopeID := e.backend.builder.AddConstant(u32TypeID, execScope)
-	memScopeID := e.backend.builder.AddConstant(u32TypeID, memoryScope)
-	semanticsID := e.backend.builder.AddConstant(u32TypeID, semantics)
-
-	// OpControlBarrier Execution Memory Semantics
 	builder := e.newIB()
-	builder.AddWord(execScopeID)
-	builder.AddWord(memScopeID)
-	builder.AddWord(semanticsID)
-	e.backend.builder.funcAppend(builder.Build(OpControlBarrier))
-
+	if control {
+		// Execution scope: Subgroup if SUB_GROUP, else Workgroup.
+		execScope := ScopeWorkgroup
+		if flags&ir.BarrierSubGroup != 0 {
+			execScope = ScopeSubgroup
+		}
+		builder.AddWord(e.backend.builder.AddConstant(u32TypeID, execScope))
+	}
+	// Constants in Rust's order: execution scope, memory scope, semantics.
+	builder.AddWord(e.backend.builder.AddConstant(u32TypeID, memoryScope))
+	builder.AddWord(e.backend.builder.AddConstant(u32TypeID, semantics))
+	if control {
+		e.backend.builder.funcAppend(builder.Build(OpControlBarrier))
+	} else {
+		e.backend.builder.funcAppend(builder.Build(OpMemoryBarrier))
+	}
 	return nil
 }
 
@@ -9668,7 +9667,7 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 // barrier -> load -> barrier. Matches Rust naga block.rs:3614.
 func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUniformLoad) error {
 	// Emit workgroup barrier before load
-	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
+	_ = e.emitBarrier(ir.BarrierWorkGroup, true)
 
 	// Resolve the result type from the result expression
 	resultType, err := ir.ResolveExpressionType(e.backend.module, e.function, stmt.Result)
@@ -9705,7 +9704,7 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 	e.exprIDs[stmt.Result] = loadID
 
 	// Emit workgroup barrier after load
-	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
+	_ = e.emitBarrier(ir.BarrierWorkGroup, true)
 
 	return nil
 }

@@ -140,7 +140,7 @@ func countLive(live []bool) int {
 //   - StmtReturn with a value
 //   - StmtImageStore, StmtImageAtomic
 //   - StmtAtomic on a global
-//   - StmtBarrier (execution side effect)
+//   - StmtControlBarrier (execution side effect)
 //   - StmtKill (terminates invocation)
 //   - StmtCall (may have arbitrary side effects)
 //   - StmtWorkGroupUniformLoad (barrier + load)
@@ -331,7 +331,7 @@ func markStmtRoots(
 			mark(*sk.Result)
 		}
 
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 		// Execution barrier — always live (side effect).
 		// No expression operands to mark.
 
@@ -883,7 +883,7 @@ func stmtHasSideEffects(stmt ir.Statement, localPtrs map[ir.ExpressionHandle]uin
 		return true
 	case ir.StmtImageStore, ir.StmtImageAtomic:
 		return true
-	case ir.StmtBarrier, ir.StmtKill:
+	case ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtKill:
 		return true
 	case ir.StmtCall:
 		return true

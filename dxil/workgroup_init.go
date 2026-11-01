@@ -42,7 +42,7 @@ func zeroInitWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) {
 	z.fn.Body = slices.Concat(ir.Block{
 		emitIsFirst,
 		{Kind: ir.StmtIf{Condition: isFirst, Accept: stores}},
-		{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+		{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 	}, z.fn.Body)
 }
 

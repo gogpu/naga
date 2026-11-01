@@ -44,7 +44,7 @@ func (s *analysisState) walkStatement(stmt *ir.Statement) {
 			_ = s.taintOf(*k.BreakIf)
 		}
 
-	case ir.StmtBreak, ir.StmtContinue, ir.StmtKill, ir.StmtBarrier:
+	case ir.StmtBreak, ir.StmtContinue, ir.StmtKill, ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 		// No dataflow effect for our purposes.
 
 	case ir.StmtReturn:

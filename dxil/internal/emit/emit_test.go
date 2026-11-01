@@ -5099,7 +5099,7 @@ func TestEmitBarrier(t *testing.T) {
 	fn := ir.Function{
 		Name: "main",
 		Body: []ir.Statement{
-			{Kind: ir.StmtBarrier{Flags: ir.BarrierStorage | ir.BarrierWorkGroup}},
+			{Kind: ir.StmtControlBarrier{Flags: ir.BarrierStorage | ir.BarrierWorkGroup}},
 		},
 	}
 
@@ -5333,7 +5333,7 @@ func TestEmitBarrierFlags(t *testing.T) {
 			e.currentBB = fn.AddBasicBlock("entry")
 			e.nextValue = 100
 
-			if err := e.emitStmtBarrier(ir.StmtBarrier{Flags: tt.flags}); err != nil {
+			if err := e.emitStmtBarrier(ir.StmtControlBarrier{Flags: tt.flags}); err != nil {
 				t.Fatalf("emitStmtBarrier: %v", err)
 			}
 

@@ -1442,7 +1442,7 @@ func addStatementReferencedExprs(block ir.Block, live map[ir.ExpressionHandle]bo
 			if sk.ArrayIndex != nil {
 				live[*sk.ArrayIndex] = true
 			}
-		case ir.StmtBarrier:
+		case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 			// no expression operands
 		case ir.StmtWorkGroupUniformLoad:
 			live[sk.Pointer] = true

@@ -516,7 +516,7 @@ func TestGLSL_BarrierStatements(t *testing.T) {
 				Functions: []ir.Function{{
 					Name: "test_fn",
 					Body: []ir.Statement{
-						{Kind: ir.StmtBarrier{Flags: tt.flags}},
+						{Kind: ir.StmtControlBarrier{Flags: tt.flags}},
 					},
 				}},
 			}
@@ -544,7 +544,7 @@ func TestGLSL_BarrierVersionRequirement(t *testing.T) {
 		Functions: []ir.Function{{
 			Name: "test_fn",
 			Body: []ir.Statement{
-				{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+				{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 			},
 		}},
 	}

@@ -3315,7 +3315,7 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 	// Check if this is a barrier function
 	if barrierFlags := l.getBarrierFlags(funcName); barrierFlags != 0 {
 		*target = append(*target, ir.Statement{
-			Kind: ir.StmtBarrier{Flags: barrierFlags},
+			Kind: ir.StmtControlBarrier{Flags: barrierFlags},
 		})
 		return 0, nil // Barriers don't return a value
 	}

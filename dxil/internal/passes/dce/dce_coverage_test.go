@@ -57,7 +57,7 @@ func TestLoopWithSideEffectsKept(t *testing.T) {
 	fn.Body = ir.Block{
 		{Kind: ir.StmtLoop{
 			Body: ir.Block{
-				{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+				{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 				{Kind: ir.StmtBreak{}},
 			},
 			Continuing: ir.Block{},
@@ -172,7 +172,7 @@ func TestBlockOnlyHasTerminatorsWithSideEffect(t *testing.T) {
 			Body: ir.Block{
 				{Kind: ir.StmtBlock{
 					Block: ir.Block{
-						{Kind: ir.StmtBarrier{}},
+						{Kind: ir.StmtControlBarrier{}},
 						{Kind: ir.StmtBreak{}},
 					},
 				}},
@@ -702,7 +702,7 @@ func TestSwitchWithLiveCasePreserved(t *testing.T) {
 			Selector: selVal,
 			Cases: []ir.SwitchCase{
 				{Value: ir.SwitchValueI32(0), Body: ir.Block{
-					{Kind: ir.StmtBarrier{}},
+					{Kind: ir.StmtControlBarrier{}},
 				}},
 				{Value: ir.SwitchValueDefault{}, Body: ir.Block{}},
 			},
@@ -742,7 +742,7 @@ func TestStmtHasSideEffectsExhaustive(t *testing.T) {
 		{"Return", ir.Statement{Kind: ir.StmtReturn{}}, false},
 		{"Break", ir.Statement{Kind: ir.StmtBreak{}}, false},
 		{"Continue", ir.Statement{Kind: ir.StmtContinue{}}, false},
-		{"Barrier", ir.Statement{Kind: ir.StmtBarrier{}}, true},
+		{"Barrier", ir.Statement{Kind: ir.StmtControlBarrier{}}, true},
 		{"Kill", ir.Statement{Kind: ir.StmtKill{}}, true},
 		{"ImageStore", ir.Statement{Kind: ir.StmtImageStore{Image: 0, Coordinate: 1, Value: 2}}, true},
 		{"ImageAtomic", ir.Statement{Kind: ir.StmtImageAtomic{Image: 0, Coordinate: 1, Value: 2}}, true},
@@ -752,14 +752,14 @@ func TestStmtHasSideEffectsExhaustive(t *testing.T) {
 		{"RayQuery", ir.Statement{Kind: ir.StmtRayQuery{Query: 0, Fun: ir.RayQueryTerminate{}}}, true},
 		{"EmptyBlock", ir.Statement{Kind: ir.StmtBlock{Block: ir.Block{}}}, false},
 		{"BlockWithBarrier", ir.Statement{Kind: ir.StmtBlock{Block: ir.Block{
-			{Kind: ir.StmtBarrier{}},
+			{Kind: ir.StmtControlBarrier{}},
 		}}}, true},
 		{"IfWithEmptyBranches", ir.Statement{Kind: ir.StmtIf{
 			Condition: 0, Accept: ir.Block{}, Reject: ir.Block{},
 		}}, false},
 		{"IfWithBarrier", ir.Statement{Kind: ir.StmtIf{
 			Condition: 0,
-			Accept:    ir.Block{{Kind: ir.StmtBarrier{}}},
+			Accept:    ir.Block{{Kind: ir.StmtControlBarrier{}}},
 			Reject:    ir.Block{},
 		}}, true},
 		{"LoopEmpty", ir.Statement{Kind: ir.StmtLoop{Body: ir.Block{}, Continuing: ir.Block{}}}, false},

@@ -592,7 +592,7 @@ func TestValidateNew_BlockStatement(t *testing.T) {
 func TestValidateNew_BarrierAlwaysValid(t *testing.T) {
 	m := newValidModule()
 	m.Functions[0].Body = []Statement{
-		{Kind: StmtBarrier{Flags: BarrierWorkGroup | BarrierStorage | BarrierTexture}},
+		{Kind: StmtControlBarrier{Flags: BarrierWorkGroup | BarrierStorage | BarrierTexture}},
 	}
 	expectNoValidationErrors(t, m)
 }

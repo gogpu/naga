@@ -560,12 +560,12 @@ func TestWriteStatement_Barrier(t *testing.T) {
 
 	tests := []struct {
 		name string
-		stmt ir.StmtBarrier
+		stmt ir.StmtControlBarrier
 		want string
 	}{
-		{"workgroup", ir.StmtBarrier{Flags: ir.BarrierWorkGroup}, "GroupMemoryBarrierWithGroupSync()"},
-		{"storage", ir.StmtBarrier{Flags: ir.BarrierStorage}, "DeviceMemoryBarrierWithGroupSync()"},
-		{"both", ir.StmtBarrier{Flags: ir.BarrierWorkGroup | ir.BarrierStorage}, "BarrierWithGroupSync"},
+		{"workgroup", ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}, "GroupMemoryBarrierWithGroupSync()"},
+		{"storage", ir.StmtControlBarrier{Flags: ir.BarrierStorage}, "DeviceMemoryBarrierWithGroupSync()"},
+		{"both", ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup | ir.BarrierStorage}, "BarrierWithGroupSync"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

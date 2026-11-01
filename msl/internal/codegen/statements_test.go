@@ -350,7 +350,7 @@ func TestMSL_Barrier(t *testing.T) {
 					{
 						Name: "test_fn",
 						Body: []ir.Statement{
-							{Kind: ir.StmtBarrier{Flags: tt.flags}},
+							{Kind: ir.StmtControlBarrier{Flags: tt.flags}},
 						},
 					},
 				},

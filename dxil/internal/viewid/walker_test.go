@@ -256,7 +256,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		}
 		ret := ir.ExpressionHandle(0)
 		fn.Body = []ir.Statement{
-			{Kind: ir.StmtBarrier{Flags: ir.BarrierStorage}},
+			{Kind: ir.StmtControlBarrier{Flags: ir.BarrierStorage}},
 			{Kind: ir.StmtReturn{Value: &ret}},
 		}
 		ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}

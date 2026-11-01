@@ -1237,8 +1237,11 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtAtomic:
 		return e.emitStmtAtomic(fn, sk)
 
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		return e.emitStmtBarrier(sk)
+
+	case ir.StmtMemoryBarrier:
+		return e.emitStmtMemoryBarrier(sk)
 
 	case ir.StmtWorkGroupUniformLoad:
 		return e.emitStmtWorkGroupUniformLoad(fn, sk)
@@ -3221,7 +3224,7 @@ func (e *Emitter) isUnsignedAtomicPointer(fn *ir.Function, ptrHandle ir.Expressi
 //
 // Reference: Mesa nir_to_dxil.c emit_barrier_impl() ~3082;
 // DxilValidation.cpp SyncThreadGroup memory-fence requirement.
-func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
+func (e *Emitter) emitStmtBarrier(barrier ir.StmtControlBarrier) error {
 	var flags DXILBarrierMode
 
 	if barrier.Flags&ir.BarrierStorage != 0 {
@@ -3261,6 +3264,29 @@ func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
 
 	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
 
+	return nil
+}
+
+// emitStmtMemoryBarrier emits a barrier without the thread-group sync, as
+// DXC lowers DeviceMemoryBarrier (UAV_FENCE_GLOBAL) and GroupMemoryBarrier
+// (TGSM fence) (HLOperationLower.cpp TrivialBarrier). Like Rust naga's HLSL
+// writer, a subgroup barrier has no DirectX form and writes nothing, so
+// nothing is emitted when no other flag is set.
+func (e *Emitter) emitStmtMemoryBarrier(barrier ir.StmtMemoryBarrier) error {
+	var flags DXILBarrierMode
+	if barrier.Flags&(ir.BarrierStorage|ir.BarrierTexture) != 0 {
+		flags |= BarrierModeUAVFenceGlobal
+	}
+	if barrier.Flags&ir.BarrierWorkGroup != 0 {
+		flags |= BarrierModeGroupSharedMemFence
+	}
+	if flags == 0 {
+		return nil
+	}
+	barrierFn := e.getDxOpBarrierFunc()
+	opcodeVal := e.getIntConstID(int64(OpBarrier))
+	flagsVal := e.getIntConstID(int64(flags))
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
 	return nil
 }
 
