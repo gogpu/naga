@@ -10,8 +10,10 @@
 // details (bitcode writer, module builder, container assembly) are in
 // internal sub-packages.
 //
-// Current status: Phase 1 — vertex + fragment shader lowering (SM 6.0).
-// The Compile function translates naga IR entry points to DXIL bytecode.
+// Status: experimental. Compile translates vertex, fragment, compute and
+// mesh entry points to DXIL for shader models 6.0 to 6.9; the output is
+// checked with IDxcValidator and against DXC in the snapshot tests and on
+// GPUs through the readback corpus.
 //
 // Reference implementations:
 //   - Mesa's src/microsoft/compiler/ (C, MIT license)

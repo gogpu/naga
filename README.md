@@ -35,7 +35,7 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 172/237 IDxcValidator on the Rust naga corpus (experimental) |
+| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 185 of 199 corpus shaders pass IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
 | **Compatibility** | Tested against Rust naga's WGSL snapshot corpus (172 shaders, gfx-rs/wgpu 14328f49): every output is compared, and each known difference is recorded with its reason — see [Rust Naga Compatibility](#rust-naga-compatibility) |
@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus; known differences are recorded per output with a reason. 28 own test shaders; 936 golden outputs
+- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus; known differences are recorded per output with a reason. 29 own test shaders; 929 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -58,11 +58,11 @@
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions, textureGather, textureSampleCompare
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
-- **SPIR-V Backend** — Vulkan-compatible bytecode generation: integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
+- **SPIR-V Backend** — Vulkan-compatible bytecode generation: integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, loop bounding (on by default), workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
 - **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
-- **HLSL Backend** — High-Level Shading Language for DirectX 11/12
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**172 of 237 entry points of the Rust naga test corpus pass IDxcValidator**; **103 of 182 DXC roundtrip comparisons match exactly**; gg production shaders: 45 of 50 entry points valid; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
+- **HLSL Backend** — High-Level Shading Language for DirectX 11/12, shader models 5.0–6.7 (FXC and DXC); helpers get one exit where FXC would miscompile an early return
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**185 of 199 corpus shaders pass IDxcValidator**; **99 of 181 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -300,7 +300,8 @@ pkg.go.dev shows.
 - Derivatives: `dpdx`, `dpdy`, `fwidth`, `dpdxCoarse`, `dpdyCoarse`, `fwidthCoarse`, `dpdxFine`, `dpdyFine`, `fwidthFine`
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`, `subgroupBarrier`
-- Subgroup: `subgroupBallot`, `subgroupAll`, `subgroupAny`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`, `subgroupBroadcast/First`, `subgroupShuffle/XOR/Up/Down`, `quadSwap/Broadcast`
+- Subgroup: `subgroupBallot`, `subgroupAll`, `subgroupAny`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`, `subgroupBroadcast/First`, `subgroupShuffle/XOR/Up/Down`, `quadSwap/Broadcast` (need `enable subgroups;`, as the WGSL spec requires)
+- Directives: `enable` for `f16`, `clip_distances`, `dual_source_blending`, `subgroups`, `primitive_index`, `draw_index` and wgpu's extensions; a feature used without its `enable` is an error
 - Ray Query: `rayQueryInitialize`, `rayQueryProceed`, `rayQueryGetCommittedIntersection`, `rayQueryGetCandidateIntersection`, `rayQueryTerminate`
 - Uniform Load: `workgroupUniformLoad`
 - Array: `arrayLength`
@@ -317,25 +318,15 @@ pkg.go.dev shows.
 | MSL | ✅ Stable | Metal (macOS/iOS) |
 | GLSL | ✅ Stable, version-aware binding | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ Stable | DirectX 11/12 |
-| DXIL | **172/237 IDxcValidator** (Rust naga corpus), 103/182 DXC golden | DirectX 12 (SM 6.0-6.5, experimental) |
+| DXIL | **185/199 IDxcValidator** (Rust naga and own corpus), 99/181 DXC golden | DirectX 12 (SM 6.0-6.9, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ### Test Coverage
 
-~60% overall (62K tracked lines). 12/18 packages at ≥80%. Enterprise-quality tests with output verification, edge cases, regression protection, and hand-crafted IR for specialized paths.
-
-| Package | Coverage |
-|---------|:---:|
-| internal/textutil, dxil/module | **100%** |
-| internal/d3d | **96.6%** |
-| dxil/passes (dce/mem2reg/sroa) | **83-93%** |
-| ir, glsl, wgsl/parser, dxil/bitcode/container/viewid | **80-84%** |
-| spirv | **76.5%** |
-| hlsl | **70.6%** |
-| internal/registry | **75.2%** |
-| wgsl/lower | **65.3%** |
-| msl | **64.2%** |
+Coverage per package and per commit is on [Codecov](https://codecov.io/gh/gogpu/naga). Tests verify output
+(exact strings, spirv-val, IDxcValidator, DXC roundtrip), negative cases with Rust naga's error texts, and GPU
+readback values; every fix ships with a test that failed before it.
 
 ### Architecture
 
