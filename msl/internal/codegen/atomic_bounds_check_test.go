@@ -88,6 +88,36 @@ struct E { k: u32, c: array<atomic<i32>, 4> }
 			},
 		},
 	}
+	tests = append(tests, []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			// Only the pointer chain is written unchecked inside the condition;
+			// the value and compare operands keep their own checks, as Rust's
+			// put_atomic_operation writes them with the normal policy.
+			name: "operands keep their checks",
+			src: `
+@group(0) @binding(0) var<storage, read_write> a: array<atomic<u32>>;
+@group(0) @binding(1) var<storage, read_write> o: array<u32, 4>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = array<u32, 4>(1u, 2u, 3u, 4u);
+    let w = vec4<u32>(gid, 7u);
+    atomicAdd(&a[gid.x], v[gid.y]);
+    atomicAdd(&a[gid.z], w[gid.x]);
+    let r = atomicCompareExchangeWeak(&a[gid.y], v[gid.z], w[gid.y]);
+    var lv = array<u32, 4>(5u, 6u, 7u, 8u);
+    atomicStore(&a[gid.x], lv[gid.z]);
+    o[0] = r.old_value; }
+`,
+			want: []string{
+				"uint _e13 = uint(_e9) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? metal::atomic_fetch_add_explicit(&a[_e9], uint(_e11) < 4 ? v.inner[_e11] : DefaultConstructible(), metal::memory_order_relaxed) : DefaultConstructible();",
+				"uint _e19 = uint(_e15) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? metal::atomic_fetch_add_explicit(&a[_e15], uint(_e17) < 4 ? w[_e17] : DefaultConstructible(), metal::memory_order_relaxed) : DefaultConstructible();",
+				"_atomic_compare_exchange_result_Uint_4_ _e27 = uint(_e21) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? naga_atomic_compare_exchange_weak_explicit(&a[_e21], uint(_e23) < 4 ? v.inner[_e23] : DefaultConstructible(), uint(_e25) < 4 ? w[_e25] : DefaultConstructible()) : DefaultConstructible();",
+			},
+		},
+	}...)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := DefaultOptions()
