@@ -28,6 +28,11 @@
 //   - Single-block colocation only. Multi-block cases that would
 //     require phi insertion at structured-CFG merge points are left
 //     as alloca; they are tracked separately for Phase B.
+//   - Inside a loop, only a variable the block stores before it reads
+//     it. A read before the store sees the previous iteration's value,
+//     which needs the loop-header phi; walking the block once from the
+//     initial value read the value before the loop in every iteration
+//     (P0-DXIL-046).
 //
 // Phase B (deferred — tracked as BUG-DXIL-040) will add ssa.Phi
 // expressions placed at structured-CFG merge points (if-merge,
