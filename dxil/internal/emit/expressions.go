@@ -5813,7 +5813,10 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 		if t.Kind == ir.ScalarFloat {
 			return e.floatConstFor(t, 0.0), nil
 		}
-		if t.Width == 8 {
+		if t.Width == 8 || t.Kind == ir.ScalarBool {
+			// A bool zero is i1 false, as a bool literal: the i32 0 it
+			// was did not match an i1 local's alloca ("Explicit load/store
+			// type does not match pointee type").
 			return e.zeroScalarID(t), nil
 		}
 		return e.getIntConstID(0), nil
@@ -5822,7 +5825,7 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 		switch {
 		case t.Scalar.Kind == ir.ScalarFloat:
 			zeroID = e.floatConstFor(t.Scalar, 0.0)
-		case t.Scalar.Width == 8:
+		case t.Scalar.Width == 8 || t.Scalar.Kind == ir.ScalarBool:
 			zeroID = e.zeroScalarID(t.Scalar)
 		default:
 			zeroID = e.getIntConstID(0)
@@ -5837,6 +5840,19 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 			e.pendingComponents = comps
 		}
 		return zeroID, nil
+	case ir.ArrayType, ir.StructType:
+		// An aggregate is its scalars, as zeroValueFor builds them: a
+		// whole-variable store of `array<f32, 4>()` or `S()` asks for every
+		// component and failed with "has no value for component 1".
+		var comps []int
+		e.appendZeroScalars(inner, &comps)
+		if len(comps) == 0 {
+			return e.getIntConstID(0), nil
+		}
+		if len(comps) > 1 {
+			e.pendingComponents = comps
+		}
+		return comps[0], nil
 	default:
 		return e.getIntConstID(0), nil
 	}
