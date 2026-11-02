@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-11-03
+
+An MSL patch: every index into a runtime-sized array is now bounds-checked under Restrict, which gogpu/wgpu's Metal
+backend uses, and three ReadZeroSkipWrite defects found while reviewing that fix are fixed. Bounds and `arrayLength`
+follow the WGSL spec's NRuntime. Other backends are unchanged. No API change.
+
 ### Fixed
 
 - **MSL: the Restrict bounds-check policy left a top-level runtime-sized array unchecked** (P0-MSL-100). An index
@@ -3355,7 +3361,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.2...HEAD
+[0.21.2]: https://github.com/gogpu/naga/compare/v0.21.1...v0.21.2
+[0.21.1]: https://github.com/gogpu/naga/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/gogpu/naga/compare/v0.20.5...v0.21.0
 [0.20.5]: https://github.com/gogpu/naga/compare/v0.20.4...v0.20.5
 [0.20.4]: https://github.com/gogpu/naga/compare/v0.20.3...v0.20.4
