@@ -75,10 +75,11 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 		}
 		// Init-only optimization: if the local has a non-nil Init and is
 		// never stored to, register it so loads resolve to Init directly.
-		// A struct read through a pointer to a member (`s.a`) is not:
-		// that load goes to the alloca, which then has to hold the Init.
+		// A struct or array read through a pointer to a member or element
+		// (`s.a`, `xs[i]`) is not: that load goes to the alloca, which then
+		// has to hold the Init.
 		lv := &fn.LocalVars[i]
-		if lv.Init != nil && !stored[uint32(i)] && !e.structMemberAccessed(fn, uint32(i)) {
+		if lv.Init != nil && !stored[uint32(i)] && !e.partAccessed(fn, uint32(i)) {
 			e.initOnlyLocals[uint32(i)] = *lv.Init
 			continue
 		}
@@ -105,16 +106,22 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 	return e.storeLocalInitializers(fn)
 }
 
-// structMemberAccessed reports whether the local v is a struct some
-// expression takes a pointer to a member of. The loads of an init-only
-// local resolve to its Init only when they load the whole variable; a load
-// of a member goes to an alloca, and an init-only local's alloca never got
-// the Init stored: `const cs = S(7, ...); var s = cs; s.a` read
-// uninitialized memory. A struct whose whole-variable store the emitter
-// cannot write (storableWhole) keeps the init-only path.
-func (e *Emitter) structMemberAccessed(fn *ir.Function, v uint32) bool {
+// partAccessed reports whether the local v is a struct or an array some
+// expression takes a pointer to a member or element of. The loads of an
+// init-only local resolve to its Init only when they load the whole
+// variable; a load of a part goes to an alloca, and an init-only local's
+// alloca never got the Init stored: `const cs = S(7, ...); var s = cs; s.a`
+// and `var xs = array(1.0, 2.0); xs[i]` read uninitialized memory
+// (P0-DXIL-084). A local whose initializer store the emitter cannot write
+// (initStorable) keeps the init-only path.
+func (e *Emitter) partAccessed(fn *ir.Function, v uint32) bool {
 	ty := fn.LocalVars[v].Type
-	if _, isStruct := e.ir.Types[ty].Inner.(ir.StructType); !isStruct || !e.storableWhole(ty) {
+	switch e.ir.Types[ty].Inner.(type) {
+	case ir.StructType, ir.ArrayType:
+	default:
+		return false
+	}
+	if !e.initStorable(ty) {
 		return false
 	}
 	for _, expr := range fn.Expressions {
@@ -222,6 +229,22 @@ func (e *Emitter) storableWhole(ty ir.TypeHandle) bool {
 		return len(t.Members) > 0
 	}
 	return false
+}
+
+// initStorable reports whether the emitter stores a local's initializer of
+// type ty correctly: storableWhole, plus arrays of vectors, which a whole
+// store writes element by element and component by component (an array of
+// vectors is one flat alloca of scalars).
+func (e *Emitter) initStorable(ty ir.TypeHandle) bool {
+	if e.storableWhole(ty) {
+		return true
+	}
+	arr, ok := e.ir.Types[ty].Inner.(ir.ArrayType)
+	if !ok || arr.Size.Constant == nil || *arr.Size.Constant == 0 {
+		return false
+	}
+	_, vec := e.ir.Types[arr.Base].Inner.(ir.VectorType)
+	return vec
 }
 
 // appendZeroScalars appends the zero constant of every scalar of inner to
