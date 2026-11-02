@@ -70,6 +70,10 @@ type validationContext struct {
 // stage-specific runs in any stage.
 const allStages = ^ShaderStages(0)
 
+// maxTypeNesting bounds the walks through a type's members and elements, so a
+// malformed module with a cycle in its type arena cannot recurse forever.
+const maxTypeNesting = 32
+
 // controlFlowAbility is what a statement may do to leave the block it is
 // in: Rust naga's ControlFlowAbility (valid/function.rs). A function body
 // may return; a switch case may also break; a loop body may also break and
@@ -170,8 +174,17 @@ func (v *validator) validateEntryPointBindings(info ModuleInfo) {
 	for i := range v.module.EntryPoints {
 		ep := &v.module.EntryPoints[i]
 		seen := make(map[ir.ResourceBinding]bool)
+		immediates := 0
 		for h, use := range info.EntryPoints[i].GlobalUses {
 			gv := &v.module.GlobalVariables[h]
+			if use != 0 && gv.Space == ir.SpaceImmediate {
+				// Rust's EntryPointError::MoreThanOneImmediateUsed, checked
+				// before the bindings as Rust does.
+				immediates++
+				if immediates == 2 {
+					v.entryPointError(ep, "More than 1 immediate data variable is used")
+				}
+			}
 			if use == 0 || gv.Binding == nil {
 				continue
 			}
@@ -461,6 +474,9 @@ func (v *validator) validateGlobalVariables() {
 			// Rust: the type lacks CREATION_RESOLVED, which every address
 			// space but workgroup requires.
 			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: an array sized by an override is allowed only in the workgroup address space", i, gv.Name))
+		} else if gv.Space == ir.SpaceImmediate && !v.immediateCompatible(gv.Type, 0) {
+			// Rust's GlobalVariableError::InvalidImmediateType text.
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: Type is not valid for use as a immediate data", i, gv.Name))
 		}
 
 		// Rust keeps the access inside AddressSpace::Storage (ADR-010 E2).
@@ -772,6 +788,8 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 	case ir.ExprUnary:
 		if !v.isValidExpressionHandle(kind.Expr) {
 			v.addErrorInExpression(handle, fmt.Sprintf("operand expression %d does not exist", kind.Expr))
+		} else {
+			v.checkUnaryOperand(handle, kind)
 		}
 
 	case ir.ExprBinary:
@@ -1458,7 +1476,7 @@ func (v *validator) addErrorInStatement(index int, msg string) {
 // containsPendingArray reports a type that is, or holds, an array sized by
 // an override.
 func (v *validator) containsPendingArray(h ir.TypeHandle, depth int) bool {
-	if depth > 32 || !v.isValidTypeHandle(h) {
+	if depth > maxTypeNesting || !v.isValidTypeHandle(h) {
 		return false
 	}
 	switch t := v.module.Types[h].Inner.(type) {
@@ -1472,6 +1490,95 @@ func (v *validator) containsPendingArray(h ir.TypeHandle, depth int) bool {
 		}
 	}
 	return false
+}
+
+// immediateCompatible reports whether a var<immediate> may hold a value of
+// type h, as Rust's TypeInfo::immediates_compatibility (valid/type.rs): no
+// array anywhere in it (ImmediateError::InvalidArray, the immediate-data
+// proposal's rule) and no 16-bit integer (InvalidScalar).
+func (v *validator) immediateCompatible(h ir.TypeHandle, depth int) bool {
+	if depth > maxTypeNesting || !v.isValidTypeHandle(h) {
+		return true
+	}
+	switch t := v.module.Types[h].Inner.(type) {
+	case ir.ScalarType:
+		return immediateScalar(t)
+	case ir.VectorType:
+		return immediateScalar(t.Scalar)
+	case ir.MatrixType:
+		return immediateScalar(t.Scalar)
+	case ir.AtomicType:
+		return immediateScalar(t.Scalar)
+	case ir.ArrayType:
+		return false
+	case ir.StructType:
+		for _, m := range t.Members {
+			if !v.immediateCompatible(m.Type, depth+1) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// immediateScalar reports whether s may be stored in immediate data: not a
+// 16-bit integer (Rust's check_width marks i16 and u16 only).
+func immediateScalar(s ir.ScalarType) bool {
+	return !((s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint) && s.Width == 2)
+}
+
+// checkUnaryOperand checks the operand type of a unary operator, as Rust's
+// validate_expression for Expression::Unary: a scalar or vector, of a float
+// or signed integer for negation, of bool for `!`, of an integer for `~`
+// (the WGSL spec's unary operators). A matrix or a composite was compiled to
+// whatever each backend made of it.
+func (v *validator) checkUnaryOperand(handle ir.ExpressionHandle, u ir.ExprUnary) {
+	types := v.context.types
+	if types == nil || int(u.Expr) >= types.Len() {
+		return
+	}
+	res := types.Get(u.Expr)
+	if res.Handle != nil && !v.isValidTypeHandle(*res.Handle) {
+		return
+	}
+	var kind ir.ScalarKind
+	ok := false
+	switch t := res.Inner(v.module.Types).(type) {
+	case ir.ScalarType:
+		kind, ok = t.Kind, true
+	case ir.VectorType:
+		kind, ok = t.Scalar.Kind, true
+	}
+	if ok {
+		switch u.Op {
+		case ir.UnaryNegate:
+			ok = kind == ir.ScalarFloat || kind == ir.ScalarSint
+		case ir.UnaryLogicalNot:
+			ok = kind == ir.ScalarBool
+		case ir.UnaryBitwiseNot:
+			ok = kind == ir.ScalarSint || kind == ir.ScalarUint
+		default:
+			ok = false
+		}
+	}
+	if !ok {
+		v.addErrorInExpression(handle, fmt.Sprintf("Operation %s can't work with [%d]", unaryOperatorName(u.Op), u.Expr))
+	}
+}
+
+// unaryOperatorNames are Rust naga's UnaryOperator variant names.
+var unaryOperatorNames = [...]string{
+	ir.UnaryNegate:     "Negate",
+	ir.UnaryLogicalNot: "LogicalNot",
+	ir.UnaryBitwiseNot: "BitwiseNot",
+}
+
+// unaryOperatorName is op as Rust's Debug prints it in an error message.
+func unaryOperatorName(op ir.UnaryOperator) string {
+	if int(op) < len(unaryOperatorNames) {
+		return unaryOperatorNames[op]
+	}
+	return fmt.Sprintf("UnaryOperator(%d)", op)
 }
 
 // isSizedArrayPointer reports a pointer, in the function being validated,

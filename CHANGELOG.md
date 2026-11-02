@@ -366,6 +366,17 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   error; the backends wrote code the driver rejects or that has no defined result. Sampling at an explicit level, at
   level zero or with gradients stays valid in every stage. No shader of the test corpus or of gg is affected
   (P1-IR-028).
+- **Breaking: the validator checks the operand of a unary operator** (all released versions accepted any), as Rust
+  naga: negation takes a float or signed integer, `!` a bool, `~` an integer, each a scalar or vector, as the WGSL
+  spec has them. `-m` of a matrix, `-x` of a `u32` and `~f` of a float compiled to whatever each backend made of them
+  (SPIR-V failed late, GLSL wrote it); they are now "Operation Negate can't work with [3]" (Rust's text, with the
+  operand's expression handle). No shader of the test corpus or of gg is affected (P1-WGSL-096).
+- **Breaking: `var<immediate>` rules** (all released versions accepted any), as the WGSL immediate-data proposal and
+  Rust naga have them: the store type holds no array, at any depth of its structs ("Global variable [0] 'im' is
+  invalid: Type is not valid for use as a immediate data"), and an entry point uses at most one immediate variable,
+  its callees included ("Entry point main at Compute is invalid: More than 1 immediate data variable is used"); two
+  entry points may use one each. Every backend compiled such shaders before; GLSL refused them only in its writer
+  (P1-WGSL-097).
 - **Validator: two entry points may put their own resource at one binding.** Any two globals with the same
   `@group`/`@binding` in a module were rejected; as Rust naga, a collision is now checked per entry point, among the
   globals it uses, callees included ("Entry point main at Compute is invalid: Bindings for [1] conflict with other
