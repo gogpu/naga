@@ -537,7 +537,7 @@ func TestValidateNew_CompleteValidModule(t *testing.T) {
 		Name: "helper",
 		Arguments: []ir.FunctionArgument{
 			{Name: "a", Type: 0},
-			{Name: "b", Type: 2},
+			{Name: "b", Type: 0}, // one type: Add takes equal operands (P1-IR-029)
 		},
 		Result: &ir.FunctionResult{Type: 0},
 		Expressions: []ir.Expression{

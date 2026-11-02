@@ -799,6 +799,9 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 		if !v.isValidExpressionHandle(kind.Right) {
 			v.addErrorInExpression(handle, fmt.Sprintf("right expression %d does not exist", kind.Right))
 		}
+		if v.isValidExpressionHandle(kind.Left) && v.isValidExpressionHandle(kind.Right) {
+			v.checkBinaryOperands(handle, kind)
+		}
 
 	case ir.ExprSelect:
 		if !v.isValidExpressionHandle(kind.Condition) {
