@@ -6457,62 +6457,6 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	condInner := typeResolutionInner(e.backend.module, condType)
 	acceptInner := typeResolutionInner(e.backend.module, acceptType)
 
-	// If condition is float (scalar or vector), convert to bool by comparing != 0.0.
-	// Common in shaders: select(a, b, step(...)) where step returns float, not bool.
-	if condScalar, ok := condInner.(ir.ScalarType); ok && condScalar.Kind == ir.ScalarFloat {
-		// scalar float → scalar bool via OpFOrdNotEqual(cond, 0.0)
-		boolTypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-		if err != nil {
-			return 0, err
-		}
-		condScalarTypeID, err := e.backend.emitScalarType(condScalar)
-		if err != nil {
-			return 0, err
-		}
-		zeroID := e.backend.builder.AddConstantFloat32(condScalarTypeID, 0.0)
-		cmpID := e.backend.builder.AllocID()
-		builder := e.newIB()
-		builder.AddWord(boolTypeID)
-		builder.AddWord(cmpID)
-		builder.AddWord(conditionID)
-		builder.AddWord(zeroID)
-		e.backend.builder.funcAppend(builder.Build(OpFOrdNotEqual))
-		conditionID = cmpID
-		condInner = ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
-	} else if condVec, ok := condInner.(ir.VectorType); ok && condVec.Scalar.Kind == ir.ScalarFloat {
-		// vec<float> → vec<bool> via OpFOrdNotEqual(cond, vec(0.0))
-		boolScalarForVec, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-		if err != nil {
-			return 0, err
-		}
-		boolVecTypeID := e.backend.emitVectorType(boolScalarForVec, uint32(condVec.Size))
-		floatScalarID, err := e.backend.emitScalarType(condVec.Scalar)
-		if err != nil {
-			return 0, err
-		}
-		zeroScalarID := e.backend.builder.AddConstantFloat32(floatScalarID, 0.0)
-		// Build zero vector
-		zeroVecID := e.backend.builder.AllocID()
-		zb := e.newIB()
-		floatVecTypeID := e.backend.emitVectorType(floatScalarID, uint32(condVec.Size))
-		zb.AddWord(floatVecTypeID)
-		zb.AddWord(zeroVecID)
-		for range condVec.Size {
-			zb.AddWord(zeroScalarID)
-		}
-		e.backend.builder.funcAppend(zb.Build(OpCompositeConstruct))
-		// Compare
-		cmpID := e.backend.builder.AllocID()
-		cb := e.newIB()
-		cb.AddWord(boolVecTypeID)
-		cb.AddWord(cmpID)
-		cb.AddWord(conditionID)
-		cb.AddWord(zeroVecID)
-		e.backend.builder.funcAppend(cb.Build(OpFOrdNotEqual))
-		conditionID = cmpID
-		condInner = ir.VectorType{Size: condVec.Size, Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}
-	}
-
 	// SPIR-V OpSelect requires the condition to be the same size as the result.
 	// WGSL allows scalar bool condition with vector operands (broadcast).
 	if _, isBoolScalar := condInner.(ir.ScalarType); isBoolScalar {
