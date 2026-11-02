@@ -56,9 +56,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| ARCH-001: Internal packages | P1 | In Progress | Move implementations to `internal/`, reduce public API 398→~118 symbols |
-| API review + freeze | P1 | Planned | Review all public types/functions, document stability guarantees |
-| Deprecation pass | P1 | Planned | Mark unstable APIs as deprecated, provide migration paths |
+| ARCH-001: Internal packages | P1 | ✅ Done (v0.21.0) | Implementations in `internal/`; one `Compile` per backend, shared `backend` options, public `valid` package |
+| API review + freeze | P1 | Review done (v0.21.0) | One API in Rust naga's shape with safe zero values; the freeze is v1.0 |
+| Deprecation pass | P1 | Superseded | Breaking changes before v1.0 ship directly, with a migration table (CHANGELOG 0.21.0) |
 | `go doc` audit | P2 | Planned | Every exported symbol has clear godoc, every package has doc.go |
 
 ### Phase 2: Test Coverage (August–September 2026)
@@ -68,7 +68,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
 | Coverage wave 5+ | P1 | Planned | wgsl 65%→80%, msl 64%→80%, hlsl 71%→80% |
-| DXIL downstream corpus | P2 | Planned | Real-world shader corpus from gg/ui/born production |
+| DXIL downstream corpus | P2 | In Progress | gg's production shaders vendored and validated in CI; born and ui next |
 | DXIL differential testing | P2 | Planned | naga WGSL→DXIL vs naga WGSL→HLSL→DXC→DXIL roundtrip |
 | Native Go fuzzing | P2 | Planned | `testing/F` fuzzing for WGSL parser and all backends |
 | WebGPU CTS integration | P3 | Planned | Test against WebGPU Conformance Test Suite shaders |
@@ -79,8 +79,8 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| IDxcValidator: whole corpus | P1 | 172/237 | 51 entry points invalid, 5 unsupported (ray tracing, image atomics, subgroups); the corpus grew with the Rust sync |
-| DXC golden parity 80%+ | P1 | 103/182 (57%) | Structural match with DXC roundtrip output |
+| IDxcValidator: whole corpus | P1 | 185/199 | 3 shaders fail validation, 11 do not compile yet (counted per shader of the Rust and own corpora) |
+| DXC golden parity 80%+ | P1 | 99/181 (55%) | Structural match with DXC roundtrip output |
 | DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
 | Microsoft IDxcValidator AV issue | P2 | Draft ready | File upstream issue for validator crash on malformed input |
 | SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend is the long-term path |
@@ -94,7 +94,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | SPIR-V structural parity | P2 | 87/93 | 6 allow-listed (3 ahead of Rust: workgroup layout-free types) |
 | SPV-008 runtime residual | P2 | Workaround in gg | Nested for-loops/if-else incorrect runtime results despite valid SPIR-V |
 | Shared optimization passes | P3 | DXIL-only now | Lift DCE/SROA/mem2reg to IR level for all backends |
-| Documentation finalization | P1 | In Progress | ARCHITECTURE.md, CONTRIBUTING.md, pkg.go.dev, migration guide |
+| Documentation finalization | P1 | In Progress | ARCHITECTURE.md, CONTRIBUTING.md and the migration table updated for v0.21.0; `go doc` audit next |
 
 ### v1.0.0 Release (December 2026)
 
@@ -103,11 +103,11 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | Complete Rust naga parity | In Progress | Corpus synced to gfx-rs/wgpu 14328f49; every difference recorded per output with a reason |
-| SPIR-V binary validation 100% | In Progress | spirv-val in CI; 8 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
-| DXIL backend production-ready | In Progress | 172/237 IDxcValidator, target: whole corpus |
+| SPIR-V binary validation 100% | In Progress | spirv-val in CI, also in the Vulkan environments; 6 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
+| DXIL backend production-ready | In Progress | 185/199 IDxcValidator, GPU readback on Intel and NVIDIA; target: whole corpus |
 | API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
 | Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |
-| Performance benchmarks published | ✅ Done | 68 benchmarks, −32% allocs, −34% bytes |
+| Performance benchmarks published | ✅ Done | 46 benchmarks, −32% allocs, −34% bytes |
 | Comprehensive documentation | In Progress | ARCHITECTURE.md, CONTRIBUTING.md, pkg.go.dev |
 | Real-world validation | ✅ Done | gg, ui, born-ml, Quake (ironwail-go), Flutter embedding |
 

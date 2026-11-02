@@ -69,17 +69,24 @@ golangci-lint run
 ```
 naga/
 ├── wgsl/           # WGSL frontend (lexer, parser, AST → IR)
-├── ir/             # Intermediate representation
+├── ir/             # Intermediate representation (data only)
+├── valid/          # Validation (Rust naga's valid module)
+├── backend/        # Types every backend shares (options, errors)
 ├── spirv/          # SPIR-V backend (Vulkan)
 ├── msl/            # MSL backend (Metal)
 ├── glsl/           # GLSL backend (OpenGL)
 ├── hlsl/           # HLSL backend (DirectX 11/12)
 ├── dxil/           # DXIL backend (DirectX 12, experimental)
+├── internal/       # Shared implementation (typifier, irutil, overrides, …)
 ├── snapshot/       # Snapshot test infrastructure + golden files
 │   └── testdata/
-│       ├── in/             # Input WGSL shaders + TOML configs
-│       ├── golden/         # Our golden outputs (msl/, glsl/, hlsl/, spv/)
-│       └── reference/      # Rust naga reference outputs for comparison
+│       ├── rust/           # Rust naga's WGSL inputs + TOML params (in/) and reference outputs (out/), vendored
+│       ├── rust-derived/   # Rust naga reference outputs upstream does not commit, produced by running Rust naga
+│       ├── own/in/         # Our own test shaders
+│       └── golden/         # Our golden outputs (msl/, glsl/, hlsl/, spv/, dxil-dxc/, …)
+├── testdata/
+│   ├── readback/   # GPU readback corpus: WGSL cases with expected values (run by gogpu/wgpu)
+│   └── upstream/   # Vendored third-party shaders (gg, gfx-rs examples) with LICENSE and PROVENANCE
 ├── cmd/nagac/      # CLI compiler
 ├── cmd/spvdis/     # SPIR-V disassembler
 └── cmd/dxilval/    # DXIL validator (Windows)

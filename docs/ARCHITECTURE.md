@@ -64,8 +64,8 @@ naga/
 ├── wgsl/                          # WGSL frontend
 │   ├── wgsl.go                    # Public API: Parse, ParseOptions, ParseInfo, ParseError
 │   └── internal/
-│       ├── parser/                # Lexer, token, parser, AST, errors
-│       └── lower/                 # AST → IR lowerer
+│       ├── parser/                # Lexer, token, parser, AST, enable directives, errors
+│       └── lower/                 # AST → IR lowerer (enable-extension gates)
 │
 ├── ir/                            # The IR data model (Rust naga::ir); imports no other naga package
 │   ├── ir.go                      # Module, Type, Function, EntryPoint, handles
@@ -82,30 +82,37 @@ naga/
 │   ├── typifier/                  # The one expression typifier (Rust proc::Typifier) for validator, backends, frontend
 │   ├── textutil/                  # IndentWriter (DRY for glsl/hlsl/msl)
 │   ├── d3d/                       # Shared namer, sig packing, interface ordering (hlsl, dxil)
-│   ├── irutil/                    # Compaction, inlining, type reordering, handle walkers
+│   ├── irutil/                    # Compaction, inlining (return lowering), type reordering, handle walkers,
+│   │                              # one-exit helpers for FXC (SingleExitSwitchReturns)
+│   ├── ssa/                       # The expression kinds the DXIL backend adds (Alias, Phi); not part of the IR
 │   ├── overrides/                 # Pipeline-constant processing (Rust back::pipeline_constants)
+│   ├── entrypoint/                # Entry point selection shared by the backends
 │   ├── registry/                  # Type deduplication registry
-│   └── consteval/                 # Constant evaluator shared by the WGSL frontend
+│   ├── consteval/                 # Constant evaluator shared by the WGSL frontend
+│   ├── unsupported/               # Errors that wrap backend.ErrUnsupported
+│   ├── dxcvalidator/              # IDxcValidator through dxil.dll (Windows, tests and cmd/dxilval)
+│   └── readback/, testcorpus/, testtools/  # GPU readback corpus reader, test-data provenance, external-tool policy
 │
-├── spirv/                         # SPIR-V backend (~12.5K LOC)
-│   ├── spirv.go                   # Public API: Options, Backend (DXIL pattern)
+├── spirv/                         # SPIR-V backend
+│   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo
 │   └── internal/codegen/          # ALL implementation
 │
-├── msl/                           # MSL backend (~14.2K LOC)
-│   ├── msl.go                     # Public API: Compile, Options (real types)
-│   └── internal/codegen/          # ALL implementation (DXIL pattern)
+├── msl/                           # MSL backend
+│   ├── msl.go                     # Public API: Compile, Options, TranslationInfo
+│   └── internal/codegen/          # ALL implementation
 │
-├── glsl/                          # GLSL backend (~7.8K LOC)
-│   ├── glsl.go                    # Public API: Compile, Options (real types)
-│   └── internal/codegen/          # ALL implementation (DXIL pattern)
+├── glsl/                          # GLSL backend
+│   ├── glsl.go                    # Public API: Compile, Options, TranslationInfo
+│   └── internal/codegen/          # ALL implementation
 │
-├── hlsl/                          # HLSL backend (~14.6K LOC)
-│   ├── hlsl.go                    # Public API: Compile, Options (real types)
-│   └── internal/codegen/          # ALL implementation (DXIL pattern)
+├── hlsl/                          # HLSL backend
+│   ├── hlsl.go                    # Public API: Compile, Options, TranslationInfo
+│   └── internal/codegen/          # ALL implementation
 │
 ├── dxil/                          # DXIL backend (experimental; IDxcValidator and DXC parity measured by snapshot tests)
 │   ├── dxil.go                    # Public API: Compile, Options, Validate
 │   ├── sig_usage.go               # Input signature Used mask analysis
+│   ├── privates.go, workgroup_*.go  # Module rewrites before emission: privates as locals, workgroup scalarization
 │   ├── validate.go                # IDxcValidator integration
 │   └── internal/                  # ALL implementation internal
 │       ├── bitcode/               # LLVM 3.7 bit-level writer (VBR, blocks, records)
@@ -152,6 +159,8 @@ Recursive descent parser that builds an AST. Key features:
 - Template list edge cases (trailing commas, `>=` disambiguation)
 - Switch with `default` as case selector, trailing commas
 - `>>` token splitting for nested template closing (`vec3<vec3<f32>>`)
+- `enable` directives: an unknown extension name is an error, and directives must precede every declaration (WGSL
+  grammar, Rust's `DirectiveAfterFirstGlobalDecl`)
 
 ### Stage 3: Lowerer
 
@@ -168,17 +177,29 @@ Converts AST into typed IR. This is the largest and most complex frontend stage:
 - **Pointer dereference** on assignment LHS (`*ptr = value`)
 - **Type inference** for `let` bindings and global variables
 - **Unused variable detection** with `_` prefix exception
+- **Enable-extension gates** at Rust naga's sites (types, built-ins, attributes, address spaces, literals); by the
+  WGSL spec, the subgroup built-ins also need `enable subgroups;`
 
 ### Stage 4: Validation
 
 **File:** `valid/validate.go` (public: `valid.Validate`)
 
-Validates the IR module for correctness:
-- Type consistency (scalar widths, vector sizes, matrix dimensions)
-- Handle validity (all references point to existing objects)
-- Control flow (break/continue only in loops, return in functions)
+Validates the IR module as Rust naga's `valid` module does, with Rust's error texts:
+- Type consistency (scalar widths, vector sizes, matrix dimensions) and handle validity
+- Expression typing (one typifier pass) and scope: an expression is used only after its `Emit`
+- Operand types of unary and binary operators and of `select` (Rust's `InvalidUnaryOperandType`,
+  `InvalidBinaryOperandTypes`, `SelectConditionNotABool`)
+- Control flow as Rust's `ControlFlowAbility` (break/continue/return)
+- Capability gates (`valid.Options.Capabilities`, subgroup stages and operations); a zero option is no optional
+  capability
+- Stage restrictions through the call tree (`ForbiddenStageOperations`): `discard` in fragment shaders, barriers in
+  compute shaders, implicit-LOD sampling and derivatives in fragment shaders
+- `var<immediate>`: no arrays, at most one per entry point
 - Binding uniqueness per entry point (no two resources one entry point uses at one `@group`/`@binding`, as Rust)
-- Entry point requirements (vertex needs `@builtin(position)`)
+- Entry point requirements (vertex needs `@builtin(position)`, interpolation of varyings)
+
+The result is a `valid.ModuleInfo`, which `naga.ProcessOverrides` takes and returns, as Rust's
+`process_overrides`.
 
 ### Stage 5: Backend Code Generation
 
@@ -186,11 +207,16 @@ Five backends share the same IR but produce different outputs:
 
 | Backend | Output | Target | Key Feature |
 |---------|--------|--------|-------------|
-| **SPIR-V** | Binary (little-endian words) | Vulkan | Word arena, capability tracking |
-| **MSL** | Text (C++ dialect) | Metal | Bounds check policies |
+| **SPIR-V** | Binary (little-endian words) | Vulkan | Word arena, capability tracking, SPIR-V 1.0–1.6 |
+| **MSL** | Text (C++ dialect) | Metal | Bounds check policies, MSL 1.0–3.1 |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
-| **HLSL** | Text | DirectX 11/12 | Shader model selection, semantics |
-| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | IDxcValidator over the Rust naga corpus and DXC roundtrip parity (snapshot tests). DCE, SROA, mem2reg optimization passes. Experimental. |
+| **HLSL** | Text | DirectX 11/12 | Shader model 5.0–6.7, semantics; one-exit helpers for FXC below 6.0 |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0–6.9) | IDxcValidator over the Rust naga corpus and DXC roundtrip parity (snapshot tests). DCE, SROA, mem2reg optimization passes. Experimental. |
+
+Every backend is one function, `Compile(*ir.Module, Options) (output, TranslationInfo, error)`; the options it shares
+with the others come from the `backend` package, with safe zero values (bounds checks `Restrict`, workgroup memory
+zeroed, loops bounded). A target version the module needs but the caller did not ask for is refused with a
+`*backend.VersionError` (`errors.Is(err, backend.ErrUnsupported)`), never raised behind the caller's back.
 
 ## Intermediate Representation
 
@@ -198,11 +224,14 @@ Five backends share the same IR but produce different outputs:
 
 ```go
 type Module struct {
-    Types[]            // All type definitions (deduplicated)
-    Constants[]        // Module-scope constants
-    GlobalVariables[]  // Uniform, storage, workgroup variables
-    Functions[]        // Function definitions (SSA expressions)
-    EntryPoints[]      // Shader entry points (vertex/fragment/compute)
+    Types             // All type definitions (deduplicated)
+    SpecialTypes      // Types the IR itself needs (ray intersection, external texture parameters)
+    Constants         // Module-scope constants; Init indexes GlobalExpressions
+    Overrides         // Pipeline-overridable constants
+    GlobalVariables   // Uniform, storage, workgroup, private, immediate variables
+    GlobalExpressions // Constant and override expressions at module scope
+    Functions         // Function definitions (expression arena + statement tree)
+    EntryPoints       // Shader entry points (vertex/fragment/compute/task/mesh)
 }
 ```
 
@@ -246,30 +275,30 @@ Expressions are stored in a flat pool (`Function.Expressions[]`) and referenced 
 Each expression is evaluated once (SSA — Static Single Assignment):
 
 ```
-Literal              — f32, i32, u32, bool constants
-ExprConstant         — Reference to module constant
-ExprZeroValue        — Zero-initialized value of given type
-ExprCompose          — Construct composite (struct/vector/array)
-ExprAccess           — Dynamic index access (array[i])
-ExprAccessIndex      — Compile-time index access (array[2])
-ExprMember           — Struct member access (.x, .field)
-ExprSwizzle          — Vector swizzle (.xyz, .rgba)
-ExprCast             — Type conversion (f32(x), u32(y))
-ExprBitcast          — Bit reinterpretation (bitcast<T>)
-ExprUnaryOp          — !, -, ~
-ExprBinaryOp         — +, -, *, /, %, &, |, ^, ==, !=, <, >
-ExprLogicalOp        — &&, ||
-ExprLoad             — Dereference pointer
-ExprFunctionCall     — Call function with arguments
-ExprImageSample      — textureSample, textureSampleLevel, etc.
-ExprImageLoad        — textureLoad
-ExprImageQuery       — textureDimensions, textureNumLevels
-ExprImageGather      — textureGather, textureGatherCompare
-ExprArrayLength      — arrayLength() for runtime-sized arrays
-ExprSelect           — Ternary select(false, true, cond)
-ExprMath             — 100+ built-in functions (abs, sin, dot, etc.)
-ExprAtomicResult     — Result of atomic operation
-ExprAs               — Conversion with cast kind (bitcast, etc.)
+Literal                   — scalar constants (f16/f32/f64, i32/u32/i64/u64, bool, abstract)
+ExprConstant, ExprOverride — Reference to a module constant / pipeline override
+ExprZeroValue             — Zero-initialized value of a type
+ExprCompose, ExprSplat    — Construct a composite / broadcast a scalar to a vector
+ExprAccess                — Dynamic index access (array[i])
+ExprAccessIndex           — Constant index access (array[2], struct members, .x)
+ExprSwizzle               — Vector swizzle (.xyz, .rgba)
+ExprFunctionArgument      — A function's argument
+ExprGlobalVariable, ExprLocalVariable — Pointer to a variable
+ExprLoad                  — Dereference a pointer
+ExprImageSample           — textureSample* and textureGather* (level, gather, depth reference)
+ExprImageLoad, ExprImageQuery — textureLoad / textureDimensions, textureNumLevels, …
+ExprUnary                 — !, -, ~
+ExprBinary                — + - * / %, comparisons, & | ^, && ||, << >>
+ExprSelect                — select(false, true, cond)
+ExprDerivative            — dpdx, dpdy, fwidth (and coarse/fine)
+ExprRelational            — all, any, isnan, isinf
+ExprMath                  — 100+ built-in functions (abs, sin, dot, …)
+ExprAs                    — Conversion or bitcast
+ExprCallResult            — Result of a StmtCall
+ExprArrayLength           — arrayLength() of a runtime-sized array
+ExprAtomicResult, ExprWorkGroupUniformLoadResult — Results of the statements that produce them
+ExprRayQueryProceedResult, ExprRayQueryGetIntersection — Ray query results
+ExprSubgroupBallotResult, ExprSubgroupOperationResult — Subgroup operation results
 ```
 
 ### Statement Kinds
@@ -284,11 +313,16 @@ StmtBreak            — Exit loop or switch
 StmtContinue         — Jump to continuing block
 StmtReturn           — Return from function (optional value)
 StmtKill             — Fragment discard
-StmtBarrier          — Workgroup/storage/texture barrier
+StmtControlBarrier   — workgroupBarrier, storageBarrier, textureBarrier, subgroupBarrier
+StmtMemoryBarrier    — Memory barrier without execution synchronization
 StmtStore            — Write to pointer (*ptr = value)
 StmtImageStore       — Write to storage texture
-StmtAtomic           — Atomic read-modify-write operation
-StmtCall             — Function call as statement (no return value used)
+StmtAtomic           — Atomic operation on a pointer
+StmtImageAtomic      — Atomic operation on a storage texel
+StmtWorkGroupUniformLoad — workgroupUniformLoad
+StmtCall             — Function call (the result, if any, is an ExprCallResult)
+StmtRayQuery         — Ray query initialize/proceed/terminate
+StmtSubgroupBallot, StmtSubgroupCollectiveOperation, StmtSubgroupGather — Subgroup operations
 ```
 
 ### Address Spaces
@@ -308,8 +342,8 @@ StmtCall             — Function call as statement (no return value used)
 
 **Files:** `spirv/internal/codegen/backend.go`, `spirv/internal/codegen/writer.go`, `spirv/internal/codegen/block.go`, `spirv/internal/codegen/ray_query.go`
 
-The SPIR-V backend produces binary bytecode for Vulkan (194 of 200 snapshot shaders
-pass spirv-val; see Testing Strategy). It uses a **Block Ownership Model** (matching
+The SPIR-V backend produces binary bytecode for Vulkan (195 of the 201 snapshot shaders
+compile and all of them pass spirv-val; see Testing Strategy). It uses a **Block Ownership Model** (matching
 Rust naga) where each basic block is a first-class `Block` struct consumed by
 `FunctionBuilder`. This prevents instruction interleaving bugs and provides structural
 guarantees for control flow correctness.
@@ -351,8 +385,10 @@ Sections (strict ordering per spec):
 - **Integer Safety:** `naga_div`/`naga_mod` wrapper functions prevent division by zero and i32 MIN/-1 overflow
 - **Image Bounds Checking:** Restrict and ReadZeroSkipWrite policies with coordinate clamping
 - **Ray Query Helpers:** 6 helper functions per ray query (initialize, proceed, terminate, intersection getters)
-- **Force Loop Bounding:** Iteration counter prevents infinite loops on malformed shaders
-- **Workgroup Zero-Init:** Polyfill for zero-initializing workgroup memory
+- **Loop Bounding:** Iteration counter prevents infinite loops (on by default; `SkipLoopBounding` opts out)
+- **Workgroup Zero-Init:** Polyfill for zero-initializing workgroup memory (the default `ZeroInitWorkgroupPolyfill`)
+- **Layout-free locals:** From SPIR-V 1.5, Function and Private variables use types without explicit layout, copied
+  to and from the decorated types with `OpCopyLogical` (Vulkan's VUID-StandaloneSpirv-None-10684)
 - **NonUniform Decorations:** Correct NonUniform propagation for binding array access
 - **Capability-Aware Emission:** Polyfills for missing capabilities (e.g., dot4 without DotProduct)
 - **f16 I/O Polyfill:** Bitcast-based conversion for f16 entry point interface variables
@@ -368,21 +404,16 @@ Sections (strict ordering per spec):
 
 ## Text Backends (MSL, GLSL, HLSL)
 
-All three text backends share a common pattern:
+All three text backends share one shape: the public package holds `Compile(*ir.Module, Options) (string,
+TranslationInfo, error)` and converts its `Options` to the writer's, and `internal/codegen` holds a writer that types
+the module once (`internal/typifier`), names everything with Rust naga's namer rules, and writes in phases:
 
-```go
-type Backend struct {
-    module  *ir.Module
-    options Options
-    writer  *Writer      // strings.Builder wrapper
-}
-
-// Generation phases:
-// 1. writeHeader()     — Version directives, language features
-// 2. writeTypes()      — Type definitions (struct, array, etc.)
-// 3. writeGlobals()    — Global variables, uniforms, bindings
-// 4. writeFunctions()  — Helper function bodies
-// 5. writeEntryPoints()— Entry point wrappers with I/O structs
+```
+1. header        — version directives, language features
+2. types         — struct and array definitions
+3. globals       — global variables, uniforms, bindings
+4. functions     — helper function bodies (arguments reused by an expansion are baked into temporaries)
+5. entry points  — entry point wrappers with their I/O structs
 ```
 
 ### MSL (Metal)
@@ -413,11 +444,15 @@ type Backend struct {
 
 ### HLSL (DirectX)
 
-- Shader model: SM 5.0 (DX11), SM 6.0+ (DX12)
+- Shader model: 5.0–5.1 (FXC, DX11/12) and 6.0–6.7 (DXC); the zero value is 5.1, as Rust naga. A feature the chosen
+  model lacks is a `*backend.VersionError`
 - Semantics: `SV_Position`, `SV_DispatchThreadID`, `SV_Target0`
 - Constant buffers: `cbuffer` with register `b0`, `b1`, ...
-- Structured buffers: `RWStructuredBuffer<T>` for storage
+- Storage buffers: `ByteAddressBuffer` / `RWByteAddressBuffer` with typed loads and stores, as Rust naga
+- Samplers through a sampler heap and an index buffer (wgpu-hal's binding model)
 - Compute: `[numthreads(X,Y,Z)]`
+- FXC (below 6.0): a helper that returns from inside a `switch` inside a loop gets one exit
+  (`irutil.SingleExitSwitchReturns`), since FXC turns such a return into the case's `break`
 
 ## Type Deduplication
 
@@ -445,13 +480,15 @@ and eliminates redundant type definitions across all backends.
 
 | Category | Count | Approach |
 |----------|-------|----------|
-| **SPIR-V Validation** | 194/200 | spirv-val on every snapshot shader; the 6 others do not compile yet (cooperative matrix, debugPrintf, i16, a mesh shader, ray-tracing pipelines) |
-| **Rust Reference** | 0 unexplained diffs | Exact output match with Rust naga: SPIR-V 89, MSL 51, GLSL 89, HLSL 52 shaders; every other difference is recorded with its reason |
-| **SPIR-V Unit Tests** | 200+ | Shader, loop, if/else, vello, block model, ray query |
-| **Backend Tests** | 50+ | GLSL, HLSL, MSL per-feature golden tests |
-| **Reachability Tests** | 11 | GLSL dead code elimination |
-| **Integration Tests** | 7 | Full pipeline: WGSL source → SPIR-V binary |
-| **Benchmarks** | 68 | All packages, throughput metrics, allocation tracking |
+| **SPIR-V Validation** | 195/201 | spirv-val on every snapshot shader, also in the Vulkan environment of each SPIR-V version; the 6 others do not compile yet (cooperative matrix, debugPrintf, i16, a mesh shader, ray-tracing pipelines) |
+| **Rust Reference** | 0 unexplained diffs | Exact output match with Rust naga: SPIR-V 101, MSL 63, GLSL 92, HLSL 60 shaders; every other difference is recorded with its reason |
+| **Validator corpus** | every shader | The Rust and own corpora, gg's production shaders, gfx-rs's ray query examples and the readback corpus validate; invalid inputs are rejected with Rust's texts |
+| **Determinism** | every shader × backend | Each backend compiles every corpus and gg shader several times to the same bytes |
+| **DXIL** | corpus + gg | IDxcValidator, DXC roundtrip parity (`dxil-dxc` goldens) |
+| **GPU readback** | corpus in `testdata/readback` | WGSL cases with expected values, run by gogpu/wgpu on Vulkan, DX12 (FXC and DXIL), GLES and software |
+| **Unit and package tests** | ~4,100 test functions | Every frontend, validator and backend package; a fix ships with a test that failed before it |
+| **Golden tests** | corpus × backend | Our own output snapshots (`snapshot/testdata/golden`), regenerated only after a reviewed change |
+| **Benchmarks** | 46 | Throughput and allocations per package |
 
 ### Rust Naga Reference Shaders
 
@@ -468,15 +505,18 @@ suite (vendored from gfx-rs/wgpu 14328f49, see UPSTREAM) are included as snapsho
 | Advanced | overrides, binding-arrays, bounds-check (7 variants), mesh-shader (4 variants) |
 
 `TestRustReference` compares our output with Rust's reference output for each
-shader and backend: SPIR-V 89 exact matches and 37 recorded deviations, MSL 51
-and 59, GLSL 89 and 14, HLSL 52 and 36. A difference that is not recorded fails
-the test.
+shader and backend: SPIR-V 101 exact matches and 25 recorded deviations, MSL 63
+and 47, GLSL 92 and 11, HLSL 60 and 28. A difference that is not recorded fails
+the test. Rust's `subgroup-operations` input is fed with the `enable subgroups;`
+the WGSL spec requires, which Rust's frontend cannot parse yet.
 
 ## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **Arena-based IR** | `Module.Expressions[]` is a flat pool; handles are uint32 indices. Cache-friendly, single allocation, minimal pointers. |
+| **Arena-based IR** | `Function.Expressions` (and `Module.GlobalExpressions`) are flat pools; handles are uint32 indices. Cache-friendly, single allocation, minimal pointers. |
+| **IR is data** | `ir` imports no other naga package; typing (`internal/typifier`) and validation (`valid`) live outside it, as in Rust naga. A test pins the import layering. |
+| **WGSL spec first** | For what WGSL accepts and rejects, the W3C WGSL spec decides; Rust naga decides IR shape and error texts. Every deviation from Rust has a test naming Rust's behavior. |
 | **SSA expressions** | Each expression evaluated once; `StmtEmit` marks availability. Enables single-pass code generation without dependency graphs. |
 | **Typed handles** | `TypeHandle`, `FunctionHandle`, etc. are distinct `uint32` types. Compile-time type safety at zero runtime cost. |
 | **Type deduplication** | `TypeRegistry` with normalized keys. Required by SPIR-V spec; also benefits text backends. |
@@ -489,16 +529,17 @@ the test.
 ```
 naga (this project)
   │
-  └──► wgpu (Pure Go WebGPU)
-         │
-         ├──► gogpu (GPU framework, windowing)
-         │
-         └──► gg (2D graphics library)
-                │
-                └──► ui (GUI toolkit)
+  ├──► wgpu (Pure Go WebGPU) ──► Born ML (machine learning on the GPU)
+  │      │
+  │      ├──► gogpu (GPU framework, windowing)
+  │      ├──► g3d (3D rendering)
+  │      └──► gg (2D graphics library; also uses naga directly)
+  │             │
+  │             └──► ui (GUI toolkit)
 ```
 
-**Release order:** naga → wgpu → gogpu + gg → ui
+**Release order:** naga → wgpu → gogpu + gg + g3d → ui. Before a naga release changes the IR or a backend, the
+consumers build and test against the candidate, including the GPU readback corpus.
 
 naga has **no dependencies** outside the Go standard library. It is the foundation
 of the GoGPU ecosystem — all GPU rendering ultimately depends on naga for shader compilation.

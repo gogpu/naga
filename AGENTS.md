@@ -26,7 +26,7 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computin
 | MSL | Text | Metal (macOS/iOS) | Production |
 | GLSL | Text | OpenGL 3.3+, ES 3.0+ | Production |
 | HLSL | Text | DirectX 11/12 | Production |
-| DXIL | Binary | DirectX 12 (SM 6.0–6.5) | Experimental (172/237 IDxcValidator on the Rust naga corpus) |
+| DXIL | Binary | DirectX 12 (SM 6.0–6.9) | Experimental (185/199 corpus shaders pass IDxcValidator) |
 
 ## Quick Start
 
