@@ -95,7 +95,7 @@ func Run(mod *ir.Module, fn *ir.Function) error {
 	// cases without touching control flow and produces ssa.Alias
 	// rewrites. After this pass, vars whose stores/loads spanned
 	// multiple blocks remain unpromoted with their alloca path.
-	promoteBlocks(ctx, (*[]ir.Statement)(&fn.Body))
+	promoteBlocks(ctx, (*[]ir.Statement)(&fn.Body), false)
 
 	// Phase B: structured-CFG SSA construction for remaining
 	// multi-block scalar candidates. Inserts ssa.Phi at if/switch

@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "variables declared before a loop and updated inside it carry their value between iterations: for 1 3 6 10, while 1 4 9 16, loop 1 3 6 10 then 4, octaves 30, read after 14, vec3 branches 12 4 6, argmax 9 1, digits 7 3 4 (P0-DXIL-046: DXIL read the pre-loop value in every iteration: for 1 2 3 4, while 1 3 5 7, loop 1 2 3 4, octaves 64)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [4, 5, 9, 2, 9]},
+    {"binding": 1, "kind": "storage-rw", "len": 24, "fill": "0xDEADBEEF",
+     "expect": [[1, 3, 6, 10, 1, 4, 9, 16, 1, 3, 6, 10, 4, 30, 14, 12, 4, 6, 9, 1, 7, 3, 4, "fill"]]}
+  ]
+}

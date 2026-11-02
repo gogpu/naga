@@ -53,8 +53,8 @@ type promotionContext struct {
 // that any variable promoted at a parent level is gone before
 // children try to promote it again (idempotent — children would
 // classify it as having no remaining uses).
-func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement) {
-	promoteWithinBlock(ctx, blk)
+func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement, inLoop bool) {
+	promoteWithinBlock(ctx, blk, inLoop)
 	// Recurse into nested blocks. We rebuild nested-block slices
 	// when promotion deletes statements; afterward we write the
 	// new slice back into the parent statement so subsequent
@@ -63,13 +63,13 @@ func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement) {
 		switch sk := (*blk)[i].Kind.(type) {
 		case ir.StmtBlock:
 			b := []ir.Statement(sk.Block)
-			promoteBlocks(ctx, &b)
+			promoteBlocks(ctx, &b, inLoop)
 			(*blk)[i].Kind = ir.StmtBlock{Block: ir.Block(b)}
 		case ir.StmtIf:
 			a := []ir.Statement(sk.Accept)
 			r := []ir.Statement(sk.Reject)
-			promoteBlocks(ctx, &a)
-			promoteBlocks(ctx, &r)
+			promoteBlocks(ctx, &a, inLoop)
+			promoteBlocks(ctx, &r, inLoop)
 			(*blk)[i].Kind = ir.StmtIf{
 				Condition: sk.Condition,
 				Accept:    ir.Block(a),
@@ -78,8 +78,8 @@ func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement) {
 		case ir.StmtLoop:
 			b := []ir.Statement(sk.Body)
 			c := []ir.Statement(sk.Continuing)
-			promoteBlocks(ctx, &b)
-			promoteBlocks(ctx, &c)
+			promoteBlocks(ctx, &b, true)
+			promoteBlocks(ctx, &c, true)
 			(*blk)[i].Kind = ir.StmtLoop{
 				Body:       ir.Block(b),
 				Continuing: ir.Block(c),
@@ -90,7 +90,7 @@ func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement) {
 			copy(cases, sk.Cases)
 			for ci := range cases {
 				cb := []ir.Statement(cases[ci].Body)
-				promoteBlocks(ctx, &cb)
+				promoteBlocks(ctx, &cb, inLoop)
 				cases[ci].Body = ir.Block(cb)
 			}
 			(*blk)[i].Kind = ir.StmtSwitch{Selector: sk.Selector, Cases: cases}
@@ -100,7 +100,7 @@ func promoteBlocks(ctx *promotionContext, blk *[]ir.Statement) {
 
 // promoteWithinBlock identifies and promotes variables whose entire
 // set of uses lives inside blk. Returns silently if no candidates.
-func promoteWithinBlock(ctx *promotionContext, blk *[]ir.Statement) {
+func promoteWithinBlock(ctx *promotionContext, blk *[]ir.Statement, inLoop bool) {
 	// Step 1: count uses per variable inside this block only.
 	localStores, localLoads := countLocalUses(ctx, blk)
 	if len(localStores) == 0 && len(localLoads) == 0 {
@@ -110,6 +110,9 @@ func promoteWithinBlock(ctx *promotionContext, blk *[]ir.Statement) {
 	// Step 2: select candidates whose global use counts match the
 	// in-block counts (all stores and all loads contained here).
 	candidates := selectBlockCandidates(ctx, localStores, localLoads)
+	if inLoop {
+		dropLoopCarried(ctx, *blk, candidates)
+	}
 	if len(candidates) == 0 {
 		return
 	}
@@ -117,6 +120,34 @@ func promoteWithinBlock(ctx *promotionContext, blk *[]ir.Statement) {
 	// Step 3: walk the block in textual order, rewriting loads and
 	// marking stores for deletion.
 	rewriteBlock(ctx, blk, candidates)
+}
+
+// dropLoopCarried removes from candidates every variable that blk, a block
+// inside a loop, reads before it stores it (P0-DXIL-046). Such a read sees
+// the value of the previous iteration: LLVM's mem2reg gives it the
+// loop-header phi, but the rewrite walk here would give it the value before
+// the loop and drop the stores. Without loop-header phis the variable keeps
+// its alloca, as the structured pass keeps every variable stored in a loop
+// (dropLoopStoredCandidates). A variable declared in the loop is stored
+// first (the lowerer writes its initializer, or zero, where it is declared),
+// so it starts afresh every iteration and stays a candidate.
+func dropLoopCarried(ctx *promotionContext, blk []ir.Statement, candidates map[uint32]struct{}) {
+	seen := make(map[uint32]bool, len(candidates))
+	for i := range blk {
+		switch sk := blk[i].Kind.(type) {
+		case ir.StmtStore:
+			if v, ok := ctx.localPtrs[sk.Pointer]; ok {
+				seen[v] = true
+			}
+		case ir.StmtEmit:
+			for h := sk.Range.Start; h < sk.Range.End; h++ {
+				if v, ok := loadHandleVar(ctx, h); ok && !seen[v] {
+					seen[v] = true
+					delete(candidates, v)
+				}
+			}
+		}
+	}
 }
 
 // countLocalUses tallies, per variable, how many StmtStore
