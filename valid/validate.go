@@ -1027,11 +1027,14 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 	case ir.StmtKill:
 		// Allowed anywhere in a fragment shader, a continuing block too
 		// (Rust naga checks only the stage).
+		v.context.stages &= ShaderStagesFragment
 
 	case ir.StmtControlBarrier:
+		v.context.stages &= ShaderStagesComputeLike
 		v.checkBarrier(index, kind.Flags)
 
 	case ir.StmtMemoryBarrier:
+		v.context.stages &= ShaderStagesComputeLike
 		v.checkBarrier(index, kind.Flags)
 
 	case ir.StmtStore:
@@ -1096,6 +1099,7 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		}
 
 	case ir.StmtWorkGroupUniformLoad:
+		v.context.stages &= ShaderStagesComputeLike
 		if !v.isValidExpressionHandle(kind.Pointer) {
 			v.addErrorInStatement(index, fmt.Sprintf("pointer expression %d does not exist", kind.Pointer))
 		}
