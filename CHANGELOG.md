@@ -46,6 +46,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every element but the first; Restrict did not
   clamp). Tracked as P1-MSL-101.
 
+### Known issues
+
+- **MSL:** storage-buffer `binding_array`s get no per-element buffer sizes, so a bounds-checked runtime-sized member or
+  its `arrayLength` does not compile (P1-MSL-101). gogpu/wgpu exposes no storage-buffer binding arrays.
+- **Validation:** a `ptr<storage>`, `ptr<uniform>` or `ptr<workgroup>` function parameter is accepted without
+  `unrestricted_pointer_parameters`, and `&(*q)[k]` (the address of a vector component) is accepted; the WGSL spec and
+  Rust naga reject both (P1-IR-030). Such a shader now fails in the MSL backend instead of compiling unclamped.
+- **Default paths, silent:** HLSL and GLSL write `atomicStore` as a plain assignment, and GLSL writes
+  `atomicSub(x, -1)` as `--1` (BUG-ATOMIC-POLYFILL-001); HLSL `SampleLevel` offsets are always `int2`, so a 1D offset
+  is widened and a 3D offset truncated (BUG-HLSL-SAMPLE-OFFSET-001); MSL writes some `f16` splats with the wrong type
+  (BUG-F16-SILENT-BACKENDS-001); texture calls on `binding_array` elements can read their arguments with the wrong shape
+  (P1-WGSL-094). Next patch.
+- **MSL:** a `var<immediate>` parameter gets no `[[buffer(N)]]` when `PerEntryPointMap` is nil (P0-MSL-096).
+- Still open from 0.21.1: the remaining P0-DXIL-084 shapes, the DXIL wave-op and `exp`/`log` cards, workgroup
+  zero-initialization's second LocalInvocationId input, DXIL barycentrics and the WGSL const-expression divisor/shift
+  gap, as listed there.
+
 ## [0.21.1] - 2026-11-02
 
 A patch for silent DXIL miscompiles that IDxcValidator accepts, found while gogpu/wgpu tested this release on the GPU,
