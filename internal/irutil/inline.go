@@ -344,7 +344,7 @@ func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, cal
 
 	// 9. Rewrite StmtReturn in the inlined body so control reaches the code
 	// after the call (see lowerReturns).
-	lowering := returnLowering{module: module, caller: caller, calleeName: callee.Name, retPtr: retPtr}
+	lowering := returnLowering{module: module, caller: caller, flagName: "_inline_returned_" + callee.Name, retPtr: retPtr}
 	inlinedBody, err = lowering.lower(inlinedBody)
 	if err != nil {
 		return nil, fmt.Errorf("callee %q: %w", callee.Name, err)
@@ -643,10 +643,10 @@ func wireCallResult(caller *ir.Function, call ir.StmtCall, retLoad *ir.Expressio
 // break inside a switch only leaves the switch, and one inside a nested loop
 // only leaves that loop.
 type returnLowering struct {
-	module     *ir.Module
-	caller     *ir.Function
-	calleeName string
-	retPtr     *ir.ExpressionHandle // pointer to the return slot; nil for a void callee
+	module   *ir.Module
+	caller   *ir.Function
+	flagName string               // name of the local that holds the "returned" flag
+	retPtr   *ir.ExpressionHandle // pointer to the return slot; nil for a void callee
 
 	// dry counts the guards without building anything; useFlag is set for
 	// the real run when there is a guard to read the flag.
@@ -789,7 +789,7 @@ func (l *returnLowering) ensureFlag() {
 	l.hasFlag = true
 	l.boolTy = boolTypeHandle(l.module)
 	idx := appendLocal(l.caller, ir.LocalVariable{
-		Name: "_inline_returned_" + l.calleeName,
+		Name: l.flagName,
 		Type: l.boolTy,
 	})
 	l.flagPtr = l.addExpression(ir.ExprLocalVariable{Variable: idx})
