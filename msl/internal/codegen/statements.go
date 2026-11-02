@@ -1233,7 +1233,7 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 			return err
 		}
 		w.write(", ")
-		if err := w.writeExpression(store.Value); err != nil {
+		if err := w.writeOperandOutsideRZSW(store.Value); err != nil {
 			return err
 		}
 		w.write(", %smemory_order_relaxed);\n", Namespace)
@@ -1248,11 +1248,24 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 		return err
 	}
 	w.write(" = ")
-	if err := w.writeExpression(store.Value); err != nil {
+	if err := w.writeOperandOutsideRZSW(store.Value); err != nil {
 		return err
 	}
 	w.write(";\n")
 	return nil
+}
+
+// writeOperandOutsideRZSW writes an operand of a store or an atomic whose
+// pointer an enclosing ReadZeroSkipWrite condition already checks. insideRZSW
+// covers the pointer chain only: the operand is a separate value and keeps its
+// own checks, as Rust naga's put_store and put_atomic_operation write it with
+// the normal policy.
+func (w *Writer) writeOperandOutsideRZSW(operand ir.ExpressionHandle) error {
+	prev := w.insideRZSW
+	w.insideRZSW = false
+	err := w.writeExpression(operand)
+	w.insideRZSW = prev
+	return err
 }
 
 // validateAtomicOperation enforces the subset of 64-bit atomics supported by
@@ -1525,7 +1538,7 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		return err
 	}
 	w.write(", ")
-	if err := w.writeExpression(atomic.Value); err != nil {
+	if err := w.writeOperandOutsideRZSW(atomic.Value); err != nil {
 		if checked {
 			w.insideRZSW = false
 		}
@@ -1571,11 +1584,11 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 		return err
 	}
 	w.write(", ")
-	if err := w.writeExpression(*exchange.Compare); err != nil {
+	if err := w.writeOperandOutsideRZSW(*exchange.Compare); err != nil {
 		return err
 	}
 	w.write(", ")
-	if err := w.writeExpression(atomic.Value); err != nil {
+	if err := w.writeOperandOutsideRZSW(atomic.Value); err != nil {
 		return err
 	}
 	w.write(")")

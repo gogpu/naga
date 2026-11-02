@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `atomicCompareExchangeWeak` it wrapped the operand, taking the address of a conditional. Atomics now use the check
   that loads and stores use, as Rust naga does: `uint(i) < 1 + (_buffer_sizes.size2 - 4 - 4) / 4 ?
   metal::atomic_fetch_add_explicit(&y.d[i], 1u, …) : DefaultConstructible()`.
+- **MSL: under ReadZeroSkipWrite the value operand of a store or an atomic lost its own bounds check.** The check of
+  the stored-to pointer switched off every check inside the statement, so `b[i] = v[j]` read `v[j]` unchecked from a
+  private array, and so did `atomicAdd(&a[i], v[j])` and both operands of `atomicCompareExchangeWeak`. Only the pointer
+  chain is written unchecked now, as in Rust naga.
 - **MSL: a ReadZeroSkipWrite access used as an operand was printed without parentheses** (P0-MSL-104). The check is a
   C++ ternary, which binds looser than every binary operator: `total = _e8 + uint(_e9) < 4 ? arr.inner[_e9] :
   DefaultConstructible();` read as `(_e8 + uint(_e9)) < 4 ? …`, a wrong value even for an in-bounds index; a select

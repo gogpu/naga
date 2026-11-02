@@ -181,6 +181,27 @@ func TestReadZeroSkipWriteRuntimeSizedArray(t *testing.T) {
 			},
 		},
 		{
+			// Only the stored-to pointer is written unchecked inside the
+			// store's `if`; the stored value keeps its own checks (Rust
+			// put_store).
+			name: "stored value keeps its checks",
+			src: `
+@group(0) @binding(0) var<storage, read_write> b: array<u32>;
+@group(0) @binding(1) var<storage, read_write> m: array<vec4<f32>>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let v = array<u32, 4>(1u, 2u, 3u, 4u);
+    b[gid.x] = v[gid.y];
+    m[gid.z] = vec4(f32(v[gid.x]));
+    b[gid.y + 1u] = b[gid.z] + v[gid.z]; }
+`,
+			want: []string{
+				"b[_e7] = uint(_e9) < 4 ? v.inner[_e9] : DefaultConstructible();",
+				"m[_e12] = metal::float4(static_cast<float>(uint(_e14) < 4 ? v.inner[_e14] : DefaultConstructible()));",
+				"uint _e26 = uint(_e24) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? b[_e24] : DefaultConstructible();",
+				"b[_e21] = _e26 + (uint(_e27) < 4 ? v.inner[_e27] : DefaultConstructible());",
+			},
+		},
+		{
 			name: "size field named after the global",
 			src:  runtimeArrayGlobalOrderWGSL,
 			want: []string{
