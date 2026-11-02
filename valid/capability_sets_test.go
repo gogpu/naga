@@ -122,7 +122,8 @@ func TestFloat32AtomicOperators(t *testing.T) {
 }
 
 // subgroupShader uses one operation of each class in a compute shader.
-const subgroupShader = `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) {
+const subgroupShader = `enable subgroups;
+@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) {
     _ = subgroupBallot(true);
     _ = subgroupAll(i == 0u);
     _ = subgroupAdd(i);
@@ -178,7 +179,8 @@ func TestSubgroupStages(t *testing.T) {
 		"Entry point main at Compute is invalid: Uses operations forbidden at this stage")
 	expectValid(t, direct, valid.Options{Capabilities: valid.CapSubgroup, SubgroupStages: valid.ShaderStagesCompute})
 
-	called := parse(t, `fn f(i: u32) -> u32 { return subgroupAdd(i); }
+	called := parse(t, `enable subgroups;
+fn f(i: u32) -> u32 { return subgroupAdd(i); }
 @compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = f(i); }
 @fragment fn fs() -> @location(0) vec4f { return vec4f(f32(f(1u))); }`)
 	expectRejected(t, called, valid.Options{Capabilities: valid.CapSubgroup, SubgroupStages: valid.ShaderStagesFragment},

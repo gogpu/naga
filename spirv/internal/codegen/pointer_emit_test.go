@@ -149,6 +149,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 // shader binding-buffer-arrays that is exactly one pointer.
 func TestNonUniformBindingArrayPointerDecorated(t *testing.T) {
 	const source = `
+enable wgpu_binding_array;
 struct UniformIndex {
     index: u32
 }

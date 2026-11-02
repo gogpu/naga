@@ -100,13 +100,32 @@ func loadShaderDir(t *testing.T, dir string, origin shaderOrigin) []shaderFile {
 		if readErr != nil {
 			t.Fatalf("read shader %q: %v", entry.Name(), readErr)
 		}
-		shaders = append(shaders, shaderFile{
-			name:   strings.TrimSuffix(entry.Name(), ".wgsl"),
-			source: string(data),
-			origin: origin,
-		})
+		shaders = append(shaders, newShaderFile(strings.TrimSuffix(entry.Name(), ".wgsl"), string(data), origin))
 	}
 	return shaders
+}
+
+// rustInputSpecDirectives are directives the WGSL spec requires that a vendored
+// Rust input lacks because Rust's frontend does not implement them. They are
+// put before the first line, on that line, so the input's line numbers stay
+// Rust's; the vendored file stays as upstream has it. A redundant enable is
+// valid WGSL, so an entry keeps working once Rust adds the directive.
+var rustInputSpecDirectives = map[string]string{
+	// The spec's enable-extensions table: subgroup built-in values and
+	// functions and quad functions need `enable subgroups;`. Rust maps the
+	// name to Unimplemented and rejects the directive
+	// (front/wgsl/parse/directive/enable_extension.rs), so its test input
+	// cannot carry it.
+	"subgroup-operations": "enable subgroups; ",
+}
+
+// newShaderFile is the corpus shader read from a file: a Rust input gets the
+// directives of rustInputSpecDirectives.
+func newShaderFile(name, source string, origin shaderOrigin) shaderFile {
+	if origin == originRust {
+		source = rustInputSpecDirectives[name] + source
+	}
+	return shaderFile{name: name, source: source, origin: origin}
 }
 
 // shaderInputPath returns the WGSL input of a corpus shader by name.
@@ -128,7 +147,7 @@ func corpusShader(name string) (shaderFile, error) {
 	}{{rustInputDir, originRust}, {ownInputDir, originOwn}} {
 		src, err := os.ReadFile(filepath.Join(d.dir, name+".wgsl"))
 		if err == nil {
-			return shaderFile{name: name, source: string(src), origin: d.origin}, nil
+			return newShaderFile(name, string(src), d.origin), nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			return shaderFile{}, err

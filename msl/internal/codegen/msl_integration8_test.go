@@ -469,12 +469,12 @@ fn main() {
 
 func TestIntegration8_HalfVecType(t *testing.T) {
 	src := `
+enable f16;
+
 struct Data { v: vec4<f16> };
 @group(0) @binding(0) var<storage, read> data: Data;
 struct Out { v: vec4<f32> };
 @group(0) @binding(1) var<storage, read_write> out: Out;
-
-enable f16;
 
 @compute @workgroup_size(1)
 fn main() {

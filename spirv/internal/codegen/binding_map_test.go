@@ -158,6 +158,7 @@ func TestBindingMapMissingEntry(t *testing.T) {
 }
 
 const bindingArrayShader = `
+enable wgpu_binding_array;
 struct Foo { x: u32 }
 @group(0) @binding(0) var<storage, read> foos: binding_array<Foo, %s>;
 @group(0) @binding(1) var<storage, read_write> out: u32;

@@ -440,6 +440,7 @@ func TestZeroSPIRVVersion(t *testing.T) {
 	}
 
 	const subgroups = `
+enable subgroups;
 @group(0) @binding(0) var<storage, read_write> out: u32;
 @compute @workgroup_size(64) fn main(@builtin(subgroup_size) n: u32) { out = subgroupAdd(n); }`
 	m, _, err := wgsl.Parse(subgroups, wgsl.ParseOptions{})
