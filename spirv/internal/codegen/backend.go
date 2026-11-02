@@ -9438,7 +9438,8 @@ const OpTypeSampledImage OpCode = 27
 
 // emitBarrier emits OpControlBarrier for a control barrier and
 // OpMemoryBarrier for a memory barrier, as Rust naga's write_control_barrier
-// and write_memory_barrier (back/spv/writer.rs:2781-2853).
+// and write_memory_barrier (back/spv/writer.rs:2781-2853), except the memory
+// semantics of a subgroup barrier (P2-SPV-013, below).
 func (e *ExpressionEmitter) emitBarrier(flags ir.BarrierFlags, control bool) error {
 	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	if err != nil {
@@ -9463,7 +9464,16 @@ func (e *ExpressionEmitter) emitBarrier(flags ir.BarrierFlags, control bool) err
 		semantics |= MemorySemanticsWorkgroupMemory
 	}
 	if flags&ir.BarrierSubGroup != 0 {
-		semantics |= MemorySemanticsSubgroupMemory
+		// Subgroup scope needs the subgroup capabilities of SPIR-V 1.3
+		// (VUID-StandaloneSpirv-SubgroupVoteKHR-07951 at 1.0), as every
+		// other subgroup operation.
+		e.backend.requireVersion(Version1_3, "a subgroup barrier")
+		// The memory a subgroup can share, as glslang compiles GLSL
+		// subgroupBarrier / subgroupMemoryBarrier (less AtomicCounterMemory,
+		// which WGSL and Vulkan lack). Rust's SubgroupMemory alone is no
+		// Vulkan storage class, so a non-relaxed order with it is invalid
+		// (VUID-StandaloneSpirv-MemorySemantics-10870).
+		semantics |= MemorySemanticsUniformMemory | MemorySemanticsWorkgroupMemory | MemorySemanticsImageMemory
 	}
 	if flags&ir.BarrierTexture != 0 {
 		semantics |= MemorySemanticsImageMemory

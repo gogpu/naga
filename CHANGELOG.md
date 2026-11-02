@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stored, as DXC does. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32` vectors written
   with literal components took a correct select-chain path and were not affected. New readback case
   `vars/const-init-array-rt`.
+- **SPIR-V: `subgroupBarrier()` was invalid for Vulkan** (P2-SPV-013). Its memory semantics were
+  `AcquireRelease|SubgroupMemory`, and `SubgroupMemory` is not a Vulkan storage class, so the validation layer rejected
+  the module at `vkCreateShaderModule` (VUID-StandaloneSpirv-MemorySemantics-10870). It now orders uniform, workgroup
+  and image memory, as glslang compiles GLSL `subgroupBarrier`. Below SPIR-V 1.3 a subgroup barrier is refused with a
+  `*backend.VersionError`, as every other subgroup operation is. Rust naga emits the same invalid semantics.
 
 ## [0.21.0] - 2026-11-02
 
