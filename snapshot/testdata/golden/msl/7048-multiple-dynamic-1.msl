@@ -22,6 +22,6 @@ kernel void f(
     float _e9 = poly.x;
     int _e10 = j;
     int _e13 = k;
-    poly.x = _e9 + (uint(_e10) < 2 ? type_1 {}.inner[_e10].y : DefaultConstructible() * uint(_e13) < 2 ? type_1 {}.inner[_e13].z : DefaultConstructible());
+    poly.x = _e9 + ((uint(_e10) < 2 ? type_1 {}.inner[_e10].y : DefaultConstructible()) * (uint(_e13) < 2 ? type_1 {}.inner[_e13].z : DefaultConstructible()));
     return;
 }

@@ -47,7 +47,7 @@ float sum_array(
         {
             float _e8 = total;
             uint _e9 = i;
-            total = _e8 + uint(_e9) < 4 ? arr.inner[_e9] : DefaultConstructible();
+            total = _e8 + (uint(_e9) < 4 ? arr.inner[_e9] : DefaultConstructible());
         }
     }
     float _e15 = total;
