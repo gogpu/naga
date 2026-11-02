@@ -1348,249 +1348,6 @@ func (w *Writer) isAtomicPointer(handle ir.ExpressionHandle) bool {
 	return false
 }
 
-// writeAtomicBoundsChecks walks the pointer's access chain and writes
-// ReadZeroSkipWrite bounds check conditions for any indexed array accesses.
-// Returns true if any condition was written, false otherwise.
-// Matches Rust naga's put_bounds_checks for atomic pointer access chains.
-func (w *Writer) writeAtomicBoundsChecks(pointer ir.ExpressionHandle) bool {
-	if w.currentFunction == nil {
-		return false
-	}
-
-	// Collect bounds check items by walking the access chain.
-	type boundsCheck struct {
-		index  ir.ExpressionHandle // The index expression
-		length boundsCheckLength   // How to compute the bound
-	}
-	var checks []boundsCheck
-
-	// Walk the access chain from the pointer back to find indexed accesses.
-	current := pointer
-	for {
-		if int(current) >= len(w.currentFunction.Expressions) {
-			break
-		}
-		expr := &w.currentFunction.Expressions[current]
-		switch k := expr.Kind.(type) {
-		case ir.ExprAccess:
-			// Dynamic index into array — need bounds check.
-			length := w.computeAccessLength(k.Base)
-			if length.kind != boundsLengthNone {
-				// Check if the index is a known constant in bounds.
-				if !w.isStaticallyInBounds(k.Index, length) {
-					checks = append(checks, boundsCheck{index: k.Index, length: length})
-				}
-			}
-			current = k.Base
-			continue
-		case ir.ExprAccessIndex:
-			// Constant index — might still need check for dynamic arrays.
-			length := w.computeAccessLength(k.Base)
-			if length.kind != boundsLengthNone && length.kind == boundsLengthDynamic {
-				// For dynamic arrays with constant index, still need runtime check.
-				checks = append(checks, boundsCheck{
-					index:  ir.ExpressionHandle(0), // Will use constant value directly.
-					length: boundsCheckLength{kind: boundsLengthDynamicWithConstIndex, constIndex: k.Index, dynamicGlobal: length.dynamicGlobal, memberOffset: length.memberOffset, elementSize: length.elementSize, stride: length.stride},
-				})
-			}
-			current = k.Base
-			continue
-		case ir.ExprGlobalVariable:
-			break
-		default:
-			break
-		}
-		break
-	}
-
-	if len(checks) == 0 {
-		return false
-	}
-
-	// Write checks in order (outermost first).
-	// Reverse the checks since we collected them from innermost to outermost.
-	for i, j := 0, len(checks)-1; i < j; i, j = i+1, j-1 {
-		checks[i], checks[j] = checks[j], checks[i]
-	}
-
-	for i, check := range checks {
-		if i > 0 {
-			w.write(" && ")
-		}
-		w.writeBoundsCheckItem(check.index, check.length)
-	}
-
-	return true
-}
-
-// boundsCheckLengthKind describes how to compute the array length for bounds checking.
-type boundsCheckLengthKind uint8
-
-const (
-	boundsLengthNone                  boundsCheckLengthKind = iota
-	boundsLengthStatic                                      // Known at compile time.
-	boundsLengthDynamic                                     // Computed from _buffer_sizes.
-	boundsLengthDynamicWithConstIndex                       // Dynamic array with constant index.
-)
-
-// boundsCheckLength describes how to compute the array length for bounds checking.
-type boundsCheckLength struct {
-	kind          boundsCheckLengthKind
-	staticLength  uint32 // For boundsLengthStatic.
-	constIndex    uint32 // For boundsLengthDynamicWithConstIndex.
-	dynamicGlobal uint32 // Global variable handle for buffer size lookup.
-	memberOffset  uint32 // Offset of the dynamic array member in the struct.
-	elementSize   uint32 // Size of the array element type.
-	stride        uint32 // Element stride for dynamic array.
-}
-
-// computeAccessLength computes the array length for a base expression.
-func (w *Writer) computeAccessLength(baseHandle ir.ExpressionHandle) boundsCheckLength {
-	baseType := w.getExpressionType(baseHandle)
-	if baseType == nil {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// Unwrap pointer if needed.
-	if pt, ok := baseType.(ir.PointerType); ok {
-		if int(pt.Base) < len(w.module.Types) {
-			baseType = w.module.Types[pt.Base].Inner
-		}
-	}
-
-	switch t := baseType.(type) {
-	case ir.ArrayType:
-		if t.Size.Constant != nil {
-			return boundsCheckLength{kind: boundsLengthStatic, staticLength: *t.Size.Constant}
-		}
-		// Dynamic array — compute from buffer sizes.
-		return w.computeDynamicArrayLength(baseHandle, t.Stride)
-	}
-	return boundsCheckLength{kind: boundsLengthNone}
-}
-
-// computeDynamicArrayLength computes the runtime length of a dynamic array.
-// The array is the last member of a struct that is a storage buffer global variable.
-func (w *Writer) computeDynamicArrayLength(baseHandle ir.ExpressionHandle, stride uint32) boundsCheckLength {
-	// Walk back up the access chain to find the global variable.
-	if w.currentFunction == nil {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// Find the global variable and struct layout.
-	// The base is an AccessIndex into a struct, where the struct is the global variable.
-	if int(baseHandle) >= len(w.currentFunction.Expressions) {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-	expr := &w.currentFunction.Expressions[baseHandle]
-	accessIdx, ok := expr.Kind.(ir.ExprAccessIndex)
-	if !ok {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// The base of the AccessIndex should be a GlobalVariable.
-	if int(accessIdx.Base) >= len(w.currentFunction.Expressions) {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-	gvExpr := &w.currentFunction.Expressions[accessIdx.Base]
-	gv, ok := gvExpr.Kind.(ir.ExprGlobalVariable)
-	if !ok {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// Look up the buffer size index for this global variable.
-	bufSizeIdx := -1
-	for i, h := range w.bufferSizeGlobals {
-		if h == uint32(gv.Variable) {
-			bufSizeIdx = i
-			break
-		}
-	}
-	if bufSizeIdx < 0 {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// Get the struct type to compute the fixed offset.
-	if int(gv.Variable) >= len(w.module.GlobalVariables) {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-	globalVar := &w.module.GlobalVariables[gv.Variable]
-	if int(globalVar.Type) >= len(w.module.Types) {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-	st, ok := w.module.Types[globalVar.Type].Inner.(ir.StructType)
-	if !ok {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-
-	// The dynamic array is the last member.
-	if len(st.Members) == 0 {
-		return boundsCheckLength{kind: boundsLengthNone}
-	}
-	lastMember := &st.Members[len(st.Members)-1]
-
-	// Get the array element type to compute element size.
-	// Matches Rust naga: size = module.types[base].inner.size(ctx)
-	var elementSize uint32
-	if int(lastMember.Type) < len(w.module.Types) {
-		if arrType, ok := w.module.Types[lastMember.Type].Inner.(ir.ArrayType); ok {
-			elementSize = w.typeSize(arrType.Base)
-		}
-	}
-	if elementSize == 0 {
-		elementSize = stride
-	}
-
-	return boundsCheckLength{
-		kind:          boundsLengthDynamic,
-		dynamicGlobal: uint32(bufSizeIdx),
-		memberOffset:  lastMember.Offset,
-		elementSize:   elementSize,
-		stride:        stride,
-	}
-}
-
-// isStaticallyInBounds checks if an index expression is a known constant in bounds.
-func (w *Writer) isStaticallyInBounds(indexHandle ir.ExpressionHandle, length boundsCheckLength) bool {
-	if length.kind != boundsLengthStatic {
-		return false
-	}
-	if w.currentFunction == nil || int(indexHandle) >= len(w.currentFunction.Expressions) {
-		return false
-	}
-	expr := &w.currentFunction.Expressions[indexHandle]
-	if lit, ok := expr.Kind.(ir.Literal); ok {
-		if val, ok := w.literalAsUint(lit); ok && val < length.staticLength {
-			return true
-		}
-	}
-	return false
-}
-
-// writeBoundsCheckItem writes a single bounds check condition.
-func (w *Writer) writeBoundsCheckItem(indexHandle ir.ExpressionHandle, length boundsCheckLength) {
-	switch length.kind {
-	case boundsLengthStatic:
-		// uint(index) < SIZE
-		w.write("uint(")
-		_ = w.writeExpression(indexHandle)
-		w.write(") < %d", length.staticLength)
-
-	case boundsLengthDynamic:
-		// uint(index) < 1 + (_buffer_sizes.sizeN - offset - elementSize) / stride
-		// Matches Rust naga: "1 + (_buffer_sizes.sizeN - offset - size) / stride"
-		w.write("uint(")
-		_ = w.writeExpression(indexHandle)
-		w.write(") < 1 + (_buffer_sizes.size%d - %d - %d) / %d",
-			length.dynamicGlobal, length.memberOffset, length.elementSize, length.stride)
-
-	case boundsLengthDynamicWithConstIndex:
-		// uint(CONST) < 1 + (_buffer_sizes.sizeN - offset - elementSize) / stride
-		w.write("uint(%d) < 1 + (_buffer_sizes.size%d - %d - %d) / %d",
-			length.constIndex, length.dynamicGlobal, length.memberOffset, length.elementSize, length.stride)
-	}
-}
-
 // writeImageStore writes an image store statement.
 // Coordinate type is based on image dimension (uint for 1D, metal::uint2 for 2D, etc.).
 func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
@@ -1754,17 +1511,9 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		w.write("%s %s = ", resultType, tempName)
 	}
 
-	// If the pointer needs ReadZeroSkipWrite bounds checking, wrap the atomic
-	// in a ternary: CONDITION ? ATOMIC_OP : DefaultConstructible().
-	// Matches Rust naga's put_bounds_checks for atomic operations.
-	policy := w.chooseBoundsCheckPolicy(atomic.Pointer)
-	checked := false
-	if policy == backend.BoundsCheckReadZeroSkipWrite {
-		checked = w.writeAtomicBoundsChecks(atomic.Pointer)
-		if checked {
-			w.write(" ? ")
-			w.insideRZSW = true
-		}
+	checked, err := w.writeAtomicBoundsCheck(atomic.Pointer)
+	if err != nil {
+		return err
 	}
 
 	// Rust naga uses metal:: prefix and address-of operator for the pointer.
@@ -1810,6 +1559,13 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 		w.namedExpressions[*atomic.Result] = tempName
 		w.write("%s %s = ", structName, tempName)
 	}
+	checked, err := w.writeAtomicBoundsCheck(atomic.Pointer)
+	if err != nil {
+		return err
+	}
+	if checked {
+		defer func() { w.insideRZSW = false }()
+	}
 	w.write("naga_atomic_compare_exchange_weak_explicit(&")
 	if err := w.writeExpression(atomic.Pointer); err != nil {
 		return err
@@ -1822,8 +1578,30 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 	if err := w.writeExpression(atomic.Value); err != nil {
 		return err
 	}
-	w.write(");\n")
+	w.write(")")
+	if checked {
+		w.write(" : DefaultConstructible()")
+	}
+	w.write(";\n")
 	return nil
+}
+
+// writeAtomicBoundsCheck writes "CONDITION ? " in front of an atomic call whose
+// pointer needs ReadZeroSkipWrite checks, and sets insideRZSW so the pointer
+// itself is written unchecked; the caller closes with " : DefaultConstructible()"
+// and clears insideRZSW. The condition comes from buildRZSWBoundsCheck, the walk
+// loads and stores use, as Rust naga's put_bounds_checks serves atomics too.
+func (w *Writer) writeAtomicBoundsCheck(pointer ir.ExpressionHandle) (bool, error) {
+	if w.chooseBoundsCheckPolicy(pointer) != backend.BoundsCheckReadZeroSkipWrite {
+		return false, nil
+	}
+	check, ok, err := w.buildRZSWBoundsCheck(pointer)
+	if err != nil || !ok {
+		return false, err
+	}
+	w.write("%s ? ", check)
+	w.insideRZSW = true
+	return true, nil
 }
 
 // writeCall writes a function call statement.
