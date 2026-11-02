@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-02
+
+A patch for silent DXIL miscompiles that IDxcValidator accepts, found while gogpu/wgpu tested this release on the GPU,
+and a SPIR-V barrier the Vulkan validation layer rejects. No API change.
+
 ### Fixed
 
 - **DXIL: a variable updated in a loop read its value from before the loop** (P0-DXIL-046). When every load and
@@ -27,14 +32,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IDxcValidator accepted the module. Shaders such as `var positions = array<vec2f, 3>(vec2(-1.0), ...);
   positions[vertex_index]` drew nothing on D3D12 with DXIL. Such a local now keeps its alloca with the initializer
   stored, as DXC does; a zero-value constructor (`array<f32, 4>()`, `S()`) is stored as zeros, where it failed to
-  compile or read nothing stored. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32` vectors written
-  with literal components took a correct select-chain path and were not affected. New readback case
+  compile or read nothing stored. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32`
+  vectors written with literal components took a correct select-chain path and were not affected. New readback case
   `vars/const-init-array-rt`.
 - **SPIR-V: `subgroupBarrier()` was invalid for Vulkan** (P2-SPV-013). Its memory semantics were
   `AcquireRelease|SubgroupMemory`, and `SubgroupMemory` is not a Vulkan storage class, so the validation layer rejected
   the module at `vkCreateShaderModule` (VUID-StandaloneSpirv-MemorySemantics-10870). It now orders uniform, workgroup
   and image memory, as glslang compiles GLSL `subgroupBarrier`. Below SPIR-V 1.3 a subgroup barrier is refused with a
   `*backend.VersionError`, as every other subgroup operation is. Rust naga emits the same invalid semantics.
+
+### Known issues
+
+- **DXIL, silent:** more shapes of P0-DXIL-084 still read memory nothing stored: a vector local with a constant
+  initializer indexed with `[]` (`var v = vec4f(1, 2, 3, 4); v[i]`), an array of arrays, an array of vectors declared
+  without an initializer, and a struct, array or matrix variable of a function called in a loop. Next patch. DXIL is
+  opt-in in gogpu/wgpu; its default DX12 path (HLSL through FXC) is not affected.
+- **DXIL:** subgroup `any`/`all` and the `subgroup_size` built-in in some shapes fail validation (P1-DXIL-085, 086,
+  087); `exp()`/`log()` (P1-DXIL-078) and some run-time indexed local arrays (P1-DXIL-079 and the local-aggregate
+  cards), named for this release in 0.21.0, move to the next patch. All are compile or validation errors, not silent.
+- Still open from 0.21.0: the second LocalInvocationId input of workgroup zero-initialization (BUG-ZERO-INIT-INDEX-001,
+  was P2-SPV-014), the barycentric built-ins on DXIL (P2-DXIL-073), and the WGSL const-expression divisor/shift gap
+  (P1-WGSL-101).
 
 ## [0.21.0] - 2026-11-02
 
