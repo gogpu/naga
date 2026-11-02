@@ -3332,9 +3332,15 @@ func (w *Writer) writeRelational(rel ir.ExprRelational) error {
 }
 
 // writeArrayLength writes a runtime array length query.
-// Emits "1 + (_buffer_sizes.sizeN - offset - elementSize) / stride".
+// Emits "1 + (_buffer_sizes.sizeN - offset - stride) / stride": the WGSL spec's
+// NRuntime = truncate((EBBS - offset) / stride), written as 1 + the bound
+// writeRuntimeArrayMaxIndex uses (WebGPU guarantees NRuntime >= 1).
 // The Array expression refers to a GlobalVariable or AccessIndex into a struct
 // containing a runtime-sized array.
+//
+// Deviation from Rust naga, which subtracts the element's size instead of the
+// stride (`1 + max_index`): for array<vec3<f32>> (size 12, stride 16) on a
+// binding of 16N+12 bytes Rust returns N+1, the spec N.
 func (w *Writer) writeArrayLength(expr ir.ExprArrayLength) error {
 	// Find the global variable that owns the runtime array.
 	globalHandle, ok := w.resolveArrayLengthGlobal(expr.Array)
@@ -3362,15 +3368,10 @@ func (w *Writer) writeArrayLength(expr ir.ExprArrayLength) error {
 		}
 	}
 
-	// Get element size and stride from the array type.
-	var elemSize, stride uint32
+	var stride uint32
 	if int(arrayTypeHandle) < len(w.module.Types) {
 		if at, ok := w.module.Types[arrayTypeHandle].Inner.(ir.ArrayType); ok {
 			stride = at.Stride
-			// Compute element size from the base type using the stride-based heuristic.
-			// For most types, element size equals stride (no trailing padding).
-			// The precise calculation matches Rust's TypeInner::size().
-			elemSize = w.typeSize(at.Base)
 		}
 	}
 
@@ -3379,9 +3380,8 @@ func (w *Writer) writeArrayLength(expr ir.ExprArrayLength) error {
 		return nil
 	}
 
-	// Emit: 1 + (_buffer_sizes.sizeN - offset - elementSize) / stride
 	w.write("1 + (_buffer_sizes.size%d - %d - %d) / %d",
-		globalHandle, offset, elemSize, stride)
+		globalHandle, offset, stride, stride)
 	return nil
 }
 
