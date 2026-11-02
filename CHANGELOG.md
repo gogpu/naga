@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: a variable updated in a loop read its value from before the loop** (P0-DXIL-046). When every load and
+  store of a local sat in one block inside a loop and the block read it before storing it, mem2reg promoted it as if
+  the block ran once: each iteration read the pre-loop value and the store was dropped. `x += i + 1u; out[i] = x;`
+  wrote 1, 2, 3, 4 instead of 1, 3, 6, 10, and a `loop {}` whose counter was read and incremented that way never
+  ended. Such a variable now keeps its alloca, as variables stored across blocks of a loop already did; a variable
+  declared inside the loop is stored first and is still promoted. IDxcValidator accepted the wrong modules. Present
+  since v0.17.4. New readback case `loops/outer-acc-rt`.
 - **DXIL: a local `var` array with a constant initializer read by index lost the initializer** (P0-DXIL-084). The
   emitter resolved whole-variable loads of a never-stored local straight to its initializer, but `xs[i]` (run-time or
   constant index) loaded from an alloca that nothing was stored to, so it read uninitialized memory while
