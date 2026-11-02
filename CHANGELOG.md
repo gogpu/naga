@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **DXIL: a local `var` array with a constant initializer read by index lost the initializer** (P0-DXIL-084). The
+  emitter resolved whole-variable loads of a never-stored local straight to its initializer, but `xs[i]` (run-time or
+  constant index) loaded from an alloca that nothing was stored to, so it read uninitialized memory while
+  IDxcValidator accepted the module. Shaders such as `var positions = array<vec2f, 3>(vec2(-1.0), ...);
+  positions[vertex_index]` drew nothing on D3D12 with DXIL. Such a local now keeps its alloca with the initializer
+  stored, as DXC does. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32` vectors written
+  with literal components took a correct select-chain path and were not affected. New readback case
+  `vars/const-init-array-rt`.
+
 ## [0.21.0] - 2026-11-02
 
 The last planned breaking release before v1.0 (ADR-010): one public surface, in Rust naga's shape, with safe zero

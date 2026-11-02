@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a local var array with a constant initializer holds it when read by index: run-time and constant index, arrays of vectors (splat and literal), a named constant, a loop: 14 24 11 60 61 9 50 51 7 8 (P0-DXIL-084: DXIL read uninitialized memory for every indexed load)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [4, 1]},
+    {"binding": 1, "kind": "storage-rw", "len": 11, "fill": "0xDEADBEEF",
+     "expect": [[14, 24, 11, 60, 61, 9, 50, 51, 7, 8, "fill"]]}
+  ]
+}
