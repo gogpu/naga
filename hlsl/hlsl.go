@@ -208,6 +208,13 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if copts.ShaderModel, err = toCodegenShaderModel(options.ShaderModel); err != nil {
 		return "", TranslationInfo{}, err
 	}
+	if copts.ShaderModel < codegen.ShaderModel6_0 {
+		// FXC compiles shader models 5.x; it miscompiles a helper's return
+		// inside a switch inside a loop (see SingleExitSwitchReturns).
+		if module, err = irutil.SingleExitSwitchReturns(module); err != nil {
+			return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
+		}
+	}
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {
 		return "", TranslationInfo{}, err

@@ -323,6 +323,14 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
 
 ### Fixed
 
+- **HLSL for FXC: a helper's `return` inside a `switch` inside a loop read wrong values** (all released versions).
+  FXC, the compiler of shader models 5.x and wgpu's default DX12 path, inlines the helper and turns that return
+  into the case's `break`: the returned value and the loop exit were lost, without an error (fxc 10.0.26100; the
+  readback case flow/return-in-switch-in-loop-rt read 70 for 1021 on Intel and NVIDIA). Below shader model 6.0 such
+  a helper now has one exit: each return stores its value and sets a flag, breaks leave the switch and the loop, and
+  the one `return` is at the end, which FXC compiles right. Rust naga writes the return in place, as we still do from
+  shader model 6.0, where DXC compiles it. Of the 293 WGSL files of the test corpora and gg, only that readback case
+  changes (P0-HLSL-033).
 - **MSL: `@builtin(clip_distances)` clips** (all released versions). The output member was written as the wrapped
   WGSL array without `[[clip_distance]]`, so Metal ignored it and clipped nothing, without an error. It is now
   `float clip_distances [[clip_distance]] [N];`, filled element by element in the return, as Rust naga writes it
@@ -460,10 +468,6 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   and `local_invocation_index` declares a second LocalInvocationId input (P2-SPV-014).
 - **DXIL:** `@builtin(barycentric)` and `@builtin(barycentric_no_perspective)` are refused; SV_Barycentrics is not
   written yet (P2-DXIL-073). HLSL writes it from shader model 6.1.
-- **HLSL through FXC:** a `return` inside a `switch` inside a loop of a helper becomes the case's `break` in FXC's
-  output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
-  path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known
-  failure on dx12-fxc.
 
 ## [0.20.5] - 2026-10-31
 
