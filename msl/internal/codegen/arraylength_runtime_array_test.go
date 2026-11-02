@@ -1,6 +1,9 @@
 package codegen
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestArrayLengthRuntimeSizedArray pins arrayLength to the WGSL spec's
 // NRuntime = truncate((EBBS - offset) / stride) (wgsl/index.bs, "element count
@@ -32,5 +35,30 @@ struct S { n: u32, d: array<vec3<f32>> }
 		"out.inner[2] = 1 + (_buffer_sizes.size2 - 0 - 4) / 4;",
 	} {
 		mustContainMSL(t, code, want)
+	}
+}
+
+// TestArrayLengthBindingArrayMemberIsAnError: the backend passes no
+// per-element buffer sizes for a storage-buffer binding_array (P1-MSL-101), so
+// arrayLength of a runtime-sized member has nothing to read. It must fail the
+// compile, never return a made-up length. P1-MSL-103: it used to print
+// `/* array length */ 0`. Rust naga 14328f49 writes
+// `1 + (_buffer_sizes.size0[unsigned(gid.y)] - 4 - 4) / 4`.
+func TestArrayLengthBindingArrayMemberIsAnError(t *testing.T) {
+	src := `
+enable wgpu_binding_array;
+struct S { x: u32, far: array<u32> }
+@group(0) @binding(0) var<storage, read_write> bufs: binding_array<S, 4>;
+@group(0) @binding(1) var<storage, read_write> out: array<u32, 2>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    out[0] = arrayLength(&bufs[gid.y].far); }
+`
+	module := processOverridesForTest(t, lowerWGSLForTest(t, src), nil)
+	code, _, err := Compile(module, DefaultOptions())
+	if err == nil {
+		t.Fatalf("want an error, got MSL:\n%s", code)
+	}
+	if want := "runtime-sized array inside binding_array is not supported"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err, want)
 	}
 }

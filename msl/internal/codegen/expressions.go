@@ -3331,76 +3331,20 @@ func (w *Writer) writeRelational(rel ir.ExprRelational) error {
 	return nil
 }
 
-// writeArrayLength writes a runtime array length query.
-// Emits "1 + (_buffer_sizes.sizeN - offset - stride) / stride": the WGSL spec's
-// NRuntime = truncate((EBBS - offset) / stride), written as 1 + the bound
-// writeRuntimeArrayMaxIndex uses (WebGPU guarantees NRuntime >= 1).
-// The Array expression refers to a GlobalVariable or AccessIndex into a struct
-// containing a runtime-sized array.
+// writeArrayLength writes a runtime array length query:
+// "1 + (_buffer_sizes.sizeN - offset - stride) / stride", the WGSL spec's
+// NRuntime = truncate((EBBS - offset) / stride) written as 1 + the bound of
+// writeRuntimeArrayMaxIndex (WebGPU guarantees NRuntime >= 1). As Rust naga's
+// ArrayLength, it is one more than put_dynamic_array_max_index, so lengths and
+// bounds checks share one formula; an array the backend has no size for (a
+// member of a storage-buffer binding_array) is an error, never a made-up 0.
 //
 // Deviation from Rust naga, which subtracts the element's size instead of the
-// stride (`1 + max_index`): for array<vec3<f32>> (size 12, stride 16) on a
-// binding of 16N+12 bytes Rust returns N+1, the spec N.
+// stride: for array<vec3<f32>> (size 12, stride 16) on a binding of 16N+12
+// bytes Rust returns N+1, the spec N.
 func (w *Writer) writeArrayLength(expr ir.ExprArrayLength) error {
-	// Find the global variable that owns the runtime array.
-	globalHandle, ok := w.resolveArrayLengthGlobal(expr.Array)
-	if !ok {
-		w.write("/* array length */ 0")
-		return nil
-	}
-
-	global := &w.module.GlobalVariables[globalHandle]
-
-	// Determine offset and array type.
-	var offset uint32
-	var arrayTypeHandle ir.TypeHandle
-	if int(global.Type) < len(w.module.Types) {
-		switch gt := w.module.Types[global.Type].Inner.(type) {
-		case ir.StructType:
-			if len(gt.Members) > 0 {
-				last := gt.Members[len(gt.Members)-1]
-				offset = last.Offset
-				arrayTypeHandle = last.Type
-			}
-		case ir.ArrayType:
-			offset = 0
-			arrayTypeHandle = global.Type
-		}
-	}
-
-	var stride uint32
-	if int(arrayTypeHandle) < len(w.module.Types) {
-		if at, ok := w.module.Types[arrayTypeHandle].Inner.(ir.ArrayType); ok {
-			stride = at.Stride
-		}
-	}
-
-	if stride == 0 {
-		w.write("/* array length */ 0")
-		return nil
-	}
-
-	w.write("1 + (_buffer_sizes.size%d - %d - %d) / %d",
-		globalHandle, offset, stride, stride)
-	return nil
-}
-
-// resolveArrayLengthGlobal traces an ExprArrayLength's array expression back
-// to the global variable handle that owns the runtime-sized array.
-func (w *Writer) resolveArrayLengthGlobal(handle ir.ExpressionHandle) (ir.GlobalVariableHandle, bool) {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return 0, false
-	}
-	expr := w.currentFunction.Expressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.ExprGlobalVariable:
-		return k.Variable, true
-	case ir.ExprAccessIndex:
-		// Struct field access: trace back to the base global.
-		return w.resolveArrayLengthGlobal(k.Base)
-	default:
-		return 0, false
-	}
+	w.write("1 + ")
+	return w.writeRuntimeArrayMaxIndex(expr.Array)
 }
 
 // Helper methods for type information

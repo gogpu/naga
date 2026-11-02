@@ -24,9 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the spec's NRuntime = truncate((EBBS - offset) / stride) is N. It now agrees with the bounds checks above. Output is
   Rust's wherever an element's size equals its stride; the HLSL, DXIL, GLSL and SPIR-V backends already returned
   NRuntime.
+- **MSL: ReadZeroSkipWrite checks of atomics on runtime-sized arrays read the wrong size or produced invalid MSL**
+  (P0-MSL-102). Atomics had their own copy of the bounds check. It named the `_buffer_sizes` field by the array's
+  position among runtime-sized globals, so with two of them an atomic was checked against the other buffer's size, and
+  with a sized global first the field did not exist. It skipped the check of a runtime-sized array reached through a
+  struct element (`atomicSub(&e[i].c[j], 1)` checked only `j`). For a top-level array and for
+  `atomicCompareExchangeWeak` it wrapped the operand, taking the address of a conditional. Atomics now use the check
+  that loads and stores use, as Rust naga does: `uint(i) < 1 + (_buffer_sizes.size2 - 4 - 4) / 4 ?
+  metal::atomic_fetch_add_explicit(&y.d[i], 1u, …) : DefaultConstructible()`.
 - **MSL: a bounds-checked runtime-sized array inside a storage-buffer `binding_array` is now a compile error** instead
-  of a wrong check: the backend passes no per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every
-  element but the first; Restrict did not clamp). Tracked as P1-MSL-101.
+  of a wrong check, and so is `arrayLength` of such a member, which returned `0` (P1-MSL-103): the backend passes no
+  per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every element but the first; Restrict did not
+  clamp). Tracked as P1-MSL-101.
 
 ## [0.21.1] - 2026-11-02
 
