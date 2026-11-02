@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`array<vec3<f32>>`), Rust naga subtracts the size and admits one index past NRuntime when the binding ends in a
   partial stride; we keep the spec's bound. ReadZeroSkipWrite, which used Rust's form, now checks against the same
   NRuntime.
+- **MSL: `arrayLength` returns the WGSL spec's NRuntime when an element's size is below its stride.** It was Rust
+  naga's `1 + (EBBS - offset - size) / stride`, which for `array<vec3<f32>>` on a binding of 16N+12 bytes returns N+1;
+  the spec's NRuntime = truncate((EBBS - offset) / stride) is N. It now agrees with the bounds checks above. Output is
+  Rust's wherever an element's size equals its stride; the HLSL, DXIL, GLSL and SPIR-V backends already returned
+  NRuntime.
 - **MSL: a bounds-checked runtime-sized array inside a storage-buffer `binding_array` is now a compile error** instead
   of a wrong check: the backend passes no per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every
   element but the first; Restrict did not clamp). Tracked as P1-MSL-101.
