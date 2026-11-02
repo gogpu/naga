@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a helper's variables start afresh at every call made in a loop: zero init 1 2 3 4, const init 5 6 7 8, loop accumulator 3 3 3 3, branch-only store 3 2 0 0 (DXIL inliner: locals initialized once per caller; loop accumulator gave 3 6 9 12, branch 3 2 2 2)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [4]},
+    {"binding": 1, "kind": "storage-rw", "len": 17, "fill": "0xDEADBEEF",
+     "expect": [[1, 2, 3, 4, 5, 6, 7, 8, 3, 3, 3, 3, 3, 2, 0, 0, "fill"]]}
+  ]
+}
