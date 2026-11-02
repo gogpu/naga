@@ -186,7 +186,11 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		if !w.insideRZSW {
 			policy := w.chooseBoundsCheckPolicy(k.Base)
 			if policy == backend.BoundsCheckReadZeroSkipWrite {
-				if check, ok := w.buildRZSWBoundsCheck(handle); ok {
+				check, ok, err := w.buildRZSWBoundsCheck(handle)
+				if err != nil {
+					return err
+				}
+				if ok {
 					w.write("%s ? ", check)
 					w.insideRZSW = true
 					if err := w.writeAccess(k); err != nil {
@@ -207,7 +211,11 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		if !w.insideRZSW {
 			policy := w.chooseBoundsCheckPolicy(k.Base)
 			if policy == backend.BoundsCheckReadZeroSkipWrite {
-				if check, ok := w.buildRZSWBoundsCheck(handle); ok {
+				check, ok, err := w.buildRZSWBoundsCheck(handle)
+				if err != nil {
+					return err
+				}
+				if ok {
 					w.write("%s ? ", check)
 					w.insideRZSW = true
 					if err := w.writeAccessIndex(k); err != nil {
@@ -610,9 +618,10 @@ func (w *Writer) writeAccessIndex_restricted(baseHandle ir.ExpressionHandle, ind
 		if length, ok := w.indexableLengthDeep(baseHandle); ok && length > 0 {
 			return w.writeRestrictedIndex(indexHandle, length-1)
 		}
-		// Runtime-sized array: emit metal::min(unsigned(index), (_buffer_sizes.sizeN - offset - stride) / stride)
-		if info, ok := w.resolveRuntimeArrayInfo(baseHandle); ok {
-			return w.writeRestrictedDynamicIndex(indexHandle, info)
+		if w.isRuntimeSizedArrayBase(baseHandle) {
+			return w.writeRestrictedRuntimeArrayIndex(baseHandle, func() error {
+				return w.writeExpression(indexHandle)
+			})
 		}
 	}
 	return w.writeExpression(indexHandle)
@@ -727,13 +736,15 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 					}
 					w.write("[")
 					policy := w.accessPolicy(access.Base)
-					if policy == backend.BoundsCheckRestrict {
-						if info, ok := w.resolveRuntimeArrayInfo(access.Base); ok {
-							w.write("metal::min(unsigned(%d), (_buffer_sizes.size%d - %d - %d) / %d)",
-								access.Index, info.globalIdx, info.memberOffset, info.elemStride, info.elemStride)
-							w.write("]")
+					if policy == backend.BoundsCheckRestrict && w.isRuntimeSizedArrayBase(access.Base) {
+						if err := w.writeRestrictedRuntimeArrayIndex(access.Base, func() error {
+							w.write("%d", access.Index)
 							return nil
+						}); err != nil {
+							return err
 						}
+						w.write("]")
+						return nil
 					}
 					w.write("%d]", access.Index)
 					return nil
@@ -860,10 +871,16 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 	if isArray {
 		policy := w.accessPolicy(access.Base)
 		if policy == backend.BoundsCheckRestrict {
-			if info, ok := w.resolveRuntimeArrayInfo(access.Base); ok {
-				// Runtime-sized array: metal::min(unsigned(index), (_buffer_sizes.sizeN - offset - stride) / stride)
-				w.write("[metal::min(unsigned(%d), (_buffer_sizes.size%d - %d - %d) / %d)]",
-					access.Index, info.globalIdx, info.memberOffset, info.elemStride, info.elemStride)
+			if w.isRuntimeSizedArrayBase(access.Base) {
+				// A runtime-sized array is clamped even for a constant index.
+				w.write("[")
+				if err := w.writeRestrictedRuntimeArrayIndex(access.Base, func() error {
+					w.write("%d", access.Index)
+					return nil
+				}); err != nil {
+					return err
+				}
+				w.write("]")
 				return nil
 			}
 			// Fixed-size array: clamp if index >= length
@@ -1099,7 +1116,11 @@ func (w *Writer) writeLoad(load ir.ExprLoad) error {
 
 	// ReadZeroSkipWrite: wrap in ternary if pointer chain has array access.
 	if policy == backend.BoundsCheckReadZeroSkipWrite {
-		if check, ok := w.buildRZSWBoundsCheck(load.Pointer); ok {
+		check, ok, err := w.buildRZSWBoundsCheck(load.Pointer)
+		if err != nil {
+			return err
+		}
+		if ok {
 			w.write("%s ? ", check)
 			w.currentAccessPolicy = backend.BoundsCheckUnchecked // inner access is unchecked
 			prevRZSW := w.insideRZSW
@@ -1205,10 +1226,11 @@ func (w *Writer) accessChainRootIsPointer(handle ir.ExpressionHandle) bool {
 }
 
 // buildRZSWBoundsCheck walks an access chain and builds a RZSW bounds check string.
-// Returns ("uint(i) < N && uint(j) < M", true) for chains needing runtime checks,
-// or ("", false) if no check is needed.
+// Returns ("uint(i) < N && uint(j) < M", true, nil) for chains needing runtime checks,
+// ("", false, nil) if no check is needed, or an error when a runtime-sized
+// array's bound cannot be written.
 // Matches Rust naga's put_bounds_checks + bounds_check_iter.
-func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool) {
+func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool, error) {
 	// Collect all checks by walking the access chain.
 	type boundsCheck struct {
 		indexExpr     *ir.ExpressionHandle // non-nil for dynamic Access
@@ -1309,7 +1331,7 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool)
 	}
 
 	if len(checks) == 0 {
-		return "", false
+		return "", false, nil
 	}
 
 	// Build the condition string. Checks are in outer-to-inner order (from the
@@ -1333,7 +1355,10 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool)
 		if c.lengthDynamic {
 			// Runtime-sized array: 1 + (_buffer_sizes.sizeN - offset - elemSize) / stride
 			w.write("1 + ")
-			w.writeRuntimeArrayMaxIndex(c.base)
+			if err := w.writeRuntimeArrayMaxIndex(c.base); err != nil {
+				w.Out = savedOut
+				return "", false, err
+			}
 		} else {
 			w.write("%d", c.lengthKnown)
 		}
@@ -1341,54 +1366,92 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool)
 
 	result := w.Out.String()
 	w.Out = savedOut
-	return result, true
+	return result, true, nil
 }
 
-// writeRuntimeArrayMaxIndex emits the runtime array max index formula:
-// (_buffer_sizes.sizeN - offset - elemSize) / stride
-// The base expression should resolve to a global variable containing a runtime-sized array.
-func (w *Writer) writeRuntimeArrayMaxIndex(base ir.ExpressionHandle) {
-	// Find the global variable
+// writeRuntimeArrayMaxIndex emits the largest valid index of the runtime-sized
+// array that base (the value an Access or AccessIndex indexes) belongs to:
+//
+//	(_buffer_sizes.sizeN - offset - stride) / stride
+//
+// which is NRuntime - 1 for the WGSL spec's NRuntime = truncate((EBBS -
+// offset) / stride) (wgsl/index.bs, "element count of runtime-sized array"),
+// valid because WebGPU guarantees NRuntime >= 1. N is the handle of the
+// originating global; offset is 0 for a top-level `array<T>` global and the
+// last member's offset for a struct.
+//
+// Deviation from Rust naga (put_dynamic_array_max_index), which subtracts the
+// element's size instead of its stride: when the binding ends in a partial
+// stride holding at least one element's bytes (array<vec3<f32>>, size 12,
+// stride 16, a binding of 16N+12 bytes), Rust allows index N, which the spec
+// puts out of bounds (NRuntime = N). Both stay inside the binding; we keep the
+// spec's range.
+func (w *Writer) writeRuntimeArrayMaxIndex(base ir.ExpressionHandle) error {
 	globalIdx, globalType, found := w.resolveGlobalVariable(base)
 	if !found {
-		w.write("0")
-		return
+		return fmt.Errorf("msl: runtime-sized array access does not originate from a global variable")
 	}
-	global := &w.module.GlobalVariables[globalIdx]
-	_ = global
+	if int(globalType) >= len(w.module.Types) {
+		return fmt.Errorf("msl: global %d has an invalid type handle %d", globalIdx, globalType)
+	}
 
-	// Determine offset and array type
 	var offset uint32
 	var arrayTypeHandle ir.TypeHandle
-	if int(globalType) < len(w.module.Types) {
-		switch gt := w.module.Types[globalType].Inner.(type) {
-		case ir.StructType:
-			if len(gt.Members) > 0 {
-				last := gt.Members[len(gt.Members)-1]
-				offset = last.Offset
-				arrayTypeHandle = last.Type
-			}
-		case ir.ArrayType:
-			offset = 0
-			arrayTypeHandle = globalType
+	switch gt := w.module.Types[globalType].Inner.(type) {
+	case ir.StructType:
+		if len(gt.Members) == 0 {
+			return fmt.Errorf("msl: global %d: struct has no members", globalIdx)
 		}
+		last := gt.Members[len(gt.Members)-1]
+		offset = last.Offset
+		arrayTypeHandle = last.Type
+	case ir.ArrayType:
+		arrayTypeHandle = globalType
+	case ir.BindingArrayType:
+		// Rust indexes per-element sizes (_buffer_sizes.sizeN[i]) and passes the
+		// elements as device pointers; this backend passes neither, so there is
+		// no size to bound the array with (P1-MSL-101).
+		return fmt.Errorf("msl: global %d: bounds check of a runtime-sized array inside binding_array is not supported", globalIdx)
+	default:
+		return fmt.Errorf("msl: global %d: expected a type with a runtime-sized array, got %T", globalIdx, gt)
 	}
 
-	var elemSize, stride uint32
-	if int(arrayTypeHandle) < len(w.module.Types) {
-		if at, ok := w.module.Types[arrayTypeHandle].Inner.(ir.ArrayType); ok {
-			stride = at.Stride
-			elemSize = w.typeSize(at.Base)
-		}
+	if int(arrayTypeHandle) >= len(w.module.Types) {
+		return fmt.Errorf("msl: global %d: invalid array type handle %d", globalIdx, arrayTypeHandle)
 	}
-
-	if stride == 0 {
-		w.write("0")
-		return
+	at, ok := w.module.Types[arrayTypeHandle].Inner.(ir.ArrayType)
+	if !ok || at.Stride == 0 {
+		return fmt.Errorf("msl: global %d: expected a runtime-sized array, got %T", globalIdx, w.module.Types[arrayTypeHandle].Inner)
 	}
 
 	w.write("(_buffer_sizes.size%d - %d - %d) / %d",
-		globalIdx, offset, elemSize, stride)
+		globalIdx, offset, at.Stride, at.Stride)
+	return nil
+}
+
+// isRuntimeSizedArrayBase reports whether base, the value an Access or
+// AccessIndex indexes (directly or through a pointer), is a runtime-sized array:
+// Rust naga's access_needs_check returning IndexableLength::Dynamic. Such an
+// access is always checked, even with a constant index.
+func (w *Writer) isRuntimeSizedArrayBase(base ir.ExpressionHandle) bool {
+	_, dynamic := w.indexableLengthOrDynamic(base)
+	return dynamic
+}
+
+// writeRestrictedRuntimeArrayIndex writes the Restrict clamp of an index into a
+// runtime-sized array: metal::min(unsigned(index), maxIndex), as Rust naga's
+// put_subscripted_access_chain. writeIndex writes the index itself.
+func (w *Writer) writeRestrictedRuntimeArrayIndex(base ir.ExpressionHandle, writeIndex func() error) error {
+	w.write("metal::min(unsigned(")
+	if err := writeIndex(); err != nil {
+		return err
+	}
+	w.write("), ")
+	if err := w.writeRuntimeArrayMaxIndex(base); err != nil {
+		return err
+	}
+	w.write(")")
+	return nil
 }
 
 // writeUnary writes a unary operation.
@@ -3635,56 +3698,8 @@ func (w *Writer) indexableLengthOrDynamic(baseHandle ir.ExpressionHandle) (uint3
 	return 0, false
 }
 
-// runtimeArrayInfo holds info needed to emit a runtime-sized array bound for Restrict policy.
-type runtimeArrayInfo struct {
-	globalIdx    uint32 // Global variable index (for _buffer_sizes.sizeN)
-	memberOffset uint32 // Byte offset of the runtime-sized array member in the struct
-	elemStride   uint32 // Element stride (bytes per element)
-}
-
-// resolveRuntimeArrayInfo checks if a base expression is an access into a runtime-sized array
-// member of a struct in a global variable. Returns info needed for restrict bound computation.
-func (w *Writer) resolveRuntimeArrayInfo(baseHandle ir.ExpressionHandle) (runtimeArrayInfo, bool) {
-	if w.currentFunction == nil || int(baseHandle) >= len(w.currentFunction.Expressions) {
-		return runtimeArrayInfo{}, false
-	}
-	expr := &w.currentFunction.Expressions[baseHandle]
-	ai, ok := expr.Kind.(ir.ExprAccessIndex)
-	if !ok {
-		return runtimeArrayInfo{}, false
-	}
-	// The base should be a GlobalVariable (or chain to one).
-	globalIdx, globalType, found := w.resolveGlobalVariable(ai.Base)
-	if !found {
-		return runtimeArrayInfo{}, false
-	}
-	// Get the struct type.
-	if int(globalType) >= len(w.module.Types) {
-		return runtimeArrayInfo{}, false
-	}
-	st, ok := w.module.Types[globalType].Inner.(ir.StructType)
-	if !ok {
-		return runtimeArrayInfo{}, false
-	}
-	if int(ai.Index) >= len(st.Members) {
-		return runtimeArrayInfo{}, false
-	}
-	member := &st.Members[ai.Index]
-	if int(member.Type) >= len(w.module.Types) {
-		return runtimeArrayInfo{}, false
-	}
-	arr, ok := w.module.Types[member.Type].Inner.(ir.ArrayType)
-	if !ok || arr.Size.Constant != nil {
-		return runtimeArrayInfo{}, false // Not a runtime-sized array
-	}
-	return runtimeArrayInfo{
-		globalIdx:    globalIdx,
-		memberOffset: member.Offset,
-		elemStride:   arr.Stride,
-	}, true
-}
-
-// resolveGlobalVariable traces an expression chain to find the underlying GlobalVariable.
+// resolveGlobalVariable traces an expression chain to find the underlying GlobalVariable
+// (Rust naga's proc::Function::originating_global).
 // Returns (globalVarIndex, globalVarTypeHandle, true) if found.
 func (w *Writer) resolveGlobalVariable(handle ir.ExpressionHandle) (uint32, ir.TypeHandle, bool) {
 	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
@@ -3702,18 +3717,6 @@ func (w *Writer) resolveGlobalVariable(handle ir.ExpressionHandle) (uint32, ir.T
 		return w.resolveGlobalVariable(k.Base)
 	}
 	return 0, 0, false
-}
-
-// writeRestrictedDynamicIndex writes a restricted index for runtime-sized arrays.
-// Emits: metal::min(unsigned(index), (_buffer_sizes.sizeN - offset - stride) / stride)
-func (w *Writer) writeRestrictedDynamicIndex(indexHandle ir.ExpressionHandle, info runtimeArrayInfo) error {
-	w.write("metal::min(unsigned(")
-	if err := w.writeExpression(indexHandle); err != nil {
-		return err
-	}
-	w.write("), (_buffer_sizes.size%d - %d - %d) / %d)",
-		info.globalIdx, info.memberOffset, info.elemStride, info.elemStride)
-	return nil
 }
 
 // indexableLengthDeep resolves the length of an indexable type by traversing the expression tree.
