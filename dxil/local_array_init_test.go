@@ -23,6 +23,7 @@ func TestLocalArrayConstantInitializerStored(t *testing.T) {
 @group(0) @binding(0) var<storage, read_write> data: array<f32, 4>;
 @group(0) @binding(1) var<storage, read> idx: array<u32, 4>;
 const cp = array<vec2<f32>, 3>(vec2(-1.0, 0.5), vec2(1.0, 0.25), vec2(2.0, 3.0));
+struct S { a: f32, b: vec2<f32> }
 `
 	tests := []struct{ name, body string }{
 		{"scalar array, run-time index", `
@@ -38,6 +39,15 @@ const cp = array<vec2<f32>, 3>(vec2(-1.0, 0.5), vec2(1.0, 0.25), vec2(2.0, 3.0))
     let v = p[idx[0] % 6u];
     data[0] = v.x;
     data[1] = v.y;`},
+		// The zero-value constructor: the initializer store asks for every
+		// component of the ExprZeroValue, which had none ("has no value for
+		// component 1").
+		{"zero-value array constructor, run-time index", `
+    var xs = array<f32, 4>();
+    data[0] = xs[idx[0] % 4u] + 7.0;`},
+		{"zero-value struct constructor, member", `
+    var s = S();
+    data[0] = s.b.y + 7.0;`},
 		{"vec2 array from a named constant, run-time index", `
     var p = cp;
     let v = p[idx[0] % 3u];
