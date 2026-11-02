@@ -16,12 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ended. Such a variable now keeps its alloca, as variables stored across blocks of a loop already did; a variable
   declared inside the loop is stored first and is still promoted. IDxcValidator accepted the wrong modules. Present
   since v0.17.4. New readback case `loops/outer-acc-rt`.
+- **DXIL: a function called in a loop saw the values its previous call left in its variables.** The DXIL path
+  inlines every function, and the inliner gave the caller the callee's variables with their initializers, which a
+  caller's variable gets once, at entry. A helper accumulating in a loop of its own (`var sum = 0u; for … { sum += …; }`)
+  or storing only in a branch returned the previous call's value. Each call now stores the initializer, or zero, of
+  the helper's scalar and vector variables where it starts. New readback case `calls/inlined-local-rt`.
 - **DXIL: a local `var` array with a constant initializer read by index lost the initializer** (P0-DXIL-084). The
   emitter resolved whole-variable loads of a never-stored local straight to its initializer, but `xs[i]` (run-time or
   constant index) loaded from an alloca that nothing was stored to, so it read uninitialized memory while
   IDxcValidator accepted the module. Shaders such as `var positions = array<vec2f, 3>(vec2(-1.0), ...);
   positions[vertex_index]` drew nothing on D3D12 with DXIL. Such a local now keeps its alloca with the initializer
-  stored, as DXC does. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32` vectors written
+  stored, as DXC does; a zero-value constructor (`array<f32, 4>()`, `S()`) is stored as zeros, where it failed to
+  compile or read nothing stored. Present in every release checked (v0.17.16, v0.20.5, v0.21.0); arrays of `f32` vectors written
   with literal components took a correct select-chain path and were not affected. New readback case
   `vars/const-init-array-rt`.
 - **SPIR-V: `subgroupBarrier()` was invalid for Vulkan** (P2-SPV-013). Its memory semantics were

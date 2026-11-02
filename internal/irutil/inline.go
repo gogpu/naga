@@ -321,6 +321,7 @@ func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, cal
 		return nil, err
 	}
 	remapCalleeLocalInits(caller, callee, localOffset, exprRefs)
+	localInits := initCalleeLocals(module, caller, callee, localOffset)
 
 	// 6. Copy callee's NamedExpressions into caller with remapped handles.
 	copyNamedExpressions(caller, callee, calleeExprMap)
@@ -338,9 +339,11 @@ func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, cal
 	bodyMapper := blockMapper{handle: rm, emit: adjustEmitRange(rm), fresh: true}
 	inlinedBody := bodyMapper.block(callee.Body)
 
-	// 8b. Emit coverage for scalar-spilled arguments.
+	// 8b. Emit coverage for scalar-spilled arguments, then the callee's
+	// locals start afresh (initCalleeLocals).
 	prefixStmts := args.spills
 	prefixStmts = append(prefixStmts, args.spilledArgumentEmits(callee, calleeExprMap)...)
+	prefixStmts = append(prefixStmts, localInits...)
 
 	// 9. Rewrite StmtReturn in the inlined body so control reaches the code
 	// after the call (see lowerReturns).
@@ -371,6 +374,111 @@ func appendCalleeLocals(caller, callee *ir.Function) ir.LocalVariableHandle {
 		caller.LocalVars = append(caller.LocalVars, lv)
 	}
 	return offset
+}
+
+// initCalleeLocals returns, for the n locals the callee brought into caller
+// from localOffset, a store of each one's initializer, or of its zero value
+// without one, and drops the initializer from the caller's copy. WGSL creates
+// a function's variables afresh at every call; a caller-level local with an
+// initializer is set once, at the caller's entry, so a call inside a loop saw
+// the value the previous iteration left (P0-DXIL-046 follow-up). This is what
+// the WGSL lowerer does for a variable declared inside a loop, and what Mesa's
+// nir_inline_functions gets from lowering temporaries' initializers to stores
+// (nir_lower_variable_initializers) before inlining.
+//
+// Only scalar and vector locals are stored: the backend that inlines (DXIL)
+// writes those whole, and they are what its mem2reg used to promote from the
+// initial value in every call. A struct, array or matrix local keeps its
+// initializer (opaque locals such as a ray query have none to store). A
+// local without an initializer that the callee's straight-line start stores
+// before it reads it (the lowerer's store of a run-time initializer at the
+// declaration) needs no zero store: it would only cost an alloca.
+func initCalleeLocals(module *ir.Module, caller, callee *ir.Function, localOffset ir.LocalVariableHandle) []ir.Statement {
+	storedFirst := storedBeforeRead(callee)
+	stmts := make([]ir.Statement, 0, len(callee.LocalVars))
+	for i := range callee.LocalVars {
+		h := localOffset + ir.LocalVariableHandle(ArenaIndex(i))
+		lv := &caller.LocalVars[h]
+		switch module.Types[lv.Type].Inner.(type) {
+		case ir.ScalarType, ir.VectorType:
+		default:
+			continue
+		}
+		if lv.Init == nil && storedFirst[ir.LocalVariableHandle(ArenaIndex(i))] {
+			continue
+		}
+		var value ir.ExpressionHandle
+		if lv.Init != nil {
+			value = *lv.Init
+			lv.Init = nil
+		} else {
+			value = appendExpression(caller, ir.ExprZeroValue{Type: lv.Type})
+		}
+		ptr := appendExpression(caller, ir.ExprLocalVariable{Variable: h})
+		stmts = append(stmts, ir.Statement{Kind: ir.StmtStore{Pointer: ptr, Value: value}})
+	}
+	return stmts
+}
+
+// storedBeforeRead returns the locals of fn that a top-level Store of its
+// body writes, whole, before anything mentions them. Any other statement (an
+// if, a loop, a call) that mentions a local, at any depth, settles it as not
+// stored first, since the order inside is not tracked; a statement that does
+// not mention it is skipped. An unlisted local gets its zero store.
+func storedBeforeRead(fn *ir.Function) map[ir.LocalVariableHandle]bool {
+	stored := make(map[ir.LocalVariableHandle]bool)
+	seen := make(map[ir.LocalVariableHandle]bool)
+	localOf := func(h ir.ExpressionHandle) (ir.LocalVariableHandle, bool) {
+		if int(h) >= len(fn.Expressions) {
+			return 0, false
+		}
+		lv, ok := fn.Expressions[h].Kind.(ir.ExprLocalVariable)
+		return lv.Variable, ok
+	}
+	for _, stmt := range fn.Body {
+		switch sk := stmt.Kind.(type) {
+		case ir.StmtEmit:
+			for h := sk.Range.Start; h < sk.Range.End; h++ {
+				// Any use of a local's pointer in an emitted expression (a
+				// load, or an access into it) counts as a read.
+				ExprHandles(fn.Expressions[h].Kind, func(op ir.ExpressionHandle) {
+					if v, ok := localOf(op); ok {
+						seen[v] = true
+					}
+				})
+			}
+		case ir.StmtStore:
+			if v, ok := localOf(sk.Pointer); ok {
+				if !seen[v] {
+					stored[v] = true
+				}
+				seen[v] = true
+			}
+		default:
+			mentionedLocals(fn, ir.Block{stmt}, localOf, func(v ir.LocalVariableHandle) { seen[v] = true })
+		}
+	}
+	return stored
+}
+
+// mentionedLocals calls mark for every local whose pointer an expression or a
+// statement of block, at any depth, uses.
+func mentionedLocals(fn *ir.Function, block ir.Block, localOf func(ir.ExpressionHandle) (ir.LocalVariableHandle, bool), mark func(ir.LocalVariableHandle)) {
+	use := func(h ir.ExpressionHandle) {
+		if v, ok := localOf(h); ok {
+			mark(v)
+		}
+	}
+	for _, stmt := range block {
+		if em, ok := stmt.Kind.(ir.StmtEmit); ok {
+			for h := em.Range.Start; h < em.Range.End; h++ {
+				ExprHandles(fn.Expressions[h].Kind, use)
+			}
+			continue
+		}
+		StmtExprHandles(stmt.Kind, use)
+		NestedBlocks(stmt.Kind, func(b ir.Block) { mentionedLocals(fn, b, localOf, mark) })
+	}
 }
 
 // callArguments is how an inlined call passes its arguments.
