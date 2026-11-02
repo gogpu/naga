@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-02
+
 The last planned breaking release before v1.0 (ADR-010): one public surface, in Rust naga's shape, with safe zero
 values. `apidiff` against v0.20.5 lists every change; the entries below explain them.
 
@@ -386,6 +388,10 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
       built-ins; `wgpu_ray_tracing_pipeline`: the ray tracing stages and payload address spaces; `wgpu_per_vertex`:
       `@interpolate(per_vertex)`; `wgpu_int16`: `i16`/`u16`; `wgpu_cooperative_matrix`: `coop_mat*`;
       `wgpu_debug_printf`: `debugPrintf`.
+
+    The gate is Rust's for every name; some of these features are not implemented by this frontend yet and still
+    fail with the enable: `i16`/`u16`, `coop_mat*`, `debugPrintf`, `vertex_return`, the ray tracing pipeline stages
+    and payloads, `subgroupElect` and `@subgroup_size`.
   - A directive after the first declaration is "expected global declaration, but found a global directive".
   - Beyond Rust, by the spec: `enable subgroups;` is accepted (Rust rejects it as not yet supported) and required for
     the subgroup built-ins listed above (Rust requires nothing); `subgroup_size_control` is accepted and enables
@@ -522,6 +528,13 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   and `local_invocation_index` declares a second LocalInvocationId input (P2-SPV-014).
 - **DXIL:** `@builtin(barycentric)` and `@builtin(barycentric_no_perspective)` are refused; SV_Barycentrics is not
   written yet (P2-DXIL-073). HLSL writes it from shader model 6.1.
+- **WGSL spec gap:** an integer division or remainder by a const-expression zero (`x / 0u`) and a shift by a
+  const-expression of at least the bit width (`x << 32u`) are shader-creation errors in the WGSL spec and are still
+  accepted. Rust naga's validator check is not ported because it also rejects valid shaders that divide or shift by a
+  `let`; the frontend will check const-expressions in the next minor (P1-WGSL-101).
+- **DXIL:** `exp()` and `log()` are refused (P1-DXIL-078), and some function-local arrays indexed at run time do not
+  compile (P1-DXIL-079 and the local-aggregate cards); both are compile errors, planned for v0.21.1. DXIL is opt-in
+  in gogpu/wgpu.
 
 ## [0.20.5] - 2026-10-31
 
@@ -3239,7 +3252,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.5...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/gogpu/naga/compare/v0.20.5...v0.21.0
 [0.20.5]: https://github.com/gogpu/naga/compare/v0.20.4...v0.20.5
 [0.20.4]: https://github.com/gogpu/naga/compare/v0.20.3...v0.20.4
 [0.20.3]: https://github.com/gogpu/naga/compare/v0.20.2...v0.20.3
