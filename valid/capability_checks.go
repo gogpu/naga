@@ -23,15 +23,25 @@ func unsupportedSubgroupOperation(ops SubgroupOperationSet) string {
 	return "Subgroup operation is invalid: Support for subgroup operation " + ops.rustDebug() + " is required"
 }
 
-// expressionStages are the stages an expression can run in: the part of
-// Rust's validate_expression result that the validator tracks, the
-// subgroup operation results and the call results.
+// expressionStages are the stages an expression can run in: the stages
+// Rust's validate_expression returns (valid/expression.rs). Sampling with an
+// implicit level of detail and derivatives need the fragment stage's
+// neighboring invocations; a workgroup uniform load is a workgroup barrier.
 func (v *validator) expressionStages(kind ir.ExpressionKind) ShaderStages {
 	switch k := kind.(type) {
 	case ir.ExprSubgroupBallotResult, ir.ExprSubgroupOperationResult:
 		return v.subgroupStages
 	case ir.ExprCallResult:
 		return v.calleeStages(k.Function)
+	case ir.ExprImageSample:
+		switch k.Level.(type) {
+		case ir.SampleLevelAuto, ir.SampleLevelBias:
+			return ShaderStagesFragment
+		}
+	case ir.ExprDerivative:
+		return ShaderStagesFragment
+	case ir.ExprWorkGroupUniformLoadResult:
+		return ShaderStagesComputeLike
 	}
 	return allStages
 }

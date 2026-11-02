@@ -350,6 +350,14 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   and front face for every hit, not only triangle hits (they branched on "not none" instead of "triangle"), and
   `rayQueryProceed` called `OpRayQueryProceedKHR` again after traversal had finished, which SPIR-V leaves undefined
   (HLSL does not); it now returns false without the call, as Rust naga does.
+- **Breaking: the validator rejects operations a stage cannot run** (all released versions accepted them), as Rust
+  naga's `ForbiddenStageOperations`: `discard` outside a fragment shader; control and memory barriers and
+  `workgroupUniformLoad` outside compute-like stages; `textureSample`, `textureSampleBias`, `textureSampleCompare`
+  and derivatives outside a fragment shader. An entry point is checked with every function it calls ("Entry point
+  main at Vertex is invalid: Uses operations forbidden at this stage"). The WGSL spec makes each a shader-creation
+  error; the backends wrote code the driver rejects or that has no defined result. Sampling at an explicit level, at
+  level zero or with gradients stays valid in every stage. No shader of the test corpus or of gg is affected
+  (P1-IR-028).
 - **Validator: two entry points may put their own resource at one binding.** Any two globals with the same
   `@group`/`@binding` in a module were rejected; as Rust naga, a collision is now checked per entry point, among the
   globals it uses, callees included ("Entry point main at Compute is invalid: Bindings for [1] conflict with other
