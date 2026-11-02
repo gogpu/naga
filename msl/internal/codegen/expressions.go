@@ -930,6 +930,8 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 		// every binary operator (issue #95). Rust naga writes binop operands
 		// with is_scoped=false and wraps the ternary in that case.
 		return w.isTernarySelect(k)
+	case ir.ExprAccess, ir.ExprAccessIndex, ir.ExprLoad:
+		return w.rendersAsRZSWTernary(child)
 	default:
 		return false
 	}
@@ -942,6 +944,28 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 func (w *Writer) isTernarySelect(sel ir.ExprSelect) bool {
 	vec, ok := w.getExpressionType(sel.Condition).(ir.VectorType)
 	return !ok || vec.Scalar.Kind != ir.ScalarBool
+}
+
+// rendersAsRZSWTernary reports whether handle is written as a ReadZeroSkipWrite
+// ternary, `cond ? access : DefaultConstructible()`, under the same conditions
+// the Access, AccessIndex and Load cases of writeExpressionKind use. A ternary
+// binds looser than every binary operator, so in a non-scoped context it needs
+// parentheses: Rust naga's put_bounds_checks opens "(" when !is_scoped.
+// Without them `t + v[i]` printed `t + uint(i) < 4 ? v[i] : D()`, i.e.
+// `(t + uint(i)) < 4 ? …`.
+func (w *Writer) rendersAsRZSWTernary(handle ir.ExpressionHandle) bool {
+	switch k := w.currentFunction.Expressions[handle].Kind.(type) {
+	case ir.ExprAccess:
+		return !w.insideRZSW && w.chooseBoundsCheckPolicy(k.Base) == backend.BoundsCheckReadZeroSkipWrite &&
+			len(w.collectRZSWBoundsChecks(handle)) > 0
+	case ir.ExprAccessIndex:
+		return !w.insideRZSW && w.chooseBoundsCheckPolicy(k.Base) == backend.BoundsCheckReadZeroSkipWrite &&
+			len(w.collectRZSWBoundsChecks(handle)) > 0
+	case ir.ExprLoad:
+		return w.chooseBoundsCheckPolicy(k.Pointer) == backend.BoundsCheckReadZeroSkipWrite &&
+			len(w.collectRZSWBoundsChecks(k.Pointer)) > 0
+	}
+	return false
 }
 
 // needsParensInContext checks if an expression would need parentheses when
@@ -972,6 +996,8 @@ func (w *Writer) needsParensInContext(handle ir.ExpressionHandle) bool {
 		// ArrayLength expands to "1 + ..." which needs parenthesization.
 		// Matches Rust naga: ArrayLength uses is_scoped wrapping.
 		return true
+	case ir.ExprAccess, ir.ExprAccessIndex, ir.ExprLoad:
+		return w.rendersAsRZSWTernary(handle)
 	}
 	return false
 }
@@ -1225,22 +1251,20 @@ func (w *Writer) accessChainRootIsPointer(handle ir.ExpressionHandle) bool {
 	}
 }
 
-// buildRZSWBoundsCheck walks an access chain and builds a RZSW bounds check string.
-// Returns ("uint(i) < N && uint(j) < M", true, nil) for chains needing runtime checks,
-// ("", false, nil) if no check is needed, or an error when a runtime-sized
-// array's bound cannot be written.
-// Matches Rust naga's put_bounds_checks + bounds_check_iter.
-func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool, error) {
-	// Collect all checks by walking the access chain.
-	type boundsCheck struct {
-		indexExpr     *ir.ExpressionHandle // non-nil for dynamic Access
-		indexConst    *uint32              // non-nil for constant AccessIndex
-		lengthKnown   uint32               // > 0 for known lengths
-		lengthDynamic bool                 // true for runtime-sized arrays
-		base          ir.ExpressionHandle  // base of this access (for originating global)
-	}
+// rzswBoundsCheck is one index check of a ReadZeroSkipWrite condition.
+type rzswBoundsCheck struct {
+	indexExpr     *ir.ExpressionHandle // non-nil for dynamic Access
+	indexConst    *uint32              // non-nil for constant AccessIndex
+	lengthKnown   uint32               // > 0 for known lengths
+	lengthDynamic bool                 // true for runtime-sized arrays
+	base          ir.ExpressionHandle  // base of this access (for originating global)
+}
 
-	var checks []boundsCheck
+// collectRZSWBoundsChecks walks the access chain ending at handle, from handle
+// toward its base, and returns the index checks a ReadZeroSkipWrite condition
+// needs, in that order: Rust naga's bounds_check_iter.
+func (w *Writer) collectRZSWBoundsChecks(handle ir.ExpressionHandle) []rzswBoundsCheck {
+	var checks []rzswBoundsCheck
 	chain := handle
 
 	for {
@@ -1254,7 +1278,7 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 			if isDynamic {
 				// Dynamic array — always needs check
 				idx := k.Index
-				checks = append(checks, boundsCheck{
+				checks = append(checks, rzswBoundsCheck{
 					indexExpr:     &idx,
 					lengthDynamic: true,
 					base:          k.Base,
@@ -1281,7 +1305,7 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 				}
 				if needsCheck {
 					idx := k.Index
-					checks = append(checks, boundsCheck{
+					checks = append(checks, rzswBoundsCheck{
 						indexExpr:   &idx,
 						lengthKnown: length,
 						base:        k.Base,
@@ -1310,14 +1334,14 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 			length, isDynamic := w.indexableLengthOrDynamic(k.Base)
 			if isDynamic {
 				idx := k.Index
-				checks = append(checks, boundsCheck{
+				checks = append(checks, rzswBoundsCheck{
 					indexConst:    &idx,
 					lengthDynamic: true,
 					base:          k.Base,
 				})
 			} else if length > 0 && k.Index >= length {
 				idx := k.Index
-				checks = append(checks, boundsCheck{
+				checks = append(checks, rzswBoundsCheck{
 					indexConst:  &idx,
 					lengthKnown: length,
 					base:        k.Base,
@@ -1329,7 +1353,16 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 		}
 		break
 	}
+	return checks
+}
 
+// buildRZSWBoundsCheck builds the ReadZeroSkipWrite condition of the access
+// chain ending at handle. Returns ("uint(i) < N && uint(j) < M", true, nil)
+// for chains needing runtime checks, ("", false, nil) if no check is needed,
+// or an error when a runtime-sized array's bound cannot be written.
+// Matches Rust naga's put_bounds_checks + bounds_check_iter.
+func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool, error) {
+	checks := w.collectRZSWBoundsChecks(handle)
 	if len(checks) == 0 {
 		return "", false, nil
 	}

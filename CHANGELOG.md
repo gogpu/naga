@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `atomicCompareExchangeWeak` it wrapped the operand, taking the address of a conditional. Atomics now use the check
   that loads and stores use, as Rust naga does: `uint(i) < 1 + (_buffer_sizes.size2 - 4 - 4) / 4 ?
   metal::atomic_fetch_add_explicit(&y.d[i], 1u, …) : DefaultConstructible()`.
+- **MSL: a ReadZeroSkipWrite access used as an operand was printed without parentheses** (P0-MSL-104). The check is a
+  C++ ternary, which binds looser than every binary operator: `total = _e8 + uint(_e9) < 4 ? arr.inner[_e9] :
+  DefaultConstructible();` read as `(_e8 + uint(_e9)) < 4 ? …`, a wrong value even for an in-bounds index; a select
+  condition had the same problem. The ternary is now parenthesized in a binary operand and a select condition, as in
+  Rust naga's output.
 - **MSL: a bounds-checked runtime-sized array inside a storage-buffer `binding_array` is now a compile error** instead
   of a wrong check, and so is `arrayLength` of such a member, which returned `0` (P1-MSL-103): the backend passes no
   per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every element but the first; Restrict did not
