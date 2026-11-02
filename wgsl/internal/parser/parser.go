@@ -19,6 +19,9 @@ type Parser struct {
 	errors         []ParseError
 	inForHeader    bool // true when parsing for-loop init/update (no trailing semicolon)
 	pendingEnables []Enable
+	// seenDecl is set by the first global declaration, an empty one (`;`)
+	// included: no directive may follow it.
+	seenDecl bool
 }
 
 // Errors returns every error Parse found, in source order.
@@ -61,6 +64,7 @@ func (p *Parser) Parse() (*Module, error) {
 	for !p.isAtEnd() {
 		// Skip optional semicolons between declarations (e.g., struct Foo { ... };)
 		for p.match(TokenSemicolon) {
+			p.seenDecl = true
 		}
 		if p.isAtEnd() {
 			break
@@ -73,6 +77,7 @@ func (p *Parser) Parse() (*Module, error) {
 			continue
 		}
 		if decl != nil {
+			p.seenDecl = true
 			// Preserve source order for all declarations.
 			module.Declarations = append(module.Declarations, decl)
 			switch d := decl.(type) {
@@ -109,6 +114,12 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 	// Parse attributes first
 	attrs := p.attributes()
 
+	if p.seenDecl && (p.check(TokenEnable) || p.check(TokenDiagnostic)) {
+		// The grammar has every global_directive before the first
+		// global_decl (Rust's Error::DirectiveAfterFirstGlobalDecl).
+		return nil, &ParseError{Message: "expected global declaration, but found a global directive", Token: p.peek()}
+	}
+
 	switch {
 	case p.check(TokenFn):
 		return p.functionDecl(attrs)
@@ -125,7 +136,10 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 	case p.check(TokenConstAssert):
 		return p.constAssertDecl()
 	case p.check(TokenEnable):
-		enable := p.enableDirective()
+		enable, err := p.enableDirective()
+		if err != nil {
+			return nil, err
+		}
 		// Store on module but don't return as a Decl (enable is not a declaration).
 		// The caller (Parse) will store it via enableDirectives accumulated in the parser.
 		p.pendingEnables = append(p.pendingEnables, enable)
@@ -173,6 +187,7 @@ func (p *Parser) attributes() []Attribute {
 			Span: Span{
 				Start: Position{Line: start.Line, Column: start.Column},
 			},
+			NameSpan: WordSpan(Position{Line: name.Line, Column: name.Column}, name.Lexeme),
 		}
 
 		// Check for arguments
@@ -369,10 +384,13 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 
 	// Optional address space and access mode: var<storage, read_write>
 	var addressSpace string
+	var addressSpaceSpan Span
 	var accessMode string
 	if p.match(TokenLess) {
 		if p.check(TokenIdent) {
-			addressSpace = p.advance().Lexeme
+			asTok := p.advance()
+			addressSpace = asTok.Lexeme
+			addressSpaceSpan = WordSpan(Position{Line: asTok.Line, Column: asTok.Column}, asTok.Lexeme)
 		}
 		// Optional access mode: var<storage, read_write>
 		if p.match(TokenComma) {
@@ -413,12 +431,13 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 	}
 
 	return &VarDecl{
-		Name:         name.Lexeme,
-		Type:         varType,
-		Init:         init,
-		AddressSpace: addressSpace,
-		AccessMode:   accessMode,
-		Attributes:   attrs,
+		Name:             name.Lexeme,
+		Type:             varType,
+		Init:             init,
+		AddressSpace:     addressSpace,
+		AddressSpaceSpan: addressSpaceSpan,
+		AccessMode:       accessMode,
+		Attributes:       attrs,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
@@ -602,8 +621,10 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 // constAssertDecl parses a const_assert declaration.
 // WGSL spec: const_assert expr; or const_assert(expr);
 // enableDirective parses an enable directive: enable ext1, ext2;
-// Returns the Enable with all listed extension names.
-func (p *Parser) enableDirective() Enable {
+// Returns the Enable with all listed extension names. A name that is no
+// enable-extension is Rust naga's UnknownEnableExtension (EnableExtension::
+// from_ident, naga/src/front/wgsl/parse/directive/enable_extension.rs).
+func (p *Parser) enableDirective() (Enable, *ParseError) {
 	start := p.peek()
 	p.advance() // consume 'enable'
 
@@ -613,6 +634,9 @@ func (p *Parser) enableDirective() Enable {
 			break
 		}
 		tok := p.peek()
+		if !IsEnableExtension(tok.Lexeme) {
+			return Enable{}, &ParseError{Message: fmt.Sprintf("unknown enable-extension `%s`", tok.Lexeme), Token: tok}
+		}
 		extensions = append(extensions, tok.Lexeme)
 		p.advance()
 		if !p.match(TokenComma) {
@@ -628,7 +652,7 @@ func (p *Parser) enableDirective() Enable {
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
-	}
+	}, nil
 }
 
 func (p *Parser) constAssertDecl() (*ConstAssertDecl, *ParseError) {
@@ -755,7 +779,8 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		if !p.check(TokenIdent) {
 			return nil, &ParseError{Message: "expected address space", Token: p.peek()}
 		}
-		addressSpace := p.advance().Lexeme
+		asTok := p.advance()
+		addressSpace := asTok.Lexeme
 
 		if err := p.expectErr(TokenComma); err != nil {
 			return nil, err
@@ -778,9 +803,10 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		}
 
 		return &PtrType{
-			AddressSpace: addressSpace,
-			PointeeType:  pointeeType,
-			AccessMode:   accessMode,
+			AddressSpace:     addressSpace,
+			AddressSpaceSpan: WordSpan(Position{Line: asTok.Line, Column: asTok.Column}, asTok.Lexeme),
+			PointeeType:      pointeeType,
+			AccessMode:       accessMode,
 			Span: Span{
 				Start: Position{Line: tok.Line, Column: tok.Column},
 			},

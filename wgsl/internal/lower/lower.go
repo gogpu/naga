@@ -90,8 +90,12 @@ type Lowerer struct {
 	enableSwizzleAssignment bool
 
 	// enables holds the shader's enable extensions by name, for the
-	// attributes that need one (Rust naga's EnableExtensions::require).
+	// features that need one (Rust naga's EnableExtensions).
 	enables map[string]bool
+
+	// enableErrors holds the extensions already reported as not enabled:
+	// one error each, as Rust naga stops at the first.
+	enableErrors map[string]bool
 
 	// emitStateStart tracks the start of the current pending emit range.
 	// Set by emitStart(), cleared by emitFinish(). Used by lowerCall()
@@ -202,13 +206,18 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// Process enable directives.
 	for i := range ast.Enables {
 		for _, ext := range ast.Enables[i].Extensions {
-			if ext == "swizzle_assignment" {
+			if ext == parser.EnableSwizzleAssignment {
 				l.enableSwizzleAssignment = true
 			}
 			if l.enables == nil {
 				l.enables = make(map[string]bool, 2)
 			}
 			l.enables[ext] = true
+			// WGSL spec: subgroups is automatically enabled when
+			// subgroup_size_control is enabled.
+			if ext == parser.EnableSubgroupSizeControl {
+				l.enables[parser.EnableSubgroups] = true
+			}
 		}
 	}
 
@@ -783,7 +792,7 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		return fmt.Errorf("global var %s: %w", v.Name, err)
 	}
 
-	space, err := l.addressSpace(v.AddressSpace)
+	space, err := l.addressSpace(v.AddressSpace, v.AddressSpaceSpan)
 	if err != nil {
 		return fmt.Errorf("global var %s: %w", v.Name, err)
 	}
@@ -912,6 +921,8 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 	// Outside a function the lowerer is at module scope: const-expressions
 	// met there (constLiteral) go to Module.GlobalExpressions.
 	defer func() { l.currentFunc = nil }()
+
+	l.requireFunctionAttributeEnables(f.Attributes)
 
 	// Reset local context by clearing maps instead of reallocating.
 	for k := range l.locals {
@@ -2738,6 +2749,8 @@ func (l *Lowerer) lowerLiteral(lit *parser.Literal) (ir.ExpressionHandle, error)
 			v, _ := strconv.ParseFloat(text, 64)
 			value = ir.LiteralF64(v)
 		} else if len(text) > 0 && text[len(text)-1] == 'h' {
+			// Rust naga's Number::requires_enable_extension (number.rs).
+			l.requireEnable(parser.EnableF16, parser.WordSpan(lit.Span.Start, lit.Value))
 			text = text[:len(text)-1]
 			v, _ := strconv.ParseFloat(text, 32)
 			value = ir.LiteralF16(roundToF16(float32(v)))
@@ -3190,7 +3203,20 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 
 	// Check if this is a short type alias constructor (e.g., vec3f(1.0, 2.0, 3.0))
 	if expanded, ok := shortTypeAliases[funcName]; ok {
+		l.requirePredeclaredType(funcName, call.Func.Span.Start)
 		return l.lowerShortAliasConstructor(expanded, call.Args, target)
+	}
+
+	// Rust naga checks debugPrintf's enable extension before its arguments.
+	// The call itself is not implemented here: past the gate it is an
+	// unknown function.
+	if _, declared := l.functions[funcName]; !declared {
+		switch {
+		case funcName == "debugPrintf":
+			l.requireEnable(parser.EnableWgpuDebugPrintf, parser.WordSpan(call.Func.Span.Start, funcName))
+		case subgroupFunctions[funcName]:
+			l.requireEnable(parser.EnableSubgroups, parser.WordSpan(call.Func.Span.Start, funcName))
+		}
 	}
 
 	// Check if this is the select() built-in (uses ExprSelect, not ExprMath)
@@ -3286,7 +3312,7 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 	typeHandle, typeExists := l.types[funcName]
 	if !typeExists {
 		// Try resolving as a named type (triggers lazy registration for f16, i64, etc.)
-		resolved, err := l.resolveNamedType(&parser.NamedType{Name: funcName})
+		resolved, err := l.resolveNamedType(&parser.NamedType{Name: funcName, Span: call.Func.Span})
 		if err == nil {
 			typeHandle = resolved
 			typeExists = true
@@ -3779,6 +3805,7 @@ func (l *Lowerer) lowerBitcast(bc *parser.BitcastExpr, target *[]ir.Statement) (
 func (l *Lowerer) resolveTargetScalarKind(t parser.Type) (ir.ScalarKind, error) {
 	switch ty := t.(type) {
 	case *parser.NamedType:
+		l.requirePredeclaredType(ty.Name, ty.Span.Start)
 		switch ty.Name {
 		case "f32", "f16", "f64":
 			return ir.ScalarFloat, nil
@@ -4440,12 +4467,13 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		if err != nil {
 			return 0, err
 		}
-		space, err := l.addressSpace(t.AddressSpace)
+		space, err := l.addressSpace(t.AddressSpace, t.AddressSpaceSpan)
 		if err != nil {
 			return 0, err
 		}
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
 	case *parser.BindingArrayType:
+		l.requirePredeclaredType("binding_array", t.Span.Start)
 		base, err := l.resolveType(t.Element)
 		if err != nil {
 			return 0, err
@@ -4465,6 +4493,14 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 }
 
 func (l *Lowerer) resolveNamedType(t *parser.NamedType) (ir.TypeHandle, error) {
+	// A predeclared type may need an enable extension; a module-scope
+	// declaration of the name needs none (Rust naga's resolve_named_ast_type
+	// looks the name up there before map_predeclared_type). A predeclared
+	// name found in l.types was checked when it was first registered.
+	if _, declared := l.types[t.Name]; !declared {
+		l.requirePredeclaredType(t.Name, t.Span.Start)
+	}
+
 	// Check for built-in vector types
 	if len(t.TypeParams) > 0 {
 		return l.resolveParameterizedType(t)
@@ -4609,6 +4645,15 @@ func (l *Lowerer) resolveParameterizedType(t *parser.NamedType) (ir.TypeHandle, 
 		}), nil
 	}
 
+	// acceleration_structure<vertex_return> and ray_query<vertex_return>
+	// are not implemented here; Rust naga's map_ray_flag (conv.rs) gates the
+	// flag on its own extension first.
+	if t.Name == "acceleration_structure" || t.Name == "ray_query" {
+		if flag, ok := t.TypeParams[0].(*parser.NamedType); ok && flag.Name == "vertex_return" {
+			l.requireEnable(parser.EnableWgpuRayQueryVertexReturn, parser.WordSpan(flag.Span.Start, flag.Name))
+		}
+	}
+
 	return 0, fmt.Errorf("unsupported parameterized type: %s", t.Name)
 }
 
@@ -4621,6 +4666,7 @@ func (l *Lowerer) resolveScalarFromName(typ parser.Type) (ir.ScalarType, error) 
 	if !ok || len(named.TypeParams) != 0 {
 		return ir.ScalarType{}, fmt.Errorf("expected scalar type name, got %T", typ)
 	}
+	l.requirePredeclaredType(named.Name, named.Span.Start)
 	switch named.Name {
 	case "f32":
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, nil
@@ -5169,6 +5215,8 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 						// Rust naga's Error::UnknownBuiltin; it used to
 						// become position silently.
 						l.addError(fmt.Sprintf("unknown builtin: `%s`", id.Name), attr.Span)
+					} else if ext := builtinEnable(builtin); ext != "" {
+						l.requireEnable(ext, parser.WordSpan(id.Span.Start, id.Name))
 					}
 					var b ir.Binding = ir.BuiltinBinding{Builtin: builtin}
 					builtinBinding = &b
@@ -5185,6 +5233,11 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 				}
 			}
 		case "blend_src":
+			// Rust naga's BindingParser: blend_src needs
+			// `enable dual_source_blending`.
+			if !l.requireEnable(parser.EnableDualSourceBlending, attr.NameSpan) {
+				continue
+			}
 			if len(attr.Args) > 0 {
 				if lit, ok := attr.Args[0].(*parser.Literal); ok {
 					idx, _ := strconv.ParseUint(lit.Value, 10, 32)
@@ -5207,7 +5260,7 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 		case "per_primitive":
 			// Rust naga's BindingParser: per_primitive needs
 			// `enable wgpu_mesh_shader`.
-			if !l.requireEnable("wgpu_mesh_shader", attr.Span) {
+			if !l.requireEnable(parser.EnableWgpuMeshShader, attr.NameSpan) {
 				continue
 			}
 			if locBinding == nil {
@@ -5241,13 +5294,139 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 }
 
 // requireEnable reports whether the shader enables ext; if not, it records
-// Rust naga's EnableExtensionNotEnabled at span.
+// Rust naga's EnableExtensionNotEnabled at span (EnableExtensions::require,
+// naga/src/front/wgsl/parse/directive/enable_extension.rs).
 func (l *Lowerer) requireEnable(ext string, span parser.Span) bool {
-	if l.enables[ext] {
+	return l.requireAnyEnable(span, ext)
+}
+
+// requireAnyEnable is requireEnable for a feature that any of exts enables;
+// the error names the first, as Rust's map_predeclared_type. Each extension
+// is reported once.
+func (l *Lowerer) requireAnyEnable(span parser.Span, exts ...string) bool {
+	for _, ext := range exts {
+		if l.enables[ext] {
+			return true
+		}
+	}
+	if !l.enableErrors[exts[0]] {
+		if l.enableErrors == nil {
+			l.enableErrors = make(map[string]bool, 1)
+		}
+		l.enableErrors[exts[0]] = true
+		l.addError(fmt.Sprintf("the `%s` enable extension is not enabled", exts[0]), span)
+	}
+	return false
+}
+
+// Enable extensions of the gated predeclared types (Rust naga's
+// map_predeclared_type extensions_needed, naga/src/front/wgsl/parse/conv.rs).
+var (
+	f16TypeEnables      = []string{parser.EnableF16}
+	int16TypeEnables    = []string{parser.EnableWgpuInt16}
+	rayQueryTypeEnables = []string{parser.EnableWgpuRayQuery, parser.EnableWgpuRayTracingPipeline}
+	coopMatTypeEnables  = []string{parser.EnableWgpuCooperativeMatrix}
+	bindingArrayEnables = []string{parser.EnableWgpuBindingArray}
+)
+
+// predeclaredTypeEnables returns the enable extensions, any of which a
+// predeclared type or type generator needs, or nil when it needs none.
+func predeclaredTypeEnables(name string) []string {
+	switch name {
+	case "f16", "vec2h", "vec3h", "vec4h",
+		"mat2x2h", "mat2x3h", "mat2x4h", "mat3x2h", "mat3x3h", "mat3x4h", "mat4x2h", "mat4x3h", "mat4x4h":
+		return f16TypeEnables
+	case "i16", "u16":
+		return int16TypeEnables
+	case "acceleration_structure", "ray_query", "RayDesc", "RayIntersection":
+		return rayQueryTypeEnables
+	case "coop_mat8x8", "coop_mat16x16":
+		return coopMatTypeEnables
+	case "binding_array":
+		return bindingArrayEnables
+	}
+	return nil
+}
+
+// requirePredeclaredType checks the enable extension of the predeclared type
+// name written at start. The caller has ruled out a module-scope declaration
+// of that name, which Rust's lowerer looks up first and which needs none.
+func (l *Lowerer) requirePredeclaredType(name string, start parser.Position) bool {
+	exts := predeclaredTypeEnables(name)
+	if exts == nil {
 		return true
 	}
-	l.addError(fmt.Sprintf("the `%s` enable extension is not enabled", ext), span)
-	return false
+	return l.requireAnyEnable(parser.WordSpan(start, name), exts...)
+}
+
+// builtinEnable returns the enable extension a built-in value needs, or ""
+// (Rust naga's map_built_in, naga/src/front/wgsl/parse/conv.rs).
+//
+// Beyond Rust: the subgroup built-in values need subgroups, as the WGSL spec
+// requires: subgroup_invocation_id and subgroup_size by the enable-extensions
+// table ("subgroup built-in values ... Otherwise, any use will result in a
+// shader-creation error"), subgroup_id and num_subgroups by the subgroup_id
+// language extension ("when the subgroups extension is enabled"). Rust
+// rejects `enable subgroups;` and gates none of them.
+func builtinEnable(b ir.BuiltinValue) string {
+	switch b {
+	case ir.BuiltinSubgroupInvocationID, ir.BuiltinSubgroupSize, ir.BuiltinSubgroupID, ir.BuiltinNumSubgroups:
+		return parser.EnableSubgroups
+	case ir.BuiltinClipDistances:
+		return parser.EnableClipDistances
+	case ir.BuiltinPrimitiveIndex:
+		return parser.EnablePrimitiveIndex
+	case ir.BuiltinDrawIndex:
+		return parser.EnableDrawIndex
+	case ir.BuiltinCullPrimitive, ir.BuiltinPointIndex, ir.BuiltinLineIndices, ir.BuiltinTriangleIndices,
+		ir.BuiltinVertexCount, ir.BuiltinVertices, ir.BuiltinPrimitiveCount, ir.BuiltinPrimitives:
+		return parser.EnableWgpuMeshShader
+	}
+	return ""
+}
+
+// subgroupFunctions are the WGSL spec's subgroup and quad built-in functions,
+// which need `enable subgroups;` (enable-extensions table: "subgroup
+// built-in functions, and quad built-in functions ... Otherwise, any use
+// will result in a shader-creation error"). Beyond Rust, which gates none of
+// them. subgroupBarrier is no spec function and stays ungated, as in Rust;
+// subgroupElect is not implemented here: past the gate it is an unknown
+// function.
+var subgroupFunctions = map[string]bool{
+	"subgroupAdd": true, "subgroupExclusiveAdd": true, "subgroupInclusiveAdd": true,
+	"subgroupAll": true, "subgroupAnd": true, "subgroupAny": true, "subgroupBallot": true,
+	"subgroupBroadcast": true, "subgroupBroadcastFirst": true, "subgroupElect": true,
+	"subgroupMax": true, "subgroupMin": true,
+	"subgroupMul": true, "subgroupExclusiveMul": true, "subgroupInclusiveMul": true,
+	"subgroupOr": true, "subgroupShuffle": true, "subgroupShuffleDown": true,
+	"subgroupShuffleUp": true, "subgroupShuffleXor": true, "subgroupXor": true,
+	"quadBroadcast": true, "quadSwapDiagonal": true, "quadSwapX": true, "quadSwapY": true,
+}
+
+// entryPointAttributeEnables maps the function attributes Rust naga gates to
+// their enable extension (the attribute loop of Parser::global_decl,
+// naga/src/front/wgsl/parse/mod.rs). Stages and attributes of the ray
+// tracing pipeline are not implemented here: past the gate they are
+// ignored as unknown attributes.
+var entryPointAttributeEnables = map[string]string{
+	"task":             parser.EnableWgpuMeshShader,
+	"mesh":             parser.EnableWgpuMeshShader,
+	"payload":          parser.EnableWgpuMeshShader,
+	"ray_generation":   parser.EnableWgpuRayTracingPipeline,
+	"any_hit":          parser.EnableWgpuRayTracingPipeline,
+	"closest_hit":      parser.EnableWgpuRayTracingPipeline,
+	"miss":             parser.EnableWgpuRayTracingPipeline,
+	"incoming_payload": parser.EnableWgpuRayTracingPipeline,
+}
+
+// requireFunctionAttributeEnables checks the enable extension of each gated
+// attribute of a function declaration.
+func (l *Lowerer) requireFunctionAttributeEnables(attrs []parser.Attribute) {
+	for i := range attrs {
+		if ext, gated := entryPointAttributeEnables[attrs[i].Name]; gated {
+			l.requireEnable(ext, attrs[i].NameSpan)
+		}
+	}
 }
 
 // parseInterpolateAttr parses @interpolate(kind[, sampling]) into Rust
@@ -5272,7 +5451,7 @@ func (l *Lowerer) parseInterpolateAttr(attr *parser.Attribute) (*ir.Interpolatio
 	case "perspective":
 		kind = ir.InterpolationPerspective
 	case "per_vertex":
-		if !l.requireEnable("wgpu_per_vertex", kindIdent.Span) {
+		if !l.requireEnable(parser.EnableWgpuPerVertex, parser.WordSpan(kindIdent.Span.Start, kindIdent.Name)) {
 			return nil, nil
 		}
 		kind = ir.InterpolationPerVertex
@@ -5680,13 +5859,23 @@ var addressSpaceTable = map[string]ir.AddressSpace{
 // word means handle (Rust's var_address_space): the type of such a global
 // must be a handle type, which validation checks. An unknown word is an
 // error with Rust's message; `push_constant`, the word immediate data had
-// before gpuweb renamed it, gets the new word in the message too.
-func (l *Lowerer) addressSpace(space string) (ir.AddressSpace, error) {
+// before gpuweb renamed it, gets the new word in the message too. The words
+// Rust gates need their enable extension, checked at span, the word.
+func (l *Lowerer) addressSpace(space string, span parser.Span) (ir.AddressSpace, error) {
 	if space == "" {
 		return ir.SpaceHandle, nil
 	}
 	if s, ok := addressSpaceTable[space]; ok {
+		if s == ir.SpaceTaskPayload {
+			l.requireEnable(parser.EnableWgpuMeshShader, span)
+		}
 		return s, nil
+	}
+	if space == "ray_payload" || space == "incoming_ray_payload" {
+		// Not implemented here: past the gate, an unknown address space.
+		if !l.requireEnable(parser.EnableWgpuRayTracingPipeline, span) {
+			return ir.SpaceHandle, nil
+		}
 	}
 	if space == "push_constant" {
 		return 0, fmt.Errorf("unknown address space: `%s`; it was renamed to `immediate`", space)

@@ -31,11 +31,13 @@ func uncheckedPolicies() backend.BoundsCheckPolicies {
 // SPIR-V backend, and Unchecked writes the index as it is.
 func TestBindingArrayRestrict(t *testing.T) {
 	const sized = `
+enable wgpu_binding_array;
 @group(0) @binding(0) var textures: binding_array<texture_2d<f32>, 8>;
 @fragment fn main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
     return textureLoad(textures[i], vec2<i32>(0), 0);
 }`
 	const unbounded = `
+enable wgpu_binding_array;
 @group(0) @binding(0) var textures: binding_array<texture_2d<f32>>;
 @fragment fn main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
     return textureLoad(textures[i], vec2<i32>(0), 0);

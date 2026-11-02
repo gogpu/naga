@@ -1247,6 +1247,7 @@ func TestCollectUsedGlobalVars_NoDuplicates(t *testing.T) {
 // Matches Rust naga behavior: decorate_non_uniform_binding_array_access.
 func TestNonUniformBindingArrayDecoration(t *testing.T) {
 	source := `
+enable wgpu_binding_array;
 @group(0) @binding(0) var textures: binding_array<texture_2d<f32>, 4>;
 
 struct FragIn {
@@ -1299,6 +1300,7 @@ fn main(fin: FragIn) -> @location(0) vec4<f32> {
 // decorations. Only non-uniform indices (fragment inputs) should trigger them.
 func TestNoNonUniformForUniformIndex(t *testing.T) {
 	source := `
+enable wgpu_binding_array;
 struct Uniforms {
     idx: u32,
 };

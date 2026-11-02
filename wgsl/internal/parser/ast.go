@@ -96,13 +96,14 @@ type Parameter struct {
 
 // VarDecl represents a variable declaration.
 type VarDecl struct {
-	Name         string
-	Type         Type
-	Init         Expr
-	AddressSpace string // function, private, workgroup, uniform, storage
-	AccessMode   string // read, write, read_write
-	Attributes   []Attribute
-	Span         Span
+	Name             string
+	Type             Type
+	Init             Expr
+	AddressSpace     string // function, private, workgroup, uniform, storage
+	AddressSpaceSpan Span
+	AccessMode       string // read, write, read_write
+	Attributes       []Attribute
+	Span             Span
 }
 
 func (v *VarDecl) Pos() Span { return v.Span }
@@ -160,7 +161,10 @@ func (c *ConstAssertDecl) stmtNode() {} // Also valid as a statement inside func
 type Attribute struct {
 	Name string
 	Args []Expr
-	Span Span
+	Span Span // from the `@`
+	// NameSpan is the attribute's name, where Rust naga labels an error
+	// about the attribute itself (an enable extension it needs).
+	NameSpan Span
 }
 
 // Type represents a type.
@@ -201,10 +205,11 @@ func (b *BindingArrayType) typeNode() {}
 
 // PtrType represents a pointer type.
 type PtrType struct {
-	AddressSpace string
-	PointeeType  Type
-	AccessMode   string
-	Span         Span
+	AddressSpace     string
+	AddressSpaceSpan Span
+	PointeeType      Type
+	AccessMode       string
+	Span             Span
 }
 
 func (p *PtrType) Pos() Span { return p.Span }

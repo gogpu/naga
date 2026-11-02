@@ -366,6 +366,33 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   error; the backends wrote code the driver rejects or that has no defined result. Sampling at an explicit level, at
   level zero or with gradients stays valid in every stage. No shader of the test corpus or of gg is affected
   (P1-IR-028).
+- **Breaking: `enable` directives are checked** (all released versions ignored every name but `swizzle_assignment`).
+  The WGSL spec makes each of these a shader-creation error; Rust naga checks them the same way, except where noted:
+  - An unknown name is "unknown enable-extension `x`". Known: `f16`, `clip_distances`, `dual_source_blending`,
+    `subgroups`, `subgroup_size_control`, `primitive_index`, `draw_index`, `swizzle_assignment`, `wgpu_mesh_shader`,
+    `wgpu_ray_query`, `wgpu_ray_query_vertex_return`, `wgpu_ray_tracing_pipeline`, `wgpu_cooperative_matrix`,
+    `wgpu_per_vertex`, `wgpu_binding_array`, `wgpu_int16`, `wgpu_debug_printf`.
+  - A feature used without its extension is "the `x` enable extension is not enabled", at the use:
+    - `f16`: the `f16` type, `vecNh`, `matCxRh`, `h` literals;
+    - `clip_distances`, `primitive_index`, `draw_index`: the built-in values of those names;
+    - `dual_source_blending`: `@blend_src`;
+    - `subgroups` (or `subgroup_size_control`, which enables it): the built-in values `subgroup_invocation_id`,
+      `subgroup_size`, `subgroup_id` and `num_subgroups`, the spec's 21 `subgroup*` functions and the 4 `quad*`
+      functions;
+    - `wgpu_binding_array`: `binding_array`;
+    - `wgpu_ray_query` or `wgpu_ray_tracing_pipeline`: `acceleration_structure`, `ray_query`, `RayDesc`,
+      `RayIntersection`; `wgpu_ray_query_vertex_return`: `vertex_return`;
+    - `wgpu_mesh_shader`: `@task`, `@mesh`, `@payload`, `@per_primitive`, `var<task_payload>` and the mesh output
+      built-ins; `wgpu_ray_tracing_pipeline`: the ray tracing stages and payload address spaces; `wgpu_per_vertex`:
+      `@interpolate(per_vertex)`; `wgpu_int16`: `i16`/`u16`; `wgpu_cooperative_matrix`: `coop_mat*`;
+      `wgpu_debug_printf`: `debugPrintf`.
+  - A directive after the first declaration is "expected global declaration, but found a global directive".
+  - Beyond Rust, by the spec: `enable subgroups;` is accepted (Rust rejects it as not yet supported) and required for
+    the subgroup built-ins listed above (Rust requires nothing); `subgroup_size_control` is accepted and enables
+    `subgroups`. `subgroupBarrier`, a wgpu function the spec does not define, needs no enable, as in Rust.
+
+  Add the `enable` line your shader is missing; every shader of gg and of the test corpora already validates, except
+  Rust's own `subgroup-operations` test input, which cannot carry `enable subgroups;` for Rust (P1-WGSL-098).
 - **Breaking: the validator checks the operand of a unary operator** (all released versions accepted any), as Rust
   naga: negation takes a float or signed integer, `!` a bool, `~` an integer, each a scalar or vector, as the WGSL
   spec has them. `-m` of a matrix, `-x` of a `u32` and `~f` of a float compiled to whatever each backend made of them

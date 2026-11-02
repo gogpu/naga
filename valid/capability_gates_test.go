@@ -73,25 +73,25 @@ var capabilityGateCases = []struct {
 }{
 	{
 		name: "subgroup ballot", rust: "function.rs:1596 Statement::SubgroupBallot",
-		src:  `@compute @workgroup_size(64) fn main() { _ = subgroupBallot(true); }`,
+		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main() { _ = subgroupBallot(true); }`,
 		with: valid.Options{Capabilities: valid.CapSubgroup},
 		want: "in function main, statement 0: Shader requires capability Capabilities(SUBGROUP)",
 	},
 	{
 		name: "subgroup collective operation", rust: "function.rs:1632 Statement::SubgroupCollectiveOperation",
-		src:  `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = subgroupAdd(i); }`,
+		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = subgroupAdd(i); }`,
 		with: valid.Options{Capabilities: valid.CapSubgroup},
 		want: "Shader requires capability Capabilities(SUBGROUP)",
 	},
 	{
 		name: "subgroup gather", rust: "function.rs:1654 Statement::SubgroupGather",
-		src:  `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = subgroupShuffle(i, 1u); }`,
+		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = subgroupShuffle(i, 1u); }`,
 		with: valid.Options{Capabilities: valid.CapSubgroup},
 		want: "Shader requires capability Capabilities(SUBGROUP)",
 	},
 	{
 		name: "subgroup built-in", rust: "interface.rs:262 required, BuiltIn::SubgroupSize",
-		src:  `@compute @workgroup_size(64) fn main(@builtin(subgroup_size) s: u32) {}`,
+		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main(@builtin(subgroup_size) s: u32) {}`,
 		with: valid.Options{Capabilities: valid.CapSubgroup},
 		want: `entry point "main": argument 0: Capability Capabilities(SUBGROUP) is not supported`,
 	},
@@ -104,7 +104,8 @@ var capabilityGateCases = []struct {
 	},
 	{
 		name: "subgroup operation in a vertex shader", rust: "mod.rs:617 subgroup_stages, interface.rs:1379 ForbiddenStageOperations",
-		src: `@vertex fn main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+		src: `enable subgroups;
+@vertex fn main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
     return vec4f(f32(subgroupAdd(i)));
 }`,
 		without: &valid.Options{Capabilities: valid.CapSubgroup},

@@ -126,8 +126,8 @@ func TestRestrictIndexingClampsBindingArrayIndices(t *testing.T) {
 	out[i] = textureLoad(textures[i], vec2<i32>(0), 0);
 }
 `
-	sized := "@group(0) @binding(0) var textures: binding_array<texture_2d<f32>, 8>;" + body
-	unbounded := "@group(0) @binding(0) var textures: binding_array<texture_2d<f32>>;" + body
+	sized := "enable wgpu_binding_array;\n@group(0) @binding(0) var textures: binding_array<texture_2d<f32>, 8>;" + body
+	unbounded := "enable wgpu_binding_array;\n@group(0) @binding(0) var textures: binding_array<texture_2d<f32>>;" + body
 
 	opts := DefaultOptions()
 	opts.BoundsCheckPolicies.Index = backend.BoundsCheckUnchecked

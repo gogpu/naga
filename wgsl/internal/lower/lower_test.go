@@ -1431,6 +1431,7 @@ fn main() {
 // Binding arrays of opaque resources (textures, samplers) should use Handle space.
 func TestBindingBufferArrayStorageSpace(t *testing.T) {
 	source := `
+enable wgpu_binding_array;
 struct Foo { x: u32 }
 @group(0) @binding(0) var<storage, read> buf_array: binding_array<Foo, 2>;
 @group(0) @binding(1) var tex_array: binding_array<texture_2d<f32>, 2>;
