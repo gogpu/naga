@@ -810,6 +810,9 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 		if !v.isValidExpressionHandle(kind.Reject) {
 			v.addErrorInExpression(handle, fmt.Sprintf("reject expression %d does not exist", kind.Reject))
 		}
+		if v.isValidExpressionHandle(kind.Condition) && v.isValidExpressionHandle(kind.Accept) && v.isValidExpressionHandle(kind.Reject) {
+			v.checkSelectTypes(handle, kind)
+		}
 
 	case ir.ExprDerivative:
 		if !v.isValidExpressionHandle(kind.Expr) {
@@ -1525,6 +1528,97 @@ func (v *validator) immediateCompatible(h ir.TypeHandle, depth int) bool {
 // 16-bit integer (Rust's check_width marks i16 and u16 only).
 func immediateScalar(s ir.ScalarType) bool {
 	return !((s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint) && s.Width == 2)
+}
+
+// checkSelectTypes checks a select as Rust's validate_expression for
+// Expression::Select: the accept and reject values have one type
+// (SelectValuesTypeMismatch, checked first), and the condition is a bool
+// with scalar or vector values or a bool vector of the values' size
+// (SelectConditionNotABool), the WGSL spec's select overloads.
+func (v *validator) checkSelectTypes(handle ir.ExpressionHandle, s ir.ExprSelect) {
+	accept, okA := v.expressionInner(s.Accept)
+	reject, okR := v.expressionInner(s.Reject)
+	condition, okC := v.expressionInner(s.Condition)
+	if !okA || !okR || !okC {
+		return
+	}
+	if !sameTypeInner(accept, reject) {
+		v.addErrorInExpression(handle, fmt.Sprintf(
+			"Expected selection argument types to match, but reject value of type %s does not match accept value of value %s",
+			typeInnerDebug(reject), typeInnerDebug(accept)))
+		return
+	}
+	good := false
+	switch c := condition.(type) {
+	case ir.ScalarType:
+		if c.Kind == ir.ScalarBool {
+			switch accept.(type) {
+			case ir.ScalarType, ir.VectorType:
+				good = true
+			}
+		}
+	case ir.VectorType:
+		if c.Scalar.Kind == ir.ScalarBool {
+			if av, ok := accept.(ir.VectorType); ok {
+				good = av.Size == c.Size
+			}
+		}
+	}
+	if !good {
+		v.addErrorInExpression(handle, "Expected selection condition to be a boolean value, got "+typeInnerDebug(condition))
+	}
+}
+
+// expressionInner is the type of expression h of the function being
+// validated, and whether it is known.
+func (v *validator) expressionInner(h ir.ExpressionHandle) (ir.TypeInner, bool) {
+	types := v.context.types
+	if types == nil || int(h) >= types.Len() {
+		return nil, false
+	}
+	res := types.Get(h)
+	if res.Handle != nil && !v.isValidTypeHandle(*res.Handle) {
+		return nil, false
+	}
+	return res.Inner(v.module.Types), true
+}
+
+// sameTypeInner reports whether a and b are one type, as Rust compares two
+// TypeInner values. Scalars, vectors and matrices compare by value; the
+// other kinds are module types, unique by handle in Rust's UniqueArena, and
+// compare as their struct, array or pointer contents here.
+func sameTypeInner(a, b ir.TypeInner) bool {
+	switch at := a.(type) {
+	case ir.ScalarType, ir.VectorType, ir.MatrixType, ir.AtomicType:
+		return a == b
+	case ir.ArrayType:
+		bt, ok := b.(ir.ArrayType)
+		return ok && at.Base == bt.Base && at.Stride == bt.Stride && sameArraySize(at.Size, bt.Size)
+	case ir.StructType:
+		bt, ok := b.(ir.StructType)
+		if !ok || at.Span != bt.Span || len(at.Members) != len(bt.Members) {
+			return false
+		}
+		for i := range at.Members {
+			if at.Members[i].Type != bt.Members[i].Type || at.Members[i].Offset != bt.Members[i].Offset {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// sameArraySize reports whether two array sizes are one: the same count,
+// the same override, or both runtime-sized.
+func sameArraySize(a, b ir.ArraySize) bool {
+	switch {
+	case a.Constant != nil || b.Constant != nil:
+		return a.Constant != nil && b.Constant != nil && *a.Constant == *b.Constant
+	case a.Pending != nil || b.Pending != nil:
+		return a.Pending != nil && b.Pending != nil && *a.Pending == *b.Pending
+	}
+	return true
 }
 
 // checkUnaryOperand checks the operand type of a unary operator, as Rust's

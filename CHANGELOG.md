@@ -398,6 +398,14 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   spec has them. `-m` of a matrix, `-x` of a `u32` and `~f` of a float compiled to whatever each backend made of them
   (SPIR-V failed late, GLSL wrote it); they are now "Operation Negate can't work with [3]" (Rust's text, with the
   operand's expression handle). No shader of the test corpus or of gg is affected (P1-WGSL-096).
+- **Breaking: `select()` takes a bool condition** (all released versions accepted any), as the WGSL spec's overloads
+  and Rust naga: a `bool` with scalar or vector values, or a `vecN<bool>` with `vecN` values, and both values of one
+  type. A float condition such as `select(a, b, step(e, x))` is "Expected selection condition to be a boolean value,
+  got Vector { size: Tri, scalar: Scalar { kind: Float, width: 4 } }" (Rust's text); write the comparison instead,
+  `select(a, b, x >= e)`, which selects the same values. The backends had disagreed on such a condition: SPIR-V
+  compared it with zero, HLSL wrote a ternary DXC rejects, GLSL a `mix()` that is not a select for other weights, and
+  DXIL invalid bitcode. The SPIR-V backend's conversion is removed. gg's `blend.wgsl` (`blend_soft_light`) uses this
+  shape; it needs the gg release that fixes it (P1-WGSL-095).
 - **Breaking: `var<immediate>` rules** (all released versions accepted any), as the WGSL immediate-data proposal and
   Rust naga have them: the store type holds no array, at any depth of its structs ("Global variable [0] 'im' is
   invalid: Type is not valid for use as a immediate data"), and an entry point uses at most one immediate variable,

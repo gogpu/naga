@@ -107,14 +107,13 @@ fn main(@location(0) @interpolate(flat) v: vec3<u32>) -> @location(0) vec4<f32> 
 }
 
 // ---------------------------------------------------------------------------
-// emitSelect — 38.5% coverage. Need to cover:
-// 1. Float scalar condition → bool conversion (OpFOrdNotEqual)
-// 2. Float vector condition → bool vector conversion
-// 3. Scalar bool condition with vector operands → splat
+// emitSelect: a vecN<bool> condition, and a scalar bool condition with
+// vector operands (splat). A non-bool condition is invalid IR (the validator
+// rejects it, P1-WGSL-095) and is written as it is, as in Rust naga.
 // ---------------------------------------------------------------------------
 
-// TestSelectVectorFloatCondition exercises emitSelect with vec4<f32> condition
-// (not bool), covering the vec<float> → vec<bool> conversion path.
+// TestSelectVectorFloatCondition exercises emitSelect with a vec4<bool>
+// condition computed from a float comparison.
 func TestSelectVectorFloatCondition(t *testing.T) {
 	source := `
 @fragment
@@ -122,7 +121,6 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let a = vec4<f32>(1.0, 0.0, 0.0, 1.0);
     let b = vec4<f32>(0.0, 1.0, 0.0, 1.0);
     let s = step(vec4<f32>(0.5, 0.5, 0.5, 0.5), vec4<f32>(uv.x, uv.y, uv.x, uv.y));
-    // s is vec4<f32>, used as condition → triggers vec<float> → vec<bool>
     let result = select(a, b, s > vec4<f32>(0.0));
     return result;
 }
