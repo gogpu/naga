@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MSL: the Restrict bounds-check policy left a top-level runtime-sized array unchecked** (P0-MSL-100). An index
+  into `var<storage> a: array<T>` (directly, through `let p = &a`, or a constant index) was written as is, so an
+  out-of-bounds write landed in the next binding on Metal; only a runtime-sized array that is the last member of a
+  struct was clamped. Every index into a runtime-sized array is now clamped to the WGSL spec's last element,
+  NRuntime - 1 with NRuntime = truncate((EBBS - offset) / stride):
+  `a[metal::min(unsigned(i), (_buffer_sizes.size0 - 0 - 4) / 4)]`. Found by gogpu/wgpu's
+  `TestStorageBufferOutOfBoundsContained` on CI's Metal device. Where an element's size is below its stride
+  (`array<vec3<f32>>`), Rust naga subtracts the size and admits one index past NRuntime when the binding ends in a
+  partial stride; we keep the spec's bound. ReadZeroSkipWrite, which used Rust's form, now checks against the same
+  NRuntime.
+- **MSL: a bounds-checked runtime-sized array inside a storage-buffer `binding_array` is now a compile error** instead
+  of a wrong check: the backend passes no per-element buffer sizes yet (ReadZeroSkipWrite returned zero for every
+  element but the first; Restrict did not clamp). Tracked as P1-MSL-101.
+
 ## [0.21.1] - 2026-11-02
 
 A patch for silent DXIL miscompiles that IDxcValidator accepts, found while gogpu/wgpu tested this release on the GPU,

@@ -38,9 +38,23 @@ func spirvBinary(module *ir.Module, opts spirv.Options) ([]byte, error) {
 	return binary, err
 }
 
+// uncheckedMSLOptions are msl.DefaultOptions with no bounds checks, so the
+// tests below see each override's value as a bare store (`o[0] = 1u;`): the
+// default Restrict clamps even a constant index into a runtime-sized array.
+func uncheckedMSLOptions() msl.Options {
+	opts := msl.DefaultOptions()
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
+		Index:        backend.BoundsCheckUnchecked,
+		Buffer:       backend.BoundsCheckUnchecked,
+		ImageLoad:    backend.BoundsCheckUnchecked,
+		BindingArray: backend.BoundsCheckUnchecked,
+	}
+	return opts
+}
+
 func mslOf(t *testing.T, m *ir.Module) string {
 	t.Helper()
-	code, _, err := msl.Compile(m, msl.DefaultOptions())
+	code, _, err := msl.Compile(m, uncheckedMSLOptions())
 	if err != nil {
 		t.Fatalf("msl: %v", err)
 	}
@@ -111,7 +125,7 @@ func TestProcessOverridesConcurrent(t *testing.T) {
 				errs[i] = err
 				return
 			}
-			code, _, err := msl.Compile(out, msl.DefaultOptions())
+			code, _, err := msl.Compile(out, uncheckedMSLOptions())
 			if err != nil {
 				errs[i] = err
 				return

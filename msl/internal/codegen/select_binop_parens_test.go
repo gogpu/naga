@@ -80,7 +80,13 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		name string
 		p    backend.BoundsCheckPolicies
 	}{
-		{"Unchecked", backend.BoundsCheckPolicies{}},
+		// The zero BoundsCheckPolicies is Restrict, so Unchecked is spelled out.
+		{"Unchecked", backend.BoundsCheckPolicies{
+			Index:        backend.BoundsCheckUnchecked,
+			Buffer:       backend.BoundsCheckUnchecked,
+			ImageLoad:    backend.BoundsCheckUnchecked,
+			BindingArray: backend.BoundsCheckUnchecked,
+		}},
 		{"ReadZeroSkipWrite", DefaultBoundsCheckPolicies()},
 	}
 

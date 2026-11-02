@@ -1194,7 +1194,11 @@ func (w *Writer) writeStore(store ir.StmtStore) error {
 	// Check RZSW policy first — stores skip if out of bounds.
 	policy := w.chooseBoundsCheckPolicy(store.Pointer)
 	if policy == backend.BoundsCheckReadZeroSkipWrite {
-		if check, ok := w.buildRZSWBoundsCheck(store.Pointer); ok {
+		check, ok, err := w.buildRZSWBoundsCheck(store.Pointer)
+		if err != nil {
+			return err
+		}
+		if ok {
 			w.WriteIndent()
 			w.write("if (%s) {\n", check)
 			w.Indent++
