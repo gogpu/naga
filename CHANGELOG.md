@@ -398,6 +398,14 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
   spec has them. `-m` of a matrix, `-x` of a `u32` and `~f` of a float compiled to whatever each backend made of them
   (SPIR-V failed late, GLSL wrote it); they are now "Operation Negate can't work with [3]" (Rust's text, with the
   operand's expression handle). No shader of the test corpus or of gg is affected (P1-WGSL-096).
+- **Breaking: the validator checks the operands of binary operators** (all released versions accepted any), as
+  Rust naga: `+ - * / %` and comparisons take concrete numbers of one type (with WGSL's scalar–vector and
+  matrix–vector shapes for `*`), `& | ^` integers (and `& |` bools), `&& ||` bools, shifts an integer shifted by a
+  `u32` of its size. `f & f` on floats, `mat2x2f() * mat3x3f()`, `u32 + i32` and `vec2<bool> < vec2<bool>` compiled to
+  whatever each backend made of them; they are now "Operation And can't work with [2] (of type Vector { size: Tri,
+  scalar: Scalar { kind: Float, width: 4 } }) and [2] (of type …)" (Rust's text). Rust's checks of a constant zero
+  divisor and a constant shift amount past the bit width are not ported: they also reject a valid `let z = 0u; x / z`
+  (a `let` is run time in WGSL); the WGSL frontend will check const-expressions instead (P1-IR-029).
 - **Breaking: `select()` takes a bool condition** (all released versions accepted any), as the WGSL spec's overloads
   and Rust naga: a `bool` with scalar or vector values, or a `vecN<bool>` with `vecN` values, and both values of one
   type. A float condition such as `select(a, b, step(e, x))` is "Expected selection condition to be a boolean value,
