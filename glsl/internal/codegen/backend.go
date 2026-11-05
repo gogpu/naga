@@ -323,6 +323,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if w.float16 {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", errNoFloat16)
 	}
+	if w.int64 {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", errNoInt64)
+	}
 
 	// Build TextureMappings from combined sampler pairs (matches Rust naga
 	// ReflectionInfo.texture_mapping built from info.sampling_set in writer.rs:4421-4502).

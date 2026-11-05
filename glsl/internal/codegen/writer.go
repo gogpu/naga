@@ -89,6 +89,9 @@ type Writer struct {
 	// float16 is set when the writer names an f16 type, which GLSL doesn't
 	// have: Compile then fails with errNoFloat16.
 	float16 bool
+	// int64 is set when the writer names a 64-bit integer type: Compile
+	// then fails with errNoInt64.
+	int64 bool
 	// clampFragDepth is set when the entry point clamps the frag_depth it
 	// returns (Options.ClampFragDepth), and rangeImmediates is the immediate
 	// global whose uniform then holds the range, nil for one of its own.
@@ -919,6 +922,26 @@ func (w *Writer) writeConstants() error {
 // type, so they cannot be written.
 var errNoFloat16 = errors.New("GLSL has no 16-bit float type")
 
+// errNoInt64 is the error for a 64-bit integer type or literal, as Rust
+// naga's GLSL writer refuses them (glsl_scalar: UnsupportedScalar; literals:
+// this text): int64_t needs an extension the writer doesn't enable, and
+// GLSL ES has none.
+var errNoInt64 = errors.New("GLSL has no 64-bit integer type")
+
+// isInt64 reports whether inner is a 64-bit integer scalar or a vector of
+// them, or an atomic of one.
+func isInt64(inner ir.TypeInner) bool {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return t.Width == 8 && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint)
+	case ir.VectorType:
+		return isInt64(t.Scalar)
+	case ir.AtomicType:
+		return isInt64(t.Scalar)
+	}
+	return false
+}
+
 // isFloat16 reports whether inner is an f16 scalar, or a vector or matrix
 // of them.
 func isFloat16(inner ir.TypeInner) bool {
@@ -1007,12 +1030,10 @@ func (w *Writer) formatLiteral(lit ir.Literal) (string, error) {
 		return formatFloat(float32(v)), nil
 	case ir.LiteralF64:
 		return formatFloat64(float64(v)), nil // formatFloat64 already adds LF suffix
-	case ir.LiteralI64:
-		return fmt.Sprintf("%dl", int64(v)), nil
-	case ir.LiteralU64:
-		return fmt.Sprintf("%dul", uint64(v)), nil
+	case ir.LiteralI64, ir.LiteralU64:
+		return "", errNoInt64
 	default:
-		return "0", nil
+		return "", fmt.Errorf("literal %T is not supported", v)
 	}
 }
 

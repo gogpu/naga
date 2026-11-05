@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of an i32 constant was written `vec3(7)` and an f64 splat `vec3(1.0LF)`. The vector type now comes from the
   splatted value's type, as in MSL above. An expression that cannot be a constant and a handle out of range are errors
   instead of the literal `0`.
+- **GLSL: 64-bit integers produced GLSL that does not compile.** `i64`/`u64` types were written as
+  `int64_t`/`uint64_t` and their literals as `5000000000L`, without the extension that declares them; glslang rejects
+  the output at the first `int64_t`, yet Compile reported success. GLSL now refuses 64-bit integer types and literals
+  with "GLSL has no 64-bit integer type", as Rust naga does.
 
 ## [0.21.2] - 2026-11-03
 

@@ -187,10 +187,8 @@ func (w *Writer) writeLiteral(lit ir.Literal) (string, error) {
 		return fmt.Sprintf("%d", int32(v)), nil
 	case ir.LiteralU32:
 		return fmt.Sprintf("%du", uint32(v)), nil
-	case ir.LiteralI64:
-		return fmt.Sprintf("%dL", int64(v)), nil
-	case ir.LiteralU64:
-		return fmt.Sprintf("%duL", uint64(v)), nil
+	case ir.LiteralI64, ir.LiteralU64:
+		return "", errNoInt64
 	case ir.LiteralF16:
 		return "", errNoFloat16
 	case ir.LiteralF32:
@@ -599,12 +597,11 @@ func (w *Writer) writeLocalVariable(l ir.ExprLocalVariable) (string, error) {
 }
 
 // atomicLoadZero is the zero operand of the atomicOr that loads an atomic of
-// the key's scalar type, with Rust naga's suffixes; any other atomic takes a
-// bare "0".
+// the key's scalar type; any other atomic takes a bare "0". Rust naga also
+// has 64-bit suffixes here, but the writer refuses 64-bit integers
+// (errNoInt64) before any could reach it.
 var atomicLoadZero = map[ir.ScalarType]string{
 	{Kind: ir.ScalarUint, Width: 4}: "0u",
-	{Kind: ir.ScalarUint, Width: 8}: "0ul",
-	{Kind: ir.ScalarSint, Width: 8}: "0l",
 }
 
 // writeLoad writes a load expression (dereference).

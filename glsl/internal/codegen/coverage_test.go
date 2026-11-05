@@ -7,6 +7,7 @@ package codegen
 // Each test exercises specific uncovered code paths identified by coverage analysis.
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -1261,8 +1262,8 @@ func TestCoverage_WriteLiteral(t *testing.T) {
 		{"i32", ir.Literal{Value: ir.LiteralI32(-42)}, "-42", false},
 		{"u32", ir.Literal{Value: ir.LiteralU32(100)}, "100u", false},
 		{"f32", ir.Literal{Value: ir.LiteralF32(3.14)}, "", false}, // just check no error
-		{"i64", ir.Literal{Value: ir.LiteralI64(-100)}, "-100L", false},
-		{"u64", ir.Literal{Value: ir.LiteralU64(200)}, "200uL", false},
+		{"i64", ir.Literal{Value: ir.LiteralI64(-100)}, "", true},  // errNoInt64, as Rust
+		{"u64", ir.Literal{Value: ir.LiteralU64(200)}, "", true},
 		{"f64", ir.Literal{Value: ir.LiteralF64(2.718)}, "", false},
 		{"abstract_int", ir.Literal{Value: ir.LiteralAbstractInt(999)}, "999", false},
 		{"abstract_float", ir.Literal{Value: ir.LiteralAbstractFloat(1.5)}, "", false},
@@ -1578,10 +1579,11 @@ fn fs_main(@location(0) x: f32) -> @location(0) vec4<f32> {
 // writeConstants — a u64 constant keeps all 64 bits
 // =============================================================================
 
-// TestCoverage_U64ConstantFullWidth: a u64 constant is written from its
-// literal init. The constant's former scalar value wrote it through its low
-// 32 bits with a u32 suffix (5000000000 became 705032704u), silently
-// changing the value.
+// TestCoverage_U64ConstantFullWidth: a u64 constant never reaches the output
+// with a changed value. The constant's former scalar value wrote it through
+// its low 32 bits with a u32 suffix (5000000000 became 705032704u); then it
+// was written in full as uint64_t without the extension that declares the
+// type. GLSL refuses 64-bit integers now, as Rust naga does (errNoInt64).
 func TestCoverage_U64ConstantFullWidth(t *testing.T) {
 	source := `
 const BIG: u64 = 5000000000lu;
@@ -1593,8 +1595,13 @@ fn main() {
     out = BIG;
 }
 `
-	output := wgslToGLSL(t, source, Options{LangVersion: Version430})
-	glslMustContain(t, output, "const uint64_t BIG = 5000000000ul;")
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+	if err != nil {
+		t.Fatalf("WGSL lower error: %v", err)
+	}
+	if output, _, err := Compile(module, Options{LangVersion: Version430}); !errors.Is(err, errNoInt64) {
+		t.Errorf("err = %v, want errNoInt64; output:\n%s", err, output)
+	}
 }
 
 // =============================================================================
@@ -1639,8 +1646,6 @@ func TestCoverage_FormatLiteralTypes(t *testing.T) {
 		{"i32_pos", ir.Literal{Value: ir.LiteralI32(42)}, "42"},
 		{"i32_neg", ir.Literal{Value: ir.LiteralI32(-42)}, "-42"},
 		{"u32", ir.Literal{Value: ir.LiteralU32(100)}, "100u"},
-		{"i64", ir.Literal{Value: ir.LiteralI64(1000)}, "1000l"},
-		{"u64", ir.Literal{Value: ir.LiteralU64(2000)}, "2000ul"},
 	}
 
 	for _, tt := range tests {

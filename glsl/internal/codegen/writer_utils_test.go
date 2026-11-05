@@ -433,7 +433,7 @@ func TestFormatLiteral_AllTypes(t *testing.T) {
 		{"f32_decimal", ir.Literal{Value: ir.LiteralF32(3.14)}, "3.14"},
 		{"f32_zero", ir.Literal{Value: ir.LiteralF32(0.0)}, "0.0"},
 		{"f64", ir.Literal{Value: ir.LiteralF64(2.718)}, "LF"},
-		{"i64", ir.Literal{Value: ir.LiteralI64(999)}, "999"},
+		// 64-bit integers are refused (errNoInt64): TestRefuseInt64Literal.
 	}
 
 	for _, tt := range tests {
@@ -544,10 +544,9 @@ func TestWriteConstExpr_ScalarLiterals(t *testing.T) {
 		{"int_negative", ir.LiteralI32(-7), "-7"},
 		{"uint", ir.LiteralU32(100), "100u"},
 		{"float", ir.LiteralF32(1.5), "1.5"},
-		// 64-bit values keep all their bits; a constant's former scalar
-		// value wrote u64 and i64 through their low 32 bits.
-		{"int64", ir.LiteralI64(-5000000000), "-5000000000l"},
-		{"uint64", ir.LiteralU64(5000000000), "5000000000ul"},
+		// 64-bit values are refused (errNoInt64), never written through
+		// their low 32 bits as a constant's former scalar value did:
+		// TestRefuseInt64 and TestCoverage_U64ConstantFullWidth.
 	}
 
 	for _, tt := range tests {
