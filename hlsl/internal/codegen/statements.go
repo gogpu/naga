@@ -222,6 +222,30 @@ func (w *Writer) countStmtRefs(block ir.Block, count func(ir.ExpressionHandle)) 
 			count(s.Pointer)
 		case ir.StmtRayQuery:
 			count(s.Query)
+		case ir.StmtSubgroupBallot:
+			if s.Predicate != nil {
+				count(*s.Predicate)
+			}
+		case ir.StmtSubgroupCollectiveOperation:
+			count(s.Argument)
+		case ir.StmtSubgroupGather:
+			// The argument and the lane operand are uses like any other
+			// (Rust's analyzer counts them); a Load used only here is baked.
+			count(s.Argument)
+			switch m := s.Mode.(type) {
+			case ir.GatherBroadcast:
+				count(m.Index)
+			case ir.GatherShuffle:
+				count(m.Index)
+			case ir.GatherShuffleDown:
+				count(m.Delta)
+			case ir.GatherShuffleUp:
+				count(m.Delta)
+			case ir.GatherShuffleXor:
+				count(m.Mask)
+			case ir.GatherQuadBroadcast:
+				count(m.Index)
+			}
 		case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 			// no expression refs
 		case ir.StmtBreak, ir.StmtContinue, ir.StmtKill:
