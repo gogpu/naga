@@ -213,6 +213,17 @@ type Options struct {
 	// force_loop_bounding defaults to true, and wgpu-hal passes true.
 	SkipLoopBounding bool
 
+	// SkipIntDivChecks writes integer division and remainder as the plain
+	// `/` and `%` operators. By default every `/` and `%` on an integer calls
+	// a naga_div or naga_mod helper that replaces a zero divisor (and, for
+	// signed types, the INT_MIN / -1 overflow) with 1, which is what WGSL
+	// requires: x / 0 is x, x % 0 is 0, INT_MIN / -1 is INT_MIN. The plain
+	// operators are unspecified in those cases in MSL, so set this only for
+	// shaders whose divisors are never zero or -1. Rust naga's
+	// emit_int_div_checks defaults to true, and wgpu-hal passes the shader
+	// runtime checks' int_div_checks, on by default.
+	SkipIntDivChecks bool
+
 	// FakeMissingBindings writes a placeholder attribute, [[user(fake0)]],
 	// for a resource a non-nil PerEntryPointMap gives no slot, instead of
 	// failing. Rust naga's fake_missing_bindings defaults to true; wgpu-hal
@@ -416,6 +427,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		BoundsCheckPolicies:           o.BoundsCheckPolicies,
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ForceLoopBounding:             !o.SkipLoopBounding,
+		SkipIntDivChecks:              o.SkipIntDivChecks,
 		FakeMissingBindings:           o.FakeMissingBindings,
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
 		VertexPullingTransform:        vertexPulling,

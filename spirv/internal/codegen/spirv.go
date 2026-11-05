@@ -53,6 +53,12 @@ type Options struct {
 	// (default true). The counter uses a vec2<u32> to simulate 64-bit range.
 	ForceLoopBounding bool
 
+	// SkipIntDivChecks writes integer division and remainder as raw OpSDiv,
+	// OpUDiv and OpUMod instead of calling the guard helpers (Rust naga's
+	// emit_int_div_checks = false). Negative polarity so that a zero Options
+	// keeps the guards. Signed remainder keeps its helper either way.
+	SkipIntDivChecks bool
+
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled; see spirv.Options.BoundsCheckPolicies.
 	BoundsCheckPolicies backend.BoundsCheckPolicies
