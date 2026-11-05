@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its zero value, stored after it, as DXC does. v0.21.1 (P0-DXIL-084) covered arrays of scalars and vectors with an
   initializer only. Still a compile error, not a silent result: a member of an array element of structs used directly
   (`ss[i].b`), arrays of structs with vector members, arrays of matrices and a local matrix read by column (P1-DXIL-065).
+- **DXIL: a helper called in a loop kept its struct, array and matrix locals from the previous call** (P0-DXIL-091).
+  `var arr = array(5u, 6u); arr[1] += x; return arr[1];` returned 6, 7, 9 instead of 6, 7, 8. Every call now starts
+  such a local afresh, as WGSL requires; a local the helper never writes keeps its initializer.
 
 ## [0.21.2] - 2026-11-03
 
