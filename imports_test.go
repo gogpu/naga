@@ -1,7 +1,11 @@
 package naga_test
 
 import (
+	"fmt"
+	"go/ast"
 	"go/build"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,7 +19,15 @@ const modulePath = "github.com/gogpu/naga"
 // TestPackageLayering pins the layering of Rust naga (lib.rs): the IR is
 // data that depends on nothing else of naga; the validator (valid) builds on
 // the IR and the typifier only; and a backend types the module it writes but
-// never validates it, so no backend reaches valid.
+// never validates it.
+//
+// A backend does import valid, as Rust's back/* do (back/spv/mod.rs uses
+// valid::Capabilities): its SupportedCapabilities returns a
+// valid.Capabilities and its Compile refuses a module that needs one outside
+// that set with valid.MissingCapabilities (P2-API-005). What it may use of
+// valid is exactly that, the capability types and MissingCapabilities; the
+// validating entry points (Validate and its results) stay with the caller,
+// which validates before it compiles. backendValidUses checks the use.
 func TestPackageLayering(t *testing.T) {
 	imports := moduleImports(t)
 	if _, ok := imports[modulePath+"/valid"]; !ok {
@@ -43,10 +55,66 @@ func TestPackageLayering(t *testing.T) {
 		if !backend {
 			continue
 		}
-		if slices.Contains(transitive(imports, pkg), modulePath+"/valid") {
-			t.Errorf("%s reaches valid; a backend's Compile types the module, never validates it", pkg)
+	}
+
+	for _, use := range backendValidUses(t) {
+		t.Errorf("%s; a backend uses only valid's capability types and MissingCapabilities, never validates", use)
+	}
+}
+
+// validUseAllowed is what a backend package may name of valid: the
+// Capabilities type, its Cap* constants and MissingCapabilities.
+func validUseAllowed(name string) bool {
+	return name == "Capabilities" || name == "MissingCapabilities" || strings.HasPrefix(name, "Cap")
+}
+
+// backendValidUses returns every place a backend package (non-test file)
+// names something of valid beyond validUseAllowed, as "file:line: valid.X".
+func backendValidUses(t *testing.T) []string {
+	t.Helper()
+	var uses []string
+	for _, b := range []string{"spirv", "msl", "glsl", "hlsl", "dxil", "internal/unsupported"} {
+		err := filepath.WalkDir(b, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			local := ""
+			for _, imp := range file.Imports {
+				if imp.Path.Value == `"`+modulePath+`/valid"` {
+					local = "valid"
+					if imp.Name != nil {
+						local = imp.Name.Name
+					}
+				}
+			}
+			if local == "" {
+				return nil
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == local && !validUseAllowed(sel.Sel.Name) {
+					uses = append(uses, fmt.Sprintf("%s: %s.%s", fset.Position(sel.Pos()), local, sel.Sel.Name))
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
+	return uses
 }
 
 // moduleImports returns the naga packages each package of the module

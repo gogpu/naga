@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the N of the `out float gl_ClipDistance[N];` re-declaration a vertex entry point writes for
   `@builtin(clip_distances)`, and 0 for every other entry point. A GLES runtime needs it to `glEnable`
   `GL_CLIP_DISTANCE0` to `GL_CLIP_DISTANCE(N-1)`; the GLSL text does not say how many.
+- **Backends declare the capabilities they support, and refuse the rest** (P2-API-005). `spirv`, `msl`, `hlsl`,
+  `glsl` and `dxil` each get `SupportedCapabilities() valid.Capabilities` (Rust's `supported_capabilities`, plus
+  `CLIP_DISTANCES` for HLSL which Rust leaves out; the DXIL list is ours), and `Compile` returns an error that wraps
+  `backend.ErrUnsupported` and names the capability (`Capabilities(SHADER_FLOAT32_ATOMIC)`) for a module that needs one
+  outside the list. GLSL and HLSL used to write `atomic<f32>` code no compiler accepts. New in `valid`:
+  `MissingCapabilities(module, supported)`, a light walk (about 1% of a SPIR-V compile) and `Capabilities.String`.
+  Also refused now, as Rust's lists say: early depth test in HLSL, MSL and DXIL (it was ignored), and binding arrays in
+  GLSL. wgpu offers none of these on those backends.
 - **SPIR-V and MSL: `Options.SkipIntDivChecks`** (P2-API-003), Rust naga's `emit_int_div_checks = false`. It writes
   integer `/` and `%` as raw `OpSDiv`/`OpUDiv`/`OpUMod` (SPIR-V) or the plain operators (MSL) instead of calling the
   guard helpers that make a zero divisor and `INT_MIN / -1` defined, as the WGSL spec requires. The zero value keeps

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl/internal/codegen"
 )
@@ -363,6 +364,9 @@ func DefaultOptions() Options {
 // Compile generates MSL source code from an IR module.
 // Returns the MSL source as a string and translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
+	if err := unsupported.Capabilities("msl", module, SupportedCapabilities()); err != nil {
+		return "", TranslationInfo{}, err
+	}
 	// The writer names identifiers over the whole module and writes the
 	// selected entry point only (Rust naga's PipelineOptions.entry_point).
 	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
