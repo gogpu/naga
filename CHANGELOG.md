@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
+  `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
+  failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are
+  as arguments, one `dx.op` call per component (`num_workgroups` from its constant buffer).
 - **DXIL: a module with 16-bit types kept the min-precision data layout** (P2-DXIL-098). Every module was written
   with the legacy layout that stores 8- and 16-bit values in 32 bits, and the UseNativeLowPrecision flag was set
   only on an entry point that used a 16-bit value. A module with 16-bit types is now written as DXC writes it with
