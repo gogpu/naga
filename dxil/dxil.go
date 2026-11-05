@@ -890,7 +890,7 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 		}
 		// Override RWMask (AlwaysReadsMask) with actual usage from IR analysis.
 		if i < len(flatArgMapping) {
-			elem.RWMask = resolveInputRWMask(usedMasks, flatArgMapping[i], elem.Mask)
+			elem.RWMask = resolveInputRWMask(usedMasks, flatArgMapping[i], elem.Mask, pe.StartCol)
 		}
 		inputs = append(inputs, elem)
 	}
@@ -1048,8 +1048,11 @@ func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument, isVSInput
 
 // resolveInputRWMask looks up the AlwaysReadsMask for one input element.
 // The 0xFF sentinel from the usage analysis means "all declared components".
-// A missing key means the input is not read by the shader body at all.
-func resolveInputRWMask(usedMasks map[inputUsageKey]uint8, key inputUsageKey, declaredMask uint8) uint8 {
+// A missing key means the input is not read by the shader body at all. The
+// usage mask counts the element's own components; ISG1 names register lanes,
+// so it is shifted to the element's start column, as
+// DxilProgramSignatureWriter does (DxilContainerAssembler.cpp:311-317).
+func resolveInputRWMask(usedMasks map[inputUsageKey]uint8, key inputUsageKey, declaredMask, startCol uint8) uint8 {
 	usageMask, found := usedMasks[key]
 	if !found {
 		return 0
@@ -1057,7 +1060,7 @@ func resolveInputRWMask(usedMasks map[inputUsageKey]uint8, key inputUsageKey, de
 	if usageMask == 0xFF {
 		return declaredMask
 	}
-	return usageMask & declaredMask
+	return (usageMask << startCol) & declaredMask
 }
 
 // packBindingsForSignature builds the SigElementInfo list from a flat
@@ -1224,9 +1227,9 @@ func isSystemManagedSV(sv container.SystemValueKind) bool {
 func sigCompTypeAndMask(irMod *ir.Module, inner ir.TypeInner) (container.ProgSigCompType, uint8) {
 	switch t := inner.(type) {
 	case ir.ScalarType:
-		return sigCompTypeForScalarKind(t.Kind), 0x01
+		return sigCompType(t), 0x01
 	case ir.VectorType:
-		ct := sigCompTypeForScalarKind(t.Scalar.Kind)
+		ct := sigCompType(t.Scalar)
 		mask := uint8((1 << t.Size) - 1)
 		return ct, mask
 	case ir.ArrayType:
@@ -1256,20 +1259,46 @@ func sigCompTypeAndMask(irMod *ir.Module, inner ir.TypeInner) (container.ProgSig
 			}
 		}
 		mask := uint8((1 << n) - 1)
-		return sigCompTypeForScalarKind(baseScalar.Kind), mask
+		return sigCompType(baseScalar), mask
 	default:
 		return container.CompTypeFloat32, 0x0F
 	}
 }
 
-// sigCompTypeForScalarKind maps an IR scalar kind to a DXIL signature component type.
-func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
-	switch kind {
+// sigCompType maps an IR scalar to its DXIL signature component type.
+// psvCompType is sigCompType as PSV0's one-byte ComponentType.
+func psvCompType(s ir.ScalarType) uint8 {
+	return uint8(sigCompType(s)) //nolint:gosec // DxilProgramSigCompType values are 0..9
+}
+
+// The same values are PSV0's ComponentType. A 16-bit scalar is a native
+// 16-bit element (DXC CompTypeToSigCompType, DxilContainerAssembler.cpp:
+// 138-170, with -enable-16bit-types), a bool a 32-bit unsigned one.
+func sigCompType(s ir.ScalarType) container.ProgSigCompType {
+	switch s.Kind {
 	case ir.ScalarFloat:
+		switch s.Width {
+		case 2:
+			return container.CompTypeFloat16
+		case 8:
+			return container.CompTypeFloat64
+		}
 		return container.CompTypeFloat32
 	case ir.ScalarSint:
+		switch s.Width {
+		case 2:
+			return container.CompTypeSint16
+		case 8:
+			return container.CompTypeSint64
+		}
 		return container.CompTypeSint32
 	case ir.ScalarUint:
+		switch s.Width {
+		case 2:
+			return container.CompTypeUint16
+		case 8:
+			return container.CompTypeUint64
+		}
 		return container.CompTypeUint32
 	case ir.ScalarBool:
 		return container.CompTypeUint32 // bool stored as u32 in signatures
@@ -1821,10 +1850,10 @@ func makePSVSignatureElement(irMod *ir.Module, typeHandle ir.TypeHandle, sem psv
 		switch ti := irMod.Types[typeHandle].Inner.(type) {
 		case ir.VectorType:
 			cols = uint8(ti.Size)
-			compType = psvComponentType(ti.Scalar.Kind)
+			compType = psvCompType(ti.Scalar)
 		case ir.ScalarType:
 			cols = 1
-			compType = psvComponentType(ti.Kind)
+			compType = psvCompType(ti)
 		case ir.ArrayType:
 			// Scalar-array signature elements (SV_ClipDistance,
 			// SV_CullDistance) — element kind from base scalar, channel
@@ -1837,7 +1866,7 @@ func makePSVSignatureElement(irMod *ir.Module, typeHandle ir.TypeHandle, sem psv
 			// module' when only one side knew about array elements.
 			if int(ti.Base) < len(irMod.Types) {
 				if baseScalar, ok := scalarOfPSVType(irMod.Types[ti.Base].Inner); ok {
-					compType = psvComponentType(baseScalar.Kind)
+					compType = psvCompType(baseScalar)
 					n := uint8(1)
 					if ti.Size.Constant != nil {
 						c := *ti.Size.Constant
@@ -1920,21 +1949,6 @@ func scalarOfPSVType(inner ir.TypeInner) (ir.ScalarType, bool) {
 	return ir.ScalarType{}, false
 }
 
-// psvComponentType maps a naga ScalarKind to the PSV ComponentType enum
-// value (NOT the bitcode metadata CompType — see makePSVSignatureElement).
-func psvComponentType(k ir.ScalarKind) uint8 {
-	switch k {
-	case ir.ScalarFloat:
-		return 3 // Float32
-	case ir.ScalarUint:
-		return 1 // UInt32
-	case ir.ScalarSint:
-		return 2 // SInt32
-	default:
-		return 3
-	}
-}
-
 // buildSignaturesEx extracts input, output, and primitive output signature
 // elements from an entry point. Mesh shaders have vertex outputs in OSG1
 // and primitive outputs in PSG1.
@@ -2013,10 +2027,10 @@ func meshMemberToSignatureElement(irMod *ir.Module, binding ir.Binding, typeHand
 		irType := irMod.Types[typeHandle]
 		switch ti := irType.Inner.(type) {
 		case ir.ScalarType:
-			compType = scalarToCompType(ti)
+			compType = sigCompType(ti)
 			mask = 0x01
 		case ir.VectorType:
-			compType = scalarToCompType(ti.Scalar)
+			compType = sigCompType(ti.Scalar)
 			mask = componentMask(int(ti.Size))
 		}
 	}
@@ -2031,20 +2045,6 @@ func meshMemberToSignatureElement(irMod *ir.Module, binding ir.Binding, typeHand
 		Register:      register,
 		Mask:          mask,
 		RWMask:        0, // output: NeverWritesMask
-	}
-}
-
-// scalarToCompType maps a scalar type to its signature component type.
-func scalarToCompType(s ir.ScalarType) container.ProgSigCompType {
-	switch s.Kind {
-	case ir.ScalarFloat:
-		return container.CompTypeFloat32
-	case ir.ScalarUint, ir.ScalarBool:
-		return container.CompTypeUint32
-	case ir.ScalarSint:
-		return container.CompTypeSint32
-	default:
-		return container.CompTypeFloat32
 	}
 }
 

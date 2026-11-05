@@ -1437,17 +1437,20 @@ func TestBuiltinToDXILSemantic(t *testing.T) {
 
 func TestDxilCompTypeForScalar(t *testing.T) {
 	tests := []struct {
-		kind ir.ScalarKind
+		s    ir.ScalarType
 		want int64
 	}{
-		{ir.ScalarFloat, 9}, // f32
-		{ir.ScalarSint, 4},  // i32
-		{ir.ScalarUint, 5},  // u32
+		{ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, 9}, // f32
+		{ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, 4},  // i32
+		{ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, 5},  // u32
+		{ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, 8}, // f16
+		{ir.ScalarType{Kind: ir.ScalarSint, Width: 2}, 2},  // i16
+		{ir.ScalarType{Kind: ir.ScalarUint, Width: 2}, 3},  // u16
 	}
 	for _, tt := range tests {
-		got := dxilCompTypeForScalar(tt.kind)
+		got := dxilCompTypeForScalar(tt.s)
 		if got != tt.want {
-			t.Errorf("dxilCompTypeForScalar(%v) = %d, want %d", tt.kind, got, tt.want)
+			t.Errorf("dxilCompTypeForScalar(%+v) = %d, want %d", tt.s, got, tt.want)
 		}
 	}
 }

@@ -2457,14 +2457,34 @@ func builtinToDXILSemantic(b ir.BuiltinValue) (int64, string) {
 	}
 }
 
-// dxilCompTypeForScalar maps a naga ScalarKind to DXIL ComponentType enum.
-func dxilCompTypeForScalar(kind ir.ScalarKind) int64 {
-	switch kind {
+// dxilCompTypeForScalar maps a naga scalar to the DXIL ComponentType enum
+// (DxilConstants.h): a 16-bit scalar is a native 16-bit component, as DXC
+// declares it with -enable-16bit-types.
+func dxilCompTypeForScalar(s ir.ScalarType) int64 {
+	switch s.Kind {
 	case ir.ScalarFloat:
+		switch s.Width {
+		case 2:
+			return 8 // F16
+		case 8:
+			return 10 // F64
+		}
 		return 9 // F32
 	case ir.ScalarSint:
+		switch s.Width {
+		case 2:
+			return 2 // I16
+		case 8:
+			return 6 // I64
+		}
 		return 4 // I32
 	case ir.ScalarUint:
+		switch s.Width {
+		case 2:
+			return 3 // U16
+		case 8:
+			return 7 // U64
+		}
 		return 5 // U32
 	case ir.ScalarBool:
 		return 1 // I1
@@ -2482,9 +2502,9 @@ func describeIRType(irMod *ir.Module, th ir.TypeHandle) (int64, int64) {
 	}
 	switch ti := irMod.Types[th].Inner.(type) {
 	case ir.ScalarType:
-		return dxilCompTypeForScalar(ti.Kind), 1
+		return dxilCompTypeForScalar(ti), 1
 	case ir.VectorType:
-		return dxilCompTypeForScalar(ti.Scalar.Kind), int64(ti.Size)
+		return dxilCompTypeForScalar(ti.Scalar), int64(ti.Size)
 	case ir.ArrayType:
 		// Array of scalar (e.g. SV_ClipDistance is array<f32, 1..8>):
 		// element kind comes from the array's element scalar, and the
@@ -2514,7 +2534,7 @@ func describeIRType(irMod *ir.Module, th ir.TypeHandle) (int64, int64) {
 		if count > 4 {
 			count = 4 // single-row signature element max
 		}
-		return dxilCompTypeForScalar(baseScalar.Kind), count
+		return dxilCompTypeForScalar(baseScalar), count
 	}
 	return 9, 4
 }

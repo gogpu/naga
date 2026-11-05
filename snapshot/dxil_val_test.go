@@ -148,10 +148,6 @@ var dxilKnownFailures = map[string]string{
 	"msl-vpt-formats-x3/render_vertex": "P1-DXIL-094",
 	"msl-vpt-formats-x4/render_vertex": "P1-DXIL-094",
 
-	// Input signature part does not match the module.
-	"f16-native/test_component_access":   "P1-DXIL-095",
-	"f16-polyfill/test_component_access": "P1-DXIL-095",
-
 	// Shader flags: TypedUAVLoadAdditionalFormats missing.
 	"image/main": "P1-DXIL-096",
 
