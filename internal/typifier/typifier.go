@@ -134,15 +134,33 @@ func Function(m *ir.Module, fn *ir.Function) (*Typifier, error) {
 	return t, nil
 }
 
-// Module holds the typifier of every function and entry point of a module:
-// what a backend's Compile types once before it writes the module.
+// Module holds the typifier of every function and entry point of a module,
+// and of its global expressions: what a backend's Compile types once before
+// it writes the module.
 type Module struct {
 	functions map[*ir.Function]*Typifier
+	global    *Typifier
+	globalErr error
 }
 
-// ForModule types every function and entry point of m.
+// ForModule types every function and entry point of m, and its global
+// expressions. A global expression that cannot be typed fails only Global:
+// a backend that never reads those types keeps reporting its own errors
+// about such a module.
 func ForModule(m *ir.Module) (*Module, error) {
-	mt := &Module{functions: make(map[*ir.Function]*Typifier, len(m.Functions)+len(m.EntryPoints))}
+	// Global expressions are typed as a function with no arguments and no
+	// local variables, as Rust's validator types const expressions
+	// (ResolveContext::with_locals(module, &Arena::new(), &[]) into
+	// ModuleInfo.const_expression_types); one that reads either has no type.
+	global, err := Function(m, &ir.Function{Expressions: m.GlobalExpressions})
+	if err != nil {
+		err = fmt.Errorf("global expressions: %w", err)
+	}
+	mt := &Module{
+		functions: make(map[*ir.Function]*Typifier, len(m.Functions)+len(m.EntryPoints)),
+		global:    global,
+		globalErr: err,
+	}
 	for i := range m.Functions {
 		fn := &m.Functions[i]
 		t, err := Function(m, fn)
@@ -169,6 +187,16 @@ func (mt *Module) Function(fn *ir.Function) *Typifier {
 		return nil
 	}
 	return mt.functions[fn]
+}
+
+// Global returns the typifier of the module's global expressions (Rust's
+// ModuleInfo indexed by a const expression handle), or the error that kept
+// ForModule from typing them.
+func (mt *Module) Global() (*Typifier, error) {
+	if mt == nil {
+		return nil, errors.New("typifier: no module")
+	}
+	return mt.global, mt.globalErr
 }
 
 // Error is a failure to type an expression (Rust's ResolveError, with the

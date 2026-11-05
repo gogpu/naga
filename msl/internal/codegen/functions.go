@@ -1322,8 +1322,7 @@ func (w *Writer) writeConstExpression(handle ir.ConstantHandle) error {
 // writeGlobalExpression writes a global expression value (from Module.GlobalExpressions).
 func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 	if int(handle) >= len(w.module.GlobalExpressions) {
-		w.write("{}")
-		return nil
+		return fmt.Errorf("global expression [%d] out of range (%d expressions)", handle, len(w.module.GlobalExpressions))
 	}
 	expr := w.module.GlobalExpressions[handle]
 	switch k := expr.Kind.(type) {
@@ -1425,24 +1424,30 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 		// Rust Error::Override: naga.ProcessOverrides replaces them first.
 		return ir.ErrUnresolvedOverride
 	case ir.ExprSplat:
-		// Splat in global expression: write as type(value)
-		typeName := fmt.Sprintf("%s%s%d", Namespace, "float", k.Size)
-		if int(k.Value) < len(w.module.GlobalExpressions) {
-			valExpr := w.module.GlobalExpressions[k.Value]
-			if lit, ok := valExpr.Kind.(ir.Literal); ok {
-				scalarName := w.literalScalarTypeName(lit)
-				if scalarName != "" {
-					typeName = fmt.Sprintf("%s%s%d", Namespace, scalarName, k.Size)
-				}
-			}
+		// The vector type is the value's scalar type, from the global
+		// expression types, whatever expression the value is (Rust naga's
+		// put_possibly_const_expression).
+		global, err := w.typifiers.Global()
+		if err != nil {
+			return err
 		}
-		w.write("%s(", typeName)
+		if int(k.Value) >= global.Len() {
+			return fmt.Errorf("splat value [%d] has no type", k.Value)
+		}
+		scalar, ok := global.Inner(w.module, k.Value).(ir.ScalarType)
+		if !ok {
+			return fmt.Errorf("splat value [%d] must be a scalar, got %T", k.Value, global.Inner(w.module, k.Value))
+		}
+		w.write("%s%s%d(", Namespace, scalarTypeName(scalar), k.Size)
 		if err := w.writeGlobalExpression(k.Value); err != nil {
 			return err
 		}
 		w.write(")")
 	default:
-		w.write("{}")
+		// Only literals, constants, zero values, composes and splats are
+		// constant expressions once naga.ProcessOverrides has run; Rust
+		// naga reports anything else as Error::Override.
+		return ir.ErrUnresolvedOverride
 	}
 	return nil
 }
@@ -1458,22 +1463,6 @@ func (w *Writer) writeScalarZeroLiteral(scalar ir.ScalarType) {
 		w.write("false")
 	default:
 		w.write("0")
-	}
-}
-
-// literalScalarTypeName returns the MSL scalar type name for a literal type.
-func (w *Writer) literalScalarTypeName(lit ir.Literal) string {
-	switch lit.Value.(type) {
-	case ir.LiteralI32:
-		return "int"
-	case ir.LiteralU32:
-		return "uint"
-	case ir.LiteralF32:
-		return "float"
-	case ir.LiteralBool:
-		return "bool"
-	default:
-		return ""
 	}
 }
 
