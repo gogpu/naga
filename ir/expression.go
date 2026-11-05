@@ -54,6 +54,18 @@ type LiteralF32 float32
 
 func (LiteralF32) literalValue() {}
 
+// LiteralU16 represents a 16-bit unsigned integer literal (u16, enable
+// wgpu_int16; Rust naga's Literal::U16).
+type LiteralU16 uint16
+
+func (LiteralU16) literalValue() {}
+
+// LiteralI16 represents a 16-bit signed integer literal (i16, enable
+// wgpu_int16; Rust naga's Literal::I16).
+type LiteralI16 int16
+
+func (LiteralI16) literalValue() {}
+
 // LiteralU32 represents a 32-bit unsigned integer literal.
 type LiteralU32 uint32
 

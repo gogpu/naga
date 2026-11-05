@@ -12,6 +12,10 @@ func (lit Literal) Type() (TypeResolution, error) {
 		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 2}}, nil
 	case LiteralF32:
 		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
+	case LiteralU16:
+		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 2}}, nil
+	case LiteralI16:
+		return TypeResolution{Value: ScalarType{Kind: ScalarSint, Width: 2}}, nil
 	case LiteralU32:
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
 	case LiteralI32:

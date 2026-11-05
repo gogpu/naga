@@ -122,9 +122,11 @@ var dxilKnownFailures = map[string]string{
 	"cooperative-matrix-mixed-accumulator": "PARITY-UPSTREAM-001",
 	"debug-printf":                         "PARITY-UPSTREAM-001",
 	"ray-tracing-pipeline":                 "PARITY-UPSTREAM-001",
-	"int16":                                "P2-WGSL-102",
 
 	// Refused by dxil.Compile: no DXIL lowering yet, or no D3D semantic.
+	// Native 16-bit integers (-enable-16bit-types at SM 6.2) are not emitted;
+	// dxil.Compile refuses them (errInt16).
+	"int16/main": "P2-WGSL-102",
 	"8820-multiple-local-invocation-index-id/compute1": "P2-DXIL-093",
 	"barycentrics/fs_main":                             "P2-DXIL-073",
 	"barycentrics/fs_main_no_perspective":              "P2-DXIL-073",

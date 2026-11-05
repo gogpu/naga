@@ -15,7 +15,7 @@ var f32Overflow = math.Float64frombits(0x47effffff0000000)
 // scalar type, as WebIDL converts a double to the WGSL type (Rust naga's
 // map_value_to_literal):
 //   - bool: true unless the value is 0 or NaN;
-//   - i32, u32: finite, truncated toward zero, in range ([EnforceRange]);
+//   - i16, u16, i32, u32: finite, truncated toward zero, in range ([EnforceRange]);
 //   - f16, f32: finite, rounded to nearest, finite after rounding;
 //   - f64: finite.
 func literalOf(value float64, s ir.ScalarType) (ir.LiteralValue, error) {
@@ -28,12 +28,27 @@ func literalOf(value float64, s ir.ScalarType) (ir.LiteralValue, error) {
 	if s.Kind == ir.ScalarFloat {
 		return floatLiteralOf(value, s.Width)
 	}
+	v := math.Trunc(value)
+	if s.Width == 2 {
+		// i16, u16 (enable wgpu_int16), as Rust's Scalar::I16 / U16 arms.
+		switch s.Kind {
+		case ir.ScalarSint:
+			if v < math.MinInt16 || v > math.MaxInt16 {
+				return nil, ErrValueOutOfRange
+			}
+			return ir.LiteralI16(int16(v)), nil
+		case ir.ScalarUint:
+			if v < 0 || v > math.MaxUint16 {
+				return nil, ErrValueOutOfRange
+			}
+			return ir.LiteralU16(uint16(v)), nil
+		}
+	}
 	if s.Width != 4 {
-		// The validator allows overrides of bool, i32, u32, f16, f32 and f64
-		// only.
+		// Overrides are bool, i16, u16, i32, u32, f16, f32 or f64 (Rust's
+		// validate_override).
 		return nil, ErrValueOutOfRange
 	}
-	v := math.Trunc(value)
 	switch s.Kind {
 	case ir.ScalarSint:
 		if v < math.MinInt32 || v > math.MaxInt32 {

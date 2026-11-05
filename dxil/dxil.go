@@ -289,6 +289,67 @@ func checkLocation(ep *ir.EntryPoint, loc ir.LocationBinding) error {
 // not written yet (P2-DXIL-073). The semantic mapper's fallback would
 // otherwise name them SV_Unknown<N>. Location bindings go through
 // checkLocation.
+// errInt16 refuses 16-bit integers (enable wgpu_int16). Native i16/u16 is
+// DXC's -enable-16bit-types at shader model 6.2: NativeLowPrecision, 16-bit
+// dx.op overloads and 2-byte raw buffer access. The emitter implements that
+// for f16 only; an i16 would go through the 32-bit paths and lose WGSL's
+// 16-bit wrapping.
+var errInt16 = unsupported.Errorf("dxil: 16-bit integer types (enable wgpu_int16) are not supported")
+
+// checkInt16 returns errInt16 when the module has a 16-bit integer type, a
+// 16-bit integer literal or a conversion to one.
+func checkInt16(irModule *ir.Module) error {
+	for i := range irModule.Types {
+		switch t := irModule.Types[i].Inner.(type) {
+		case ir.ScalarType:
+			if isInt16Scalar(t) {
+				return errInt16
+			}
+		case ir.VectorType:
+			if isInt16Scalar(t.Scalar) {
+				return errInt16
+			}
+		}
+	}
+	if exprsUseInt16(irModule.GlobalExpressions) {
+		return errInt16
+	}
+	for i := range irModule.Functions {
+		if exprsUseInt16(irModule.Functions[i].Expressions) {
+			return errInt16
+		}
+	}
+	for i := range irModule.EntryPoints {
+		if exprsUseInt16(irModule.EntryPoints[i].Function.Expressions) {
+			return errInt16
+		}
+	}
+	return nil
+}
+
+func isInt16Scalar(s ir.ScalarType) bool {
+	return s.Width == 2 && (s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint)
+}
+
+// exprsUseInt16 reports whether an expression arena has a 16-bit integer
+// literal or a conversion to a 16-bit integer.
+func exprsUseInt16(exprs []ir.Expression) bool {
+	for i := range exprs {
+		switch k := exprs[i].Kind.(type) {
+		case ir.Literal:
+			switch k.Value.(type) {
+			case ir.LiteralI16, ir.LiteralU16:
+				return true
+			}
+		case ir.ExprAs:
+			if k.Convert != nil && isInt16Scalar(ir.ScalarType{Kind: k.Kind, Width: *k.Convert}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 	check := func(b *ir.Binding) error {
 		if b == nil {
@@ -492,6 +553,9 @@ func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 // workgroup sizes checked and pending array sizes resolved.
 func checkOptions(irModule *ir.Module, opts *Options) (*ir.Module, error) {
 	if err := checkInput(irModule, *opts); err != nil {
+		return nil, err
+	}
+	if err := checkInt16(irModule); err != nil {
 		return nil, err
 	}
 	var err error

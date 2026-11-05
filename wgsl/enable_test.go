@@ -41,8 +41,10 @@ func TestEnableExtensionGates(t *testing.T) {
 		{"f16 literal", "f16", "const c = 1.5h;", "1.5h", true},
 		{"f16 literal in function", "f16", "fn f() -> f32 { return f32(2h); }", "2h", true},
 		// map_predeclared_type: 16-bit integers.
-		{"i16 scalar", "wgpu_int16", "var<private> x: i16;", "i16", false},
-		{"u16 scalar", "wgpu_int16", "var<private> x: u16;", "u16", false},
+		{"i16 scalar", "wgpu_int16", "var<private> x: i16;", "i16", true},
+		{"i16 vector", "wgpu_int16", "var<private> v: vec3<i16>;", "i16", true},
+		{"i16 constructor", "wgpu_int16", "fn f() { let x = i16(1); }", "i16", true},
+		{"u16 scalar", "wgpu_int16", "var<private> x: u16;", "u16", true},
 		// map_predeclared_type: ray query types need wgpu_ray_query or
 		// wgpu_ray_tracing_pipeline; the error names the first.
 		{"acceleration_structure", "wgpu_ray_query", "@group(0) @binding(0) var a: acceleration_structure;", "acceleration_structure", true},

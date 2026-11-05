@@ -189,6 +189,8 @@ func (w *Writer) writeLiteral(lit ir.Literal) (string, error) {
 		return fmt.Sprintf("%du", uint32(v)), nil
 	case ir.LiteralI64, ir.LiteralU64:
 		return "", errNoInt64
+	case ir.LiteralI16, ir.LiteralU16:
+		return "", errNoInt16
 	case ir.LiteralF16:
 		return "", errNoFloat16
 	case ir.LiteralF32:

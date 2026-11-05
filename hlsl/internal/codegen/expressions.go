@@ -19,6 +19,8 @@ import (
 
 // HLSL type constants for expressions.
 const (
+	hlslInt16  = "int16_t"
+	hlslUint16 = "uint16_t"
 	hlslInt64  = "int64_t"
 	hlslUint64 = "uint64_t"
 	hlslHalf   = "half"
@@ -244,6 +246,13 @@ func (w *Writer) writeLiteralValue(v ir.LiteralValue) error {
 
 	case ir.LiteralU32:
 		fmt.Fprintf(&w.Out, "%du", uint32(val))
+
+	case ir.LiteralU16:
+		// HLSL has no 16-bit literal suffix (Rust naga's write_literal).
+		fmt.Fprintf(&w.Out, "uint16_t(%d)", uint16(val))
+
+	case ir.LiteralI16:
+		fmt.Fprintf(&w.Out, "int16_t(%d)", int16(val))
 
 	case ir.LiteralI64:
 		i := int64(val)
@@ -2356,20 +2365,35 @@ func (w *Writer) writeAsExpression(e ir.ExprAs) error {
 		// For 64-bit types, skip the cast (identity bitcast in HLSL).
 		// Matches Rust naga: inner.scalar_width() == Some(8) => no cast.
 		srcInner := w.getExpressionTypeInner(e.Expr)
-		is64Bit := false
+		var srcWidth uint8
+		var srcSize ir.VectorSize
 		if srcInner != nil {
 			switch t := srcInner.(type) {
 			case ir.ScalarType:
-				is64Bit = t.Width == 8
+				srcWidth = t.Width
 			case ir.VectorType:
-				is64Bit = t.Scalar.Width == 8
+				srcWidth, srcSize = t.Scalar.Width, t.Size
 			}
 		}
-		if is64Bit {
+		switch srcWidth {
+		case 8:
 			if err := w.writeExpression(e.Expr); err != nil {
 				return fmt.Errorf("as bitcast 64-bit: %w", err)
 			}
-		} else {
+		case 2:
+			// asint()/asuint() take only 32-bit values; Rust naga bitcasts
+			// a 16-bit value with the target type's constructor.
+			name := scalarKindToHLSL(e.Kind, 2)
+			if srcSize != 0 {
+				fmt.Fprintf(&w.Out, "%s%d(", name, srcSize)
+			} else {
+				fmt.Fprintf(&w.Out, "%s(", name)
+			}
+			if err := w.writeExpression(e.Expr); err != nil {
+				return fmt.Errorf("as bitcast 16-bit: %w", err)
+			}
+			w.Out.WriteByte(')')
+		default:
 			castFunc := ScalarCast(e.Kind)
 			w.Out.WriteString(castFunc)
 			w.Out.WriteByte('(')
@@ -2388,12 +2412,18 @@ func scalarKindToHLSL(kind ir.ScalarKind, width uint8) string {
 	case ir.ScalarBool:
 		return hlslTypeBool
 	case ir.ScalarSint:
-		if width == 8 {
+		switch width {
+		case 2:
+			return hlslInt16
+		case 8:
 			return hlslInt64
 		}
 		return hlslTypeInt
 	case ir.ScalarUint:
-		if width == 8 {
+		switch width {
+		case 2:
+			return hlslUint16
+		case 8:
 			return hlslUint64
 		}
 		return hlslTypeUint

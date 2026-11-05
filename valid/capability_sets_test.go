@@ -231,3 +231,17 @@ func TestShaderStagesAreRustBits(t *testing.T) {
 		}
 	}
 }
+
+// TestLiteralInt16Capability: an i16 or u16 literal needs SHADER_INT16, with
+// Rust's WidthError text (valid/type.rs check_width, name "i16"/"u16").
+func TestLiteralInt16Capability(t *testing.T) {
+	lit := func(v ir.LiteralValue) *ir.Module {
+		return &ir.Module{GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: v}}}}
+	}
+	expectRejected(t, lit(ir.LiteralI16(-1)), valid.Options{},
+		"Using `i16` values requires the `naga::valid::Capabilities::SHADER_INT16` flag")
+	expectRejected(t, lit(ir.LiteralU16(1)), valid.Options{},
+		"Using `u16` values requires the `naga::valid::Capabilities::SHADER_INT16` flag")
+	expectValid(t, lit(ir.LiteralI16(-1)), valid.Options{Capabilities: valid.CapShaderInt16})
+	expectValid(t, lit(ir.LiteralU16(1)), valid.Options{Capabilities: valid.CapShaderInt16})
+}

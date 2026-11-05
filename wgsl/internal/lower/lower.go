@@ -3090,9 +3090,9 @@ func typeName(inner ir.TypeInner) string {
 			}
 			return "f32"
 		case ir.ScalarSint:
-			return "i32"
+			return fmt.Sprintf("i%d", int(t.Width)*8)
 		case ir.ScalarUint:
-			return "u32"
+			return fmt.Sprintf("u%d", int(t.Width)*8)
 		case ir.ScalarBool:
 			return "bool"
 		}
@@ -3849,9 +3849,9 @@ func (l *Lowerer) resolveTargetScalarKind(t parser.Type) (ir.ScalarKind, error) 
 		switch ty.Name {
 		case "f32", "f16", "f64":
 			return ir.ScalarFloat, nil
-		case "i32", "i64":
+		case "i16", "i32", "i64":
 			return ir.ScalarSint, nil
-		case "u32", "u64":
+		case "u16", "u32", "u64":
 			return ir.ScalarUint, nil
 		case "bool":
 			return ir.ScalarBool, nil
@@ -4569,6 +4569,10 @@ func (l *Lowerer) resolveNamedType(t *parser.NamedType) (ir.TypeHandle, error) {
 		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
 	case "f16":
 		return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
+	case "i16":
+		return l.registerType("i16", ir.ScalarType{Kind: ir.ScalarSint, Width: 2}), nil
+	case "u16":
+		return l.registerType("u16", ir.ScalarType{Kind: ir.ScalarUint, Width: 2}), nil
 	case "f64":
 		return l.registerType("f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}), nil
 	case "i64":

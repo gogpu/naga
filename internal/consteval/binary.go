@@ -271,7 +271,10 @@ func concreteIntBinary(op ir.BinaryOperator, s ir.ScalarType, x, y uint64) (ir.L
 func concreteDivRem(op ir.BinaryOperator, s ir.ScalarType, x, y uint64) (uint64, error) {
 	if s.Kind == ir.ScalarSint {
 		minimum := int64(math.MinInt64)
-		if s.Width == 4 {
+		switch s.Width {
+		case 2:
+			minimum = math.MinInt16
+		case 4:
 			minimum = math.MinInt32
 		}
 		w := uint(s.Width) * 8

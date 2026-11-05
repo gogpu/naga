@@ -60,6 +60,16 @@ const gatedCapabilities = valid.CapFloat64 | valid.CapPrimitiveIndex | valid.Cap
 	valid.CapMeshShaderPointTopology | valid.CapPerVertex | valid.CapDrawIndex |
 	valid.CapAccelerationStructureBindingArray | valid.CapShaderInt16
 
+// rustUnneededCapabilities are capabilities a Rust corpus shader's params
+// grant that its module does not use, so validation passes without them.
+var rustUnneededCapabilities = map[string]valid.Capabilities{
+	// int16.toml grants SHADER_FLOAT16 for `enable f16;`, but f16 appears
+	// only inside the const-expression i16(f16(33000.0)), folded while
+	// lowering: neither Rust's module (rust-derived wgsl-int16.ron has no
+	// 16-bit float type or literal) nor ours has an f16 left to check.
+	"int16": valid.CapShaderFloat16,
+}
+
 // TestValidateCorpusNeedsRustCapabilities: a Rust corpus shader is rejected
 // without any one of the capabilities its parameters grant that the
 // validator checks, so each gate fires on the shaders Rust wrote for it.
@@ -86,7 +96,7 @@ func TestValidateCorpusNeedsRustCapabilities(t *testing.T) {
 		}
 		for bit := range 64 {
 			c := valid.Capabilities(1) << bit
-			if caps&gatedCapabilities&c == 0 {
+			if caps&gatedCapabilities&c == 0 || rustUnneededCapabilities[s.name]&c != 0 {
 				continue
 			}
 			checked++

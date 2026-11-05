@@ -75,6 +75,9 @@ const (
 		"load: std140 puts matrix columns 16 bytes apart where WGSL puts a matCx2's 8 apart, so Rust's GLSL, " +
 		"which declares the matrix as is, reads the wrong offsets (its SPIR-V writer declares the same " +
 		"std140-compatible types, 35975143)"
+	reasonInt16SpecClamp = "i16(f16(33000.0)) is 32752, the WGSL spec's float to integral conversion (the " +
+		"value of i16 closest to the truncated value that f16 represents exactly); Rust clamps to 32767 " +
+		"(i16::MAX as f32, constant_evaluator.rs cast), which no f16 holds. Intentional"
 	reasonHLSLAtomic64Polyfill = "atomicStore and atomicLoad of a 64-bit atomic in a storage buffer are written " +
 		"InterlockedExchange64 and InterlockedOr64; Rust (f0201c9c) writes the 32-bit InterlockedExchange and " +
 		"InterlockedOr, which DXC accepts with \"conversion from larger type 'uint64_t' to smaller type " +
@@ -281,6 +284,12 @@ var rustDeviations = []rustDeviation{
 	{Shader: "skybox", File: "wgsl-skybox.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("de9f9f4d"),
 		Fingerprint: "795c7cd20304501fecb72cfa2f361f721a1c45b96d1e287e2379cfc2bf9c3356"},
+	{Shader: "int16", File: "wgsl-int16.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
+		Reason:      reasonInt16SpecClamp + "; " + reasonMSLThreadgroup + "; " + notPorted("b5bd5aed", "b9c09622"),
+		Fingerprint: "f7443a6b9b8ed7c0f9a30383012e2fcf5d1f4ad5e54b6effda30bf10e7816ce6"},
+	{Shader: "int16", File: "wgsl-int16.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
+		Reason:      reasonInt16SpecClamp + "; " + notPorted("96b7872f"),
+		Fingerprint: "19ab2200df79643455b3b46fac5e1da216b29b17fdc25e02dda51fb6eb6898cb"},
 	{Shader: "subgroup-operations", File: "wgsl-subgroup-operations.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      notPorted("96b7872f"),
 		Fingerprint: "49c367de90782bd0b98a39cdf91dfe178b7b285e5620585937121a77a2c12a1d"},
@@ -451,9 +460,6 @@ var rustUnsupportedShaders = map[string]unsupportedShader{
 	"debug-printf": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "debugPrintf with a string literal format argument is not parsed",
 		ErrorContains: "5:17: unexpected token Error in expression"},
-	"int16": {Card: "PARITY-UPSTREAM-001",
-		Reason:        "16-bit integer types (i16, u16) are not supported",
-		ErrorContains: "unknown type: i16"},
 	"ray-tracing-pipeline": {Card: "PARITY-UPSTREAM-001",
 		Reason:        "ray tracing pipeline stages, ray payload address spaces and traceRay are not supported",
 		ErrorContains: "unknown address space: `ray_payload`"},

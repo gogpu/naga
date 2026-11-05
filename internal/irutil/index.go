@@ -43,7 +43,8 @@ func IndexableLengthOf(module *ir.Module, inner ir.TypeInner) (ir.IndexableLengt
 
 // ConstIndexValue returns the value of the index expression handle in fn when
 // it is known at translation time: a u32 or non-negative i32 literal, a
-// scalar zero value, or a constant whose initializer is one of those. Mirrors
+// scalar zero value, or a constant whose initializer is one of those; u16 and
+// non-negative i16 count as Rust converts them. Mirrors
 // Rust naga's GuardedIndex::from_expression (get_const_val_from with the u32
 // conversion of proc::TryFrom<Literal>).
 func ConstIndexValue(module *ir.Module, fn *ir.Function, handle ir.ExpressionHandle) (uint32, bool) {
@@ -64,6 +65,12 @@ func ConstIndexValue(module *ir.Module, fn *ir.Function, handle ir.ExpressionHan
 	switch k := expr.(type) {
 	case ir.Literal:
 		switch v := k.Value.(type) {
+		case ir.LiteralU16:
+			return uint32(v), true
+		case ir.LiteralI16:
+			if v >= 0 {
+				return uint32(v), true
+			}
 		case ir.LiteralU32:
 			return uint32(v), true
 		case ir.LiteralI32:
@@ -74,7 +81,7 @@ func ConstIndexValue(module *ir.Module, fn *ir.Function, handle ir.ExpressionHan
 	case ir.ExprZeroValue:
 		if int(k.Type) < len(module.Types) {
 			if s, ok := module.Types[k.Type].Inner.(ir.ScalarType); ok &&
-				(s.Kind == ir.ScalarUint || s.Kind == ir.ScalarSint) && s.Width == 4 {
+				(s.Kind == ir.ScalarUint || s.Kind == ir.ScalarSint) && (s.Width == 2 || s.Width == 4) {
 				return 0, true
 			}
 		}

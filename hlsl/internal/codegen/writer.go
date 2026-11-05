@@ -1856,9 +1856,13 @@ func (w *Writer) writeNagaModHelper(retType, leftType, rightType string, scalar 
 
 // i32MinLiteral returns the HLSL representation of the minimum signed integer value.
 // Uses int(-2147483647 - 1) to avoid compiler parsing issues with -2147483648.
-// Matches Rust naga's write_literal for Literal::I32(i32::MIN).
+// Matches Rust naga's write_literal for Literal::I16(i16::MIN),
+// Literal::I32(i32::MIN) and Literal::I64(i64::MIN).
 func i32MinLiteral(width uint8) string {
-	if width == 8 {
+	switch width {
+	case 2:
+		return "int16_t(-32768)"
+	case 8:
 		return "(-9223372036854775807L - 1L)"
 	}
 	return "int(-2147483647 - 1)"

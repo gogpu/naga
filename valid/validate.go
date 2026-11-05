@@ -438,6 +438,10 @@ func (v *validator) literalWidthError(lit ir.LiteralValue) string {
 	case ir.LiteralF16:
 		// Rust's text names the flag FLOAT16.
 		name, flag, need = "f16", "FLOAT16", CapShaderFloat16
+	case ir.LiteralI16:
+		name, flag, need = "i16", "SHADER_INT16", CapShaderInt16
+	case ir.LiteralU16:
+		name, flag, need = "u16", "SHADER_INT16", CapShaderInt16
 	case ir.LiteralI64:
 		name, flag, need = "i64", "SHADER_INT64", CapShaderInt64
 	case ir.LiteralU64:
