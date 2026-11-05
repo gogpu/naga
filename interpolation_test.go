@@ -562,8 +562,14 @@ func TestPerPrimitive(t *testing.T) {
 		},
 		"dxil": func() error { _, err := dxilBlob(module, dxil.Options{}); return err },
 	} {
-		if err := compile(); !errors.Is(err, backend.ErrUnsupported) || !strings.Contains(err.Error(), "per_primitive") {
-			t.Errorf("%s: error %v, want ErrUnsupported naming per_primitive", name, err)
+		// GLSL has no mesh shaders (Rust lists no MESH_SHADER for it), so its
+		// capability list refuses a per_primitive location first.
+		want := "per_primitive"
+		if name == "glsl" {
+			want = "Capabilities(MESH_SHADER)"
+		}
+		if err := compile(); !errors.Is(err, backend.ErrUnsupported) || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: error %v, want ErrUnsupported naming %s", name, err, want)
 		}
 	}
 }

@@ -33,13 +33,20 @@ func (e Error) Error() string {
 
 // validator validates IR modules.
 type validator struct {
-	module             *ir.Module
-	capabilities       Capabilities
+	module       *ir.Module
+	capabilities Capabilities
+	// missing collects every capability a check found the set lacking
+	// (has, typeCapability), for MissingCapabilities.
+	missing            Capabilities
 	subgroupStages     ShaderStages
 	subgroupOperations SubgroupOperationSet
 	// functionStages are the stages each module function may run in, by
 	// FunctionHandle, as far as validated (Rust's available_stages).
 	functionStages []ShaderStages
+	// functionSubgroupStages is the part of functionStages that comes from the
+	// subgroup stage set alone (MissingCapabilities needs to tell a stage the
+	// capabilities forbid from one an operation forbids).
+	functionSubgroupStages []ShaderStages
 	// validatedFunctions is how many module functions have their
 	// functionStages.
 	validatedFunctions int
@@ -58,6 +65,8 @@ type validationContext struct {
 	// FunctionInfo::available_stages, narrowed so far by the subgroup
 	// operations and the calls.
 	stages ShaderStages
+	// subgroupStages is stages narrowed by the subgroup stage set only.
+	subgroupStages ShaderStages
 	// inScope holds, by handle, the expressions a statement may use at the
 	// statement being validated (Rust naga's valid_expression_set);
 	// scopeList is the order they came into scope, so that a block can
@@ -146,10 +155,11 @@ func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 	}
 
 	v := &validator{
-		module:         module,
-		capabilities:   opts.Capabilities,
-		functionStages: make([]ShaderStages, len(module.Functions)),
-		errors:         make([]Error, 0),
+		module:                 module,
+		capabilities:           opts.Capabilities,
+		functionStages:         make([]ShaderStages, len(module.Functions)),
+		functionSubgroupStages: make([]ShaderStages, len(module.Functions)),
+		errors:                 make([]Error, 0),
 	}
 	v.subgroupStages, v.subgroupOperations = subgroupSets(opts)
 
@@ -164,6 +174,18 @@ func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 		return ModuleInfo{}, Errors(v.errors)
 	}
 	return info, nil
+}
+
+// has reports whether the capability set contains c, and remembers c as
+// missing when it does not. Every check that gates a feature on a
+// capability asks only when the module uses the feature, so the remembered
+// set is what the module needs and the set lacks.
+func (v *validator) has(c Capabilities) bool {
+	if v.capabilities.Contains(c) {
+		return true
+	}
+	v.missing |= c
+	return false
 }
 
 // validateEntryPointBindings rejects two resources at one @group/@binding
@@ -231,7 +253,7 @@ func (v *validator) validateTypes() {
 func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.ScalarType, context string) {
 	switch {
 	case scalar.Width == 8 && scalar.Kind == ir.ScalarFloat:
-		if !v.capabilities.Contains(CapFloat64) {
+		if !v.has(CapFloat64) {
 			v.addError(fmt.Sprintf("type [%d]%s: f64 requires the FLOAT64 capability", handle, context))
 		}
 	case scalar.Width == 8 && (scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint):
@@ -239,11 +261,11 @@ func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.Scalar
 		if scalar.Kind == ir.ScalarUint {
 			name = "u64"
 		}
-		if !v.capabilities.Contains(CapShaderInt64) {
+		if !v.has(CapShaderInt64) {
 			v.addError(fmt.Sprintf("type [%d]%s: %s requires the SHADER_INT64 capability", handle, context, name))
 		}
 	case scalar.Width == 2 && scalar.Kind == ir.ScalarFloat:
-		if !v.capabilities.Contains(CapShaderFloat16) {
+		if !v.has(CapShaderFloat16) {
 			v.addError(fmt.Sprintf("type [%d]%s: f16 requires the SHADER_FLOAT16 capability", handle, context))
 		}
 	case scalar.Width == 2 && (scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint):
@@ -251,7 +273,7 @@ func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.Scalar
 		if scalar.Kind == ir.ScalarUint {
 			name = "u16"
 		}
-		if !v.capabilities.Contains(CapShaderInt16) {
+		if !v.has(CapShaderInt16) {
 			v.addError(fmt.Sprintf("type [%d]%s: %s requires the SHADER_INT16 capability", handle, context, name))
 		}
 	}
@@ -261,6 +283,7 @@ func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.Scalar
 // Rust naga's TypeError::MissingCapability (valid/type.rs) under
 // ValidationError::Type.
 func (v *validator) typeCapability(handle ir.TypeHandle, c Capabilities) {
+	v.missing |= c
 	v.addError(fmt.Sprintf("Type [%d] '%s' is invalid: Capability %s is required",
 		handle, v.module.Types[handle].Name, c.rustDebug()))
 }
@@ -277,17 +300,17 @@ func (v *validator) checkTypeCapabilities(handle ir.TypeHandle, inner ir.TypeInn
 				v.typeCapability(handle, CapShaderInt64AtomicAllOps)
 			}
 		case t.Scalar.Kind == ir.ScalarFloat && t.Scalar.Width == 4:
-			if !v.capabilities.Contains(CapShaderFloat32Atomic) {
+			if !v.has(CapShaderFloat32Atomic) {
 				v.typeCapability(handle, CapShaderFloat32Atomic)
 			}
 		}
 	case ir.RayQueryType:
-		if !v.capabilities.Contains(CapRayQuery) {
+		if !v.has(CapRayQuery) {
 			v.typeCapability(handle, CapRayQuery)
 		}
 	case ir.AccelerationStructureType:
 		// RAY_TRACING_PIPELINE or RAY_QUERY; Rust reports the second.
-		if !v.capabilities.Contains(capRayTracingPipeline) && !v.capabilities.Contains(CapRayQuery) {
+		if !v.capabilities.Contains(capRayTracingPipeline) && !v.has(CapRayQuery) {
 			v.typeCapability(handle, CapRayQuery)
 		}
 	case ir.StructType:
@@ -296,7 +319,7 @@ func (v *validator) checkTypeCapabilities(handle ir.TypeHandle, inner ir.TypeInn
 				continue
 			}
 			if loc, ok := (*m.Binding).(ir.LocationBinding); ok && loc.BlendSrc != nil &&
-				!v.capabilities.Contains(CapDualSourceBlending) {
+				!v.has(CapDualSourceBlending) {
 				v.typeCapability(handle, CapDualSourceBlending)
 				return
 			}
@@ -449,7 +472,7 @@ func (v *validator) literalWidthError(lit ir.LiteralValue) string {
 	default:
 		return ""
 	}
-	if v.capabilities.Contains(need) {
+	if v.has(need) {
 		return ""
 	}
 	// %#q backquotes, as Rust's text does: Using `u64` values ...
@@ -511,7 +534,7 @@ func (v *validator) globalVariableCapability(gv *ir.GlobalVariable) Capabilities
 		return 0
 	}
 	missing := func(c Capabilities) Capabilities {
-		if v.capabilities.Contains(c) {
+		if v.has(c) {
 			return 0
 		}
 		return c
@@ -584,6 +607,7 @@ func (v *validator) validateFunctions() {
 
 		v.validateFunction(fn)
 		v.functionStages[i] = v.context.stages
+		v.functionSubgroupStages[i] = v.context.subgroupStages
 		v.validatedFunctions = i + 1
 	}
 }
@@ -600,6 +624,7 @@ func (v *validator) validateFunction(fn *ir.Function) {
 	types, typeErr := typifier.Function(v.module, fn)
 	v.context.types = types
 	v.context.stages = allStages
+	v.context.subgroupStages = allStages
 	// The expressions evaluated before the function runs are in scope
 	// everywhere; every other one comes into scope at its Emit or at the
 	// statement that gives it its value (Rust's validate_function).
@@ -645,6 +670,7 @@ func (v *validator) validateFunction(fn *ir.Function) {
 	for i, expr := range fn.Expressions {
 		v.validateExpression(ir.ExpressionHandle(i), &expr)
 		v.context.stages &= v.expressionStages(expr.Kind)
+		v.narrowSubgroupStages(expr.Kind)
 	}
 
 	// Validate body
@@ -1209,6 +1235,7 @@ func (v *validator) validateCall(index int, call ir.StmtCall) {
 		}
 	}
 	v.context.stages &= v.calleeStages(call.Function)
+	v.narrowSubgroupStagesByCallee(call.Function)
 }
 
 // calleeStages are the stages a call of fn can run in. A function is
@@ -1274,6 +1301,11 @@ func (v *validator) validateEntryPoints() {
 			scopeList:      v.context.scopeList,
 		}
 		v.validateFunction(fn)
+		if ep.Stage == ir.StageVertex && v.context.subgroupStages&ShaderStagesVertex == 0 {
+			// A subgroup operation in a vertex shader needs
+			// SUBGROUP_VERTEX_STAGE; Rust reports it as a forbidden stage.
+			v.missing |= CapSubgroupVertexStage
+		}
 		if v.context.stages&stageBit(ep.Stage) == 0 {
 			v.entryPointError(&v.module.EntryPoints[i], "Uses operations forbidden at this stage")
 		}
@@ -1312,7 +1344,7 @@ func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeH
 		return
 	}
 	if b, ok := (*binding).(ir.BuiltinBinding); ok {
-		if c := builtinCapability(b.Builtin); c != 0 && !v.capabilities.Contains(c) {
+		if c := builtinCapability(b.Builtin); c != 0 && !v.has(c) {
 			v.addError(fmt.Sprintf("entry point %q: %s: Capability %s is not supported", ep.Name, where, c.rustDebug()))
 		}
 		return
@@ -1333,7 +1365,7 @@ func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle,
 	if !v.isValidTypeHandle(ty) {
 		return ""
 	}
-	if loc.PerPrimitive && !v.capabilities.Contains(CapMeshShader) {
+	if loc.PerPrimitive && !v.has(CapMeshShader) {
 		return "Capability " + CapMeshShader.rustDebug() + " is not supported"
 	}
 	perVertex := loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex
@@ -1341,7 +1373,7 @@ func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle,
 		if stage != ir.StageFragment {
 			return "Interpolation PerVertex is only valid for stage Fragment"
 		}
-		if !v.capabilities.Contains(CapPerVertex) {
+		if !v.has(CapPerVertex) {
 			return "Capability " + CapPerVertex.rustDebug() + " is not supported"
 		}
 		if loc.Sampling != nil && *loc.Sampling != ir.SamplingCenter {

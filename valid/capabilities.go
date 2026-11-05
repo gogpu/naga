@@ -192,6 +192,13 @@ func (c Capabilities) rustDebug() string {
 	return flagsDebug("Capabilities", uint64(c), capabilityNames[:])
 }
 
+// String is c as Rust's bitflags Debug prints it, "Capabilities(SUBGROUP |
+// SUBGROUP_BARRIER)": the text of every missing-capability error, which a
+// caller can match on the flag names.
+func (c Capabilities) String() string {
+	return c.rustDebug()
+}
+
 // flagsDebug renders a bitflags value as Rust's bitflags Debug does: the
 // set flags by name in declaration order, a leftover as hex.
 func flagsDebug(typeName string, bits uint64, names []string) string {

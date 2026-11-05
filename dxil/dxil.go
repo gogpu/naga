@@ -627,7 +627,7 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	if err := checkBindings(irModule, ep, opts); err != nil {
 		return nil, err
 	}
-	if err := checkBuiltins(irModule, ep); err != nil {
+	if err := checkSupported(irModule, ep); err != nil {
 		return nil, err
 	}
 	if err := checkShaderModel(irModule, ep, opts.ShaderModel); err != nil {

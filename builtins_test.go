@@ -115,16 +115,18 @@ func TestDrawIndexBuiltin(t *testing.T) {
 	})
 
 	// HLSL, MSL and D3D have no draw index (Rust: "Unsupported builtin
-	// DrawIndex", UnsupportedBuiltIn); all three wrote position before.
+	// DrawIndex", UnsupportedBuiltIn); all three wrote position before. HLSL
+	// and MSL now refuse it by their capability lists first (DRAW_INDEX is in
+	// neither, as in Rust).
 	t.Run("hlsl", func(t *testing.T) {
 		_, _, err := hlsl.Compile(module, hlsl.Options{})
-		if err == nil || !strings.Contains(err.Error(), "no HLSL semantic") {
+		if err == nil || !strings.Contains(err.Error(), "Capabilities(DRAW_INDEX)") {
 			t.Errorf("error %v, want a refusal", err)
 		}
 	})
 	t.Run("msl", func(t *testing.T) {
 		_, _, err := msl.Compile(module, msl.Options{})
-		if err == nil || !strings.Contains(err.Error(), "draw_index is not supported") {
+		if err == nil || !strings.Contains(err.Error(), "Capabilities(DRAW_INDEX)") {
 			t.Errorf("error %v, want a refusal", err)
 		}
 	})

@@ -53,7 +53,7 @@ func (v *validator) checkBarrier(index int, flags ir.BarrierFlags) {
 	if flags&ir.BarrierSubGroup == 0 {
 		return
 	}
-	if need := CapSubgroup | CapSubgroupBarrier; !v.capabilities.Contains(need) {
+	if need := CapSubgroup | CapSubgroupBarrier; !v.has(need) {
 		v.addErrorInStatement(index, missingCapability(need))
 		return
 	}
@@ -68,6 +68,7 @@ func (v *validator) checkBarrier(index int, flags ir.BarrierFlags) {
 // validate_block_impl, Statement::Subgroup*).
 func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) {
 	v.context.stages &= v.subgroupStages
+	v.context.subgroupStages &= v.subgroupStages
 	var (
 		need     SubgroupOperationSet
 		operands []ir.ExpressionHandle
@@ -97,7 +98,7 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 		return
 	}
 	switch {
-	case !v.capabilities.Contains(CapSubgroup):
+	case !v.has(CapSubgroup):
 		v.addErrorInStatement(index, missingCapability(CapSubgroup))
 	case v.subgroupOperations&need != need:
 		v.addErrorInStatement(index, unsupportedSubgroupOperation(need))
@@ -149,17 +150,12 @@ func (v *validator) checkAtomic(index int, st ir.StmtAtomic) {
 		if v.capabilities.Contains(CapShaderInt64AtomicAllOps) {
 			return
 		}
-		_, isMin := st.Fun.(ir.AtomicMin)
-		_, isMax := st.Fun.(ir.AtomicMax)
-		need := CapShaderInt64AtomicAllOps
-		if (isMin || isMax) && ptr.Space == ir.SpaceStorage && st.Result == nil {
-			need = CapShaderInt64AtomicMinMax
-		}
-		if !v.capabilities.Contains(need) {
+		need := int64AtomicNeed(ptr.Space, st.Fun, st.Result != nil)
+		if !v.has(need) {
 			invalid("Capability " + need.rustDebug() + " is required")
 		}
 	case scalar.Kind == ir.ScalarFloat && scalar.Width == 4:
-		if !v.capabilities.Contains(CapShaderFloat32Atomic) {
+		if !v.has(CapShaderFloat32Atomic) {
 			invalid("Capability " + CapShaderFloat32Atomic.rustDebug() + " is required")
 			return
 		}
@@ -268,7 +264,7 @@ func (v *validator) checkImageAtomic(index int, st ir.StmtImageAtomic) {
 	default:
 		return
 	}
-	if !v.capabilities.Contains(need) {
+	if !v.has(need) {
 		v.addErrorInStatement(index, missingCapability(need))
 	}
 }
@@ -305,15 +301,15 @@ func (v *validator) checkEntryPointCapabilities(ep *ir.EntryPoint) {
 	unsupported := func(c Capabilities) {
 		v.entryPointError(ep, "Capability "+c.rustDebug()+" is not supported")
 	}
-	if (ep.Stage == ir.StageTask || ep.Stage == ir.StageMesh) && !v.capabilities.Contains(CapMeshShader) {
+	if (ep.Stage == ir.StageTask || ep.Stage == ir.StageMesh) && !v.has(CapMeshShader) {
 		unsupported(CapMeshShader)
 		return
 	}
-	if ep.EarlyDepthTest != nil && !v.capabilities.Contains(CapEarlyDepthTest) {
+	if ep.EarlyDepthTest != nil && !v.has(CapEarlyDepthTest) {
 		unsupported(CapEarlyDepthTest)
 	}
 	if ep.MeshInfo != nil && ep.MeshInfo.Topology == ir.MeshTopologyPoints &&
-		!v.capabilities.Contains(CapMeshShaderPointTopology) {
+		!v.has(CapMeshShaderPointTopology) {
 		unsupported(CapMeshShaderPointTopology)
 	}
 }
@@ -342,4 +338,50 @@ func builtinCapability(b ir.BuiltinValue) Capabilities {
 		return CapMeshShader
 	}
 	return 0
+}
+
+// narrowSubgroupStages narrows the function's subgroup stages by an
+// expression: the result of a subgroup operation runs in the subgroup
+// stages, the result of a call in the callee's.
+func (v *validator) narrowSubgroupStages(kind ir.ExpressionKind) {
+	switch k := kind.(type) {
+	case ir.ExprSubgroupBallotResult, ir.ExprSubgroupOperationResult:
+		v.context.subgroupStages &= v.subgroupStages
+	case ir.ExprCallResult:
+		v.narrowSubgroupStagesByCallee(k.Function)
+	}
+}
+
+// narrowSubgroupStagesByCallee narrows the function's subgroup stages by
+// those of a function it calls.
+func (v *validator) narrowSubgroupStagesByCallee(fn ir.FunctionHandle) {
+	if int(fn) < v.validatedFunctions {
+		v.context.subgroupStages &= v.functionSubgroupStages[fn]
+	}
+}
+
+// int64AtomicNeed is the capability a 64-bit integer atomic needs when the
+// set lacks ALL_OPS: MIN_MAX for an atomicMin or atomicMax on a storage
+// buffer whose result is unused, ALL_OPS otherwise (Rust's
+// validate_atomic_operation).
+func int64AtomicNeed(space ir.AddressSpace, fun ir.AtomicFunction, hasResult bool) Capabilities {
+	_, isMin := fun.(ir.AtomicMin)
+	_, isMax := fun.(ir.AtomicMax)
+	if (isMin || isMax) && space == ir.SpaceStorage && !hasResult {
+		return CapShaderInt64AtomicMinMax
+	}
+	return CapShaderInt64AtomicAllOps
+}
+
+// atomicNeeds asks for the capability of an atomic operation on a scalar:
+// what checkAtomic checks, without its messages.
+func (v *validator) atomicNeeds(space ir.AddressSpace, scalar ir.ScalarType, fun ir.AtomicFunction, hasResult bool) {
+	switch {
+	case (scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint) && scalar.Width == 8:
+		if !v.capabilities.Contains(CapShaderInt64AtomicAllOps) {
+			v.has(int64AtomicNeed(space, fun, hasResult))
+		}
+	case scalar.Kind == ir.ScalarFloat && scalar.Width == 4:
+		v.has(CapShaderFloat32Atomic)
+	}
 }

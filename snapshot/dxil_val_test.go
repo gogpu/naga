@@ -149,8 +149,11 @@ var dxilKnownFailures = map[string]string{
 	"texture-external/fragment_main":      "P1-DXIL-056",
 	"texture-external/vertex_main":        "P1-DXIL-056",
 
-	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
-	"atomicOps-float32/cs_main": "P2-API-005",
+	// Refused by the capability check (dxil.SupportedCapabilities): DXIL has
+	// no float atomics (atomicOps-float32); the emitter does not set
+	// ForceEarlyDepthStencil yet, so @early_depth_test(force) is refused.
+	"atomicOps-float32/cs_main":   "P2-API-005",
+	"early-depth-test-force/main": "P2-DXIL-100",
 
 	"ray-query/main":                  "P1-DXIL-075",
 	"ray-query-no-init-tracking/main": "P1-DXIL-075",

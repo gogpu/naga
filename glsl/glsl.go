@@ -12,6 +12,7 @@ import (
 	"github.com/gogpu/naga/glsl/internal/codegen"
 	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -284,6 +285,9 @@ func DefaultOptions() Options {
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
 	if options.LangVersion == (Version{}) {
 		options.LangVersion = Version330
+	}
+	if err := unsupported.Capabilities("glsl", module, SupportedCapabilities()); err != nil {
+		return "", TranslationInfo{}, err
 	}
 	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
