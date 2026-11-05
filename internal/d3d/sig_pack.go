@@ -117,11 +117,15 @@ func IntrinsicInput(b ir.BuiltinValue, stage ir.ShaderStage) bool {
 
 // SigElementInfo is the per-member input to PackSignatureElements.
 type SigElementInfo struct {
-	Kind        SigPackKind
-	ColCount    uint8         // 1..4 for single-row, 1 for multi-row scalar arrays (column width per row)
-	Rows        uint8         // 1 for single-row, N for scalar arrays
-	Interp      SigPackInterp // matters only when Kind == SigPackLocation
-	SemanticIdx uint32        // matters only when Kind == SigPackTargetOutput (Register = SemanticIdx)
+	Kind     SigPackKind
+	ColCount uint8         // 1..4 for single-row, 1 for multi-row scalar arrays (column width per row)
+	Rows     uint8         // 1 for single-row, N for scalar arrays
+	Interp   SigPackInterp // matters only when Kind == SigPackLocation
+	// Bits16 marks a native 16-bit element. With native 16-bit types a row
+	// holds elements of one data width: DXC packs 16-bit and 32-bit
+	// elements into separate rows (golden f16-native test_component_access).
+	Bits16      bool
+	SemanticIdx uint32 // matters only when Kind == SigPackTargetOutput (Register = SemanticIdx)
 }
 
 // PackSignatureElements assigns (Register, StartCol) to every entry in elems
@@ -221,6 +225,7 @@ type sigPackerRow struct {
 	register uint32
 	nextCol  uint8
 	interp   SigPackInterp
+	bits16   bool
 }
 
 func (p *sigPacker) packLocation(idx int, e SigElementInfo) PackedElement {
@@ -231,7 +236,7 @@ func (p *sigPacker) packLocation(idx int, e SigElementInfo) PackedElement {
 	// Find the first open row for this interp that has room.
 	for ri := range p.openRows {
 		r := &p.openRows[ri]
-		if r.interp == e.Interp && r.nextCol+cols <= 4 {
+		if r.interp == e.Interp && r.bits16 == e.Bits16 && r.nextCol+cols <= 4 {
 			pe := PackedElement{OrigIdx: idx, Register: r.register, StartCol: r.nextCol, ColCount: cols, Rows: 1}
 			r.nextCol += cols
 			return pe
@@ -242,7 +247,7 @@ func (p *sigPacker) packLocation(idx int, e SigElementInfo) PackedElement {
 	p.nextRow++
 	pe := PackedElement{OrigIdx: idx, Register: reg, StartCol: 0, ColCount: cols, Rows: 1}
 	if cols < 4 {
-		p.openRows = append(p.openRows, sigPackerRow{register: reg, nextCol: cols, interp: e.Interp})
+		p.openRows = append(p.openRows, sigPackerRow{register: reg, nextCol: cols, interp: e.Interp, bits16: e.Bits16})
 	}
 	return pe
 }
@@ -337,6 +342,7 @@ func SigElementInfoForBinding(
 		if interpFn != nil {
 			info.Interp = interpFn(b)
 		}
+		info.Bits16 = scalarWidth(irMod, typeHandle) == 2
 		return info
 	default:
 		info.Kind = SigPackOther
@@ -444,4 +450,19 @@ func componentDimensions(irMod *ir.Module, th ir.TypeHandle) (uint8, uint8) {
 		return 1, n
 	}
 	return 4, 1
+}
+
+// scalarWidth is the byte width of a scalar or vector type's scalar, 0 for
+// anything else.
+func scalarWidth(irMod *ir.Module, th ir.TypeHandle) uint8 {
+	if irMod == nil || int(th) >= len(irMod.Types) {
+		return 0
+	}
+	switch t := irMod.Types[th].Inner.(type) {
+	case ir.ScalarType:
+		return t.Width
+	case ir.VectorType:
+		return t.Scalar.Width
+	}
+	return 0
 }

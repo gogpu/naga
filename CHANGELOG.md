@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: a packed input read in part had no AlwaysReads bits, and 16-bit inputs and outputs were declared 32-bit**
+  (P1-DXIL-095). An input packed at a start column above 0 and read in some of its components got an empty
+  AlwaysReads mask in the input signature (the usage was not shifted to the element's columns), which
+  IDxcValidator rejected; this was not specific to `f16`. `f16` (and 16-bit integer) signature elements were
+  declared as 32-bit in the signatures, PSV0 and `!dx.entryPoints` and packed into rows with 32-bit elements, while
+  the shader loaded and stored them as 16-bit values. They are now native 16-bit elements in rows of their own
+  width, as DXC declares them with `-enable-16bit-types`.
 - **DXIL: shader model 6.6 and later created resource handles with `dx.op.createHandle`** (P1-DXIL-090). The
   validator rejects it from 6.6 ("opcode 'CreateHandle' should only be used in 'Shader model 6.5 and below'"), so
   every pipeline compiled for a device that reports 6.6 or later failed. From 6.6 handles are now created as DXC

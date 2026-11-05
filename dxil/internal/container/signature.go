@@ -54,6 +54,13 @@ const (
 	CompTypeUint32  ProgSigCompType = 1
 	CompTypeSint32  ProgSigCompType = 2
 	CompTypeFloat32 ProgSigCompType = 3
+	// Native 16-bit and 64-bit types (DXC DxilProgramSigCompType).
+	CompTypeUint16  ProgSigCompType = 4
+	CompTypeSint16  ProgSigCompType = 5
+	CompTypeFloat16 ProgSigCompType = 6
+	CompTypeUint64  ProgSigCompType = 7
+	CompTypeSint64  ProgSigCompType = 8
+	CompTypeFloat64 ProgSigCompType = 9
 )
 
 // SignatureElement describes one element of an input or output signature.
