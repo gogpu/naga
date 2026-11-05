@@ -64,24 +64,47 @@ func InlineUserFunctions(module *ir.Module, shouldInline func(callee *ir.Functio
 	// Phase 1: inline inside each non-entry-point function, bottom-up.
 	// After this loop, every Functions[i] that is reachable has no
 	// StmtCall to a callee that passes the shouldInline policy.
+	p := &inlinePass{shouldInline: shouldInline, made: make(map[ir.FunctionHandle]localSet)}
 	for _, fh := range order {
 		if int(fh) >= len(module.Functions) {
 			continue
 		}
-		if err := inlineCallsInFunction(module, &module.Functions[fh], shouldInline); err != nil {
+		p.current = make(localSet)
+		if err := inlineCallsInFunction(module, &module.Functions[fh], p); err != nil {
 			return fmt.Errorf("inline in %q: %w", module.Functions[fh].Name, err)
 		}
+		p.made[fh] = p.current
 	}
 
 	// Phase 2: inline inside each entry point.
 	for i := range module.EntryPoints {
 		ep := &module.EntryPoints[i]
-		if err := inlineCallsInFunction(module, &ep.Function, shouldInline); err != nil {
+		p.current = make(localSet)
+		if err := inlineCallsInFunction(module, &ep.Function, p); err != nil {
 			return fmt.Errorf("inline in entry point %q: %w", ep.Name, err)
 		}
 	}
 
 	return nil
+}
+
+// localSet is a set of a function's local variables.
+type localSet map[ir.LocalVariableHandle]bool
+
+// inlinePass is the state of one InlineUserFunctions run.
+type inlinePass struct {
+	shouldInline func(*ir.Function) bool
+
+	// made holds, for each module function already processed, the locals
+	// the inliner itself added to it: return slots, "returned" flags and
+	// argument spills, also those it brought in with an inlined callee.
+	// Every run of the inlined code writes each of them before it reads it
+	// (the return slot on every return path, the flag cleared at the start,
+	// the spill at the call), so inlining that function again needs no
+	// initializer store for them: one would only keep them in memory.
+	made map[ir.FunctionHandle]localSet
+	// current collects those locals for the function being processed.
+	current localSet
 }
 
 // topologicalCallOrder returns Functions[] handles in bottom-up order
@@ -157,8 +180,8 @@ func collectCalleeHandles(stmts ir.Block) []ir.FunctionHandle {
 // to a user helper with the expanded body of the callee. The caller's
 // Expressions, LocalVars, and NamedExpressions are grown to hold the
 // inlined content with properly remapped handles.
-func inlineCallsInFunction(module *ir.Module, caller *ir.Function, shouldInline func(*ir.Function) bool) error {
-	newBody, changed, err := inlineBlock(module, caller, caller.Body, shouldInline)
+func inlineCallsInFunction(module *ir.Module, caller *ir.Function, p *inlinePass) error {
+	newBody, changed, err := inlineBlock(module, caller, caller.Body, p)
 	if err != nil {
 		return err
 	}
@@ -171,7 +194,7 @@ func inlineCallsInFunction(module *ir.Module, caller *ir.Function, shouldInline 
 // inlineBlock walks a statement block and returns a new block with any
 // StmtCall expanded. The `changed` flag is true iff at least one
 // substitution happened.
-func inlineBlock(module *ir.Module, caller *ir.Function, block ir.Block, shouldInline func(*ir.Function) bool) (ir.Block, bool, error) {
+func inlineBlock(module *ir.Module, caller *ir.Function, block ir.Block, p *inlinePass) (ir.Block, bool, error) {
 	out := make(ir.Block, 0, len(block))
 	changed := false
 	for _, stmt := range block {
@@ -179,9 +202,9 @@ func inlineBlock(module *ir.Module, caller *ir.Function, block ir.Block, shouldI
 		var err error
 		switch sk := stmt.Kind.(type) {
 		case ir.StmtCall:
-			out, stmtChanged, err = inlineCall(module, caller, out, stmt, sk, shouldInline)
+			out, stmtChanged, err = inlineCall(module, caller, out, stmt, sk, p)
 		case ir.StmtBlock, ir.StmtIf, ir.StmtLoop, ir.StmtSwitch:
-			stmt, stmtChanged, err = inlineNested(module, caller, stmt, shouldInline)
+			stmt, stmtChanged, err = inlineNested(module, caller, stmt, p)
 			out = append(out, stmt)
 		default:
 			out = append(out, stmt)
@@ -196,15 +219,15 @@ func inlineBlock(module *ir.Module, caller *ir.Function, block ir.Block, shouldI
 
 // inlineCall appends to out the expansion of call, or stmt itself when its
 // callee is not a module function or the policy keeps the call.
-func inlineCall(module *ir.Module, caller *ir.Function, out ir.Block, stmt ir.Statement, call ir.StmtCall, shouldInline func(*ir.Function) bool) (ir.Block, bool, error) {
+func inlineCall(module *ir.Module, caller *ir.Function, out ir.Block, stmt ir.Statement, call ir.StmtCall, p *inlinePass) (ir.Block, bool, error) {
 	if int(call.Function) >= len(module.Functions) {
 		return append(out, stmt), false, nil
 	}
 	callee := &module.Functions[call.Function]
-	if !shouldInline(callee) {
+	if !p.shouldInline(callee) {
 		return append(out, stmt), false, nil
 	}
-	inlined, err := inlineOneCall(module, caller, call, callee)
+	inlined, err := inlineOneCall(module, caller, call, callee, p)
 	if err != nil {
 		return nil, false, err
 	}
@@ -213,8 +236,8 @@ func inlineCall(module *ir.Module, caller *ir.Function, out ir.Block, stmt ir.St
 
 // inlineNested inlines the calls in the blocks of a block, if, loop or
 // switch statement; it returns stmt itself when none changed.
-func inlineNested(module *ir.Module, caller *ir.Function, stmt ir.Statement, shouldInline func(*ir.Function) bool) (ir.Statement, bool, error) {
-	block := func(b ir.Block) (ir.Block, bool, error) { return inlineBlock(module, caller, b, shouldInline) }
+func inlineNested(module *ir.Module, caller *ir.Function, stmt ir.Statement, p *inlinePass) (ir.Statement, bool, error) {
+	block := func(b ir.Block) (ir.Block, bool, error) { return inlineBlock(module, caller, b, p) }
 	switch sk := stmt.Kind.(type) {
 	case ir.StmtBlock:
 		newInner, changed, err := block(sk.Block)
@@ -276,7 +299,7 @@ func inlineNested(module *ir.Module, caller *ir.Function, stmt ir.Statement, sho
 // Phase 1 restriction: assumes the callee's top-level body ends with a
 // single StmtReturn (or is void) and contains no StmtCall (guaranteed by
 // topological processing — we inline callees before callers).
-func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, callee *ir.Function) ([]ir.Statement, error) {
+func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, callee *ir.Function, p *inlinePass) ([]ir.Statement, error) {
 	// The statements put in place of the call start with one StmtStore per
 	// spilled argument, materializing the caller-side value into a
 	// freshly-allocated local so the inlined body reads the arg via ExprLoad
@@ -321,7 +344,8 @@ func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, cal
 		return nil, err
 	}
 	remapCalleeLocalInits(caller, callee, localOffset, exprRefs)
-	localInits := initCalleeLocals(module, caller, callee, localOffset)
+	calleeMade := p.made[call.Function]
+	localInits := initCalleeLocals(module, caller, callee, localOffset, calleeMade)
 
 	// 6. Copy callee's NamedExpressions into caller with remapped handles.
 	copyNamedExpressions(caller, callee, calleeExprMap)
@@ -355,6 +379,17 @@ func inlineOneCall(module *ir.Module, caller *ir.Function, call ir.StmtCall, cal
 
 	// 10. Wire the caller's ExprCallResult to load from the return slot.
 	inlinedBody = wireCallResult(caller, call, retLoadExpr, inlinedBody)
+
+	// 11. Record the locals the inliner made for this call: those the
+	// callee brought in that it had made itself, and every local appended
+	// after the callee's own (argument spills, the return slot, the flag).
+	for v := range calleeMade {
+		p.current[localOffset+v] = true
+	}
+	first := int(localOffset) + len(callee.LocalVars)
+	for v := first; v < len(caller.LocalVars); v++ {
+		p.current[ir.LocalVariableHandle(ArenaIndex(v))] = true
+	}
 
 	return append(prefixStmts, inlinedBody...), nil
 }
@@ -394,12 +429,17 @@ func appendCalleeLocals(caller, callee *ir.Function) ir.LocalVariableHandle {
 // query have no value to store. A local without an initializer that the
 // callee's straight-line start stores before it reads it (the lowerer's
 // store of a run-time initializer at the declaration) needs no zero store:
-// it would only cost an alloca.
-func initCalleeLocals(module *ir.Module, caller, callee *ir.Function, localOffset ir.LocalVariableHandle) []ir.Statement {
+// it would only cost an alloca. Nor do the locals the inliner made in the
+// callee (made: return slots, "returned" flags, argument spills), which every
+// run of the inlined body writes before it reads them.
+func initCalleeLocals(module *ir.Module, caller, callee *ir.Function, localOffset ir.LocalVariableHandle, made localSet) []ir.Statement {
 	storedFirst := storedBeforeRead(callee)
 	written := writtenLocals(callee)
 	stmts := make([]ir.Statement, 0, len(callee.LocalVars))
 	for i := range callee.LocalVars {
+		if made[ir.LocalVariableHandle(ArenaIndex(i))] {
+			continue
+		}
 		h := localOffset + ir.LocalVariableHandle(ArenaIndex(i))
 		lv := &caller.LocalVars[h]
 		switch module.Types[lv.Type].Inner.(type) {

@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: a helper called in a loop kept its struct, array and matrix locals from the previous call** (P0-DXIL-091).
   `var arr = array(5u, 6u); arr[1] += x; return arr[1];` returned 6, 7, 9 instead of 6, 7, 8. Every call now starts
   such a local afresh, as WGSL requires; a local the helper never writes keeps its initializer.
+- **DXIL: nested helpers cost extra allocas since v0.21.1** (P2-DXIL-088). The inliner stored a dead initial value into
+  its own return slots, flags and argument spills when it inlined an already-inlined helper, which kept them out of
+  mem2reg. gg's coarse shader is back from 139 to 74 allocas at SM 6.2.
 
 ## [0.21.2] - 2026-11-03
 
