@@ -34,17 +34,20 @@ func TestDxcGoldenProfile(t *testing.T) {
 	profiles := []struct {
 		stage      ir.ShaderStage
 		sixteenBit bool
+		need       uint8
 		want       string
 	}{
-		{ir.StageVertex, false, "vs_6_0"},
-		{ir.StageFragment, true, "ps_6_2"},
-		{ir.StageCompute, true, "cs_6_2"},
-		{ir.StageMesh, true, "ms_6_5"},
-		{ir.StageTask, false, "as_6_5"},
+		{ir.StageVertex, false, 0, "vs_6_0"},
+		{ir.StageFragment, true, 0, "ps_6_2"},
+		{ir.StageCompute, true, 0, "cs_6_2"},
+		{ir.StageCompute, false, 6, "cs_6_6"}, // 64-bit atomics: createHandleFromBinding on both sides
+		{ir.StageCompute, true, 6, "cs_6_6"},
+		{ir.StageMesh, true, 0, "ms_6_5"},
+		{ir.StageTask, false, 0, "as_6_5"},
 	}
 	for _, p := range profiles {
-		if got := stageDxcProfile(p.stage, p.sixteenBit); got != p.want {
-			t.Errorf("stageDxcProfile(%v, %v) = %q, want %q", p.stage, p.sixteenBit, got, p.want)
+		if got := stageDxcProfile(p.stage, p.sixteenBit, p.need); got != p.want {
+			t.Errorf("stageDxcProfile(%v, %v, %d) = %q, want %q", p.stage, p.sixteenBit, p.need, got, p.want)
 		}
 	}
 }

@@ -136,14 +136,6 @@ var dxilKnownFailures = map[string]string{
 	"texture-external/fragment_main":                   "P1-DXIL-056",
 	"texture-external/vertex_main":                     "P1-DXIL-056",
 
-	// dx.op.createHandle at SM 6.6, where the validator wants
-	// createHandleFromBinding.
-	"atomicCompareExchange-int64/test_atomic_compare_exchange_i64": "P1-DXIL-090",
-	"atomicCompareExchange-int64/test_atomic_compare_exchange_u64": "P1-DXIL-090",
-	"atomicOps-int64/cs_main":                                      "P1-DXIL-090",
-	"atomicOps-int64-min-max/cs_main":                              "P1-DXIL-090",
-	"atomicTexture-int64/cs_main":                                  "P1-DXIL-090",
-
 	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
 	"atomicOps-float32/cs_main": "P2-API-005",
 
@@ -360,12 +352,24 @@ func TestDxilValGGProduction(t *testing.T) {
 					fail("validate: " + verr.Error())
 					continue
 				}
+				// From SM 6.6 the handles are createHandleFromBinding +
+				// annotateHandle (P1-DXIL-090), which wgpu gets on a device
+				// that reports 6.6.
+				sm66 := epOpts
+				sm66.ShaderModel = backend.ShaderModel{Major: 6, Minor: 6}
+				if blob66, cerr := dxilAtNeededModel(module, sm66); cerr != nil {
+					fail("compile at SM 6.6: " + cerr.Error())
+					continue
+				} else if verr := dxil.Validate(blob66, dxil.ValidateFull); verr != nil {
+					fail("validate at SM 6.6: " + verr.Error())
+					continue
+				}
 				passCount++
 			}
 		}
 	}
 
-	t.Logf("gg production DXIL (IDxcValidator): %d entry points, %d valid, %d known failures, %d new failures",
+	t.Logf("gg production DXIL (IDxcValidator, at the needed model and at SM 6.6): %d entry points, %d valid, %d known failures, %d new failures",
 		totalEPs, passCount, len(known.seen), len(failures))
 	known.checkFixed(t)
 	for _, f := range failures {

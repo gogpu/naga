@@ -25,6 +25,7 @@ package snapshot_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -206,25 +207,42 @@ func stageShortName(s ir.ShaderStage) string {
 
 // stageDxcProfile is the -T profile the golden of a stage is compiled with:
 // SM 6.0, SM 6.2 for a module with 16-bit types (the lowest model that has
-// them), SM 6.5 for mesh and task shaders.
-func stageDxcProfile(s ir.ShaderStage, sixteenBit bool) string {
-	minor := "0"
+// them), SM 6.5 for mesh and task shaders, and no lower than needMinor, the
+// model dxil.Compile needs for the entry point (dxilAtNeededModel compiles
+// ours there): the two sides are compared at the same shader model, which
+// decides instructions such as createHandle versus createHandleFromBinding.
+func stageDxcProfile(s ir.ShaderStage, sixteenBit bool, needMinor uint8) string {
+	minor := uint8(0)
 	if sixteenBit {
-		minor = "2"
+		minor = 2
 	}
-	switch s {
-	case ir.StageVertex:
-		return "vs_6_" + minor
-	case ir.StageFragment:
-		return "ps_6_" + minor
-	case ir.StageCompute:
-		return "cs_6_" + minor
-	case ir.StageMesh:
-		return "ms_6_5"
-	case ir.StageTask:
-		return "as_6_5"
+	if s == ir.StageMesh || s == ir.StageTask {
+		minor = 5
 	}
-	return ""
+	minor = max(minor, needMinor)
+	prefix := map[ir.ShaderStage]string{
+		ir.StageVertex: "vs", ir.StageFragment: "ps", ir.StageCompute: "cs",
+		ir.StageMesh: "ms", ir.StageTask: "as",
+	}[s]
+	if prefix == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s_6_%d", prefix, minor)
+}
+
+// dxilNeededMinor is the shader model minor dxil.Compile asks for when the
+// entry point needs more than the default model, or 0.
+func dxilNeededMinor(mod *ir.Module, ep ir.EntryPoint) uint8 {
+	opts := dxil.DefaultOptions()
+	opts.FakeMissingBindings = true
+	opts.ImmediatesTarget = &dxil.BindTarget{}
+	opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
+	_, _, err := dxil.Compile(mod, opts)
+	var vErr *backend.VersionError
+	if errors.As(err, &vErr) && vErr.Space == backend.VersionShaderModel {
+		return vErr.Required.Minor
+	}
+	return 0
 }
 
 // uses16BitTypes reports whether the module has a 16-bit scalar, vector or
@@ -281,7 +299,7 @@ func writeDxcGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile str
 	// -HV 2018 as wgpu-hal (dx12/shader_compilation.rs): naga writes HLSL 2018,
 	// e.g. a vector ?: for select(), which HLSL 2021 rejects.
 	sixteenBit := uses16BitTypes(mod)
-	args := []string{"-T", stageDxcProfile(ep.Stage, sixteenBit), "-E", ep.Name, "-HV", "2018"}
+	args := []string{"-T", stageDxcProfile(ep.Stage, sixteenBit, dxilNeededMinor(mod, ep)), "-E", ep.Name, "-HV", "2018"}
 	if sixteenBit {
 		args = append(args, "-enable-16bit-types")
 	}

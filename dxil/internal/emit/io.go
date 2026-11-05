@@ -572,17 +572,7 @@ func (e *Emitter) getOrCreateNumWorkGroupsCBV() int {
 	e.resources = append(e.resources, res)
 
 	// Create a static handle for this CBV.
-	handleTy := e.getDxHandleType()
-	createFn := e.getDxOpCreateHandleFunc()
-
-	opcodeVal := e.getIntConstID(int64(OpCreateHandle))
-	classVal := e.getI8ConstID(int64(resourceClassCBV))
-	rangeIDVal := e.getIntConstID(int64(res.rangeID))
-	indexVal := e.getIntConstID(int64(res.binding))
-	nonUniformVal := e.getI1ConstID(0)
-
-	handleID := e.addCallInstr(createFn, handleTy,
-		[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
+	handleID := e.emitCreateHandleLegacy(&e.resources[len(e.resources)-1])
 
 	e.numWGHandleID = handleID
 	return handleID
