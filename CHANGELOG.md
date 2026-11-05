@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: the PSV0 ViewID dependency table had the wrong stride where signature elements share a row**
+  (P1-DXIL-089). The table was sized by the number of signature elements instead of the packed rows the PSV0 header
+  gives (DXC's `NumVectorsUsed`), so a vertex shader with more than eight outputs packed into fewer rows wrote two mask
+  dwords per input where the reader takes one, and a fragment shader with packed inputs wrote a table longer than the
+  header's. IDxcValidator, which D3D12 runs at pipeline creation, rejected such shaders with 0x80aa0013 ("ViewIDState
+  mismatch between PSV0 and the DXIL module"); gg's `sdf_render` vertex shader was one. The table now follows the
+  header's row counts.
 - **`dxilval --wgsl` dropped the entry points it could not compile without a word** (P1-TEST-007). It validated the
   rest and could exit 0, and `--corpus` counted a shader whose entry points all failed as having none. Each such entry
   point is now printed with its compile error (`CS/compute1: COMPILE_ERROR …`), `--wgsl` and `--dump` exit 1 when one
