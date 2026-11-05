@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The vector type now comes from the type of the splatted value, as in Rust naga, through the types of the module's
   global expressions. An expression that cannot be a constant, and a global expression handle out of range, are now
   errors instead of an empty `{}` initializer.
+- **GLSL: a module-scope splat took a `vec` (float) type unless its value was an i32, u32 or bool literal.** A splat
+  of an i32 constant was written `vec3(7)` and an f64 splat `vec3(1.0LF)`. The vector type now comes from the
+  splatted value's type, as in MSL above. An expression that cannot be a constant and a handle out of range are errors
+  instead of the literal `0`.
 
 ## [0.21.2] - 2026-11-03
 

@@ -274,15 +274,11 @@ func TestCoverage_WriteConstExprCompose(t *testing.T) {
 		t.Errorf("writeConstExpr(Compose) = %q, want %q", result, want)
 	}
 
-	// A component out of range is written as 0.
+	// A component out of range is an error; it was written as 0.
 	module.GlobalExpressions = append(module.GlobalExpressions,
 		ir.Expression{Kind: ir.ExprCompose{Type: 0, Components: []ir.ExpressionHandle{99}}})
-	result, err = w.writeConstExpr(ir.ExpressionHandle(len(module.GlobalExpressions) - 1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "vec3(0)"; result != want {
-		t.Errorf("writeConstExpr with OOB component = %q, want %q", result, want)
+	if result, err = w.writeConstExpr(ir.ExpressionHandle(len(module.GlobalExpressions) - 1)); err == nil {
+		t.Errorf("writeConstExpr with OOB component = %q, want an error", result)
 	}
 }
 
