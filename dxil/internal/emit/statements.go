@@ -4431,20 +4431,6 @@ func (e *Emitter) emitWaveGetLaneIndex() int {
 	return e.addCallInstr(fn, i32Ty, []int{opcodeVal})
 }
 
-// emitCastInstr emits an LLVM cast instruction.
-func (e *Emitter) emitCastInstr(destTy *module.Type, castOp CastOpKind, srcID int) int {
-	valueID := e.allocValue()
-	instr := &module.Instruction{
-		Kind:       module.InstrCast,
-		HasValue:   true,
-		ResultType: destTy,
-		Operands:   []int{srcID, int(castOp), destTy.ID},
-		ValueID:    valueID,
-	}
-	e.currentBB.AddInstruction(instr)
-	return valueID
-}
-
 // getBoolConstID returns the value ID for an i1 boolean constant.
 func (e *Emitter) getBoolConstID(val bool) int {
 	v := int64(0)

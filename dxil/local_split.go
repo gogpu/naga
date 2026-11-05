@@ -78,7 +78,8 @@ func splitLocalVariables(m *ir.Module, fn *ir.Function) error {
 	if err != nil {
 		return fmt.Errorf("dxil: local variables: %w", err)
 	}
-	fn.Body = append(inits, body...)
+	inits = append(inits, body...)
+	fn.Body = inits
 
 	// A load no Emit covers is evaluated where it is used: it reads the
 	// pieces there too.
@@ -222,69 +223,13 @@ func localSplitCandidates(m *ir.Module, fn *ir.Function) []ir.LocalVariableHandl
 	cand := make(map[ir.LocalVariableHandle]bool)
 	for i, lv := range fn.LocalVars {
 		if splitLocalType(m, lv.Type) && (lv.Init == nil || constInit(fn, *lv.Init)) {
-			cand[ir.LocalVariableHandle(i)] = true //nolint:gosec // local count fits uint32 by IR design
+			cand[ir.LocalVariableHandle(i)] = true
 		}
 	}
 	if len(cand) == 0 {
 		return nil
 	}
-	root := func(h ir.ExpressionHandle) (ir.LocalVariableHandle, bool) {
-		for {
-			switch k := fn.Expressions[h].Kind.(type) {
-			case ir.ExprLocalVariable:
-				return k.Variable, cand[k.Variable]
-			case ir.ExprAccess:
-				h = k.Base
-			case ir.ExprAccessIndex:
-				h = k.Base
-			default:
-				return 0, false
-			}
-		}
-	}
-	// Every operand that is a pointer into a candidate must be the base of
-	// an access or the pointer of a load.
-	for _, expr := range fn.Expressions {
-		irutil.ExprHandles(expr.Kind, func(sub ir.ExpressionHandle) {
-			lv, ok := root(sub)
-			if !ok {
-				return
-			}
-			switch k := expr.Kind.(type) {
-			case ir.ExprAccess:
-				if k.Base == sub {
-					return
-				}
-			case ir.ExprAccessIndex:
-				return
-			case ir.ExprLoad:
-				return
-			}
-			delete(cand, lv)
-		})
-	}
-	// And of a statement, only the pointer of a store.
-	var walk func(b ir.Block)
-	walk = func(b ir.Block) {
-		for _, st := range b {
-			switch k := st.Kind.(type) {
-			case ir.StmtEmit:
-				continue
-			case ir.StmtStore:
-				if lv, ok := root(k.Value); ok {
-					delete(cand, lv)
-				}
-				continue
-			}
-			irutil.StmtExprHandles(st.Kind, func(h ir.ExpressionHandle) {
-				if lv, ok := root(h); ok {
-					delete(cand, lv)
-				}
-			})
-			irutil.NestedBlocks(st.Kind, walk)
-		}
-	}
-	walk(fn.Body)
+	dropMisusedLocals(fn, cand)
 
 	out := make([]ir.LocalVariableHandle, 0, len(cand))
 	for h := range cand {
@@ -292,6 +237,69 @@ func localSplitCandidates(m *ir.Module, fn *ir.Function) []ir.LocalVariableHandl
 	}
 	slices.Sort(out)
 	return out
+}
+
+// localRoot returns the candidate of cand that pointer h points into,
+// following its run of accesses.
+func localRoot(fn *ir.Function, cand map[ir.LocalVariableHandle]bool, h ir.ExpressionHandle) (ir.LocalVariableHandle, bool) {
+	for {
+		switch k := fn.Expressions[h].Kind.(type) {
+		case ir.ExprLocalVariable:
+			return k.Variable, cand[k.Variable]
+		case ir.ExprAccess:
+			h = k.Base
+		case ir.ExprAccessIndex:
+			h = k.Base
+		default:
+			return 0, false
+		}
+	}
+}
+
+// dropMisusedLocals removes from cand the locals a pointer of which is used
+// other than as the base of an access, the pointer of a load or the pointer
+// of a store.
+func dropMisusedLocals(fn *ir.Function, cand map[ir.LocalVariableHandle]bool) {
+	for _, expr := range fn.Expressions {
+		irutil.ExprHandles(expr.Kind, func(sub ir.ExpressionHandle) {
+			if lv, ok := localRoot(fn, cand, sub); ok && !pointerUseAllowed(expr.Kind, sub) {
+				delete(cand, lv)
+			}
+		})
+	}
+	var walk func(b ir.Block)
+	walk = func(b ir.Block) {
+		for _, st := range b {
+			switch k := st.Kind.(type) {
+			case ir.StmtEmit:
+				continue
+			case ir.StmtStore:
+				if lv, ok := localRoot(fn, cand, k.Value); ok {
+					delete(cand, lv)
+				}
+				continue
+			}
+			irutil.StmtExprHandles(st.Kind, func(h ir.ExpressionHandle) {
+				if lv, ok := localRoot(fn, cand, h); ok {
+					delete(cand, lv)
+				}
+			})
+			irutil.NestedBlocks(st.Kind, walk)
+		}
+	}
+	walk(fn.Body)
+}
+
+// pointerUseAllowed reports whether an expression of kind may take pointer
+// sub as an operand: as the base of an access or the pointer of a load.
+func pointerUseAllowed(kind ir.ExpressionKind, sub ir.ExpressionHandle) bool {
+	switch k := kind.(type) {
+	case ir.ExprAccess:
+		return k.Base == sub
+	case ir.ExprAccessIndex, ir.ExprLoad:
+		return true
+	}
+	return false
 }
 
 // splitLocalType reports whether a local of type ty is split: an aggregate
