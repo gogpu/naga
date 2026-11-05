@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
@@ -1774,99 +1775,33 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 	return flags
 }
 
-// moduleUsesWaveOps reports whether the current entry point (or any
-// reachable function) references a wave/subgroup/quad intrinsic or
-// consumes a subgroup builtin. Used to set the WaveOps shader flag.
-//
-// The detection is IR-level so it stays in sync with the emit path that
-// lowers these constructs to dx.op.wave*/dx.op.quad* calls.
+// moduleUsesWaveOps reports whether the emitted module calls a wave or quad
+// dx.op. DXC sets the WaveOps flag from the calls themselves
+// (DxilShaderFlags.cpp, OP::IsDxilOpWave: WaveIsFirstLane..QuadOp,
+// WaveAllBitCount, WavePrefixBitCount, WaveMatch, WaveMultiPrefix*,
+// QuadVote), whose functions are all named dx.op.wave* or dx.op.quad*. A
+// subgroup built-in the body never reads emits no call, and subgroupBarrier
+// is a plain dx.op.barrier, so neither sets the flag.
 func (e *Emitter) moduleUsesWaveOps() bool {
-	if e.currentEntryPoint == nil {
-		return false
-	}
-	ep := e.currentEntryPoint
-
-	// Subgroup builtin arguments (flat).
-	for i := range ep.Function.Arguments {
-		arg := &ep.Function.Arguments[i]
-		if arg.Binding == nil {
+	for _, fn := range e.mod.Functions {
+		if fn.IsDeclaration {
 			continue
 		}
-		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && isSubgroupBuiltin(bb.Builtin) {
-			return true
-		}
-	}
-	// Subgroup builtin arguments carried via struct members.
-	for i := range ep.Function.Arguments {
-		arg := &ep.Function.Arguments[i]
-		argTy := e.ir.Types[arg.Type]
-		st, isSt := argTy.Inner.(ir.StructType)
-		if !isSt {
-			continue
-		}
-		for memberIdx := range st.Members {
-			m := &st.Members[memberIdx]
-			if m.Binding == nil {
-				continue
-			}
-			if bb, ok := (*m.Binding).(ir.BuiltinBinding); ok && isSubgroupBuiltin(bb.Builtin) {
-				return true
-			}
-		}
-	}
-	// Subgroup statements (barrier/ballot/collective/gather) in function body.
-	if containsSubgroupStmt(ep.Function.Body) {
-		return true
-	}
-	return false
-}
-
-// isSubgroupBuiltin reports whether b is a WGSL subgroup builtin that
-// lowers to a wave intrinsic.
-func isSubgroupBuiltin(b ir.BuiltinValue) bool {
-	switch b {
-	case ir.BuiltinSubgroupInvocationID,
-		ir.BuiltinSubgroupSize,
-		ir.BuiltinSubgroupID,
-		ir.BuiltinNumSubgroups:
-		return true
-	}
-	return false
-}
-
-// containsSubgroupStmt walks a statement block looking for any
-// subgroup/quad statement. Recurses into block-structured statements.
-func containsSubgroupStmt(body ir.Block) bool {
-	for i := range body {
-		s := &body[i]
-		switch k := s.Kind.(type) {
-		case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
-			return true
-		case ir.StmtControlBarrier:
-			if k.Flags&ir.BarrierSubGroup != 0 {
-				return true
-			}
-		case ir.StmtBlock:
-			if containsSubgroupStmt(k.Block) {
-				return true
-			}
-		case ir.StmtIf:
-			if containsSubgroupStmt(k.Accept) || containsSubgroupStmt(k.Reject) {
-				return true
-			}
-		case ir.StmtLoop:
-			if containsSubgroupStmt(k.Body) || containsSubgroupStmt(k.Continuing) {
-				return true
-			}
-		case ir.StmtSwitch:
-			for ci := range k.Cases {
-				if containsSubgroupStmt(k.Cases[ci].Body) {
+		for _, bb := range fn.BasicBlocks {
+			for _, instr := range bb.Instructions {
+				if instr.Kind == module.InstrCall && instr.CalledFunc != nil && isWaveOpFunc(instr.CalledFunc.Name) {
 					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+// isWaveOpFunc reports whether a dx.op function name is a wave or quad
+// operation.
+func isWaveOpFunc(name string) bool {
+	return strings.HasPrefix(name, "dx.op.wave") || strings.HasPrefix(name, "dx.op.quad")
 }
 
 // moduleUsesInt64GroupSharedAtomic reports whether any reachable workgroup

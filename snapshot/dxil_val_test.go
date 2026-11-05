@@ -160,10 +160,8 @@ var dxilKnownFailures = map[string]string{
 	"f16-native/test_component_access":   "P1-DXIL-095",
 	"f16-polyfill/test_component_access": "P1-DXIL-095",
 
-	// Shader flags: TypedUAVLoadAdditionalFormats missing; WaveOps set for an
-	// unused subgroup built-in.
-	"image/main":            "P1-DXIL-096",
-	"subgroup-barrier/main": "P1-DXIL-086",
+	// Shader flags: TypedUAVLoadAdditionalFormats missing.
+	"image/main": "P1-DXIL-096",
 
 	"int64/main":                      "P1-DXIL-080",
 	"ray-query/main":                  "P1-DXIL-075",

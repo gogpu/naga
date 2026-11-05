@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: the WaveOps shader flag was set for subgroup built-ins and barriers that emit no wave operation**
+  (P1-DXIL-086). The flag came from the declared subgroup built-ins and subgroup statements, so an unread
+  `@builtin(subgroup_size)` or a `subgroupBarrier()` (a plain `dx.op.barrier`) declared WaveOps, and IDxcValidator
+  rejected the shader with "Flags must match usage". It is now set from the emitted wave and quad `dx.op` calls, as
+  DXC derives it.
 - **DXIL: fragment system-value inputs had no interpolation mode, and unallocated system values broke the container**
   (P1-DXIL-083). `@builtin(primitive_index)`, `front_facing` and `sample_index` were declared with interpolation mode
   Undefined; DXC gives every non-float pixel input `nointerpolation`, and Intel's driver read a wrong primitive index
