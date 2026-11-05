@@ -73,6 +73,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sample_mask` or `sample_index` were rejected by IDxcValidator: PSV0 wrote StartRow 0xFF for these unallocated
   elements where DXC writes 0, OSG1 named the coverage output `SV_Unknown6` instead of `SV_Coverage`, and the
   signature string table followed the sorted records instead of the module's element order.
+- **DXIL: 64-bit shifts, negation and integer `abs` gave modules the validator could not read** (P1-DXIL-080). An
+  LLVM shift takes both operands in the shifted type, but a WGSL shift amount is a `u32`: `u64 << 3u`, `i64 >> n` and
+  `-i64(x)` put an i32 next to an i64 ("Invalid record"), as did `sign`, `~x`, `x * 2^N`, `x % 2^N` and `x - C` on
+  64-bit values. The amount is now widened and masked with width − 1, as DXC does, which also gives the WGSL result
+  for a run-time amount at or past the bit width (LLVM leaves that shift undefined); vector shifts, which were refused
+  at any width, are emitted per component; integer `abs` went to FAbs, which has float overloads only, and is now
+  `IMax(x, 0 - x)` (unsigned: `x`). The Rust `int64` shader validates.
 - **DXIL: the PSV0 ViewID dependency table had the wrong stride where signature elements share a row**
   (P1-DXIL-089). The table was sized by the number of signature elements instead of the packed rows the PSV0 header
   gives (DXC's `NumVectorsUsed`), so a vertex shader with more than eight outputs packed into fewer rows wrote two mask

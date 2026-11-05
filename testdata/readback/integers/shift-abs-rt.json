@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "run-time shift amounts at or past the bit width (taken modulo 32), vector shifts and i32 abs: 8, 8, 0x10000000, 3, -4, 7, INT_MIN, 0x8000000C; words 8 and 9 not written (P1-DXIL-080: unmasked LLVM shifts, vector shifts refused, FAbs on integers)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [3, 35, "0x80000001", "0xFFFFFFF9"]},
+    {"binding": 1, "kind": "storage-rw", "len": 10, "fill": "0xDEADBEEF",
+     "expect": [[8, 8, "0x10000000", 3, "0xFFFFFFFC", 7, "0x80000000", "0x8000000C", "fill", "fill"]]}
+  ]
+}

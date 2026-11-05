@@ -1306,7 +1306,34 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		}
 	}
 
+	if op, ok := shiftOpcode(bin.Op, isSigned); ok {
+		if id, folded := e.tryFoldBinOp(bin.Op, lhs, rhs, false); folded {
+			return id, nil
+		}
+		return e.emitShift(resultTy, op, lhs, rhs, intWidthBits(rightType)), nil
+	}
 	return e.emitScalarBinaryOp(bin.Op, resultTy, lhs, rhs, isFloat, isSigned)
+}
+
+// shiftOpcode is the LLVM opcode of a WGSL shift: shl, or ashr / lshr by the
+// signedness of the shifted value. ok is false for any other operator.
+func shiftOpcode(op ir.BinaryOperator, isSigned bool) (BinOpKind, bool) {
+	switch op {
+	case ir.BinaryShiftLeft:
+		return BinOpShl, true
+	case ir.BinaryShiftRight:
+		return selectBinOp(isSigned, BinOpAShr, BinOpLShr), true
+	}
+	return 0, false
+}
+
+// intWidthBits is the bit width of the scalar of the integer type inner, 32
+// when it has none.
+func intWidthBits(inner ir.TypeInner) uint {
+	if s, ok := scalarOfType(inner); ok && s.Width != 0 {
+		return uint(s.Width) * 8
+	}
+	return 32
 }
 
 // emitBinaryOperands evaluates both operands of a binary expression. DXC's LLVM
@@ -1384,10 +1411,6 @@ func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type
 		return e.addBinOpInstr(resultTy, BinOpXor, lhs, rhs), nil
 	case ir.BinaryInclusiveOr:
 		return e.addBinOpInstr(resultTy, BinOpOr, lhs, rhs), nil
-	case ir.BinaryShiftLeft:
-		return e.addBinOpInstr(resultTy, BinOpShl, lhs, rhs), nil
-	case ir.BinaryShiftRight:
-		return e.addBinOpInstr(resultTy, selectBinOp(isSigned, BinOpAShr, BinOpLShr), lhs, rhs), nil
 	case ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess,
 		ir.BinaryLessEqual, ir.BinaryGreater, ir.BinaryGreaterEqual:
 		return e.emitComparison(op, lhs, rhs, isFloat, isSigned)
@@ -1502,7 +1525,7 @@ func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
 	if v&(v-1) != 0 {
 		return 0, false
 	}
-	return e.getIntConstID(v - 1), true
+	return e.intConstOfType(c.ConstType, v-1), true
 }
 
 // addMulOrShlInstr emits either a shl (if rhsConst is a power of 2) or a mul
@@ -1543,7 +1566,7 @@ func (e *Emitter) tryMulToShl(valueID int) (int, bool) {
 		tmp >>= 1
 		shift++
 	}
-	return e.getIntConstID(shift), true
+	return e.intConstOfType(c.ConstType, shift), true
 }
 
 // trySubToAddNeg checks whether valueID refers to a positive integer constant.
@@ -1563,7 +1586,7 @@ func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
 	if c.IntValue <= 0 {
 		return 0, false
 	}
-	return e.getIntConstID(-c.IntValue), true
+	return e.intConstOfType(c.ConstType, -c.IntValue), true
 }
 
 // tryFoldBitcast folds a bitcast of a constant to a different scalar type.
@@ -1695,15 +1718,45 @@ func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (i
 	case ir.BinaryExclusiveOr:
 		result = lv ^ rv
 	case ir.BinaryShiftLeft:
-		if rv >= 0 && rv < 64 {
-			result = lv << uint(rv)
-		} else {
-			return 0, false
-		}
+		// The amount is a u32 constant whatever the shifted type is, taken
+		// modulo the bit width as the emitted shift does.
+		result = lv << uint(rv&int64(intBitsOf(lc.ConstType)-1))
 	default:
 		return 0, false
 	}
-	return e.getIntConstID(result), true
+	return e.intConstOfType(lc.ConstType, result), true
+}
+
+// intBitsOf is the width of the integer type ty, 32 for any other type.
+func intBitsOf(ty *module.Type) uint {
+	if ty != nil && ty.Kind == module.TypeInteger && ty.IntBits != 0 {
+		return ty.IntBits
+	}
+	return 32
+}
+
+// emitShift emits the shift op (shl, lshr or ashr) of value by amount, an
+// unsigned integer of amountBits bits (a u32 in WGSL). An LLVM shift takes
+// both operands in the result's type and is poison for an amount of at least
+// the bit width, while WGSL (like HLSL) shifts by the amount modulo the bit
+// width: as DXC does, the amount is widened with zext (narrowed with trunc)
+// to the result's type and masked with width-1; a constant amount is masked
+// at compile time, and DXC folds the mask away for it.
+func (e *Emitter) emitShift(resultTy *module.Type, op BinOpKind, value, amount int, amountBits uint) int {
+	bits := intBitsOf(resultTy)
+	mask := int64(bits - 1)
+	if c, ok := e.constMap[amount]; ok && !c.IsUndef && !c.IsAggregate && c.ConstType != nil &&
+		c.ConstType.Kind == module.TypeInteger {
+		return e.addBinOpInstr(resultTy, op, value, e.intConstOfType(resultTy, c.IntValue&mask))
+	}
+	switch {
+	case amountBits < bits:
+		amount = e.addCastInstr(resultTy, CastZExt, amount)
+	case amountBits > bits:
+		amount = e.addCastInstr(resultTy, CastTrunc, amount)
+	}
+	amount = e.addBinOpInstr(resultTy, BinOpAnd, amount, e.intConstOfType(resultTy, mask))
+	return e.addBinOpInstr(resultTy, op, value, amount)
 }
 
 // tryShlAndCombine detects mul(and(X, C1), 2^N) or mul(as(and(X, C1)), 2^N)
@@ -1713,8 +1766,9 @@ func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (i
 // i32(vertex_index & 1u) * 2 where a u32->i32 cast wraps the And.
 // Returns (valueID, true) if the transform applied, (0, false) otherwise.
 func (e *Emitter) tryShlAndCombine(fn *ir.Function, bin ir.ExprBinary, leftType ir.TypeInner, numComps int) (int, bool) {
-	// Only applies to integer scalar ShiftLeft or Multiply.
-	if numComps != 1 || isFloatType(leftType) {
+	// Only applies to 32-bit integer scalar ShiftLeft or Multiply: the
+	// rewritten shift and mask are i32 constants.
+	if s, _ := scalarOfType(leftType); numComps != 1 || isFloatType(leftType) || s.Width != 4 {
 		return 0, false
 	}
 
@@ -2179,6 +2233,22 @@ func (e *Emitter) emitBinaryVectorized(fn *ir.Function, bin ir.ExprBinary, leftT
 
 	scalarTy, _ := typeToDXIL(e.mod, e.ir, leftType)
 
+	if shiftOp, ok := shiftOpcode(bin.Op, isSignedInt(leftType)); ok {
+		amountBits := intWidthBits(e.resolveExprType(fn, bin.Right))
+		comps := make([]int, numComps)
+		for i := range comps {
+			lComp := e.getComponentIDSafe(bin.Left, i, leftComps)
+			rComp := e.getComponentIDSafe(bin.Right, i, rightComps)
+			if id, folded := e.tryFoldBinOp(bin.Op, lComp, rComp, false); folded {
+				comps[i] = id
+				continue
+			}
+			comps[i] = e.emitShift(scalarTy, shiftOp, lComp, rComp, amountBits)
+		}
+		e.pendingComponents = comps
+		return comps[0], nil
+	}
+
 	// Select the LLVM opcode for this binary operation.
 	binOp, cmpPred, isCmp, err := selectBinaryOpcode(bin.Op, leftType)
 	if err != nil {
@@ -2636,12 +2706,12 @@ func (e *Emitter) emitScalarUnary(op ir.UnaryOperator, scalar ir.ScalarType, ope
 			return e.addBinOpInstr(resultTy, BinOpFSub, zeroID, operand), nil
 		}
 		// neg = sub 0, operand
-		zeroID := e.getIntConstID(0)
+		zeroID := e.intConstOfType(resultTy, 0)
 		return e.addBinOpInstr(resultTy, BinOpSub, zeroID, operand), nil
 
 	case ir.UnaryBitwiseNot:
 		// not = xor operand, -1
-		allOnesID := e.getIntConstID(-1)
+		allOnesID := e.intConstOfType(resultTy, -1)
 		return e.addBinOpInstr(resultTy, BinOpXor, operand, allOnesID), nil
 
 	case ir.UnaryLogicalNot:
@@ -2747,6 +2817,12 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathUnpack4xI8(fn, mathExpr)
 	case ir.MathUnpack4xU8:
 		return e.emitMathUnpack4xU8(fn, mathExpr)
+	}
+
+	if mathExpr.Fun == ir.MathAbs {
+		if s, ok := scalarOfType(e.resolveExprType(fn, mathExpr.Arg)); ok && s.Kind != ir.ScalarFloat {
+			return e.emitMathIntAbs(fn, mathExpr.Arg, s)
+		}
 	}
 
 	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
@@ -3460,6 +3536,23 @@ func (e *Emitter) mulByFloatConst(fn *ir.Function, h ir.ExpressionHandle, arg in
 	return e.addBinOpInstr(ty, BinOpFMul, arg, e.floatConstFor(scalar, c))
 }
 
+// emitMathIntAbs emits abs of an integer arg of scalar type s, per
+// component. DXIL's FAbs takes only float overloads; DXC lowers a signed abs
+// to IMax(x, 0 - x) and an unsigned one to x itself (HLOperationLower.cpp
+// TranslateAbs, TranslateUAbs).
+func (e *Emitter) emitMathIntAbs(fn *ir.Function, arg ir.ExpressionHandle, s ir.ScalarType) (int, error) {
+	return e.emitScalarized(fn, []ir.ExpressionHandle{arg}, func(ops []int) (int, error) {
+		x := ops[0]
+		if s.Kind != ir.ScalarSint {
+			return x, nil
+		}
+		ty := scalarToDXIL(e.mod, s)
+		neg := e.addBinOpInstr(ty, BinOpSub, e.intConstOfType(ty, 0), x)
+		dxFn := e.getDxOpBinaryFunc(dxOpClassBinary, overloadForScalar(s))
+		return e.addCallInstr(dxFn, ty, []int{e.getIntConstID(int64(OpIMax)), x, neg}), nil
+	})
+}
+
 // emitMathSign returns -1, 0, or 1 based on the sign of each component.
 // For float: select(x > 0, 1.0, select(x < 0, -1.0, 0.0))
 // For int: select(x > 0, 1, select(x < 0, -1, 0))
@@ -3482,19 +3575,20 @@ func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 			selNeg := e.emitSelect3(ty, cmpLT, negOne, zero)
 			return e.emitSelect3(ty, cmpGT, posOne, selNeg), nil
 		}
-		// Integer sign.
-		i32Ty := e.mod.GetIntType(32)
-		zero := e.getIntConstID(0)
-		posOne := e.getIntConstID(1)
-		negOne := e.getIntConstID(-1)
+		// Integer sign, in the argument's own width: an i64 compared with an
+		// i32 zero is a malformed record.
+		intTy := scalarToDXIL(e.mod, scalar)
+		zero := e.intConstOfType(intTy, 0)
+		posOne := e.intConstOfType(intTy, 1)
+		negOne := e.intConstOfType(intTy, -1)
 		pred := ICmpSGT
 		if scalar.Kind == ir.ScalarUint {
 			pred = ICmpUGT
 		}
 		cmpGT := e.addCmpInstr(pred, arg, zero)
 		cmpLT := e.addCmpInstr(ICmpSLT, arg, zero)
-		selNeg := e.emitSelect3(i32Ty, cmpLT, negOne, zero)
-		return e.emitSelect3(i32Ty, cmpGT, posOne, selNeg), nil
+		selNeg := e.emitSelect3(intTy, cmpLT, negOne, zero)
+		return e.emitSelect3(intTy, cmpGT, posOne, selNeg), nil
 	})
 }
 

@@ -178,6 +178,7 @@ type Emitter struct {
 	// Constant cache: maps from constant key to emitter value ID.
 	intConsts   map[int64]int  // i32 const value -> emitter value ID
 	int64Consts map[int64]int  // i64 const value -> emitter value ID
+	int16Consts map[int64]int  // i16 const value -> emitter value ID
 	floatConsts map[uint64]int // float bits -> emitter value ID
 	undefID     int            // emitter value ID for undef, -1 if not created
 	typedUndefs map[int]int    // type ID -> emitter value ID for typed undefs
@@ -950,11 +951,15 @@ func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool
 		// emitter value ID space, so constant cache entries from other functions
 		// would map to wrong IDs.
 		savedIntConsts := e.intConsts
+		savedInt64Consts := e.int64Consts
+		savedInt16Consts := e.int16Consts
 		savedFloatConsts := e.floatConsts
 		savedConstMap := e.constMap
 		savedUndefID := e.undefID
 		savedTypedUndefs := e.typedUndefs
 		e.intConsts = make(map[int64]int)
+		e.int64Consts = nil
+		e.int16Consts = nil
 		e.floatConsts = make(map[uint64]int)
 		e.constMap = make(map[int]*module.Constant)
 		e.undefID = -1
@@ -1024,6 +1029,8 @@ func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool
 		e.globalVarAllocas = savedGlobalVarAllocas
 		e.globalVarAllocaTypes = savedGlobalVarAllocaTypes
 		e.intConsts = savedIntConsts
+		e.int64Consts = savedInt64Consts
+		e.int16Consts = savedInt16Consts
 		e.floatConsts = savedFloatConsts
 		e.constMap = savedConstMap
 		e.undefID = savedUndefID
@@ -3529,6 +3536,35 @@ func (e *Emitter) getInt64Const(v int64) *module.Constant {
 	e.int64Consts[v] = id
 	e.constMap[id] = c
 	return c
+}
+
+// intConstOfType returns the value ID of the constant v of the integer type
+// ty: i64 and i16 constants are module entries of their own, distinct from
+// the i32 constant of the same value, and an LLVM binary operation needs both
+// operands in its result type. A ty that is not a 16- or 64-bit integer gets
+// the i32 constant.
+func (e *Emitter) intConstOfType(ty *module.Type, v int64) int {
+	if ty == nil || ty.Kind != module.TypeInteger {
+		return e.getIntConstID(v)
+	}
+	switch ty.IntBits {
+	case 64:
+		e.getInt64Const(v)
+		return e.int64Consts[v]
+	case 16:
+		if e.int16Consts == nil {
+			e.int16Consts = make(map[int64]int)
+		}
+		if id, ok := e.int16Consts[v]; ok {
+			return id
+		}
+		c := e.mod.AddIntConst(ty, v)
+		id := e.allocValue()
+		e.int16Consts[v] = id
+		e.constMap[id] = c
+		return id
+	}
+	return e.getIntConstID(v)
 }
 
 // getI8MetadataConst creates an i8 constant for metadata signature elements.

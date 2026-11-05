@@ -152,7 +152,6 @@ var dxilKnownFailures = map[string]string{
 	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
 	"atomicOps-float32/cs_main": "P2-API-005",
 
-	"int64/main":                      "P1-DXIL-080",
 	"ray-query/main":                  "P1-DXIL-075",
 	"ray-query-no-init-tracking/main": "P1-DXIL-075",
 
