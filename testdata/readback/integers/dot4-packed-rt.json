@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "dot4I8Packed and dot4U8Packed of run-time words with bytes at the signed and unsigned extremes: 16391, 81415; words 2 and 3 not written (P1-DXIL-067: refused by the DXIL backend)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": ["0x0102FF80", "0x7F03FE81"]},
+    {"binding": 1, "kind": "storage-rw", "len": 4, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[16391, 81415, "fill", "fill"]]}
+  ]
+}
