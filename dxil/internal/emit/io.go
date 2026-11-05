@@ -465,6 +465,15 @@ func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir
 //
 // Reference: Mesa nir_to_dxil.c emit_load_global_invocation_id() ~3131
 func (e *Emitter) emitVec3ThreadIDLoad(_ *ir.Function, exprHandle ir.ExpressionHandle, funcName string, opcode DXILOpcode) error {
+	comps := e.emitVec3ThreadIDCalls(funcName, opcode)
+	e.exprValues[exprHandle] = comps[0]
+	e.exprComponents[exprHandle] = comps
+	return nil
+}
+
+// emitVec3ThreadIDCalls emits one dx.op call per component of a vec3 thread
+// ID built-in and returns the three values.
+func (e *Emitter) emitVec3ThreadIDCalls(funcName string, opcode DXILOpcode) []int {
 	i32Ty := e.mod.GetIntType(32)
 	threadFn := e.getDxOpComputeBuiltinFunc(funcName, true)
 
@@ -472,13 +481,31 @@ func (e *Emitter) emitVec3ThreadIDLoad(_ *ir.Function, exprHandle ir.ExpressionH
 	for comp := 0; comp < 3; comp++ {
 		opcodeVal := e.getIntConstID(int64(opcode))
 		compVal := e.getIntConstID(int64(comp))
-		valueID := e.addCallInstr(threadFn, i32Ty, []int{opcodeVal, compVal})
-		comps[comp] = valueID
+		comps[comp] = e.addCallInstr(threadFn, i32Ty, []int{opcodeVal, compVal})
 	}
+	return comps
+}
 
-	e.exprValues[exprHandle] = comps[0]
-	e.exprComponents[exprHandle] = comps
-	return nil
+// emitComputeBuiltinMemberComps reads a compute built-in carried in an
+// input struct and returns its components: the vec3 ones with a call per
+// component, as for an argument, the scalar ones with
+// emitComputeBuiltinMemberLoad.
+func (e *Emitter) emitComputeBuiltinMemberComps(builtin ir.BuiltinValue) ([]int, error) {
+	switch builtin {
+	case ir.BuiltinGlobalInvocationID:
+		return e.emitVec3ThreadIDCalls("dx.op.threadId", OpThreadID), nil
+	case ir.BuiltinLocalInvocationID:
+		return e.emitVec3ThreadIDCalls("dx.op.threadIdInGroup", OpThreadIDInGroup), nil
+	case ir.BuiltinWorkGroupID:
+		return e.emitVec3ThreadIDCalls("dx.op.groupId", OpGroupID), nil
+	case ir.BuiltinNumWorkGroups:
+		return e.emitNumWorkGroupsComps(), nil
+	}
+	v, err := e.emitComputeBuiltinMemberLoad(builtin)
+	if err != nil {
+		return nil, err
+	}
+	return []int{v}, nil
 }
 
 // emitScalarThreadIDLoad emits a single dx.op call for a scalar thread ID builtin.
@@ -501,6 +528,15 @@ func (e *Emitter) emitScalarThreadIDLoad(_ *ir.Function, exprHandle ir.Expressio
 // CBV that the runtime fills with the dispatch dimensions (x, y, z as uint32).
 // We create a synthetic CBV resource and load 3 components from it.
 func (e *Emitter) emitNumWorkGroupsLoad(_ *ir.Function, exprHandle ir.ExpressionHandle) error {
+	comps := e.emitNumWorkGroupsComps()
+	e.exprValues[exprHandle] = comps[0]
+	e.exprComponents[exprHandle] = comps
+	return nil
+}
+
+// emitNumWorkGroupsComps loads num_workgroups from its constant buffer and
+// returns the three components.
+func (e *Emitter) emitNumWorkGroupsComps() []int {
 	// Create or reuse a synthetic CBV for NumWorkGroups.
 	handleID := e.getOrCreateNumWorkGroupsCBV()
 
@@ -528,10 +564,7 @@ func (e *Emitter) emitNumWorkGroupsLoad(_ *ir.Function, exprHandle ir.Expression
 		})
 		comps[i] = extractID
 	}
-
-	e.exprValues[exprHandle] = comps[0]
-	e.exprComponents[exprHandle] = comps
-	return nil
+	return comps
 }
 
 // getOrCreateNumWorkGroupsCBV creates a synthetic CBV resource for NumWorkGroups.
@@ -704,11 +737,11 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		// one through its dedicated dx.op intrinsic and do NOT consume
 		// an ISG1 row for it.
 		if bb, ok := (*member.Binding).(ir.BuiltinBinding); ok && isComputeLike {
-			valueID, err := e.emitComputeBuiltinMemberLoad(bb.Builtin)
+			comps, err := e.emitComputeBuiltinMemberComps(bb.Builtin)
 			if err != nil {
 				return fmt.Errorf("struct member %q: %w", member.Name, err)
 			}
-			memberValues[memberIdx] = &memberInfo{firstID: valueID, comps: []int{valueID}}
+			memberValues[memberIdx] = &memberInfo{firstID: comps[0], comps: comps}
 			continue
 		}
 		// The same for a graphics input read through its own dx.op

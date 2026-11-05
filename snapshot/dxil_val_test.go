@@ -140,15 +140,14 @@ var dxilKnownFailures = map[string]string{
 	// Refused by dxil.Compile: no DXIL lowering yet, or no D3D semantic.
 	// Native 16-bit integers (-enable-16bit-types at SM 6.2) are not emitted;
 	// dxil.Compile refuses them (errInt16).
-	"int16/main": "P2-WGSL-102",
-	"8820-multiple-local-invocation-index-id/compute1": "P2-DXIL-093",
-	"barycentrics/fs_main":                             "P2-DXIL-073",
-	"barycentrics/fs_main_no_perspective":              "P2-DXIL-073",
-	"draw-index/vertex":                                "P2-DXIL-073",
-	"per-vertex/fs_main":                               "P2-DXIL-074",
-	"mesh-shader/fs_main":                              "P2-DXIL-074",
-	"texture-external/fragment_main":                   "P1-DXIL-056",
-	"texture-external/vertex_main":                     "P1-DXIL-056",
+	"int16/main":                          "P2-DXIL-099",
+	"barycentrics/fs_main":                "P2-DXIL-073",
+	"barycentrics/fs_main_no_perspective": "P2-DXIL-073",
+	"draw-index/vertex":                   "P2-DXIL-073",
+	"per-vertex/fs_main":                  "P2-DXIL-074",
+	"mesh-shader/fs_main":                 "P2-DXIL-074",
+	"texture-external/fragment_main":      "P1-DXIL-056",
+	"texture-external/vertex_main":        "P1-DXIL-056",
 
 	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
 	"atomicOps-float32/cs_main": "P2-API-005",
