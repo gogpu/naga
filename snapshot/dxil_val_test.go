@@ -309,6 +309,9 @@ var ggKnownDXILFailures = map[string]string{
 	// The vendored blend.wgsl is invalid WGSL (a float select condition),
 	// which the validator rejects since P1-WGSL-095; gg fixes the shader.
 	"internal/gpu/shaders/blend.wgsl/fs_main": "gogpu/gg:P1-BLEND-003",
+	// PSV0 indexes the ViewID input table one row per location, the module
+	// by packed signature row.
+	"internal/gpu/shaders/sdf_render.wgsl/vs_main": "P1-DXIL-089",
 }
 
 // TestDxilValGGProduction walks the gg production shader corpora and requires
@@ -316,22 +319,12 @@ var ggKnownDXILFailures = map[string]string{
 // the permanent regression guard for BUG-DXIL-026 — the pre-fix baseline was
 // 48 / 57 VALID (9 failures in workgroup struct/array store paths).
 func TestDxilValGGProduction(t *testing.T) {
-	dxc := dxcPath()
-	if dxc == "" {
-		testtools.Missing(t, "dxc", testtools.InstallDXC)
-	}
+	requireIDxcValidator(t)
 
 	opts := dxil.DefaultOptions()
+	known := newKnownFailures("ggKnownDXILFailures", ggKnownDXILFailures)
 	var failures []string
-	var totalEPs int
-	seenKnown := make(map[string]bool)
-	defer func() {
-		for key, card := range ggKnownDXILFailures {
-			if !seenKnown[key] {
-				t.Errorf("%s validates now: remove it from ggKnownDXILFailures and close %s", key, card)
-			}
-		}
-	}()
+	var totalEPs, passCount int
 
 	for _, corpusDir := range ggProductionCorpora {
 		entries, err := os.ReadDir(corpusDir)
@@ -354,9 +347,6 @@ func TestDxilValGGProduction(t *testing.T) {
 				failures = append(failures, path+": parse: "+perr.Error())
 				continue
 			}
-			if len(module.EntryPoints) == 0 {
-				continue
-			}
 
 			for j := range module.EntryPoints {
 				totalEPs++
@@ -366,37 +356,28 @@ func TestDxilValGGProduction(t *testing.T) {
 				}
 				key := strings.TrimPrefix(path, ggUpstreamDir+"/") + "/" + module.EntryPoints[j].Name
 				fail := func(msg string) {
-					if card, known := ggKnownDXILFailures[key]; known {
-						seenKnown[key] = true
-						t.Logf("known failure %s (%s): %s", key, card, msg)
-						return
+					if !known.fail(t, key, msg) {
+						failures = append(failures, key+": "+truncate(msg, 300))
 					}
-					failures = append(failures, key+": "+msg)
 				}
 				blob, cerr := dxilAtNeededModel(module, epOpts)
 				if cerr != nil {
 					fail("compile: " + cerr.Error())
 					continue
 				}
-				tmp, terr := os.CreateTemp("", "ggprod-*.dxil")
-				if terr != nil {
-					t.Fatalf("tmp: %v", terr)
+				if verr := dxil.Validate(blob, dxil.ValidateFull); verr != nil {
+					fail("validate: " + verr.Error())
+					continue
 				}
-				_, _ = tmp.Write(blob)
-				tmp.Close()
-				out, verr := exec.Command(dxc, "-dumpbin", tmp.Name()).CombinedOutput()
-				os.Remove(tmp.Name())
-				if verr != nil {
-					fail("val: " + truncate(strings.TrimSpace(string(out)), 160))
-				}
+				passCount++
 			}
 		}
 	}
 
-	t.Logf("gg production DXIL validation: %d entry points, %d failures", totalEPs, len(failures))
-	if len(failures) > 0 {
-		for _, f := range failures {
-			t.Errorf("  %s", f)
-		}
+	t.Logf("gg production DXIL (IDxcValidator): %d entry points, %d valid, %d known failures, %d new failures",
+		totalEPs, passCount, len(known.seen), len(failures))
+	known.checkFixed(t)
+	for _, f := range failures {
+		t.Errorf("new gg DXIL failure (not in ggKnownDXILFailures): %s", f)
 	}
 }
