@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: a load from a multi-channel storage texture did not declare TypedUAVLoadAdditionalFormats**
+  (P1-DXIL-096). `textureLoad` from a storage texture whose format has more than one channel needs the typed UAV
+  load of additional formats; DXC sets the shader flag (and SFI0 bit) for it, we did not, and IDxcValidator
+  rejected the shader with "Flags must match usage" (`image.wgsl`). The flag is now set when such a load is
+  emitted.
 - **DXIL: a packed input read in part had no AlwaysReads bits, and 16-bit inputs and outputs were declared 32-bit**
   (P1-DXIL-095). An input packed at a start column above 0 and read in some of its components got an empty
   AlwaysReads mask in the input signature (the usage was not shifted to the element's columns), which

@@ -205,6 +205,11 @@ type Emitter struct {
 	// integers, and dx.op.fma.
 	doubleExtensions bool
 
+	// typedUAVLoadMulti is set by a textureLoad from a storage texture whose
+	// element has more than one component, which DXC sets
+	// TypedUAVLoadAdditionalFormats for.
+	typedUAVLoadMulti bool
+
 	// Resource bindings: analyzed from GlobalVariables.
 	resources        []resourceInfo
 	resourceHandles  map[ir.GlobalVariableHandle]int  // global var handle -> index in resources
@@ -1744,6 +1749,12 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 	}
 	if e.moduleUsesRayQuery() {
 		flags |= 0x2000000 // RaytracingTier1_1
+	}
+	if e.typedUAVLoadMulti {
+		// TypedUAVLoadAdditionalFormats (bit 13): a load from a typed UAV
+		// whose element has more than one component (DxilShaderFlags.cpp
+		// TextureLoad / BufferLoad, RP.Typed.CompCount > 1).
+		flags |= 0x2000
 	}
 	if e.entryUsesViewIDInput() {
 		flags |= 0x200000 // ViewID (bit 21)

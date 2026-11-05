@@ -953,6 +953,11 @@ func (e *Emitter) emitImageLoad(fn *ir.Function, load ir.ExprImageLoad) (int, er
 	if imgType.Class == ir.ImageClassExternal {
 		return 0, errExternalTexture
 	}
+	// A storage texture is a typed UAV; its element has four components
+	// unless its format has one channel (storageTextureElementType).
+	if imgType.Class == ir.ImageClassStorage && storageFormatChannelCount(imgType.StorageFormat) > 1 {
+		e.typedUAVLoadMulti = true
+	}
 
 	ol := imageOverload(imgType)
 

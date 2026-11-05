@@ -2990,6 +2990,7 @@ func featureInfoFromShaderFlags(sf uint64) uint64 {
 		flagDoublePrec      = uint64(0x4)         // bit 2
 		flagLowPrecision    = uint64(0x20)        // bit 5
 		flagDoubleExt       = uint64(0x40)        // bit 6
+		flagTypedUAVLoad    = uint64(0x2000)      // bit 13
 		flagUAVsAtEvery     = uint64(0x10000)     // bit 16
 		flagWaveOps         = uint64(0x80000)     // bit 19
 		flagInt64Ops        = uint64(0x100000)    // bit 20
@@ -3012,6 +3013,9 @@ func featureInfoFromShaderFlags(sf uint64) uint64 {
 		} else {
 			bits |= 0x10 // MinimumPrecision
 		}
+	}
+	if sf&flagTypedUAVLoad != 0 {
+		bits |= 0x0800 // TypedUAVLoadAdditionalFormats
 	}
 	if sf&flagUAVsAtEvery != 0 {
 		bits |= 0x0004 // UAVsAtEveryStage
