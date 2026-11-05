@@ -11,6 +11,11 @@
 //	UPDATE_DXC_GOLDEN=1 go test \
 //	    -run TestDxilDxcGolden -count=1 ./snapshot/
 //
+// UPDATE_DXC_GOLDEN=<shader>,<shader> regenerates only those shaders.
+//
+// A module with 16-bit types is compiled with -enable-16bit-types at SM 6.2,
+// as wgpu-hal compiles it when SHADER_F16 or SHADER_I16 is enabled.
+//
 // The generation path requires `dxc.exe` in PATH (Windows SDK preferred for
 // dxil.dll validation). The comparison path also requires `dxc.exe` for
 // `-dumpbin` disassembly. Both skip cleanly when dxc is unavailable so this
@@ -79,7 +84,17 @@ func TestDxilDxcGolden(t *testing.T) {
 	if dxc == "" {
 		testtools.Missing(t, "dxc", testtools.InstallDXC)
 	}
-	updateGolden := os.Getenv("UPDATE_DXC_GOLDEN") == "1"
+	// UPDATE_DXC_GOLDEN=1 regenerates every golden; a comma-separated list
+	// of shader names regenerates those and compares the rest.
+	update := os.Getenv("UPDATE_DXC_GOLDEN")
+	updateGolden := update != ""
+	var updateOnly map[string]bool
+	if updateGolden && update != "1" {
+		updateOnly = make(map[string]bool)
+		for name := range strings.SplitSeq(update, ",") {
+			updateOnly[strings.TrimSpace(name)] = true
+		}
+	}
 
 	if updateGolden {
 		if err := os.MkdirAll(dxcGoldenDir, 0o755); err != nil {
@@ -120,7 +135,7 @@ func TestDxilDxcGolden(t *testing.T) {
 			goldenFile := filepath.Join(dxcGoldenDir,
 				fmt.Sprintf("%s_%s_%s.ll", shader.name, stageShortName(ep.Stage), ep.Name))
 
-			if updateGolden {
+			if updateGolden && (updateOnly == nil || updateOnly[shader.name]) {
 				if err := writeDxcGolden(dxc, module, ep, goldenFile); err != nil {
 					t.Logf("FAIL UPDATE %s/%s: %v", shader.name, ep.Name, err)
 					diffCount++
@@ -189,20 +204,53 @@ func stageShortName(s ir.ShaderStage) string {
 	return "unk"
 }
 
-func stageDxcProfile(s ir.ShaderStage) string {
+// stageDxcProfile is the -T profile the golden of a stage is compiled with:
+// SM 6.0, SM 6.2 for a module with 16-bit types (the lowest model that has
+// them), SM 6.5 for mesh and task shaders.
+func stageDxcProfile(s ir.ShaderStage, sixteenBit bool) string {
+	minor := "0"
+	if sixteenBit {
+		minor = "2"
+	}
 	switch s {
 	case ir.StageVertex:
-		return "vs_6_0"
+		return "vs_6_" + minor
 	case ir.StageFragment:
-		return "ps_6_0"
+		return "ps_6_" + minor
 	case ir.StageCompute:
-		return "cs_6_0"
+		return "cs_6_" + minor
 	case ir.StageMesh:
 		return "ms_6_5"
 	case ir.StageTask:
 		return "as_6_5"
 	}
 	return ""
+}
+
+// uses16BitTypes reports whether the module has a 16-bit scalar, vector or
+// matrix type (f16, i16, u16). wgpu-hal compiles shaders with
+// -enable-16bit-types when SHADER_F16 or SHADER_I16 is enabled
+// (wgpu-hal/src/dx12/shader_compilation.rs), which makes HLSL half a real
+// 16-bit type; without it DXC compiles half as a 32-bit float, and the golden
+// would measure that instead of our emitter.
+func uses16BitTypes(m *ir.Module) bool {
+	for i := range m.Types {
+		var s ir.ScalarType
+		switch inner := m.Types[i].Inner.(type) {
+		case ir.ScalarType:
+			s = inner
+		case ir.VectorType:
+			s = inner.Scalar
+		case ir.MatrixType:
+			s = inner.Scalar
+		default:
+			continue
+		}
+		if s.Width == 2 {
+			return true
+		}
+	}
+	return false
 }
 
 // writeDxcGolden generates the reference golden by going naga HLSL → DXC → DXIL,
@@ -232,8 +280,13 @@ func writeDxcGolden(dxc string, mod *ir.Module, ep ir.EntryPoint, goldenFile str
 
 	// -HV 2018 as wgpu-hal (dx12/shader_compilation.rs): naga writes HLSL 2018,
 	// e.g. a vector ?: for select(), which HLSL 2021 rejects.
-	cmd := exec.Command(dxc, "-T", stageDxcProfile(ep.Stage), "-E", ep.Name, "-HV", "2018",
-		"-Vd", "-Fo", tmpBlob.Name(), tmpHLSL.Name())
+	sixteenBit := uses16BitTypes(mod)
+	args := []string{"-T", stageDxcProfile(ep.Stage, sixteenBit), "-E", ep.Name, "-HV", "2018"}
+	if sixteenBit {
+		args = append(args, "-enable-16bit-types")
+	}
+	args = append(args, "-Vd", "-Fo", tmpBlob.Name(), tmpHLSL.Name())
+	cmd := exec.Command(dxc, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
