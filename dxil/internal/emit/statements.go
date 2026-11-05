@@ -4153,8 +4153,6 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 		return fmt.Errorf("StmtSubgroupCollectiveOp: argument: %w", err)
 	}
 
-	i32Ty := e.mod.GetIntType(32)
-
 	// Resolve the argument type to determine overload.
 	argInner := e.resolveExprType(fn, op.Argument)
 	argScalar, _ := scalarAndComponentCount(argInner)
@@ -4166,18 +4164,17 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 	case ir.CollectiveReduce:
 		switch op.Op {
 		case ir.SubgroupOperationAll:
-			// dx.op.waveAllTrue(i32 114, i1 cond) → i1
+			// dx.op.waveAllTrue(i32 114, i1 cond) → i1, the bool the IR
+			// expression has: a select or a `!` takes it as it is (DXC
+			// widens it only where the source converts it).
 			waveFn := e.getWaveBoolFunc("dx.op.waveAllTrue", OpWaveAllTrue)
 			opcodeVal := e.getIntConstID(int64(OpWaveAllTrue))
 			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
-			// Extend i1 → i32 (zext) since the IR result type is typically u32.
-			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
 
 		case ir.SubgroupOperationAny:
 			waveFn := e.getWaveBoolFunc("dx.op.waveAnyTrue", OpWaveAnyTrue)
 			opcodeVal := e.getIntConstID(int64(OpWaveAnyTrue))
 			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
-			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
 
 		case ir.SubgroupOperationAnd:
 			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitAnd, ol)
