@@ -16,16 +16,16 @@ layout(std430) buffer Struct_block_2Compute { Struct _group_0_binding_2_cs; };
 
 void main() {
     uvec3 id = gl_LocalInvocationID;
-    _group_0_binding_0_cs = 1.5;
-    _group_0_binding_1_cs[1] = 1.5;
-    _group_0_binding_2_cs.atomic_scalar = 1.5;
-    _group_0_binding_2_cs.atomic_arr[1] = 1.5;
+    atomicExchange(_group_0_binding_0_cs, 1.5);
+    atomicExchange(_group_0_binding_1_cs[1], 1.5);
+    atomicExchange(_group_0_binding_2_cs.atomic_scalar, 1.5);
+    atomicExchange(_group_0_binding_2_cs.atomic_arr[1], 1.5);
     memoryBarrierShared();
     barrier();
-    float l0_ = _group_0_binding_0_cs;
-    float l1_ = _group_0_binding_1_cs[1];
-    float l2_ = _group_0_binding_2_cs.atomic_scalar;
-    float l3_ = _group_0_binding_2_cs.atomic_arr[1];
+    float l0_ = atomicOr(_group_0_binding_0_cs, 0);
+    float l1_ = atomicOr(_group_0_binding_1_cs[1], 0);
+    float l2_ = atomicOr(_group_0_binding_2_cs.atomic_scalar, 0);
+    float l3_ = atomicOr(_group_0_binding_2_cs.atomic_arr[1], 0);
     memoryBarrierShared();
     barrier();
     float _e27 = atomicAdd(_group_0_binding_0_cs, 1.5);

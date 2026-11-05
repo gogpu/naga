@@ -10,15 +10,15 @@ RWByteAddressBuffer storage_struct : register(u2);
 [numthreads(2, 1, 1)]
 void cs_main(uint3 id : SV_GroupThreadID)
 {
-    storage_atomic_scalar.Store(0, asuint(1.5));
-    storage_atomic_arr.Store(4, asuint(1.5));
-    storage_struct.Store(0, asuint(1.5));
-    storage_struct.Store(4+4, asuint(1.5));
+    { float dummy = 0; storage_atomic_scalar.InterlockedExchange(0, 1.5, dummy); }
+    { float dummy_1 = 0; storage_atomic_arr.InterlockedExchange(4, 1.5, dummy_1); }
+    { float dummy_2 = 0; storage_struct.InterlockedExchange(0, 1.5, dummy_2); }
+    { float dummy_3 = 0; storage_struct.InterlockedExchange(4+4, 1.5, dummy_3); }
     GroupMemoryBarrierWithGroupSync();
-    float l0_ = asfloat(storage_atomic_scalar.Load(0));
-    float l1_ = asfloat(storage_atomic_arr.Load(4));
-    float l2_ = asfloat(storage_struct.Load(0));
-    float l3_ = asfloat(storage_struct.Load(4+4));
+    float l0_; storage_atomic_scalar.InterlockedOr(0, 0, l0_);
+    float l1_; storage_atomic_arr.InterlockedOr(4, 0, l1_);
+    float l2_; storage_struct.InterlockedOr(0, 0, l2_);
+    float l3_; storage_struct.InterlockedOr(4+4, 0, l3_);
     GroupMemoryBarrierWithGroupSync();
     float _e27; storage_atomic_scalar.InterlockedAdd(0, 1.5, _e27);
     float _e31; storage_atomic_arr.InterlockedAdd(4, 1.5, _e31);

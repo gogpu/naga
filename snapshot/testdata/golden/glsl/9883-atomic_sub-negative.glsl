@@ -11,7 +11,7 @@ void main() {
     }
     memoryBarrierShared();
     barrier();
-    int _e2 = atomicAdd(a, --1);
+    int _e2 = atomicAdd(a, - -1);
     return;
 }
 

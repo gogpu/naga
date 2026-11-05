@@ -16,7 +16,7 @@ void main() {
     barrier();
     uint lid = gl_LocalInvocationIndex;
     if ((lid == 0u)) {
-        shared_counter = 0u;
+        atomicExchange(shared_counter, 0u);
     }
     memoryBarrierShared();
     barrier();
@@ -24,7 +24,7 @@ void main() {
     memoryBarrierShared();
     barrier();
     if ((lid == 0u)) {
-        uint _e13 = shared_counter;
+        uint _e13 = atomicOr(shared_counter, 0u);
         _group_0_binding_0_cs[0] = _e13;
         return;
     } else {

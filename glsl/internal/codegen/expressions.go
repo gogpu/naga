@@ -598,12 +598,31 @@ func (w *Writer) writeLocalVariable(l ir.ExprLocalVariable) (string, error) {
 	return fmt.Sprintf("local_%d", l.Variable), nil
 }
 
+// atomicLoadZero is the zero operand of the atomicOr that loads an atomic of
+// the key's scalar type, with Rust naga's suffixes; any other atomic takes a
+// bare "0".
+var atomicLoadZero = map[ir.ScalarType]string{
+	{Kind: ir.ScalarUint, Width: 4}: "0u",
+	{Kind: ir.ScalarUint, Width: 8}: "0ul",
+	{Kind: ir.ScalarSint, Width: 8}: "0l",
+}
+
 // writeLoad writes a load expression (dereference).
 func (w *Writer) writeLoad(l ir.ExprLoad) (string, error) {
 	// In GLSL, loading is implicit
 	value, err := w.writeExpression(l.Pointer)
 	if err != nil {
 		return "", err
+	}
+	// GLSL has no atomic load: a plain read of an atomic would race with the
+	// other invocations' atomics, so atomicLoad is an atomicOr with zero
+	// (Rust naga, gfx-rs/wgpu f0201c9c).
+	if scalar, ok := w.atomicPointee(l.Pointer); ok {
+		zero, ok := atomicLoadZero[scalar]
+		if !ok {
+			zero = "0"
+		}
+		return fmt.Sprintf("atomicOr(%s, %s)", value, zero), nil
 	}
 	// A struct or array in a uniform buffer with two-row matrices in it is
 	// declared std140-compatible; loading it converts it. (A pointer to such

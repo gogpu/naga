@@ -35,7 +35,7 @@ void main() {
         }
         {
             uint _e6 = i;
-            int64_t _e8 = _group_0_binding_0_cs[_e6];
+            int64_t _e8 = atomicOr(_group_0_binding_0_cs[_e6], 0l);
             old = _e8;
             exchanged = false;
             while(true) {
@@ -98,7 +98,7 @@ void main() {
         }
         {
             uint _e6 = i_1;
-            uint64_t _e8 = _group_0_binding_1_cs[_e6];
+            uint64_t _e8 = atomicOr(_group_0_binding_1_cs[_e6], 0ul);
             old_1 = _e8;
             exchanged_1 = false;
             while(true) {

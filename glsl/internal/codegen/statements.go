@@ -705,9 +705,31 @@ func (w *Writer) writeStore(store ir.StmtStore) error {
 	if err != nil {
 		return err
 	}
+	// GLSL has no atomic store: a plain assignment to an atomic would race
+	// with the other invocations' atomics, so atomicStore is an exchange whose
+	// result is dropped (Rust naga, gfx-rs/wgpu f0201c9c).
+	if _, ok := w.atomicPointee(store.Pointer); ok {
+		w.WriteLine("atomicExchange(%s, %s);", pointer, value)
+		return nil
+	}
 	// In GLSL, no explicit dereference needed for most cases
 	w.WriteLine("%s = %s;", pointer, value)
 	return nil
+}
+
+// atomicPointee returns the scalar of the atomic that expression h points
+// to, and whether h is a pointer to an atomic (Rust naga's
+// TypeInner::is_atomic_pointer).
+func (w *Writer) atomicPointee(h ir.ExpressionHandle) (ir.ScalarType, bool) {
+	if !w.hasExprType(h) {
+		return ir.ScalarType{}, false
+	}
+	ptr, ok := w.exprType(h).Inner(w.module.Types).(ir.PointerType)
+	if !ok {
+		return ir.ScalarType{}, false
+	}
+	atomic, ok := w.module.Types[ptr.Base].Inner.(ir.AtomicType)
+	return atomic.Scalar, ok
 }
 
 // writeImageStore writes an image store statement.
@@ -773,9 +795,11 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		return unsupported.Errorf("unsupported image atomic function: %T", imgAtomic.Fun)
 	}
 
-	// Handle Subtract by negating value
+	// Handle Subtract by negating value; the space keeps a negative operand
+	// from becoming the predecrement `--1`, as in writeAtomic. (WGSL has no
+	// textureAtomicSub; Rust naga writes imageAtomicAdd without negating.)
 	if _, isSub := imgAtomic.Fun.(ir.AtomicSubtract); isSub {
-		value = fmt.Sprintf("-%s", value)
+		value = "- " + value
 	}
 
 	// Build coordinate (including array index if present)
@@ -814,10 +838,11 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		funcName = "atomicAdd"
 	case ir.AtomicSubtract:
 		// GLSL doesn't have atomicSub, use atomicAdd with negated value.
-		// Rust naga emits "-" before the expression without parentheses:
-		// atomicAdd(ptr, -1u) not atomicAdd(ptr, -(1u))
+		// Rust naga writes "- " before the expression, without parentheses;
+		// the space keeps a negative operand from becoming the predecrement
+		// `--1` (gfx-rs/wgpu cdc9d0c4).
 		funcName = "atomicAdd"
-		value = fmt.Sprintf("-%s", value)
+		value = "- " + value
 	case ir.AtomicAnd:
 		funcName = "atomicAnd"
 	case ir.AtomicExclusiveOr:

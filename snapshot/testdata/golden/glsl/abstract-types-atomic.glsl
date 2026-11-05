@@ -17,13 +17,13 @@ layout(std430) buffer type_1_block_1Compute { uint _group_0_binding_1_cs; };
 
 
 void test_atomic_i32_() {
-    _group_0_binding_0_cs = 1;
+    atomicExchange(_group_0_binding_0_cs, 1);
     _atomic_compare_exchange_result_Sint_4_ _e5; _e5.old_value = atomicCompSwap(_group_0_binding_0_cs, 1, 1);
     _e5.exchanged = (_e5.old_value == 1);
     _atomic_compare_exchange_result_Sint_4_ _e9; _e9.old_value = atomicCompSwap(_group_0_binding_0_cs, 1, 1);
     _e9.exchanged = (_e9.old_value == 1);
     int _e12 = atomicAdd(_group_0_binding_0_cs, 1);
-    int _e15 = atomicAdd(_group_0_binding_0_cs, -1);
+    int _e15 = atomicAdd(_group_0_binding_0_cs, - 1);
     int _e18 = atomicAnd(_group_0_binding_0_cs, 1);
     int _e21 = atomicXor(_group_0_binding_0_cs, 1);
     int _e24 = atomicOr(_group_0_binding_0_cs, 1);
@@ -34,13 +34,13 @@ void test_atomic_i32_() {
 }
 
 void test_atomic_u32_() {
-    _group_0_binding_1_cs = 1u;
+    atomicExchange(_group_0_binding_1_cs, 1u);
     _atomic_compare_exchange_result_Uint_4_ _e5; _e5.old_value = atomicCompSwap(_group_0_binding_1_cs, 1u, 1u);
     _e5.exchanged = (_e5.old_value == 1u);
     _atomic_compare_exchange_result_Uint_4_ _e9; _e9.old_value = atomicCompSwap(_group_0_binding_1_cs, 1u, 1u);
     _e9.exchanged = (_e9.old_value == 1u);
     uint _e12 = atomicAdd(_group_0_binding_1_cs, 1u);
-    uint _e15 = atomicAdd(_group_0_binding_1_cs, -1u);
+    uint _e15 = atomicAdd(_group_0_binding_1_cs, - 1u);
     uint _e18 = atomicAnd(_group_0_binding_1_cs, 1u);
     uint _e21 = atomicXor(_group_0_binding_1_cs, 1u);
     uint _e24 = atomicOr(_group_0_binding_1_cs, 1u);
