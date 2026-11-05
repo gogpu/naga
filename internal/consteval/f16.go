@@ -38,3 +38,20 @@ func roundF16(x float64) (float32, bool) {
 	}
 	return float32(math.Copysign(r, x)), true
 }
+
+// f16NextToward0 returns the binary16 value next to x toward zero; x is a
+// finite non-zero binary16 value. The spacing below x is the spacing of x's
+// binade, or half of it when x is the binade's lowest value (a power of two)
+// and not subnormal.
+func f16NextToward0(x float64) float64 {
+	a := math.Abs(x)
+	_, exp := math.Frexp(a)
+	e := exp - 1
+	if a == math.Ldexp(1, e) {
+		e--
+	}
+	if e < -14 {
+		e = -14
+	}
+	return math.Copysign(a-math.Ldexp(1, e-10), x)
+}

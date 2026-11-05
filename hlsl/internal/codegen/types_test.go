@@ -22,13 +22,13 @@ func TestScalarTypeToHLSL(t *testing.T) {
 
 		// Signed integers
 		{"int8", ir.ScalarType{Kind: ir.ScalarSint, Width: 1}, "int"},
-		{"int16", ir.ScalarType{Kind: ir.ScalarSint, Width: 2}, "int"},
+		{"int16", ir.ScalarType{Kind: ir.ScalarSint, Width: 2}, "int16_t"}, // Rust Scalar::to_hlsl_str
 		{"int32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "int"},
 		{"int64", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, "int64_t"},
 
 		// Unsigned integers
 		{"uint8", ir.ScalarType{Kind: ir.ScalarUint, Width: 1}, "uint"},
-		{"uint16", ir.ScalarType{Kind: ir.ScalarUint, Width: 2}, "uint"},
+		{"uint16", ir.ScalarType{Kind: ir.ScalarUint, Width: 2}, "uint16_t"},
 		{"uint32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, "uint"},
 		{"uint64", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, "uint64_t"},
 

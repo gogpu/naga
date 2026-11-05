@@ -62,6 +62,10 @@ func ScalarOf(lit ir.LiteralValue) ir.ScalarType {
 	switch lit.(type) {
 	case ir.LiteralBool:
 		return ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
+	case ir.LiteralI16:
+		return ir.ScalarType{Kind: ir.ScalarSint, Width: 2}
+	case ir.LiteralU16:
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 2}
 	case ir.LiteralI32:
 		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
 	case ir.LiteralU32:

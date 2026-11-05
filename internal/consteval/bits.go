@@ -12,3 +12,7 @@ func i64FromU64(v uint64) int64 { return int64(v) } //nolint:gosec // two's-comp
 func i32Low(v uint64) int32 { return int32(v) } //nolint:gosec // keeps the low 32 bits: the defined result
 
 func u32Low(v uint64) uint32 { return uint32(v) } //nolint:gosec // keeps the low 32 bits: the defined result
+
+func i16Low(v uint64) int16 { return int16(v) } //nolint:gosec // keeps the low 16 bits: the defined result
+
+func u16Low(v uint64) uint16 { return uint16(v) } //nolint:gosec // keeps the low 16 bits: the defined result

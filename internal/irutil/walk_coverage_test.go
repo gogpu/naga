@@ -45,7 +45,7 @@ var walkerRegistry = []any{
 	ir.StmtSubgroupBallot{}, ir.StmtSubgroupCollectiveOperation{},
 	ir.StmtSubgroupGather{},
 	// ir.LiteralValue
-	ir.LiteralF64(0), ir.LiteralF32(0), ir.LiteralF16(0), ir.LiteralU32(0),
+	ir.LiteralF64(0), ir.LiteralF32(0), ir.LiteralF16(0), ir.LiteralU16(0), ir.LiteralI16(0), ir.LiteralU32(0),
 	ir.LiteralI32(0), ir.LiteralU64(0), ir.LiteralI64(0), ir.LiteralBool(false),
 	ir.LiteralAbstractInt(0), ir.LiteralAbstractFloat(0),
 	// ir.SampleLevel

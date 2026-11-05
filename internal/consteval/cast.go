@@ -79,9 +79,9 @@ func castToInt(lit ir.LiteralValue, from, to ir.ScalarType) (ir.LiteralValue, er
 			return nil, notRepresentable(to, strconv.FormatInt(int64(v), 10))
 		}
 		return makeInt(to, u64FromI64(int64(v))), nil
-	case ir.LiteralI32, ir.LiteralU32, ir.LiteralI64, ir.LiteralU64:
-		// Same-width reinterpretation, or extension from 32 to 64 bits by
-		// the source's signedness; narrowing keeps the low bits.
+	case ir.LiteralI16, ir.LiteralU16, ir.LiteralI32, ir.LiteralU32, ir.LiteralI64, ir.LiteralU64:
+		// Same-width reinterpretation, or extension to a wider type by the
+		// source's signedness; narrowing keeps the low bits (Rust's `as`).
 		return makeInt(to, intBits(lit)), nil
 	}
 	if from.Kind == ir.ScalarFloat || from.Kind == ir.ScalarAbstractFloat {
@@ -114,6 +114,10 @@ func makeIntFromFloat(x float64, from, to ir.ScalarType) ir.LiteralValue {
 // towardZeroIn.
 func intRange(t ir.ScalarType) (lo, hi float64) {
 	switch {
+	case t.Kind == ir.ScalarSint && t.Width == 2:
+		return math.MinInt16, math.MaxInt16
+	case t.Kind == ir.ScalarUint && t.Width == 2:
+		return 0, math.MaxUint16
 	case t.Kind == ir.ScalarSint && t.Width == 4:
 		return math.MinInt32, math.MaxInt32
 	case t.Kind == ir.ScalarUint && t.Width == 4:
@@ -138,24 +142,39 @@ func towardZeroIn(bound float64, t ir.ScalarType) float64 {
 	return r
 }
 
-// roundTo rounds x to the float type t (f16 values cannot occur here: the
-// f16 range is inside every integer range, so the bounds are never reached).
+// roundTo rounds x to the float type t. An f16 rounds only for the bounds
+// of the 16-bit integer types: the f16 range is inside every wider integer
+// range, and i16's upper bound 32767 is not an f16 (the spec's clamp gives
+// 32752 for f16 → i16, where Rust naga clamps to 32767).
 func roundTo(x float64, t ir.ScalarType) float64 {
-	if t.Kind == ir.ScalarFloat && t.Width == 4 {
+	switch {
+	case t.Kind == ir.ScalarFloat && t.Width == 4:
 		return float64(float32(x))
+	case t.Kind == ir.ScalarFloat && t.Width == 2:
+		if r, ok := roundF16(x); ok {
+			return float64(r)
+		}
+		return x
 	}
 	return x
 }
 
 func nextToward0(x float64, t ir.ScalarType) float64 {
-	if t.Kind == ir.ScalarFloat && t.Width == 4 {
+	switch {
+	case t.Kind == ir.ScalarFloat && t.Width == 4:
 		return float64(math.Nextafter32(float32(x), 0))
+	case t.Kind == ir.ScalarFloat && t.Width == 2:
+		return f16NextToward0(x)
 	}
 	return math.Nextafter(x, 0)
 }
 
 func intFits(v int64, t ir.ScalarType) bool {
 	switch {
+	case t.Kind == ir.ScalarSint && t.Width == 2:
+		return v >= math.MinInt16 && v <= math.MaxInt16
+	case t.Kind == ir.ScalarUint && t.Width == 2:
+		return v >= 0 && v <= math.MaxUint16
 	case t.Kind == ir.ScalarSint && t.Width == 4:
 		return v >= math.MinInt32 && v <= math.MaxInt32
 	case t.Kind == ir.ScalarUint && t.Width == 4:
@@ -170,6 +189,10 @@ func intFits(v int64, t ir.ScalarType) bool {
 // makeInt returns the integer literal of type t holding the low bits of u.
 func makeInt(t ir.ScalarType, u uint64) ir.LiteralValue {
 	switch {
+	case t.Kind == ir.ScalarSint && t.Width == 2:
+		return ir.LiteralI16(i16Low(u))
+	case t.Kind == ir.ScalarUint && t.Width == 2:
+		return ir.LiteralU16(u16Low(u))
 	case t.Kind == ir.ScalarSint && t.Width == 4:
 		return ir.LiteralI32(i32Low(u))
 	case t.Kind == ir.ScalarUint && t.Width == 4:
@@ -185,6 +208,10 @@ func makeInt(t ir.ScalarType, u uint64) ir.LiteralValue {
 // signedness.
 func intBits(lit ir.LiteralValue) uint64 {
 	switch v := lit.(type) {
+	case ir.LiteralI16:
+		return u64FromI64(int64(v))
+	case ir.LiteralU16:
+		return uint64(v)
 	case ir.LiteralI32:
 		return u64FromI64(int64(v))
 	case ir.LiteralU32:
@@ -209,9 +236,9 @@ func castToFloat(lit ir.LiteralValue, to ir.ScalarType) (ir.LiteralValue, error)
 		}
 	case ir.LiteralAbstractInt:
 		x, exact = float64(v), strconv.FormatInt(int64(v), 10)
-	case ir.LiteralI32, ir.LiteralI64:
+	case ir.LiteralI16, ir.LiteralI32, ir.LiteralI64:
 		x = float64(i64FromU64(intBits(lit)))
-	case ir.LiteralU32, ir.LiteralU64:
+	case ir.LiteralU16, ir.LiteralU32, ir.LiteralU64:
 		x = float64(intBits(lit))
 	case ir.LiteralAbstractFloat:
 		x, exact = float64(v), rustFloat(float64(v))

@@ -39,12 +39,18 @@ func (w *Writer) scalarCastTypeName(kind ir.ScalarKind, convert *uint8) string {
 		}
 		return mslFloat
 	case ir.ScalarSint:
-		if width == 8 {
+		switch width {
+		case 2:
+			return "short"
+		case 8:
 			return "long"
 		}
 		return mslInt
 	case ir.ScalarUint:
-		if width == 8 {
+		switch width {
+		case 2:
+			return "ushort"
+		case 8:
 			return "ulong"
 		}
 		return mslUint
@@ -336,6 +342,13 @@ func (w *Writer) writeLiteral(lit ir.Literal) error {
 
 	case ir.LiteralU32:
 		w.write("%du", uint32(v))
+
+	case ir.LiteralU16:
+		// Metal has no 16-bit literal suffix (Rust naga's put_literal).
+		w.write("static_cast<ushort>(%d)", uint16(v))
+
+	case ir.LiteralI16:
+		w.write("static_cast<short>(%d)", int16(v))
 
 	case ir.LiteralI64:
 		// Same INT_MIN pattern for 64-bit.
@@ -1293,16 +1306,9 @@ func (w *Writer) collectRZSWBoundsChecks(handle ir.ExpressionHandle) []rzswBound
 				if int(k.Index) < len(w.currentFunction.Expressions) {
 					indexExpr := &w.currentFunction.Expressions[k.Index]
 					if lit, ok := indexExpr.Kind.(ir.Literal); ok {
-						var indexVal uint32
-						switch v := lit.Value.(type) {
-						case ir.LiteralI32:
-							if int32(v) >= 0 {
-								indexVal = uint32(v)
-							}
-						case ir.LiteralU32:
-							indexVal = uint32(v)
-						}
-						if indexVal < length {
+						// Only a literal known to be in bounds skips the
+						// check; a negative or non-integer one keeps it.
+						if indexVal, known := w.literalAsUint(lit); known && indexVal < length {
 							needsCheck = false
 						}
 					}
@@ -1610,15 +1616,39 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 			if _, rightUnsigned, ok := w.getSignedWrappingTypes(binary.Right); ok {
 				rightUnsignedType = rightUnsigned
 			}
-			w.write("as_type<%s>(as_type<%s>(", signedType, unsignedType)
+			// A type narrower than 32 bits promotes to int in C++, so Rust
+			// naga's put_bitcasted_expression truncates with a static_cast to
+			// the unsigned type of the bitcast's target before each as_type.
+			resultUnsignedType := unsignedType
+			if len(rightUnsignedType) > len(resultUnsignedType) {
+				resultUnsignedType = rightUnsignedType
+			}
+			narrow := w.isNarrowInt(binary.Left)
+			bitcast := func(target, truncate string) {
+				w.write("as_type<%s>(", target)
+				if narrow {
+					w.write("static_cast<%s>(", truncate)
+				}
+			}
+			closeBitcast := func() {
+				if narrow {
+					w.write(")")
+				}
+				w.write(")")
+			}
+			bitcast(signedType, resultUnsignedType)
+			bitcast(unsignedType, unsignedType)
 			if err := w.writeExpression(binary.Left); err != nil {
 				return err
 			}
-			w.write(") %s as_type<%s>(", op, rightUnsignedType)
+			closeBitcast()
+			w.write(" %s ", op)
+			bitcast(rightUnsignedType, rightUnsignedType)
 			if err := w.writeExpression(binary.Right); err != nil {
 				return err
 			}
-			w.write("))")
+			closeBitcast()
+			closeBitcast()
 			return nil
 		}
 	}
@@ -3487,6 +3517,13 @@ func (w *Writer) getSignedWrappingTypes(handle ir.ExpressionHandle) (string, str
 	return "", "", false
 }
 
+// isNarrowInt reports whether handle is an integer scalar or vector
+// narrower than 32 bits, which C++ promotes to int in arithmetic.
+func (w *Writer) isNarrowInt(handle ir.ExpressionHandle) bool {
+	s := w.getExpressionScalarType(handle)
+	return s != nil && (s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint) && s.Width < 4
+}
+
 func (w *Writer) pointerNeedsDeref(pt ir.PointerType) bool {
 	// Buffer parameters use references (&) in MSL, not pointers (*).
 	// References don't need explicit dereference.
@@ -3817,6 +3854,12 @@ func (w *Writer) accessIndexNeedsRestrict(baseHandle ir.ExpressionHandle, index 
 // literalAsUint extracts a uint32 value from a literal expression.
 func (w *Writer) literalAsUint(lit ir.Literal) (uint32, bool) {
 	switch v := lit.Value.(type) {
+	case ir.LiteralU16:
+		return uint32(v), true
+	case ir.LiteralI16:
+		if v >= 0 {
+			return uint32(v), true
+		}
 	case ir.LiteralU32:
 		return uint32(v), true
 	case ir.LiteralI32:

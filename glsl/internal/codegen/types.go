@@ -26,6 +26,9 @@ func (w *Writer) typeInnerToGLSL(inner ir.TypeInner) string {
 	if isInt64(inner) {
 		w.int64 = true
 	}
+	if isInt16(inner) {
+		w.int16 = true
+	}
 	switch t := inner.(type) {
 	case ir.ScalarType:
 		return scalarToGLSL(t)

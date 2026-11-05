@@ -76,3 +76,33 @@ func TestLiteralOf(t *testing.T) {
 		}
 	}
 }
+
+// TestLiteralOfInt16: a pipeline constant for an i16 or u16 override is
+// truncated and range-checked as Rust's map_value_to_literal Scalar::I16 /
+// Scalar::U16 arms do (back/pipeline_constants.rs).
+func TestLiteralOfInt16(t *testing.T) {
+	i16, u16 := ir.ScalarType{Kind: ir.ScalarSint, Width: 2}, ir.ScalarType{Kind: ir.ScalarUint, Width: 2}
+	for _, tc := range []struct {
+		value float64
+		s     ir.ScalarType
+		want  ir.LiteralValue
+	}{
+		{math.MinInt16, i16, ir.LiteralI16(math.MinInt16)},
+		{math.MaxInt16, i16, ir.LiteralI16(math.MaxInt16)},
+		{-2.9, i16, ir.LiteralI16(-2)},
+		{math.MaxUint16, u16, ir.LiteralU16(math.MaxUint16)},
+		{-0.5, u16, ir.LiteralU16(0)},
+	} {
+		if got, err := literalOf(tc.value, tc.s); err != nil || got != tc.want {
+			t.Errorf("literalOf(%v, %v) = %v, %v; want %v", tc.value, tc.s, got, err, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		value float64
+		s     ir.ScalarType
+	}{{math.MaxInt16 + 1, i16}, {math.MinInt16 - 1, i16}, {-1, u16}, {math.MaxUint16 + 1, u16}} {
+		if _, err := literalOf(tc.value, tc.s); !errors.Is(err, ErrValueOutOfRange) {
+			t.Errorf("literalOf(%v, %v): err = %v, want ErrValueOutOfRange", tc.value, tc.s, err)
+		}
+	}
+}

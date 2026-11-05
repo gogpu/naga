@@ -710,6 +710,13 @@ func (w *Writer) accessNeedsCheck(base, index ir.ExpressionHandle) bool {
 		if lit, ok := indexExpr.Kind.(ir.Literal); ok {
 			var indexVal uint32
 			switch v := lit.Value.(type) {
+			case ir.LiteralI16:
+				if v < 0 {
+					return true // negative index always needs check
+				}
+				indexVal = uint32(v)
+			case ir.LiteralU16:
+				indexVal = uint32(v)
 			case ir.LiteralI32:
 				if int32(v) < 0 {
 					return true // negative index always needs check

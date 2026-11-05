@@ -414,20 +414,24 @@ func scalarTypeToHLSL(s ir.ScalarType) string {
 
 	case ir.ScalarSint:
 		switch s.Width {
-		case 1, 2, 4:
+		case 2:
+			return hlslInt16
+		case 1, 4:
 			return hlslTypeInt
 		case 8:
-			return "int64_t"
+			return hlslInt64
 		default:
 			return hlslTypeInt
 		}
 
 	case ir.ScalarUint:
 		switch s.Width {
-		case 1, 2, 4:
+		case 2:
+			return hlslUint16
+		case 1, 4:
 			return hlslTypeUint
 		case 8:
-			return "uint64_t"
+			return hlslUint64
 		default:
 			return hlslTypeUint
 		}

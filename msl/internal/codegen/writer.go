@@ -1769,18 +1769,34 @@ func (w *Writer) writeWrappedHelpers(r wrappedHelperRanges) {
 	}
 }
 
+// narrowLiteral wraps a helper's literal operand for a type narrower than 32
+// bits in a constructor (`short(1)`), as Rust naga does to keep the
+// metal::select overload unambiguous; wider types take the bare literal.
+func narrowLiteral(width uint8, typeName, lit string) string {
+	if width < 4 {
+		return typeName + "(" + lit + ")"
+	}
+	return lit
+}
+
 // writeDivModHelper writes one naga_div or naga_mod overload (Rust naga's
 // write_wrapped_binary_op).
 func (w *Writer) writeDivModHelper(o divModOverload) {
 	typeName := o.mslTypeName()
+	lit := func(s string) string { return narrowLiteral(o.width, typeName, s) }
+	uintSuffix := "u"
+	if o.width < 4 {
+		uintSuffix = ""
+	}
 	if o.isDiv {
 		w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
 		w.PushIndent()
 		switch o.kind {
 		case ir.ScalarSint:
-			w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", sintMinLiteral(o.width))
+			w.WriteLine("return lhs / metal::select(rhs, %s, (lhs == %s & rhs == %s) | (rhs == %s));",
+				lit("1"), sintMinLiteral(o.width), lit("-1"), lit("0"))
 		case ir.ScalarUint:
-			w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
+			w.WriteLine("return lhs / metal::select(rhs, %s, rhs == %s);", lit("1"+uintSuffix), lit("0"+uintSuffix))
 		}
 		w.PopIndent()
 	} else {
@@ -1788,10 +1804,11 @@ func (w *Writer) writeDivModHelper(o divModOverload) {
 		w.PushIndent()
 		switch o.kind {
 		case ir.ScalarSint:
-			w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, sintMinLiteral(o.width))
+			w.WriteLine("%s divisor = metal::select(rhs, %s, (lhs == %s & rhs == %s) | (rhs == %s));",
+				typeName, lit("1"), sintMinLiteral(o.width), lit("-1"), lit("0"))
 			w.WriteLine("return lhs - (lhs / divisor) * divisor;")
 		case ir.ScalarUint:
-			w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
+			w.WriteLine("return lhs %% metal::select(rhs, %s, rhs == %s);", lit("1"+uintSuffix), lit("0"+uintSuffix))
 		}
 		w.PopIndent()
 	}
@@ -1800,12 +1817,18 @@ func (w *Writer) writeDivModHelper(o divModOverload) {
 }
 
 // writeAbsHelper writes one naga_abs overload for a signed integer type
-// (Rust naga's write_wrapped_math_function, MathFunction::Abs).
+// (Rust naga's write_wrapped_math_function, MathFunction::Abs). A narrow
+// type's negation promotes to int, so Rust casts it back to the unsigned
+// type before reinterpreting.
 func (w *Writer) writeAbsHelper(a absHelper) {
 	typeName, unsignedName := absHelperTypeNames(a)
+	neg := fmt.Sprintf("-as_type<%s>(val)", unsignedName)
+	if a.scalar.Width < 4 {
+		neg = fmt.Sprintf("static_cast<%s>(%s)", unsignedName, neg)
+	}
 	w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
 	w.PushIndent()
-	w.WriteLine("return metal::select(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", typeName, unsignedName)
+	w.WriteLine("return metal::select(as_type<%s>(%s), val, val >= %s);", typeName, neg, narrowLiteral(a.scalar.Width, typeName, "0"))
 	w.PopIndent()
 	w.WriteLine("}")
 	w.WriteLine("")
@@ -1841,10 +1864,14 @@ func (w *Writer) writeDotWrapper(d dotWrapper) {
 	w.WriteLine("")
 }
 
-// sintMinLiteral returns the MSL literal for the minimum value of a signed integer.
-// Uses the (-MAX - 1) pattern to avoid literal overflow warnings in Metal compilers.
+// sintMinLiteral returns the MSL literal for the minimum value of a signed
+// integer, as Rust naga's put_literal writes i16::MIN, i32::MIN and
+// i64::MIN: the (-MAX - 1) pattern avoids literal overflow in Metal
+// compilers; a 16-bit value is a cast.
 func sintMinLiteral(width uint8) string {
 	switch width {
+	case 2:
+		return "static_cast<short>(-32768)"
 	case 8:
 		return "(-9223372036854775807L - 1L)"
 	default:
@@ -1936,9 +1963,15 @@ func (w *Writer) registerAbsHelper(scalar ir.ScalarType, vecSize ir.VectorSize) 
 // Matches Rust: T naga_neg(T val) { return as_type<T>(-as_type<unsigned_T>(val)); }
 func (w *Writer) writeNegHelper(h absHelper) {
 	typeName, unsignedName := absHelperTypeNames(h)
+	neg := fmt.Sprintf("-as_type<%s>(val)", unsignedName)
+	if h.scalar.Width < 4 {
+		// The negation promotes a narrow type to int (Rust naga writes the
+		// cast back, write_wrapped_unary_op).
+		neg = fmt.Sprintf("static_cast<%s>(%s)", unsignedName, neg)
+	}
 	w.WriteLine("%s naga_neg(%s val) {", typeName, typeName)
 	w.PushIndent()
-	w.WriteLine("return as_type<%s>(-as_type<%s>(val));", typeName, unsignedName)
+	w.WriteLine("return as_type<%s>(%s);", typeName, neg)
 	w.PopIndent()
 	w.WriteLine("}")
 	w.WriteLine("")

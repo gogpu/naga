@@ -1076,13 +1076,19 @@ func (w *Writer) indentStr(level int) string {
 func scalarToHLSLStr(s ir.ScalarType) string {
 	switch s.Kind {
 	case ir.ScalarSint:
-		if s.Width == 8 {
-			return "int64_t"
+		switch s.Width {
+		case 2:
+			return hlslInt16
+		case 8:
+			return hlslInt64
 		}
-		return "int"
+		return hlslInt
 	case ir.ScalarUint:
-		if s.Width == 8 {
-			return "uint64_t"
+		switch s.Width {
+		case 2:
+			return hlslUint16
+		case 8:
+			return hlslUint64
 		}
 		return "uint"
 	case ir.ScalarFloat:

@@ -1047,7 +1047,7 @@ func (b *Backend) emitScalarType(scalar ir.ScalarType) (uint32, error) {
 		case 8:
 			b.addCapability(CapabilityInt8)
 		case 16:
-			b.addCapability(CapabilityInt16)
+			b.addInt16Capabilities()
 		case 64:
 			b.addCapability(CapabilityInt64)
 		}
@@ -1060,7 +1060,7 @@ func (b *Backend) emitScalarType(scalar ir.ScalarType) (uint32, error) {
 		case 8:
 			b.addCapability(CapabilityInt8)
 		case 16:
-			b.addCapability(CapabilityInt16)
+			b.addInt16Capabilities()
 		case 64:
 			b.addCapability(CapabilityInt64)
 		}
@@ -1073,6 +1073,21 @@ func (b *Backend) emitScalarType(scalar ir.ScalarType) (uint32, error) {
 	// Cache and return
 	b.scalarTypeIDs[key] = id
 	return id, nil
+}
+
+// addInt16Capabilities declares what a 16-bit integer type needs, as Rust
+// naga's Writer::make_scalar and request_type_capabilities do: Int16, the
+// 16-bit storage capabilities (a value may live in a uniform or storage
+// buffer) with SPV_KHR_16bit_storage, and StorageInputOutput16 when the
+// option asks for it.
+func (b *Backend) addInt16Capabilities() {
+	b.addCapability(CapabilityInt16)
+	b.addCapability(CapabilityStorageBuffer16BitAccess)
+	b.addCapability(CapabilityUniformAndStorageBuffer16BitAccess)
+	b.addExtension("SPV_KHR_16bit_storage")
+	if b.options.UseStorageInputOutput16 {
+		b.addCapability(CapabilityStorageInputOutput16)
+	}
 }
 
 // getVoidType returns the cached void type ID, creating it if needed.
@@ -1403,6 +1418,22 @@ func (b *Backend) emitLiteralConstant(value ir.LiteralValue) (uint32, error) {
 		// F16 is stored as a 32-bit word with the 16-bit float in the low bits.
 		// Convert float32 value to float16 bit representation (IEEE 754 half-precision).
 		return b.builder.AddConstant(typeID, float32ToF16Bits(float32(v))), nil
+
+	case ir.LiteralU16:
+		typeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 2})
+		if err != nil {
+			return 0, err
+		}
+		return b.builder.AddConstant(typeID, uint32(v)), nil
+
+	case ir.LiteralI16:
+		typeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 2})
+		if err != nil {
+			return 0, err
+		}
+		// A signed type narrower than 32 bits is sign-extended into its word
+		// (SPIR-V 2.2.1 "Literal"; Rust: value as i32 as u32).
+		return b.builder.AddConstant(typeID, uint32(int32(v))), nil
 
 	case ir.LiteralI64:
 		typeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 8})
@@ -3109,7 +3140,11 @@ func (b *Backend) emitWrappedBinaryOp(op ir.BinaryOperator, returnTypeInner ir.T
 		if err != nil {
 			return err
 		}
-		if scalar.Width == 4 {
+		if scalar.Width == 2 {
+			// i16: INT_MIN = -0x8000 and -1, sign-extended into their words.
+			constMinID = b.builder.AddConstant(scalarTypeID, uint32(0xFFFF8000))
+			constNegOneID = b.builder.AddConstant(scalarTypeID, uint32(0xFFFFFFFF))
+		} else if scalar.Width == 4 {
 			// i32: INT_MIN = 0x80000000
 			constMinID = b.builder.AddConstant(scalarTypeID, uint32(0x80000000))
 			constNegOneID = b.builder.AddConstant(scalarTypeID, uint32(0xFFFFFFFF))

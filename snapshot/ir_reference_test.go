@@ -192,6 +192,10 @@ const (
 // irReferenceDeviations is keyed by "<shader>" (TestIRReference) and
 // "<shader>.compact" (TestIRReferenceCompact).
 var irReferenceDeviations = map[string]irDeviation{
+	// Intentional: the WGSL spec's float to integral conversion (see
+	// reasonInt16SpecClamp); compaction removes the unused constant.
+	"int16": {Card: "P2-WGSL-102", Reason: reasonInt16SpecClamp,
+		Fingerprint: "257350e81ce9467b69408eba1df1b52df78f9d3b0bfff265b3d4b24a23cc48a3"}, // 1 difference
 	"9883-atomic_sub-negative": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "471e199c4c239f12a8f92b68aa618fc21683abcf6e4096aedc29cc8ec65ae174"}, // 4 differences
 	"9883-atomic_sub-negative.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,

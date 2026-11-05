@@ -178,3 +178,34 @@ func TestIndexableLength(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// TestConstIndexValue16Bit: a u16 or non-negative i16 index is known too, as
+// Rust naga's TryFrom<Literal> for u32 (proc/mod.rs) converts U16 and I16;
+// without it a backend clamps an index Rust knows is in bounds (HLSL wrote
+// arr[min(uint(uint16_t(1)), 3u)] for Rust's arr[uint16_t(1)], int16.wgsl).
+func TestConstIndexValue16Bit(t *testing.T) {
+	i16h := ir.TypeHandle(0)
+	module := &ir.Module{Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 2}}}}
+	fn := &ir.Function{Expressions: []ir.Expression{
+		{Kind: ir.Literal{Value: ir.LiteralU16(1)}},
+		{Kind: ir.Literal{Value: ir.LiteralI16(3)}},
+		{Kind: ir.Literal{Value: ir.LiteralI16(-1)}},
+		{Kind: ir.ExprZeroValue{Type: i16h}},
+	}}
+	for _, tt := range []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   uint32
+		known  bool
+	}{
+		{"u16 literal", 0, 1, true},
+		{"i16 literal", 1, 3, true},
+		{"negative i16 literal", 2, 0, false},
+		{"i16 zero value", 3, 0, true},
+	} {
+		got, known := irutil.ConstIndexValue(module, fn, tt.handle)
+		if known != tt.known || got != tt.want {
+			t.Errorf("%s: ConstIndexValue = %d, %v; want %d, %v", tt.name, got, known, tt.want, tt.known)
+		}
+	}
+}

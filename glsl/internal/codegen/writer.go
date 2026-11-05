@@ -92,6 +92,9 @@ type Writer struct {
 	// int64 is set when the writer names a 64-bit integer type: Compile
 	// then fails with errNoInt64.
 	int64 bool
+	// int16 is set when the writer names a 16-bit integer type: Compile
+	// then fails with errNoInt16.
+	int16 bool
 	// clampFragDepth is set when the entry point clamps the frag_depth it
 	// returns (Options.ClampFragDepth), and rangeImmediates is the immediate
 	// global whose uniform then holds the range, nil for one of its own.
@@ -928,6 +931,24 @@ var errNoFloat16 = errors.New("GLSL has no 16-bit float type")
 // GLSL ES has none.
 var errNoInt64 = errors.New("GLSL has no 64-bit integer type")
 
+// errNoInt16 is the error for a 16-bit integer type or literal (enable
+// wgpu_int16). Rust naga does not target GLSL with them; its writer would
+// name int16_t without GL_EXT_shader_explicit_arithmetic_types_int16, which
+// glslang rejects, and GLSL ES has none.
+var errNoInt16 = errors.New("GLSL has no 16-bit integer type")
+
+// isInt16 reports whether inner is a 16-bit integer scalar or a vector of
+// them.
+func isInt16(inner ir.TypeInner) bool {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return t.Width == 2 && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint)
+	case ir.VectorType:
+		return isInt16(t.Scalar)
+	}
+	return false
+}
+
 // isInt64 reports whether inner is a 64-bit integer scalar or a vector of
 // them, or an atomic of one.
 func isInt64(inner ir.TypeInner) bool {
@@ -1032,6 +1053,8 @@ func (w *Writer) formatLiteral(lit ir.Literal) (string, error) {
 		return formatFloat64(float64(v)), nil // formatFloat64 already adds LF suffix
 	case ir.LiteralI64, ir.LiteralU64:
 		return "", errNoInt64
+	case ir.LiteralI16, ir.LiteralU16:
+		return "", errNoInt16
 	default:
 		return "", fmt.Errorf("literal %T is not supported", v)
 	}

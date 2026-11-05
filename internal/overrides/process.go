@@ -511,6 +511,13 @@ func (p *processor) u32(h ir.ExpressionHandle) (uint32, bool) {
 		return 0, false
 	}
 	switch v := lit.(type) {
+	case ir.LiteralU16:
+		return uint32(v), true
+	case ir.LiteralI16:
+		if v < 0 {
+			return 0, false
+		}
+		return uint32(v), true
 	case ir.LiteralU32:
 		return uint32(v), true
 	case ir.LiteralI32:

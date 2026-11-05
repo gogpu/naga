@@ -591,6 +591,10 @@ func (l *Lowerer) lowerIncrementValue(pointer ir.ExpressionHandle, op parser.Tok
 	}
 	var one ir.LiteralValue
 	switch scalar {
+	case ir.ScalarType{Kind: ir.ScalarSint, Width: 2}:
+		one = ir.LiteralI16(1)
+	case ir.ScalarType{Kind: ir.ScalarUint, Width: 2}:
+		one = ir.LiteralU16(1)
 	case ir.ScalarType{Kind: ir.ScalarSint, Width: 4}:
 		one = ir.LiteralI32(1)
 	case ir.ScalarType{Kind: ir.ScalarUint, Width: 4}:

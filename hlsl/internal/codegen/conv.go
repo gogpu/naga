@@ -23,21 +23,25 @@ func ScalarToHLSL(s ir.ScalarType) string {
 		return "bool"
 	case ir.ScalarSint:
 		switch s.Width {
+		case 2:
+			return hlslInt16
 		case 4:
 			return hlslInt
 		case 8:
-			return "int64_t"
+			return hlslInt64
 		default:
-			return hlslInt // Fallback for 1, 2 byte ints
+			return hlslInt // Fallback for 1-byte ints
 		}
 	case ir.ScalarUint:
 		switch s.Width {
+		case 2:
+			return hlslUint16
 		case 4:
 			return "uint"
 		case 8:
-			return "uint64_t"
+			return hlslUint64
 		default:
-			return "uint" // Fallback for 1, 2 byte uints
+			return "uint" // Fallback for 1-byte uints
 		}
 	case ir.ScalarFloat:
 		switch s.Width {

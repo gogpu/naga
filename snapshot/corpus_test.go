@@ -117,6 +117,7 @@ var rustInputSpecDirectives = map[string]string{
 	// (front/wgsl/parse/directive/enable_extension.rs), so its test input
 	// cannot carry it.
 	"subgroup-operations": "enable subgroups; ",
+	"int16":               "enable subgroups; ",
 }
 
 // newShaderFile is the corpus shader read from a file: a Rust input gets the

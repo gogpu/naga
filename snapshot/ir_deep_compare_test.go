@@ -833,6 +833,10 @@ func formatLiteral(v ir.LiteralValue) string {
 			return "Bool(true)"
 		}
 		return "Bool(false)"
+	case ir.LiteralU16:
+		return fmt.Sprintf("U16(%d)", uint16(l))
+	case ir.LiteralI16:
+		return fmt.Sprintf("I16(%d)", int16(l))
 	case ir.LiteralU64:
 		return fmt.Sprintf("U64(%d)", uint64(l))
 	case ir.LiteralI64:
