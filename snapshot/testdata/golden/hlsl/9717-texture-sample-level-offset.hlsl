@@ -8,8 +8,8 @@ static const SamplerState texture_sampler = nagaSamplerHeap[nagaGroup0SamplerInd
 
 float4 main() : SV_Target0
 {
-    float4 sample_1d = sampled_texture_1d.SampleLevel(texture_sampler, 0.5, 0.0, int2(int(-1)));
+    float4 sample_1d = sampled_texture_1d.SampleLevel(texture_sampler, 0.5, 0.0, int(int(-1)));
     float4 sample_2d = sampled_texture_2d.SampleLevel(texture_sampler, (0.5).xx, 0.0, int2(int2(int(-1), int(2))));
-    float4 sample_3d = sampled_texture_3d.SampleLevel(texture_sampler, (0.5).xxx, 0.0, int2(int3(int(-1), int(2), int(-3))));
+    float4 sample_3d = sampled_texture_3d.SampleLevel(texture_sampler, (0.5).xxx, 0.0, int3(int3(int(-1), int(2), int(-3))));
     return ((sample_1d + sample_2d) + sample_3d);
 }
