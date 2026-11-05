@@ -281,10 +281,15 @@ type Writer struct {
 	// MSL requires these because helper functions can't access entry point bindings directly.
 	funcPassThroughGlobals map[ir.FunctionHandle][]uint32
 
-	// currentResourceMap maps (group, binding) to Metal bind targets for the current entry point.
-	// Computed per entry point to assign sequential buffer/texture/sampler indices that avoid
-	// collisions across bind groups.
-	currentResourceMap map[ir.ResourceBinding]BindTarget
+	// currentEPResources holds the Metal slots of the entry point being
+	// written: its PerEntryPointMap entry, or the automatic numbering
+	// (autoResources) for a nil map. Every slot lookup reads it, as Rust
+	// naga's resolvers read get_entry_point_resources.
+	currentEPResources EntryPointResources
+
+	// autoResources is the automatic numbering for a nil PerEntryPointMap,
+	// computed once per module (autoEntryPointResources).
+	autoResources *EntryPointResources
 
 	// globalWriteUsage tracks which global variables are written to by any function (module-wide).
 	// Used to determine if storage buffers need the `const` qualifier in MSL.
@@ -1263,37 +1268,32 @@ func (w *Writer) writeBufferSizesStruct() {
 	w.WriteLine("")
 }
 
-// resolveBufferSizesBinding returns the MSL binding attribute for the _buffer_sizes
-// parameter. If an explicit SizesBuffer slot is configured for the entry point,
-// uses [[buffer(N)]]. If FakeMissingBindings is enabled, uses [[user(fake0)]].
-// Otherwise returns an empty attribute (should not happen in valid configurations).
-func (w *Writer) resolveBufferSizesBinding(epName string) string {
-	if w.options.PerEntryPointMap != nil {
-		if epRes, ok := w.options.PerEntryPointMap[epName]; ok {
-			if epRes.SizesBuffer != nil {
-				return fmt.Sprintf("[[buffer(%d)]]", *epRes.SizesBuffer)
-			}
-		}
-	}
-	if w.options.FakeMissingBindings {
-		return "[[user(fake0)]]"
-	}
-	return ""
+// resolveBufferSizesBinding returns the attribute of the entry point's
+// _buffer_sizes parameter (Rust naga's resolve_sizes_buffer).
+func (w *Writer) resolveBufferSizesBinding(epName string) (string, error) {
+	return w.resolveBufferSlot(w.currentEPResources.SizesBuffer, epName, "sizes buffer")
 }
 
-// resolveImmediatesBufferBinding returns the Metal attribute string for the immediates buffer.
-func (w *Writer) resolveImmediatesBufferBinding(epName string) string {
-	if w.options.PerEntryPointMap != nil {
-		if epRes, ok := w.options.PerEntryPointMap[epName]; ok {
-			if epRes.ImmediatesBuffer != nil {
-				return fmt.Sprintf("[[buffer(%d)]]", *epRes.ImmediatesBuffer)
-			}
-		}
+// resolveImmediatesBufferBinding returns the attribute of the entry point's
+// immediates parameter (Rust naga's resolve_immediates).
+func (w *Writer) resolveImmediatesBufferBinding(epName string) (string, error) {
+	return w.resolveBufferSlot(w.currentEPResources.ImmediatesBuffer, epName, "immediates buffer")
+}
+
+// resolveBufferSlot returns [[buffer(N)]] for a slot, the placeholder
+// [[user(fake0)]] when FakeMissingBindings allows a missing one, and an
+// error wrapping backend.ErrMissingBinding otherwise; never an empty
+// attribute, which Metal rejects. checkBindTargets reports a missing slot
+// before any parameter is written.
+func (w *Writer) resolveBufferSlot(slot *uint8, epName, what string) (string, error) {
+	switch {
+	case slot != nil:
+		return fmt.Sprintf("[[buffer(%d)]]", *slot), nil
+	case w.options.FakeMissingBindings:
+		return "[[user(fake0)]]", nil
+	default:
+		return "", fmt.Errorf("%w: entry point %q has no %s", backend.ErrMissingBinding, epName, what)
 	}
-	if w.options.FakeMissingBindings {
-		return "[[user(fake0)]]"
-	}
-	return ""
 }
 
 // funcNeedsBufferSizes returns true if a helper function references any global

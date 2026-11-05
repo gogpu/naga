@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/gogpu/naga/backend"
@@ -556,7 +557,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	case ir.StageCompute:
 		stageKeyword = "kernel"
 	default:
-		return unsupported.Errorf("msl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
+		return unsupported.Errorf("unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
 	}
 
 	// Return type
@@ -717,7 +718,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Compute Metal binding indices for this entry point.
 	// This assigns sequential per-type indices across all bind groups,
 	// preventing collisions when multiple groups share binding numbers.
-	w.computeResourceMap(ep.Name)
+	if err := w.resolveEntryPointResources(ep.Name); err != nil {
+		return err
+	}
 	if err := w.checkGlobalsVersion(ep, epUsedGlobals); err != nil {
 		return err
 	}
@@ -760,7 +763,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			// Resolve binding slot from per-entry-point ImmediatesBuffer config.
 			name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)})
 			typeName := w.writeTypeName(global.Type, StorageAccess(0))
-			attr := w.resolveImmediatesBufferBinding(ep.Name)
+			attr, err := w.resolveImmediatesBufferBinding(ep.Name)
+			if err != nil {
+				return err
+			}
 			w.writeEntryPointParam(paramCount, fmt.Sprintf("constant %s& %s %s", typeName, name, attr))
 			paramCount++
 		}
@@ -786,7 +792,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		}
 	}
 	if epNeedsSizesBuffer {
-		bufferSizeAttr := w.resolveBufferSizesBinding(ep.Name)
+		bufferSizeAttr, err := w.resolveBufferSizesBinding(ep.Name)
+		if err != nil {
+			return err
+		}
 		w.writeEntryPointParam(paramCount, fmt.Sprintf("constant _mslBufferSizes& _buffer_sizes %s", bufferSizeAttr))
 		paramCount++
 	}
@@ -1414,7 +1423,7 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 		}
 	case ir.ExprOverride:
 		// Rust Error::Override: naga.ProcessOverrides replaces them first.
-		return fmt.Errorf("msl: %w", ir.ErrUnresolvedOverride)
+		return ir.ErrUnresolvedOverride
 	case ir.ExprSplat:
 		// Splat in global expression: write as type(value)
 		typeName := fmt.Sprintf("%s%s%d", Namespace, "float", k.Size)
@@ -1482,8 +1491,8 @@ func (w *Writer) formatGlobalResourceParam(handle uint32, global *ir.GlobalVaria
 	// Look up the Metal binding index from the pre-computed resource map.
 	var bt BindTarget
 	hasMappedBinding := false
-	if global.Binding != nil && w.currentResourceMap != nil {
-		bt, hasMappedBinding = w.currentResourceMap[*global.Binding]
+	if global.Binding != nil {
+		bt, hasMappedBinding = w.currentEPResources.Resources[*global.Binding]
 	}
 
 	// When FakeMissingBindings is enabled and there's no mapping for this resource,
@@ -1576,82 +1585,133 @@ func (w *Writer) writePassThroughParam(handle uint32) {
 	}
 }
 
-// computeResourceMap builds the Metal binding index map for the current entry point.
-// A non-nil PerEntryPointMap gives it: the entry point's entry, or none, in
-// which case checkBindTargets refuses the resources it uses unless
-// FakeMissingBindings writes placeholders for them. A nil PerEntryPointMap
-// numbers the resources automatically: sequential indices per resource type
-// (buffer, texture, sampler) across all globals sorted by (group, binding),
-// the approach of Rust wgpu-hal's Metal device.
-func (w *Writer) computeResourceMap(epName string) {
+// resolveEntryPointResources sets the slots of the entry point being written
+// (currentEPResources). A non-nil PerEntryPointMap gives them: the entry
+// point's entry, or none, in which case checkBindTargets refuses what the
+// entry point uses unless FakeMissingBindings writes placeholders. A nil
+// map takes the automatic numbering (autoEntryPointResources).
+func (w *Writer) resolveEntryPointResources(epName string) error {
 	if w.options.PerEntryPointMap != nil {
-		w.currentResourceMap = w.options.PerEntryPointMap[epName].Resources
-		return
+		w.currentEPResources = w.options.PerEntryPointMap[epName]
+		return nil
+	}
+	if w.autoResources == nil {
+		auto, err := autoEntryPointResources(w.module, w.options.ClampFragDepth != nil)
+		if err != nil {
+			return err
+		}
+		w.autoResources = &auto
+	}
+	w.currentEPResources = *w.autoResources
+	return nil
+}
+
+// slotCounter hands out the consecutive slots of one Metal argument table.
+// Slots are uint8 in EntryPointResources; running past 255 is an error, not
+// a wrap that would bind two resources to one slot.
+type slotCounter struct {
+	what string
+	next int
+}
+
+func (c *slotCounter) take(n int) (uint8, error) {
+	if c.next+n > math.MaxUint8+1 {
+		return 0, fmt.Errorf("automatic binding: more than %d %s slots", math.MaxUint8+1, c.what)
+	}
+	slot := uint8(c.next)
+	c.next += n
+	return slot, nil
+}
+
+// autoEntryPointResources numbers the slots of every entry point of module
+// for a nil PerEntryPointMap, as Rust wgpu-hal's Metal device numbers a
+// pipeline layout (wgpu-hal/src/metal/device.rs create_pipeline_layout):
+// the immediates buffer first, when the module has immediate data or the
+// frag_depth clamp needs that buffer; then every bound global by (group,
+// binding), a buffer, texture or sampler slot by its kind and an external
+// texture three texture slots for its planes and a buffer slot for its
+// parameters; the sizes buffer after the last buffer. One numbering serves
+// every entry point, as one layout does in wgpu-hal.
+func autoEntryPointResources(module *ir.Module, clampFragDepth bool) (EntryPointResources, error) {
+	buffers := slotCounter{what: "buffer"}
+	textures := slotCounter{what: "texture"}
+	samplers := slotCounter{what: "sampler"}
+	var res EntryPointResources
+
+	needsImmediates := clampFragDepth
+	for i := range module.GlobalVariables {
+		needsImmediates = needsImmediates || module.GlobalVariables[i].Space == ir.SpaceImmediate
+	}
+	if needsImmediates {
+		slot, err := buffers.take(1)
+		if err != nil {
+			return EntryPointResources{}, err
+		}
+		res.ImmediatesBuffer = &slot
 	}
 
-	// Auto-compute: collect all globals with bindings, classify by resource type,
-	// sort by (group, binding), assign sequential indices per type.
-	type globalEntry struct {
-		binding ir.ResourceBinding
-		resKind int // 0=buffer, 1=texture, 2=sampler
+	bound := make([]*ir.GlobalVariable, 0, len(module.GlobalVariables))
+	for i := range module.GlobalVariables {
+		if module.GlobalVariables[i].Binding != nil {
+			bound = append(bound, &module.GlobalVariables[i])
+		}
 	}
-
-	var entries []globalEntry
-	for _, global := range w.module.GlobalVariables {
-		if global.Binding == nil {
-			continue
+	sort.Slice(bound, func(i, j int) bool {
+		a, b := *bound[i].Binding, *bound[j].Binding
+		if a.Group != b.Group {
+			return a.Group < b.Group
 		}
-		if int(global.Type) >= len(w.module.Types) {
-			continue
-		}
-
-		var kind int
-		switch w.module.Types[global.Type].Inner.(type) {
-		case ir.SamplerType:
-			kind = 2
-		case ir.ImageType:
-			kind = 1
-		default:
-			kind = 0
-		}
-
-		entries = append(entries, globalEntry{
-			binding: *global.Binding,
-			resKind: kind,
-		})
-	}
-
-	// Sort by (group, binding) for deterministic assignment.
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].binding.Group != entries[j].binding.Group {
-			return entries[i].binding.Group < entries[j].binding.Group
-		}
-		return entries[i].binding.Binding < entries[j].binding.Binding
+		return a.Binding < b.Binding
 	})
 
-	// Assign sequential indices per resource type.
-	resMap := make(map[ir.ResourceBinding]BindTarget, len(entries))
-	var nextBuffer, nextTexture, nextSampler uint8
-	for _, e := range entries {
-		var bt BindTarget
-		switch e.resKind {
-		case 0: // buffer
-			idx := nextBuffer
-			bt.Buffer = &idx
-			nextBuffer++
-		case 1: // texture
-			idx := nextTexture
-			bt.Texture = &idx
-			nextTexture++
-		case 2: // sampler
-			idx := nextSampler
-			bt.Sampler = &BindSamplerTarget{IsInline: false, Slot: idx}
-			nextSampler++
+	res.Resources = make(map[ir.ResourceBinding]BindTarget, len(bound))
+	for _, global := range bound {
+		var target BindTarget
+		var err error
+		switch t := module.Types[global.Type].Inner.(type) {
+		case ir.SamplerType:
+			var slot uint8
+			slot, err = samplers.take(1)
+			target.Sampler = &BindSamplerTarget{Slot: slot}
+		case ir.ImageType:
+			if t.Class == ir.ImageClassExternal {
+				target.ExternalTexture, err = takeExternalTextureSlots(&textures, &buffers)
+				break
+			}
+			var slot uint8
+			slot, err = textures.take(1)
+			target.Texture = &slot
+		default:
+			var slot uint8
+			slot, err = buffers.take(1)
+			target.Buffer = &slot
 		}
-		resMap[e.binding] = bt
+		if err != nil {
+			return EntryPointResources{}, err
+		}
+		res.Resources[*global.Binding] = target
 	}
 
-	w.currentResourceMap = resMap
+	sizes, err := buffers.take(1)
+	if err != nil {
+		return EntryPointResources{}, err
+	}
+	res.SizesBuffer = &sizes
+	return res, nil
+}
+
+// takeExternalTextureSlots takes the three plane textures and the params
+// buffer of an external texture, in wgpu-hal's order.
+func takeExternalTextureSlots(textures, buffers *slotCounter) (*BindExternalTextureTarget, error) {
+	plane, err := textures.take(3)
+	if err != nil {
+		return nil, err
+	}
+	params, err := buffers.take(1)
+	if err != nil {
+		return nil, err
+	}
+	return &BindExternalTextureTarget{Planes: [3]uint8{plane, plane + 1, plane + 2}, Params: params}, nil
 }
 
 // checkBindTargets reports, as Rust naga does, a resource the entry point
@@ -1659,13 +1719,13 @@ func (w *Writer) computeResourceMap(epName string) {
 // resource, and a sizes or immediates buffer the entry point needs that the
 // entry doesn't place; an entry point a non-nil map has no entry for has
 // none of them. The errors wrap backend.ErrMissingBinding. A nil
-// PerEntryPointMap numbers the resources automatically, and
-// FakeMissingBindings writes placeholders for the missing ones.
+// PerEntryPointMap numbers every slot automatically (autoEntryPointResources),
+// and FakeMissingBindings writes placeholders for the missing ones.
 func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) error {
 	if w.options.PerEntryPointMap == nil || w.options.FakeMissingBindings {
 		return nil
 	}
-	epRes := w.options.PerEntryPointMap[ep.Name]
+	epRes := w.currentEPResources
 	needsSizes := w.doVertexPulling(ep)
 	for h := range w.module.GlobalVariables {
 		if _, ok := used[uint32(h)]; !ok {
@@ -1677,14 +1737,14 @@ func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) e
 		case ir.SpaceUniform, ir.SpaceStorage, ir.SpaceHandle:
 		case ir.SpaceImmediate:
 			if epRes.ImmediatesBuffer == nil {
-				return fmt.Errorf("msl: %w: entry point %q has no immediates buffer", backend.ErrMissingBinding, ep.Name)
+				return fmt.Errorf("%w: entry point %q has no immediates buffer", backend.ErrMissingBinding, ep.Name)
 			}
 			continue
 		default:
 			continue
 		}
 		if global.Binding == nil {
-			return fmt.Errorf("msl: entry point %q uses %s, which has no binding", ep.Name, global.Name)
+			return fmt.Errorf("entry point %q uses %s, which has no binding", ep.Name, global.Name)
 		}
 		target, ok := epRes.Resources[*global.Binding]
 		switch t := w.module.Types[global.Type].Inner.(type) {
@@ -1700,12 +1760,12 @@ func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) e
 			ok = ok && target.Buffer != nil
 		}
 		if !ok {
-			return fmt.Errorf("msl: %w: entry point %q has no bind target for %s at @group(%d) @binding(%d)", backend.ErrMissingBinding,
+			return fmt.Errorf("%w: entry point %q has no bind target for %s at @group(%d) @binding(%d)", backend.ErrMissingBinding,
 				ep.Name, global.Name, global.Binding.Group, global.Binding.Binding)
 		}
 	}
 	if needsSizes && epRes.SizesBuffer == nil {
-		return fmt.Errorf("msl: %w: entry point %q has no sizes buffer", backend.ErrMissingBinding, ep.Name)
+		return fmt.Errorf("%w: entry point %q has no sizes buffer", backend.ErrMissingBinding, ep.Name)
 	}
 	return nil
 }
@@ -1740,10 +1800,7 @@ func (w *Writer) writeInlineSamplers(epName string, epUsedGlobals map[uint32]str
 			continue
 		}
 		// Check if this sampler has an inline binding
-		if w.currentResourceMap == nil {
-			continue
-		}
-		bt, ok := w.currentResourceMap[*global.Binding]
+		bt, ok := w.currentEPResources.Resources[*global.Binding]
 		if !ok || bt.Sampler == nil || !bt.Sampler.IsInline {
 			continue
 		}
@@ -1976,7 +2033,7 @@ func (w *Writer) checkVaryings(ep *ir.EntryPoint) error {
 			return nil
 		}
 		if loc.PerPrimitive {
-			return unsupported.Errorf("msl: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
+			return unsupported.Errorf("entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
 		}
 		if isPerVertex(b) {
 			return w.requireVersion(Version4_0, "@interpolate(per_vertex)")
@@ -2205,8 +2262,8 @@ func (w *Writer) isExternalTextureGlobal(handle uint32) bool {
 func (w *Writer) writeExternalTextureEntryPointParams(handle uint32, global *ir.GlobalVariable, epName string, paramCount *int) {
 	// Look up the external texture bind target from the resource map.
 	var extTarget *BindExternalTextureTarget
-	if global.Binding != nil && w.currentResourceMap != nil {
-		if bt, ok := w.currentResourceMap[*global.Binding]; ok {
+	if global.Binding != nil {
+		if bt, ok := w.currentEPResources.Resources[*global.Binding]; ok {
 			extTarget = bt.ExternalTexture
 		}
 	}

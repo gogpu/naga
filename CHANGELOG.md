@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `int2(...)` (a DXC workaround), so `textureSampleLevel(t3d, s, uvw, 0.0, vec3<i32>(-1, 2, -3))` sampled at offset
   (-1, 2, 0) and a 1D offset was widened. The wrapper now has the offset's own type, `int`, `int2` or `int3`, as in
   Rust naga (gfx-rs/wgpu#9951).
+- **MSL: without a `PerEntryPointMap`, the immediates, sizes and external texture arguments had no slot**
+  (P0-MSL-096). The automatic numbering gave slots to buffers, textures and samplers only, so
+  `constant Params& pc`, `constant _mslBufferSizes& _buffer_sizes` and an external texture's planes and parameters
+  were written without `[[buffer(N)]]` or `[[texture(N)]]`, which Metal rejects, and an external texture counted as
+  one texture, moving the textures after it. The numbering now follows Rust wgpu-hal's Metal device: the immediates
+  buffer first (buffer 0, when the module has immediate data or `ClampFragDepth` is set), then the resources by
+  (group, binding), an external texture taking three textures and a buffer, then the sizes buffer after the last
+  buffer. Resource slots move up by one in a module with immediate data. More than 256 slots of one kind is now an
+  error instead of a wrap. gogpu/wgpu always passes a map and is not affected.
+- **MSL: errors raised while writing the module were prefixed `msl: msl:`.** They now carry the prefix once.
 
 ## [0.21.2] - 2026-11-03
 

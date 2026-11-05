@@ -98,19 +98,35 @@ var<immediate> im: Immediates;
 		verifyMSLWithXcrun(t, got)
 	}
 
+	// The map places the entry point's other slots but no immediates buffer.
 	noBuffer := clampOptions(16)
-	noBuffer.PerEntryPointMap = nil
+	noBuffer.PerEntryPointMap = map[string]EntryPointResources{"fs_main": {}}
 	for name, tc := range map[string]struct {
 		opts Options
 		want string
 	}{
 		"inside the data":    {clampOptions(8), "overlaps"},
 		"unaligned":          {clampOptions(18), "multiple of 4"},
-		"no immediates slot": {noBuffer, "ImmediatesBuffer"},
+		"no immediates slot": {noBuffer, "no immediates buffer"},
 	} {
 		_, _, err := Compile(lowerWGSLForTest(t, src), tc.opts)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err %v, want one with %q", name, err, tc.want)
 		}
+	}
+
+	// Without immediate data the clamp alone needs the buffer, and the map
+	// must place it.
+	const clampOnly = `@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z; }`
+	if _, _, err := Compile(lowerWGSLForTest(t, clampOnly), noBuffer); err == nil || !strings.Contains(err.Error(), "ImmediatesBuffer") {
+		t.Errorf("clamp without immediate data, no immediates slot: err %v, want one with \"ImmediatesBuffer\"", err)
+	}
+
+	// Without a map the automatic numbering places the immediates buffer at
+	// slot 0, as wgpu-hal does for a layout with immediates.
+	auto := clampOptions(16)
+	auto.PerEntryPointMap = nil
+	if got := compileWGSLWithOpts(t, src, auto); !strings.Contains(got, "constant Immediates& im [[buffer(0)]]") {
+		t.Errorf("nil map: the immediates argument is not at slot 0:\n%s", got)
 	}
 }

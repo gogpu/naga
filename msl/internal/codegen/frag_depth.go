@@ -58,16 +58,16 @@ func (w *Writer) writeFragDepthRangeParam(ep *ir.EntryPoint, used map[uint32]str
 	if clamp == nil || !w.writesFragDepth(ep) {
 		return nil
 	}
-	res, ok := w.options.PerEntryPointMap[ep.Name]
-	if !ok || res.ImmediatesBuffer == nil {
-		return fmt.Errorf("msl: entry point %q clamps frag_depth but has no ImmediatesBuffer for the range", ep.Name)
+	res := w.currentEPResources
+	if res.ImmediatesBuffer == nil {
+		return fmt.Errorf("entry point %q clamps frag_depth but has no ImmediatesBuffer for the range", ep.Name)
 	}
 	if clamp.Offset%4 != 0 {
-		return fmt.Errorf("msl: ClampFragDepth.Offset %d is not a multiple of 4", clamp.Offset)
+		return fmt.Errorf("ClampFragDepth.Offset %d is not a multiple of 4", clamp.Offset)
 	}
 	var layouter ir.Layouter
 	if err := layouter.Update(w.module); err != nil {
-		return fmt.Errorf("msl: %w", err)
+		return fmt.Errorf("frag_depth clamp: %w", err)
 	}
 	base := immediatesName
 	for h := range used {
@@ -76,7 +76,7 @@ func (w *Writer) writeFragDepthRangeParam(ep *ir.EntryPoint, used map[uint32]str
 			continue
 		}
 		if size := layouter.Layout(global.Type).Size; clamp.Offset < size {
-			return fmt.Errorf("msl: the frag_depth range at offset %d overlaps the %d bytes of immediate data of entry point %q",
+			return fmt.Errorf("the frag_depth range at offset %d overlaps the %d bytes of immediate data of entry point %q",
 				clamp.Offset, size, ep.Name)
 		}
 		base = fmt.Sprintf("reinterpret_cast<constant char*>(&%s)", w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: h}))
