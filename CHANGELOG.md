@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **WGSL: 16-bit integers `i16` and `u16` under `enable wgpu_int16`** (P2-WGSL-102), as in Rust naga. The enable and its
+  capability check existed, but the type names did not, so every use failed with "unknown type". New IR literal kinds
+  `ir.LiteralU16` and `ir.LiteralI16`; the constant evaluator folds 16-bit values; SPIR-V, MSL and HLSL write them
+  (Rust's `int16.wgsl` matches). `i16(f16(33000.0))` is 32752 as the WGSL spec defines the conversion, where Rust gives
+  32767, a value no f16 holds. GLSL and DXIL refuse 16-bit integers with a clear error; DXIL used to compile them at
+  SM 6.2 without a word.
+
 ### Fixed
 
 - **DXIL: the PSV0 ViewID dependency table had the wrong stride where signature elements share a row**
@@ -80,6 +89,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what was left. It now rejects any argument after the input file with a usage error that names them and exits with
   status 2; write `nagac -o a.spv t.wgsl`. nagac also refuses to write binary SPIR-V to a terminal and asks for `-o`
   (redirected stdout and `/dev/null` still work). The README examples had the flags after the input file.
+- **WGSL: a binding_array element passed to a texture call had its arguments read wrong** (P1-WGSL-094). The lowerer
+  looked the texture's type up by the variable's name, so `textureLoad(arr[i], coords, layer, level)` on an arrayed,
+  multisampled or depth texture mixed up the array index, level and sample index without an error. It now uses the
+  resolved type of the image expression, as Rust naga does.
+- **Validation: storage, uniform and workgroup pointers as function parameters were accepted** (P1-IR-030). WGSL allows
+  only function and private pointers as parameters (without the unrestricted_pointer_parameters extension, which
+  neither Rust naga nor naga implements); such a shader compiled to MSL with an unchecked index. Taking the address of
+  a single vector component (`&v.x`, `&v[i]`) is rejected too. Both errors use Rust naga's wording.
+- **WGSL: an attribute on a declaration it does not apply to was ignored** (P2-WGSL-103). `@vertex struct S {…}`,
+  `@workgroup_size` on a const, `@group`/`@binding` on a non-variable and the like are now shader-creation errors, as
+  the WGSL spec requires; Rust naga accepts most of them. No shader of gg, g3d, ui, wgpu or Born ML is affected.
+- **SPIR-V: `subgroupBroadcast` used OpGroupNonUniformBroadcast with a run-time index**, which SPIR-V before 1.5 allows
+  only with a constant. It is now OpGroupNonUniformShuffle, as Rust naga writes it.
+- **HLSL: a load passed straight to a subgroup operation was not baked**, so it was read at the call instead of where
+  the WGSL evaluates it.
+- **MSL: wrapped helper functions (`naga_div`, `naga_mod`, …) come in expression order**, as Rust naga writes them.
 
 ## [0.21.2] - 2026-11-03
 
