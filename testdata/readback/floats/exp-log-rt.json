@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "exp and log (scalar and vector) of run-time values, natural base: 1, 0, 2718, 7389, 2303, 2000 in thousandths; words 6 and 7 not written (P1-DXIL-078: DXIL Exp and Log are base 2, exp and log were refused)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [0, "0x3F800000", "0x40000000", "0x41200000"], "type": "f32"},
+    {"binding": 1, "kind": "storage-rw", "len": 8, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[1, 0, 2718, 7389, 2303, 2000, "fill", "fill"]]}
+  ]
+}

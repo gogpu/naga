@@ -2759,6 +2759,10 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathRadians(fn, mathExpr)
 	case ir.MathSign:
 		return e.emitMathSign(fn, mathExpr)
+	case ir.MathExp, ir.MathLog:
+		return e.emitMathExpLog(fn, mathExpr)
+	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
+		return e.emitMathDot4Packed(fn, mathExpr)
 	case ir.MathExtractBits:
 		return e.emitMathExtractBits(fn, mathExpr)
 	case ir.MathInsertBits:
@@ -3534,6 +3538,101 @@ func (e *Emitter) mulByFloatConst(fn *ir.Function, h ir.ExpressionHandle, arg in
 	}
 	ty := e.overloadReturnType(overloadForScalar(scalar))
 	return e.addBinOpInstr(ty, BinOpFMul, arg, e.floatConstFor(scalar, c))
+}
+
+// emitMathExpLog emits exp or log per component. DXIL's Exp and Log are base
+// 2; DXC lowers exp(x) to Exp(x * log2(e)) and log(x) to Log(x) * ln(2), the
+// constant in the argument's float type (HLOperationLower.cpp TranslateExp,
+// TranslateLog).
+func (e *Emitter) emitMathExpLog(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	scalar, ok := scalarOfType(e.resolveExprType(fn, mathExpr.Arg))
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	return e.emitScalarized(fn, []ir.ExpressionHandle{mathExpr.Arg}, func(ops []int) (int, error) {
+		ty := e.overloadReturnType(ol)
+		dxFn := e.getDxOpUnaryFunc(dxOpClassUnary, ol)
+		if mathExpr.Fun == ir.MathExp {
+			scaled := e.addBinOpInstr(ty, BinOpFMul, ops[0], e.floatConstFor(scalar, math.Log2E))
+			return e.addCallInstr(dxFn, ty, []int{e.getIntConstID(int64(OpExp)), scaled}), nil
+		}
+		log2 := e.addCallInstr(dxFn, ty, []int{e.getIntConstID(int64(OpLog)), ops[0]})
+		return e.addBinOpInstr(ty, BinOpFMul, log2, e.floatConstFor(scalar, math.Ln2)), nil
+	})
+}
+
+// emitMathDot4Packed emits dot4I8Packed or dot4U8Packed: the dot product of
+// the four signed or unsigned bytes of two u32s. From SM 6.4 it is
+// dx.op.dot4AddPacked (Dot4AddI8Packed, Dot4AddU8Packed) with a zero
+// accumulator, as DXC compiles dot4add_i8packed(a, b, 0); below it, the
+// polyfill the HLSL writer uses, dot(int4(a, a >> 8, a >> 16, a >> 24) << 24
+// >> 24, ...), compiled as DXC compiles it: each byte sign-extended by
+// shl + ashr (zero-extended by lshr + and), then a mul and an IMad (UMad)
+// chain.
+func (e *Emitter) emitMathDot4Packed(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil {
+		return 0, fmt.Errorf("%s requires 2 arguments", dot4PackedName(mathExpr.Fun))
+	}
+	a, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	b, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	signed := mathExpr.Fun == ir.MathDot4I8Packed
+	i32Ty := e.mod.GetIntType(32)
+	if e.opts.ShaderModelMajor > 6 || e.opts.ShaderModelMinor >= 4 {
+		opcode := OpDot4AddU8Packed
+		if signed {
+			opcode = OpDot4AddI8Packed
+		}
+		dxFn := e.getDxOpTernaryFunc("dx.op.dot4AddPacked", overloadI32)
+		return e.addCallInstr(dxFn, i32Ty, []int{e.getIntConstID(int64(opcode)), e.getIntConstID(0), a, b}), nil
+	}
+	bytes := func(v int) [4]int {
+		var out [4]int
+		for k := range out {
+			if signed {
+				shifted := v
+				if k < 3 {
+					shifted = e.addBinOpInstr(i32Ty, BinOpShl, v, e.getIntConstID(int64(24-8*k)))
+				}
+				out[k] = e.addBinOpInstr(i32Ty, BinOpAShr, shifted, e.getIntConstID(24))
+				continue
+			}
+			shifted := v
+			if k > 0 {
+				shifted = e.addBinOpInstr(i32Ty, BinOpLShr, v, e.getIntConstID(int64(8*k)))
+			}
+			if k < 3 {
+				shifted = e.addBinOpInstr(i32Ty, BinOpAnd, shifted, e.getIntConstID(0xFF))
+			}
+			out[k] = shifted
+		}
+		return out
+	}
+	ab, bb := bytes(a), bytes(b)
+	mad := OpUMad
+	if signed {
+		mad = OpIMad
+	}
+	madFn := e.getDxOpTernaryFunc(dxOpClassTertiary, overloadI32)
+	acc := e.addBinOpInstr(i32Ty, BinOpMul, ab[0], bb[0])
+	for k := 1; k < 4; k++ {
+		acc = e.addCallInstr(madFn, i32Ty, []int{e.getIntConstID(int64(mad)), ab[k], bb[k], acc})
+	}
+	return acc, nil
+}
+
+// dot4PackedName is the WGSL name of a packed dot product built-in.
+func dot4PackedName(f ir.MathFunction) string {
+	if f == ir.MathDot4I8Packed {
+		return "dot4I8Packed"
+	}
+	return "dot4U8Packed"
 }
 
 // emitMathIntAbs emits abs of an integer arg of scalar type s, per

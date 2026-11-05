@@ -82,6 +82,10 @@ const (
 	OpDot3 DXILOpcode = 55
 	OpDot4 DXILOpcode = 56
 
+	// Packed 8-bit dot products with accumulate (SM 6.4).
+	OpDot4AddI8Packed DXILOpcode = 163
+	OpDot4AddU8Packed DXILOpcode = 164
+
 	// Resource operations.
 	OpCreateHandle            DXILOpcode = 57
 	OpAnnotateHandle          DXILOpcode = 216 // SM 6.6+

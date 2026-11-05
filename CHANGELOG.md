@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sample_mask` or `sample_index` were rejected by IDxcValidator: PSV0 wrote StartRow 0xFF for these unallocated
   elements where DXC writes 0, OSG1 named the coverage output `SV_Unknown6` instead of `SV_Coverage`, and the
   signature string table followed the sorted records instead of the module's element order.
+- **DXIL: `exp`, `log`, `dot4I8Packed` and `dot4U8Packed` were refused** (P1-DXIL-078, P1-DXIL-067). `exp` and
+  `log` are now lowered as DXC lowers them, `Exp(x * log2(e))` and `Log(x) * ln(2)` (DXIL's Exp and Log are base 2),
+  which unblocks Born's sigmoid, softmax, erf and attention kernels on the DXIL path. The packed dot products are
+  `dx.op.dot4AddPacked` from SM 6.4 and, below it, the unpack-and-dot polyfill the HLSL writer uses.
 - **DXIL: only the first of 2 to 4 `clip_distances` was written** (P1-DXIL-082). A struct return counted an array
   member as one scalar, so a vertex shader returning `@builtin(clip_distances) clip: array<f32, N>` stored element 0
   and IDxcValidator rejected it ("Not all elements of output SV_ClipDistance were written"); PSV0 also counted one

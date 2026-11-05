@@ -3962,7 +3962,7 @@ func classifyDxOpAttr(fullName string) uint32 {
 		"loadInput", "coverage", "viewID", "domainLocation", "outputControlPointID",
 		"primitiveID", "gsInstanceID", "stencilRef",
 		"unary", "binary", "tertiary", "quaternary",
-		"dot2", "dot3", "dot4", "dot",
+		"dot2", "dot3", "dot4", "dot", "dot4AddPacked",
 		"makeDouble", "splitDouble", "isSpecialFloat",
 		"isNaN", "isInf", "isFinite", "isNormal",
 		"firstbitLo", "firstbitHi", "firstbitSHi", "countbits",
