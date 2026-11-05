@@ -59,7 +59,7 @@ jobs:
         shell: bash
         env:
           NAGA_REQUIRE_TOOLS: spirv-val,spirv-dis
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... ./...
 
       - name: Verify coverage file
         if: matrix.os == 'ubuntu-latest'
