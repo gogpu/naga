@@ -120,6 +120,10 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 		return nil, &ParseError{Message: "expected global declaration, but found a global directive", Token: p.peek()}
 	}
 
+	if err := p.checkGlobalAttributeTargets(attrs); err != nil {
+		return nil, err
+	}
+
 	switch {
 	case p.check(TokenFn):
 		return p.functionDecl(attrs)
@@ -165,6 +169,81 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 			Token:   tok,
 		}
 	}
+}
+
+// attributeTarget is the kind of module-scope declaration an attribute
+// applies to.
+type attributeTarget uint8
+
+const (
+	targetFunction attributeTarget = iota + 1
+	targetVariable
+	targetOverride
+)
+
+// attributeTargetNames name each target in the error text, after Rust
+// naga's FunctionMustUseOnNonFunction ("attribute `@must_use` is only valid
+// on function declarations").
+var attributeTargetNames = [...]string{
+	targetFunction: "function",
+	targetVariable: "variable",
+	targetOverride: TokenOverride.String(),
+}
+
+// globalAttributeTargets maps each attribute that applies to one kind of
+// module-scope declaration to that kind (WGSL spec, "Attributes"; the
+// stages and entry-point attributes of the wgpu mesh-shader and
+// ray-tracing extensions are function attributes as in Rust naga's
+// Parser::global_decl). Attributes of parameters, results and struct
+// members never reach a module-scope declaration; @diagnostic is checked by
+// its own rules.
+var globalAttributeTargets = map[string]attributeTarget{
+	"vertex":           targetFunction,
+	"fragment":         targetFunction,
+	"compute":          targetFunction,
+	"task":             targetFunction,
+	"mesh":             targetFunction,
+	"payload":          targetFunction,
+	"ray_generation":   targetFunction,
+	"any_hit":          targetFunction,
+	"closest_hit":      targetFunction,
+	"miss":             targetFunction,
+	"incoming_payload": targetFunction,
+	"workgroup_size":   targetFunction,
+	"early_depth_test": targetFunction,
+	"must_use":         targetFunction,
+	"group":            targetVariable,
+	"binding":          targetVariable,
+	"id":               targetOverride,
+}
+
+// checkGlobalAttributeTargets rejects an attribute on a module-scope
+// declaration it does not apply to, a shader-creation error by the WGSL
+// spec. The next token starts the declaration. Rust naga rejects only
+// @must_use on a non-function and @group/@binding without a `var`, and
+// drops the other misplaced attributes silently; naga follows the spec.
+func (p *Parser) checkGlobalAttributeTargets(attrs []Attribute) *ParseError {
+	var target attributeTarget
+	switch p.peek().Kind {
+	case TokenFn:
+		target = targetFunction
+	case TokenVar:
+		target = targetVariable
+	case TokenOverride:
+		target = targetOverride
+	}
+	for i := range attrs {
+		want, ok := globalAttributeTargets[attrs[i].Name]
+		if !ok || want == target {
+			continue
+		}
+		name := attrs[i].NameSpan.Start
+		return &ParseError{
+			Message: fmt.Sprintf("attribute `@%s` is only valid on %s declarations", attrs[i].Name, attributeTargetNames[want]),
+			Token:   Token{Kind: TokenIdent, Lexeme: attrs[i].Name, Line: name.Line, Column: name.Column},
+		}
+	}
+	return nil
 }
 
 // attributes parses a list of attributes (@location(0), @vertex, etc.)
