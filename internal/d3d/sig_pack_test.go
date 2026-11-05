@@ -308,3 +308,33 @@ func TestSortFlatBindings_MultipleLocations(t *testing.T) {
 		t.Errorf("bindings[3] should be BuiltinBinding, got %T", bindings[3])
 	}
 }
+
+// TestBuiltinInterpolation pins DXC's interpolation mode for system values
+// (HLSignatureLower.cpp ProcessArgument and UpdateSemanticAndInterpMode):
+// only vertex outputs and pixel inputs carry one; there a float system value
+// is Linear (SV_Position LinearNoperspective) and any other is Constant.
+func TestBuiltinInterpolation(t *testing.T) {
+	cases := []struct {
+		name     string
+		b        ir.BuiltinValue
+		stage    ir.ShaderStage
+		isOutput bool
+		want     SigPackInterp
+	}{
+		{"PS in SV_Position", ir.BuiltinPosition, ir.StageFragment, false, InterpLinearNoperspective},
+		{"VS out SV_Position", ir.BuiltinPosition, ir.StageVertex, true, InterpLinearNoperspective},
+		{"VS out SV_ClipDistance", ir.BuiltinClipDistances, ir.StageVertex, true, InterpLinear},
+		{"PS in SV_IsFrontFace", ir.BuiltinFrontFacing, ir.StageFragment, false, InterpConstant},
+		{"PS in SV_PrimitiveID", ir.BuiltinPrimitiveIndex, ir.StageFragment, false, InterpConstant},
+		{"PS in SV_SampleIndex", ir.BuiltinSampleIndex, ir.StageFragment, false, InterpConstant},
+		{"VS in SV_VertexID", ir.BuiltinVertexIndex, ir.StageVertex, false, InterpUndefined},
+		{"VS in SV_InstanceID", ir.BuiltinInstanceIndex, ir.StageVertex, false, InterpUndefined},
+		{"PS out SV_Depth", ir.BuiltinFragDepth, ir.StageFragment, true, InterpUndefined},
+		{"PS out SV_Coverage", ir.BuiltinSampleMask, ir.StageFragment, true, InterpUndefined},
+	}
+	for _, c := range cases {
+		if got := BuiltinInterpolation(c.b, c.stage, c.isOutput); got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
+		}
+	}
+}

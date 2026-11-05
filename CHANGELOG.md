@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: fragment system-value inputs had no interpolation mode, and unallocated system values broke the container**
+  (P1-DXIL-083). `@builtin(primitive_index)`, `front_facing` and `sample_index` were declared with interpolation mode
+  Undefined; DXC gives every non-float pixel input `nointerpolation`, and Intel's driver read a wrong primitive index
+  for the second triangle. PSV0 and the module now both say Constant. Shaders with `@builtin(frag_depth)`,
+  `sample_mask` or `sample_index` were rejected by IDxcValidator: PSV0 wrote StartRow 0xFF for these unallocated
+  elements where DXC writes 0, OSG1 named the coverage output `SV_Unknown6` instead of `SV_Coverage`, and the
+  signature string table followed the sorted records instead of the module's element order.
 - **DXIL: the PSV0 ViewID dependency table had the wrong stride where signature elements share a row**
   (P1-DXIL-089). The table was sized by the number of signature elements instead of the packed rows the PSV0 header
   gives (DXC's `NumVectorsUsed`), so a vertex shader with more than eight outputs packed into fewer rows wrote two mask

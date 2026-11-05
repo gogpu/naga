@@ -2646,27 +2646,14 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 			info.cols = 1
 			info.numChannels = 1
 		}
-		// Direction-aware interpolation. Verified against dxc reference
-		// (vs_flat_out.hlsl). Carriers:
-		//   stage    direction  carries
-		//   vertex   in         no
-		//   vertex   out        YES — to-rasterizer values
-		//   fragment in         YES — from-rasterizer values
-		//   fragment out        no — SV_Target / SV_Depth
-		//
-		// Vertex output and fragment input MUST emit identical interp
-		// values for the same semantic.
-		isVertex := !isFragment
-		carries := (isVertex && isOutput) || (isFragment && !isOutput)
-		if carries {
-			if b.Builtin == ir.BuiltinPosition {
-				info.interpMode = 4 // NoPerspective
-			} else if b.Builtin == ir.BuiltinClipDistances {
-				info.interpMode = 2 // Linear
-			} else {
-				info.interpMode = 0 // VertexID, InstanceID, etc — not actually emitted in carrier directions
-			}
+		// The same rule as PSV0 (d3d.BuiltinInterpolation): the two must
+		// agree, and a non-float system value on a pixel input is
+		// nointerpolation.
+		stage := ir.StageVertex
+		if isFragment {
+			stage = ir.StageFragment
 		}
+		info.interpMode = int64(d3d.BuiltinInterpolation(b.Builtin, stage, isOutput))
 	case ir.LocationBinding:
 		info.semKind = 0 // Arbitrary
 		info.semIndex = int64(b.Location)
