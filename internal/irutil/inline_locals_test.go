@@ -4,6 +4,7 @@
 package irutil_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/internal/irutil"
@@ -152,4 +153,63 @@ fn f(n: u32) -> u32 {
 			}
 		}
 	}
+}
+
+// TestInlineDoesNotReinitializeItsOwnLocals: the locals the inliner makes
+// itself (a return slot, a "returned" flag, an argument spill) are written
+// before they are read in every run of the inlined body: the return slot on
+// every return path, the flag cleared at its start, the spill at the call.
+// When a function that already holds them (its callees were inlined into it)
+// is inlined in turn, they need no initializer store at the inline point; one
+// was added for each, which only kept them out of registers (P2-DXIL-088: gg
+// coarse went from 74 to 139 allocas). Rows of a helper inlined into a helper
+// inlined in a loop, as gg's minf/maxf/clamp_u32 are.
+func TestInlineDoesNotReinitializeItsOwnLocals(t *testing.T) {
+	src := `
+fn minu(a: u32, b: u32) -> u32 { if a < b { return a; } return b; }
+fn clampu(v: u32, lo: u32, hi: u32) -> u32 { if v < lo { return lo; } if v > hi { return hi; } return v; }
+fn row(i: u32) -> u32 {
+    var r = minu(i, 3u) + clampu(i * 2u, 1u, 5u);
+    if i > 1u { r += minu(clampu(i, 0u, 2u), 9u); }
+    return r;
+}
+fn f(n: u32) -> u32 {
+    var s = 0u;
+    for (var i = 0u; i < n; i++) { s = s * 7u + row(i); }
+    return s;
+}`
+	mod := lowerWGSL(t, src)
+	orig := mod.Clone()
+	if err := irutil.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	f := functionByName(t, mod, "f")
+	for n := uint32(0); n < 6; n++ {
+		want, err := newIREval(orig).call(functionByName(t, orig, "f"), []uint32{n})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := newIREval(mod).call(f, []uint32{n})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("f(%d) = %d after inlining, %d before", n, got, want)
+		}
+	}
+	// The names are the inliner's, and only the test reads them.
+	walkStatements(f.Body, func(s ir.StatementKind) {
+		st, ok := s.(ir.StmtStore)
+		if !ok {
+			return
+		}
+		lv, ok := f.Expressions[st.Pointer].Kind.(ir.ExprLocalVariable)
+		if !ok {
+			return
+		}
+		name := f.LocalVars[lv.Variable].Name
+		if _, zero := f.Expressions[st.Value].Kind.(ir.ExprZeroValue); zero && strings.HasPrefix(name, "_inline_") {
+			t.Errorf("the inliner's own local %d (%s) gets a zero store at an inline point", lv.Variable, name)
+		}
+	})
 }
