@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a local vector read by a run-time index or a component holds its initializer, or zero without one: 12 13 11 7 (P0-DXIL-091: DXIL read uninitialized per-component allocas)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [2, 3]},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[12, 13, 11, 7, "fill"]]}
+  ]
+}

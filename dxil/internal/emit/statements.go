@@ -57,6 +57,7 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 
 	live := liveLocalVars(fn)
 	stored := localsStoredTo(fn)
+	parts := localsAddressedByPart(fn)
 	for i := range fn.LocalVars {
 		if !live[uint32(i)] {
 			continue
@@ -75,11 +76,11 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 		}
 		// Init-only optimization: if the local has a non-nil Init and is
 		// never stored to, register it so loads resolve to Init directly.
-		// A struct or array read through a pointer to a member or element
-		// (`s.a`, `xs[i]`) is not: that load goes to the alloca, which then
-		// has to hold the Init.
+		// Only a load of the whole variable resolves that way: a local some
+		// expression addresses a part of (`v[i]`, `v.y`, `xs[i][j]`, `s.a`)
+		// is read through its alloca, which then has to hold the Init.
 		lv := &fn.LocalVars[i]
-		if lv.Init != nil && !stored[uint32(i)] && !e.partAccessed(fn, uint32(i)) {
+		if lv.Init != nil && !stored[uint32(i)] && !parts[uint32(i)] {
 			e.initOnlyLocals[uint32(i)] = *lv.Init
 			continue
 		}
@@ -88,8 +89,10 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 		// For scalar/vector types, loads resolve to the zero constant of
 		// the type, eliminating an unnecessary alloca+load chain. This
 		// handles the SROA pattern where unassigned struct members become
-		// separate locals that are read but never written.
-		if lv.Init == nil && !stored[uint32(i)] {
+		// separate locals that are read but never written. As for the
+		// init-only path, a part read goes to the alloca, so a vector read
+		// by component keeps it, with its zero value stored.
+		if lv.Init == nil && !stored[uint32(i)] && !parts[uint32(i)] {
 			if int(lv.Type) < len(e.ir.Types) {
 				switch e.ir.Types[lv.Type].Inner.(type) {
 				case ir.ScalarType, ir.VectorType:
@@ -106,24 +109,19 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 	return e.storeLocalInitializers(fn)
 }
 
-// partAccessed reports whether the local v is a struct or an array some
-// expression takes a pointer to a member or element of. The loads of an
-// init-only local resolve to its Init only when they load the whole
-// variable; a load of a part goes to an alloca, and an init-only local's
-// alloca never got the Init stored: `const cs = S(7, ...); var s = cs; s.a`
-// and `var xs = array(1.0, 2.0); xs[i]` read uninitialized memory
-// (P0-DXIL-084). A local whose initializer store the emitter cannot write
-// (initStorable) keeps the init-only path.
-func (e *Emitter) partAccessed(fn *ir.Function, v uint32) bool {
-	ty := fn.LocalVars[v].Type
-	switch e.ir.Types[ty].Inner.(type) {
-	case ir.StructType, ir.ArrayType:
-	default:
-		return false
-	}
-	if !e.initStorable(ty) {
-		return false
-	}
+// localsAddressedByPart returns the locals some expression takes a pointer to
+// a part of: a component, a column, a member or an element, by a constant or
+// a run-time index. The loads of an init-only or a zero-store local resolve
+// to its Init or its zero value only when they load the whole variable; a
+// load of a part goes to an alloca, which then must hold the initial value,
+// or it reads uninitialized memory: `var v = vec4(...); v[i]`,
+// `var xs = array(array(...), ...); xs[i][j]`, `var xs: array<vec2f, 2>;
+// xs[i]` and `const cs = S(...); var s = cs; s.a` all did, while
+// IDxcValidator accepted the module (P0-DXIL-084, P0-DXIL-091). DXC keeps
+// such a local in an alloca with its initializer stored after it (its
+// optimizer later turns a never-written one into a constant table).
+func localsAddressedByPart(fn *ir.Function) map[uint32]bool {
+	parts := make(map[uint32]bool)
 	for _, expr := range fn.Expressions {
 		var base ir.ExpressionHandle
 		switch k := expr.Kind.(type) {
@@ -134,11 +132,14 @@ func (e *Emitter) partAccessed(fn *ir.Function, v uint32) bool {
 		default:
 			continue
 		}
-		if lv, ok := fn.Expressions[base].Kind.(ir.ExprLocalVariable); ok && uint32(lv.Variable) == v {
-			return true
+		if int(base) >= len(fn.Expressions) {
+			continue
+		}
+		if lv, ok := fn.Expressions[base].Kind.(ir.ExprLocalVariable); ok {
+			parts[uint32(lv.Variable)] = true
 		}
 	}
-	return false
+	return parts
 }
 
 // storeLocalInitializers stores the initializer of every local that got an
@@ -191,11 +192,11 @@ func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
 // zeroValueFor appends to fn an expression holding the zero value of ty, its
 // components the zero constants of ty's scalars, for a variable declared
 // without an initializer: WGSL starts it at zero. It reports false for a
-// type whose whole-variable store the emitter cannot write yet (matrices,
-// arrays of anything but scalars, structs with members other than scalars
-// and vectors); such a variable starts uninitialized, as before.
+// type whose whole-variable store the emitter cannot write yet (initStorable:
+// structs with members other than scalars and vectors, arrays of such
+// structs); such a variable starts uninitialized, as before.
 func (e *Emitter) zeroValueFor(fn *ir.Function, ty ir.TypeHandle) (ir.ExpressionHandle, bool) {
-	if !e.storableWhole(ty) {
+	if !e.initStorable(ty) {
 		return 0, false
 	}
 	var comps []int
@@ -231,20 +232,45 @@ func (e *Emitter) storableWhole(ty ir.TypeHandle) bool {
 	return false
 }
 
-// initStorable reports whether the emitter stores a local's initializer of
-// type ty correctly: storableWhole, plus arrays of vectors, which a whole
-// store writes element by element and component by component (an array of
-// vectors is one flat alloca of scalars).
+// initStorable reports whether the emitter stores a whole value of type ty
+// into a local correctly: storableWhole, plus the types a local holds as
+// scalars it writes one by one, matrices (an alloca per component) and
+// arrays of anything but structs (one flat alloca of scalars, so an array of
+// vectors, of matrices or of arrays is written component by component), and
+// arrays of structs of scalars (an alloca of [N x {...}], written member by
+// member).
 func (e *Emitter) initStorable(ty ir.TypeHandle) bool {
 	if e.storableWhole(ty) {
 		return true
 	}
-	arr, ok := e.ir.Types[ty].Inner.(ir.ArrayType)
-	if !ok || arr.Size.Constant == nil || *arr.Size.Constant == 0 {
-		return false
+	switch t := e.ir.Types[ty].Inner.(type) {
+	case ir.MatrixType:
+		return true
+	case ir.ArrayType:
+		if t.Size.Constant == nil || *t.Size.Constant == 0 {
+			return false
+		}
+		switch b := e.ir.Types[t.Base].Inner.(type) {
+		case ir.ScalarType, ir.VectorType, ir.MatrixType:
+			return true
+		case ir.ArrayType:
+			return e.initStorable(t.Base)
+		case ir.StructType:
+			return structOfScalars(e.ir, b)
+		}
 	}
-	_, vec := e.ir.Types[arr.Base].Inner.(ir.VectorType)
-	return vec
+	return false
+}
+
+// structOfScalars reports whether every member of st is a scalar, the struct
+// layout an array of structs keeps in its alloca element.
+func structOfScalars(m *ir.Module, st ir.StructType) bool {
+	for _, mem := range st.Members {
+		if _, ok := m.Types[mem.Type].Inner.(ir.ScalarType); !ok {
+			return false
+		}
+	}
+	return len(st.Members) > 0
 }
 
 // appendZeroScalars appends the zero constant of every scalar of inner to
@@ -256,6 +282,10 @@ func (e *Emitter) appendZeroScalars(inner ir.TypeInner, out *[]int) {
 		*out = append(*out, e.zeroScalarID(t))
 	case ir.VectorType:
 		for i := 0; i < int(t.Size); i++ {
+			*out = append(*out, e.zeroScalarID(t.Scalar))
+		}
+	case ir.MatrixType:
+		for i := 0; i < int(t.Columns)*int(t.Rows); i++ {
 			*out = append(*out, e.zeroScalarID(t.Scalar))
 		}
 	case ir.ArrayType:
@@ -2185,6 +2215,12 @@ func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module
 	if elemTy == nil {
 		return fmt.Errorf("array store: nil element type")
 	}
+	if elemTy.Kind == module.TypeStruct {
+		if !e.initStorable(fn.LocalVars[varIdx].Type) {
+			return unsupported.Errorf("a whole store to local %q, an array of structs with members other than scalars, is not supported", fn.LocalVars[varIdx].Name)
+		}
+		return e.storeStructArrayElements(allocaID, arrayTy, valueHandle)
+	}
 	resultPtrTy := e.mod.GetPointerType(elemTy)
 	zeroID := e.getIntConstID(0)
 	align := e.alignForType(elemTy)
@@ -2202,6 +2238,31 @@ func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module
 			ReturnValue: -1,
 		}
 		e.currentBB.AddInstruction(instr)
+	}
+	return nil
+}
+
+// storeStructArrayElements stores an array-of-structs value into the
+// [N x {...}] alloca at allocaID member by member, through a GEP
+// [0, element, member] for each: DXIL has no aggregate store, and the value's
+// components are its scalars in element order (initStorable admits structs of
+// scalars only, one DXIL member per struct member).
+func (e *Emitter) storeStructArrayElements(allocaID int, arrayTy *module.Type, valueHandle ir.ExpressionHandle) error {
+	structTy := arrayTy.ElemType
+	zeroID := e.getIntConstID(0)
+	comp := 0
+	for i := 0; i < int(arrayTy.ElemCount); i++ {
+		for m, memberTy := range structTy.StructElems {
+			gepID := e.addGEPInstr(arrayTy, e.mod.GetPointerType(memberTy), allocaID,
+				[]int{zeroID, e.getIntConstID(int64(i)), e.getIntConstID(int64(m))})
+			e.currentBB.AddInstruction(&module.Instruction{
+				Kind:        module.InstrStore,
+				HasValue:    false,
+				Operands:    []int{gepID, e.getComponentID(valueHandle, comp), e.alignForType(memberTy), 0},
+				ReturnValue: -1,
+			})
+			comp++
+		}
 	}
 	return nil
 }
