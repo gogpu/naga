@@ -1,23 +1,28 @@
-// Package snapshot_test provides DXIL validation tests using DXC dumpbin.
+// Package snapshot_test provides DXIL validation tests.
 //
-// TestDxilValSummary compiles each WGSL shader through the naga pipeline to DXIL
-// and validates with dxc.exe -dumpbin. Shaders that fail DXIL compilation are
-// expected (DXIL backend is experimental, not all features supported).
+// TestDxilValSummary compiles every entry point of every corpus shader to
+// DXIL and validates it with IDxcValidator (dxil.Validate at ValidateFull),
+// the validator the D3D12 runtime runs. A pass is IDxcValidator's verdict, not
+// a `dxc -dumpbin` parse: dumpbin only disassembles, so it never runs the
+// container cross-checks (PSV0 against the module, signatures, ViewID state)
+// that make a pipeline creation fail.
 //
-// Requirements: dxc.exe with dxil.dll from Windows SDK must be available.
+// Requirements: IDxcValidator (dxil.dll from the Windows SDK) must load.
 package snapshot_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
+	"github.com/gogpu/naga/internal/dxcvalidator"
 	"github.com/gogpu/naga/internal/testtools"
-	"github.com/gogpu/naga/ir"
 )
 
 // dxcPath returns the path to dxc.exe from Windows SDK, or empty if not found.
@@ -35,6 +40,70 @@ func dxcPath() string {
 	return p
 }
 
+// idxcTool is the tool name NAGA_REQUIRE_TOOLS uses for IDxcValidator.
+const idxcTool = "dxil.dll"
+
+// installIDxc tells where IDxcValidator comes from.
+const installIDxc = "IDxcValidator needs Windows and dxil.dll from the Windows SDK"
+
+// requireIDxcValidator skips the test where IDxcValidator cannot run (not
+// Windows, or dxil.dll does not load) and fails it there when
+// NAGA_REQUIRE_TOOLS lists dxil.dll. dxil.Validate degrades to the bitcode
+// check without the validator, which would count every structurally sound
+// blob as a pass.
+func requireIDxcValidator(t *testing.T) {
+	t.Helper()
+	err := dxcvalidator.Run(func(*dxcvalidator.Validator) error { return nil })
+	if err == nil {
+		return
+	}
+	if errors.Is(err, dxcvalidator.ErrUnsupported) {
+		testtools.Missing(t, idxcTool, installIDxc)
+		return
+	}
+	testtools.Missing(t, idxcTool, installIDxc+": "+err.Error())
+}
+
+// knownFailures holds the entry points a gate expects to fail today, each with
+// the card that tracks it. A failure outside the list fails the test, and so
+// does a listed entry that no longer fails: a fixed entry leaves the list.
+type knownFailures struct {
+	name string            // the list's variable name, for messages
+	list map[string]string // key → card
+	seen map[string]bool
+}
+
+func newKnownFailures(name string, list map[string]string) *knownFailures {
+	return &knownFailures{name: name, list: list, seen: make(map[string]bool)}
+}
+
+// fail records a failure of key and reports whether it was expected.
+func (k *knownFailures) fail(t *testing.T, key, msg string) bool {
+	t.Helper()
+	card, known := k.list[key]
+	if !known {
+		return false
+	}
+	k.seen[key] = true
+	t.Logf("known failure %s (%s): %s", key, card, truncate(msg, 200))
+	return true
+}
+
+// checkFixed fails the test for every listed key that did not fail.
+func (k *knownFailures) checkFixed(t *testing.T) {
+	t.Helper()
+	keys := make([]string, 0, len(k.list))
+	for key := range k.list {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !k.seen[key] {
+			t.Errorf("%s passes now: remove it from %s and close %s", key, k.name, k.list[key])
+		}
+	}
+}
+
 // dxilExpectedCompileFail contains shaders that are EXPECTED to fail DXIL compilation.
 // These verify graceful error handling (no panic, clear error message).
 // If a shader in this list starts compiling successfully, the test fails — remove it from the list.
@@ -43,38 +112,113 @@ var dxilExpectedCompileFail = map[string]string{
 	"ptr-deref-test":       "no entry points",
 }
 
-// TestDxilValSummary compiles all WGSL shaders to DXIL and validates with DXC dumpbin.
-// This is the DXIL equivalent of TestSpirvValBinarySummary.
+// dxilKnownFailures are the corpus entry points ("shader/entry", or "shader"
+// when the shader does not get as far as its entry points) that DXIL does not
+// produce a valid blob for today — a parse or dxil.Compile error, or an
+// IDxcValidator rejection — each with its card.
+var dxilKnownFailures = map[string]string{
+	// The WGSL front end does not parse these shaders yet.
+	"cooperative-matrix":                   "PARITY-UPSTREAM-001",
+	"cooperative-matrix-mixed-accumulator": "PARITY-UPSTREAM-001",
+	"debug-printf":                         "PARITY-UPSTREAM-001",
+	"ray-tracing-pipeline":                 "PARITY-UPSTREAM-001",
+	"int16":                                "P2-WGSL-102",
+
+	// Refused by dxil.Compile: no DXIL lowering yet, or no D3D semantic.
+	"8820-multiple-local-invocation-index-id/compute1": "P2-DXIL-093",
+	"barycentrics/fs_main":                             "P2-DXIL-073",
+	"barycentrics/fs_main_no_perspective":              "P2-DXIL-073",
+	"draw-index/vertex":                                "P2-DXIL-073",
+	"per-vertex/fs_main":                               "P2-DXIL-074",
+	"mesh-shader/fs_main":                              "P2-DXIL-074",
+	"texture-external/fragment_main":                   "P1-DXIL-056",
+	"texture-external/vertex_main":                     "P1-DXIL-056",
+
+	// dx.op.createHandle at SM 6.6, where the validator wants
+	// createHandleFromBinding.
+	"atomicCompareExchange-int64/test_atomic_compare_exchange_i64": "P1-DXIL-090",
+	"atomicCompareExchange-int64/test_atomic_compare_exchange_u64": "P1-DXIL-090",
+	"atomicOps-int64/cs_main":                                      "P1-DXIL-090",
+	"atomicOps-int64-min-max/cs_main":                              "P1-DXIL-090",
+	"atomicTexture-int64/cs_main":                                  "P1-DXIL-090",
+
+	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
+	"atomicOps-float32/cs_main": "P2-API-005",
+
+	// Input D3D cannot take (register ranges that overlap without a
+	// binding map, @location past the 32 signature rows) gives a blob
+	// instead of a compile error.
+	"binding-buffer-arrays/main":       "P1-DXIL-094",
+	"msl-vpt-formats-x1/render_vertex": "P1-DXIL-094",
+	"msl-vpt-formats-x2/render_vertex": "P1-DXIL-094",
+	"msl-vpt-formats-x3/render_vertex": "P1-DXIL-094",
+	"msl-vpt-formats-x4/render_vertex": "P1-DXIL-094",
+
+	// PSV0 leaves out the semantic name of unallocated system values
+	// (SV_Depth, SV_Coverage, SV_SampleIndex); interface also has an
+	// output signature mismatch.
+	"early-depth-test-conservative/main": "P1-DXIL-083",
+	"interface/fragment":                 "P1-DXIL-083",
+
+	// Input signature part does not match the module.
+	"f16-native/test_component_access":   "P1-DXIL-095",
+	"f16-polyfill/test_component_access": "P1-DXIL-095",
+
+	// Shader flags: TypedUAVLoadAdditionalFormats missing; WaveOps set for an
+	// unused subgroup built-in.
+	"image/main":            "P1-DXIL-096",
+	"subgroup-barrier/main": "P1-DXIL-086",
+
+	"int64/main":                      "P1-DXIL-080",
+	"ray-query/main":                  "P1-DXIL-075",
+	"ray-query-no-init-tracking/main": "P1-DXIL-075",
+
+	// Mesh and amplification shaders.
+	"mesh-shader/ts_main":                 "P2-DXIL-097",
+	"mesh-shader/ts_divergent":            "P2-DXIL-097",
+	"mesh-shader/ms_main":                 "P2-DXIL-097",
+	"mesh-shader/ms_no_ts":                "P2-DXIL-097",
+	"mesh-shader/ms_divergent":            "P2-DXIL-097",
+	"mesh-shader-empty/ts_main":           "P2-DXIL-097",
+	"mesh-shader-empty/ms_main":           "P2-DXIL-097",
+	"mesh-shader-lines/ts_main":           "P2-DXIL-097",
+	"mesh-shader-lines/ms_main":           "P2-DXIL-097",
+	"mesh-shader-points/ts_main":          "P2-DXIL-097",
+	"mesh-shader-points/ms_main":          "P2-DXIL-097",
+	"primitive-index-mesh-shader/ms_main": "P2-DXIL-097",
+}
+
+// TestDxilValSummary compiles every entry point of every corpus shader to DXIL
+// and validates it with IDxcValidator. This is the DXIL equivalent of
+// TestSpirvValBinarySummary.
 func TestDxilValSummary(t *testing.T) {
-	dxc := dxcPath()
-	if dxc == "" {
-		testtools.Missing(t, "dxc", testtools.InstallDXC)
-	}
+	requireIDxcValidator(t)
 
 	shaders := loadCorpus(t)
+	known := newKnownFailures("dxilKnownFailures", dxilKnownFailures)
 
-	type result struct {
-		name     string
-		category string // "pass", "compile_fail", "val_fail"
-		message  string
+	var totalEPs, passCount, compileFailCount, valFailCount, knownCount, expectedFailCount int
+	var unexpected []string
+	fail := func(key, msg string) {
+		if known.fail(t, key, msg) {
+			knownCount++
+			return
+		}
+		unexpected = append(unexpected, key+": "+truncate(msg, 300))
 	}
 
-	var results []result
-	var passCount, compileFailCount, valFailCount, expectedFailCount int
-
 	opts := dxil.DefaultOptions()
-	// Immediate data at b0 in space 0, the immediates_target of every Rust
-	// parameter file that gives one.
+	// Immediate data at b0 in space 0 where the Rust parameters give no
+	// immediates_target.
 	opts.ImmediatesTarget = &dxil.BindTarget{}
 
 	for i := range shaders {
 		shader := &shaders[i]
 
-		// Step 1: Parse WGSL → IR.
 		module, parseErr := parseWGSL(shader.source)
 		if parseErr != nil {
 			compileFailCount++
-			results = append(results, result{shader.name, "compile_fail", parseErr.Error()})
+			fail(shader.name, "parse: "+parseErr.Error())
 			continue
 		}
 
@@ -82,105 +226,60 @@ func TestDxilValSummary(t *testing.T) {
 		processed, _, err := naga.ProcessOverrides(module, unvalidated, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader.name)})
 		if err != nil {
 			compileFailCount++
-			results = append(results, result{shader.name, "compile_fail", err.Error()})
+			fail(shader.name, "overrides: "+err.Error())
 			continue
 		}
 		module = processed
 
 		if len(module.EntryPoints) == 0 {
-			if reason, ok := dxilExpectedCompileFail[shader.name]; ok {
+			if _, ok := dxilExpectedCompileFail[shader.name]; ok {
 				expectedFailCount++
-				results = append(results, result{shader.name, "expected_fail", reason})
 			} else {
 				compileFailCount++
-				results = append(results, result{shader.name, "compile_fail", "no entry points"})
+				fail(shader.name, "no entry points")
 			}
 			continue
 		}
+		if reason, ok := dxilExpectedCompileFail[shader.name]; ok {
+			t.Errorf("shader %q was expected to have no entry points (%s) but has %d — remove it from dxilExpectedCompileFail",
+				shader.name, reason, len(module.EntryPoints))
+		}
 
-		// Step 2: Compile each entry point to DXIL.
-		allEPsPass := true
-		var firstErr string
+		// The resource placement of the shader's Rust HLSL parameters.
+		shaderOpts := withRustBindings(t, shader.name, opts)
 		for j := range module.EntryPoints {
 			ep := &module.EntryPoints[j]
+			totalEPs++
+			key := shader.name + "/" + ep.Name
 
-			// The binding-array sizes of the shader's Rust parameters, and
-			// Rust's fake_missing_bindings default for the rest.
-			shaderOpts := opts
-			shaderOpts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
-			shaderOpts.BindingMap = dxilBindingArraySizes(shader.name)
-			shaderOpts.FakeMissingBindings = true
-			dxilBytes, compileErr := dxilAtNeededModel(module, shaderOpts)
+			epOpts := shaderOpts
+			epOpts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
+			blob, compileErr := dxilAtNeededModel(module, epOpts)
 			if compileErr != nil {
-				if firstErr == "" {
-					firstErr = compileErr.Error()
-				}
-				allEPsPass = false
+				compileFailCount++
+				fail(key, "compile: "+compileErr.Error())
 				continue
 			}
-
-			// Step 3: Validate with DXC dumpbin.
-			tmpFile, tmpErr := os.CreateTemp("", "dxil-val-*.dxil")
-			if tmpErr != nil {
-				t.Fatalf("create temp file: %v", tmpErr)
-			}
-			tmpPath := tmpFile.Name()
-			_, _ = tmpFile.Write(dxilBytes)
-			tmpFile.Close()
-
-			cmd := exec.Command(dxc, "-dumpbin", tmpPath)
-			output, valErr := cmd.CombinedOutput()
-			os.Remove(tmpPath)
-
-			if valErr != nil {
-				if firstErr == "" {
-					firstErr = strings.TrimSpace(string(output))
-				}
-				allEPsPass = false
-			}
-		}
-
-		if allEPsPass {
-			// Regression check: expected-fail shader now passes → remove from list.
-			if reason, ok := dxilExpectedCompileFail[shader.name]; ok {
-				t.Errorf("shader %q was expected to fail (%s) but now passes DXC — remove from dxilExpectedCompileFail", shader.name, reason)
+			if verr := dxil.Validate(blob, dxil.ValidateFull); verr != nil {
+				valFailCount++
+				fail(key, "validate: "+verr.Error())
+				continue
 			}
 			passCount++
-			results = append(results, result{shader.name, "pass", ""})
-		} else if firstErr != "" && strings.Contains(firstErr, "dxc failed") {
-			valFailCount++
-			results = append(results, result{shader.name, "val_fail", firstErr})
-		} else {
-			compileFailCount++
-			results = append(results, result{shader.name, "compile_fail", firstErr})
 		}
 	}
 
-	testable := len(results) - expectedFailCount
-	t.Logf("=== DXIL Validation Summary (DXC dumpbin) ===")
-	t.Logf("Total:        %d (%d testable, %d expected fail)", len(results), testable, expectedFailCount)
-	t.Logf("Pass:         %d (%.1f%%)", passCount, pct(passCount, testable))
-	t.Logf("Val fail:     %d (%.1f%%)", valFailCount, pct(valFailCount, testable))
-	t.Logf("Compile fail: %d (%.1f%%)", compileFailCount, pct(compileFailCount, testable))
+	t.Logf("=== DXIL Validation Summary (IDxcValidator) ===")
+	t.Logf("Shaders:      %d (%d with no entry point, expected)", len(shaders), expectedFailCount)
+	t.Logf("Entry points: %d", totalEPs)
+	t.Logf("Pass:         %d (%.1f%%)", passCount, pct(passCount, totalEPs))
+	t.Logf("Val fail:     %d", valFailCount)
+	t.Logf("Compile fail: %d (shader-level parse failures count once)", compileFailCount)
+	t.Logf("Known:        %d of %d listed in dxilKnownFailures", knownCount, len(dxilKnownFailures))
 
-	if valFailCount > 0 {
-		t.Logf("")
-		t.Logf("=== DXC Validation Failures ===")
-		for _, r := range results {
-			if r.category == "val_fail" {
-				t.Logf("  %s: %s", r.name, truncate(r.message, 120))
-			}
-		}
-	}
-
-	if compileFailCount > 0 {
-		t.Logf("")
-		t.Logf("=== DXIL Compile Failures (expected for unsupported features) ===")
-		for _, r := range results {
-			if r.category == "compile_fail" {
-				t.Logf("  %s: %s", r.name, truncate(r.message, 120))
-			}
-		}
+	known.checkFixed(t)
+	for _, u := range unexpected {
+		t.Errorf("new DXIL failure (not in dxilKnownFailures): %s", u)
 	}
 }
 
@@ -300,30 +399,4 @@ func TestDxilValGGProduction(t *testing.T) {
 			t.Errorf("  %s", f)
 		}
 	}
-}
-
-// dxilBindingArraySizes is the binding map that gives the unbounded binding
-// arrays of a shader the sizes its Rust parameters give them, every other
-// binding at its WGSL group and binding as without a map. The default
-// BindingArray policy, Restrict, clamps to that size, as wgpu passes it.
-func dxilBindingArraySizes(shaderName string) dxil.BindingMap {
-	data, err := os.ReadFile(rustParamsPath(shaderName))
-	if err != nil {
-		return nil
-	}
-	var m dxil.BindingMap
-	for _, b := range mustRustParams(string(data)).spvBindingMap {
-		if b.bindingArraySize == nil {
-			continue
-		}
-		if m == nil {
-			m = dxil.BindingMap{}
-		}
-		m[ir.ResourceBinding{Group: b.group, Binding: b.binding}] = dxil.BindTarget{
-			Space:            uint8(b.group),
-			Register:         b.binding,
-			BindingArraySize: b.bindingArraySize,
-		}
-	}
-	return m
 }
