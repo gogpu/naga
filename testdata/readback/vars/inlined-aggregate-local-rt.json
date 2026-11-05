@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a helper's array and struct variables start afresh at every call made in a loop: 6 7 8 for each of array, struct, array of arrays, zero-initialized array (P0-DXIL-091: DXIL inliner initialized them once per caller: 6 7 9, zero_acc 6 13 21)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [3]},
+    {"binding": 1, "kind": "storage-rw", "len": 13, "fill": "0xDEADBEEF",
+     "expect": [[6, 7, 8, 6, 7, 8, 6, 7, 8, 6, 7, 8, "fill"]]}
+  ]
+}

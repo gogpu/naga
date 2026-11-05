@@ -87,3 +87,69 @@ fn f(n: u32) -> u32 {
 		t.Errorf("stores to y = %d, want 2 (the declaration and the +=, no zero store)", stores)
 	}
 }
+
+// TestInlineReinitializesAggregateCalleeLocalsPerCall: a struct, array or
+// matrix local of an inlined function that the function writes starts from
+// its initializer, or zero, at every call too (P0-DXIL-091). The inliner left
+// such a local its initializer, which the caller sets once, at its entry, so
+// a call inside a loop started from what the previous iteration left. Each one
+// now gets a store at the inline point, inside the loop, and keeps no
+// initializer. A local the function never writes holds its initializer at
+// every call anyway and keeps it: a store would only cost the backend an
+// alloca.
+func TestInlineReinitializesAggregateCalleeLocalsPerCall(t *testing.T) {
+	mod := lowerWGSL(t, `
+struct S { a: u32, b: u32 }
+fn arr_acc(x: u32) -> u32 { var arr = array<u32, 2>(5u, 6u); arr[1] = arr[1] + x; return arr[1]; }
+fn st_acc(x: u32) -> u32 { var st = S(5u, 6u); st.b = st.b + x; return st.b; }
+fn nest_acc(x: u32) -> u32 {
+    var nest = array<array<u32, 2>, 2>(array<u32, 2>(1u, 2u), array<u32, 2>(5u, 6u));
+    nest[1][1] = nest[1][1] + x;
+    return nest[1][1];
+}
+fn mat_acc(x: f32) -> f32 { var m = mat2x2<f32>(1.0, 2.0, 3.0, 4.0); m[1] = m[1] + vec2<f32>(x); return m[1].y; }
+fn zero_acc(x: u32) -> u32 { var zarr: array<u32, 2>; zarr[1] = zarr[1] + x; return zarr[1]; }
+fn untouched(i: u32) -> u32 { var table = array<u32, 2>(7u, 8u); return table[i % 2u]; }
+fn f(n: u32) -> u32 {
+    var s = 0u;
+    for (var i = 0u; i < n; i++) {
+        s += arr_acc(i) + st_acc(i) + nest_acc(i) + zero_acc(i) + untouched(i) + u32(mat_acc(f32(i)));
+    }
+    return s;
+}`)
+	if err := irutil.InlineUserFunctions(mod, func(*ir.Function) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	f := functionByName(t, mod, "f")
+	var loopBody ir.Block
+	walkStatements(f.Body, func(s ir.StatementKind) {
+		if l, ok := s.(ir.StmtLoop); ok && loopBody == nil {
+			loopBody = l.Body
+		}
+	})
+	storedInLoop := map[string]bool{}
+	walkStatements(loopBody, func(s ir.StatementKind) {
+		st, ok := s.(ir.StmtStore)
+		if !ok {
+			return
+		}
+		if lv, ok := f.Expressions[st.Pointer].Kind.(ir.ExprLocalVariable); ok {
+			storedInLoop[f.LocalVars[lv.Variable].Name] = true
+		}
+	})
+	for i, lv := range f.LocalVars {
+		switch lv.Name {
+		case "arr", "st", "nest", "m", "zarr":
+			if lv.Init != nil {
+				t.Errorf("inlined local %d (%s) keeps an initializer; it must be stored at the inline point", i, lv.Name)
+			}
+			if !storedInLoop[lv.Name] {
+				t.Errorf("inlined local %d (%s) is not stored whole inside the loop: a call starts from the previous call's value", i, lv.Name)
+			}
+		case "table":
+			if lv.Init == nil || storedInLoop[lv.Name] {
+				t.Errorf("inlined local %d (table) is never written by its function; it keeps its initializer and gets no store", i)
+			}
+		}
+	}
+}

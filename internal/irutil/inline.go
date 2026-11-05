@@ -386,15 +386,18 @@ func appendCalleeLocals(caller, callee *ir.Function) ir.LocalVariableHandle {
 // nir_inline_functions gets from lowering temporaries' initializers to stores
 // (nir_lower_variable_initializers) before inlining.
 //
-// Only scalar and vector locals are stored: the backend that inlines (DXIL)
-// writes those whole, and they are what its mem2reg used to promote from the
-// initial value in every call. A struct, array or matrix local keeps its
-// initializer (opaque locals such as a ray query have none to store). A
-// local without an initializer that the callee's straight-line start stores
-// before it reads it (the lowerer's store of a run-time initializer at the
-// declaration) needs no zero store: it would only cost an alloca.
+// Every scalar and vector local is stored: they are what the DXIL mem2reg
+// used to promote from the initial value in every call. A struct, array or
+// matrix local is stored when the callee writes it (in whole or in part);
+// one it never writes holds its initializer, or zero, at every call anyway,
+// and a store would only keep it in memory. Opaque locals such as a ray
+// query have no value to store. A local without an initializer that the
+// callee's straight-line start stores before it reads it (the lowerer's
+// store of a run-time initializer at the declaration) needs no zero store:
+// it would only cost an alloca.
 func initCalleeLocals(module *ir.Module, caller, callee *ir.Function, localOffset ir.LocalVariableHandle) []ir.Statement {
 	storedFirst := storedBeforeRead(callee)
+	written := writtenLocals(callee)
 	stmts := make([]ir.Statement, 0, len(callee.LocalVars))
 	for i := range callee.LocalVars {
 		h := localOffset + ir.LocalVariableHandle(ArenaIndex(i))
@@ -402,7 +405,9 @@ func initCalleeLocals(module *ir.Module, caller, callee *ir.Function, localOffse
 		switch module.Types[lv.Type].Inner.(type) {
 		case ir.ScalarType, ir.VectorType:
 		default:
-			continue
+			if !written[ir.LocalVariableHandle(ArenaIndex(i))] || !constructible(module, lv.Type) {
+				continue
+			}
 		}
 		if lv.Init == nil && storedFirst[ir.LocalVariableHandle(ArenaIndex(i))] {
 			continue
@@ -459,6 +464,72 @@ func storedBeforeRead(fn *ir.Function) map[ir.LocalVariableHandle]bool {
 		}
 	}
 	return stored
+}
+
+// writtenLocals returns the locals of fn that a statement at any depth may
+// write: the target of a Store, whole or through an access chain, and a local
+// passed by pointer to a call the inliner kept.
+func writtenLocals(fn *ir.Function) map[ir.LocalVariableHandle]bool {
+	written := make(map[ir.LocalVariableHandle]bool)
+	mark := func(h ir.ExpressionHandle) {
+		if v, ok := rootLocal(fn, h); ok {
+			written[v] = true
+		}
+	}
+	var walk func(b ir.Block)
+	walk = func(b ir.Block) {
+		for i := range b {
+			switch sk := b[i].Kind.(type) {
+			case ir.StmtStore:
+				mark(sk.Pointer)
+			case ir.StmtCall:
+				for _, a := range sk.Arguments {
+					mark(a)
+				}
+			}
+			NestedBlocks(b[i].Kind, walk)
+		}
+	}
+	walk(fn.Body)
+	return written
+}
+
+// rootLocal returns the local variable a pointer expression points into,
+// through any chain of Access and AccessIndex.
+func rootLocal(fn *ir.Function, h ir.ExpressionHandle) (ir.LocalVariableHandle, bool) {
+	for int(h) < len(fn.Expressions) {
+		switch k := fn.Expressions[h].Kind.(type) {
+		case ir.ExprLocalVariable:
+			return k.Variable, true
+		case ir.ExprAccess:
+			h = k.Base
+		case ir.ExprAccessIndex:
+			h = k.Base
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// constructible reports whether ty is a type with a value a store can write:
+// scalars, vectors, matrices, and fixed-size arrays and structs of them. A ray
+// query or another opaque type is not.
+func constructible(module *ir.Module, ty ir.TypeHandle) bool {
+	switch t := module.Types[ty].Inner.(type) {
+	case ir.ScalarType, ir.VectorType, ir.MatrixType:
+		return true
+	case ir.ArrayType:
+		return t.Size.Constant != nil && constructible(module, t.Base)
+	case ir.StructType:
+		for _, m := range t.Members {
+			if !constructible(module, m.Type) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // mentionedLocals calls mark for every local whose pointer an expression or a
