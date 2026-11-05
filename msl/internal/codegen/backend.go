@@ -198,6 +198,12 @@ type Options struct {
 	// Recommended for untrusted shaders.
 	ForceLoopBounding bool
 
+	// SkipIntDivChecks writes integer division and remainder as the plain
+	// operators instead of calling the naga_div / naga_mod helpers (Rust
+	// naga's emit_int_div_checks = false). Negative polarity so that a zero
+	// Options keeps the guards.
+	SkipIntDivChecks bool
+
 	// FakeMissingBindings generates placeholder bindings for resources
 	// that are referenced but not in the PerEntryPointMap.
 	FakeMissingBindings bool

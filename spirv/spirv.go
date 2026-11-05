@@ -120,6 +120,22 @@ type Options struct {
 	// force_loop_bounding defaults to true, and wgpu-hal passes true.
 	SkipLoopBounding bool
 
+	// SkipIntDivChecks writes integer division and remainder as the raw
+	// OpSDiv, OpUDiv and OpUMod. By default every `/` and `%` on an integer
+	// goes through a helper function that replaces a zero divisor (and, for
+	// signed types, the INT_MIN / -1 overflow) with 1, which is what WGSL
+	// requires: x / 0 is x, x % 0 is 0, INT_MIN / -1 is INT_MIN. Raw
+	// instructions give implementation-defined results in those cases, so set
+	// this only for shaders whose divisors are never zero or -1. Rust naga's
+	// emit_int_div_checks defaults to true, and wgpu-hal passes the
+	// shader runtime checks' int_div_checks, on by default.
+	//
+	// Signed `%` keeps its helper even with this set: OpSRem is poison for a
+	// negative operand in Vulkan without VK_KHR_maintenance8, so the helper
+	// writes it as a - b * (a / b), as Rust naga does regardless of
+	// emit_int_div_checks. OpSRem is never written.
+	SkipIntDivChecks bool
+
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
 	// which WebGPU requires; Rust naga's default is Unchecked, and wgpu-hal
@@ -249,6 +265,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		ForcePointSize:          o.ForcePointSize,
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
 		ForceLoopBounding:       !o.SkipLoopBounding,
+		SkipIntDivChecks:        o.SkipIntDivChecks,
 		BoundsCheckPolicies:     o.BoundsCheckPolicies,
 		EntryPoint:              o.EntryPoint,
 		AllowedCapabilities:     toCodegenCapabilitySet(o.AllowedCapabilities),

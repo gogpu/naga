@@ -3002,6 +3002,9 @@ func (b *Backend) emitWrappedFunctions(fn *ir.Function) error {
 		if scalarKind != ir.ScalarSint && scalarKind != ir.ScalarUint {
 			continue // float div/mod doesn't need wrappers
 		}
+		if !b.intDivNeedsHelper(binary.Op, scalarKind) {
+			continue
+		}
 		leftTypeID, err := b.resolveTypeResolution(leftType)
 		if err != nil {
 			return err
@@ -3015,6 +3018,17 @@ func (b *Backend) emitWrappedFunctions(fn *ir.Function) error {
 		}
 	}
 	return nil
+}
+
+// intDivNeedsHelper reports whether an integer Divide or Modulo of the given
+// scalar kind goes through a wrapped helper function. Always, unless
+// Options.SkipIntDivChecks is set; signed Modulo keeps its helper even then,
+// because OpSRem is poison for a negative operand in Vulkan without
+// VK_KHR_maintenance8 and the helper writes the remainder as a - b * (a / b).
+// Matches Rust naga write_wrapped_functions (back/spv/writer.rs, the
+// `emit_int_div_checks || (Modulo, Sint)` guard).
+func (b *Backend) intDivNeedsHelper(op ir.BinaryOperator, kind ir.ScalarKind) bool {
+	return !b.options.SkipIntDivChecks || (op == ir.BinaryModulo && kind == ir.ScalarSint)
 }
 
 // emitWrappedBinaryOp emits a single wrapped binary operation helper function.
@@ -6249,6 +6263,23 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 					return 0, promErr
 				}
 			}
+		} else if !e.backend.intDivNeedsHelper(binary.Op, scalarKind) {
+			// SkipIntDivChecks: the raw instruction, as Rust naga with
+			// emit_int_div_checks = false.
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
+			if rErr != nil {
+				return 0, rErr
+			}
+			var promErr error
+			leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			if promErr != nil {
+				return 0, promErr
+			}
+			if scalarKind == ir.ScalarSint {
+				opcode = OpSDiv
+			} else {
+				opcode = OpUDiv
+			}
 		} else {
 			// Integer divide: use wrapped function for safety
 			rightType, _ := e.backend.exprType(e.function, binary.Right)
@@ -6277,6 +6308,18 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 					return 0, promErr
 				}
 			}
+		} else if !e.backend.intDivNeedsHelper(binary.Op, scalarKind) {
+			// SkipIntDivChecks, unsigned: OpUMod (signed always has a helper).
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
+			if rErr != nil {
+				return 0, rErr
+			}
+			var promErr error
+			leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			if promErr != nil {
+				return 0, promErr
+			}
+			opcode = OpUMod
 		} else {
 			// Integer modulo: use wrapped function for safety
 			rightType, _ := e.backend.exprType(e.function, binary.Right)

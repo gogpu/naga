@@ -933,7 +933,7 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 		// Div/mod on integers are rewritten to naga_div/naga_mod function calls,
 		// which are already parenthesized. Don't add extra parens.
 		if k.Op == ir.BinaryDivide || k.Op == ir.BinaryModulo {
-			if _, isInt := w.getIntegerOverload(k.Left); isInt {
+			if _, isInt := w.getIntegerOverload(k.Left); isInt && !w.options.SkipIntDivChecks {
 				return false
 			}
 		}
@@ -1546,7 +1546,7 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 	case ir.BinaryDivide:
 		// Use safe division helper for integers (typed overloads, not templates).
 		// Matches Rust naga: per-type naga_div using metal::select.
-		if o, ok := w.getIntegerOverload(binary.Left); ok {
+		if o, ok := w.getIntegerOverload(binary.Left); ok && !w.options.SkipIntDivChecks {
 			w.addDivOverload(o)
 			w.write("naga_div(")
 			if err := w.writeExpression(binary.Left); err != nil {
@@ -1563,7 +1563,7 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 	case ir.BinaryModulo:
 		// Use safe modulo helper for integers (typed overloads, not templates).
 		// Matches Rust naga: per-type naga_mod using metal::select.
-		if o, ok := w.getIntegerOverload(binary.Left); ok {
+		if o, ok := w.getIntegerOverload(binary.Left); ok && !w.options.SkipIntDivChecks {
 			w.addModOverload(o)
 			w.write("naga_mod(")
 			if err := w.writeExpression(binary.Left); err != nil {
@@ -1577,17 +1577,20 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 			return nil
 		}
 		// Float modulo uses metal::fmod(), not the % operator.
-		// Matches Rust naga MSL backend.
-		w.write("%sfmod(", Namespace)
-		if err := w.writeExpression(binary.Left); err != nil {
-			return err
+		// Matches Rust naga MSL backend. An integer modulo gets here only
+		// with SkipIntDivChecks and is the plain % operator below.
+		if _, isInt := w.getIntegerOverload(binary.Left); !isInt {
+			w.write("%sfmod(", Namespace)
+			if err := w.writeExpression(binary.Left); err != nil {
+				return err
+			}
+			w.write(", ")
+			if err := w.writeExpression(binary.Right); err != nil {
+				return err
+			}
+			w.write(")")
+			return nil
 		}
-		w.write(", ")
-		if err := w.writeExpression(binary.Right); err != nil {
-			return err
-		}
-		w.write(")")
-		return nil
 	}
 
 	// Wrapping arithmetic for signed integers.
