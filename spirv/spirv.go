@@ -113,8 +113,10 @@ type Options struct {
 	AdjustCoordinateSpace bool
 
 	// SkipLoopBounding leaves loops as they are. By default every loop gets
-	// a decrementing 64-bit counter that breaks out of it, so an infinite
-	// loop, undefined behavior that can hang the device, ends. Rust naga's
+	// a decrementing 64-bit counter that breaks out of it, so the driver's
+	// shader compiler cannot prove the loop endless. An endless loop is
+	// undefined behavior there: the compiler may delete it, and may remove
+	// bounds checks elsewhere in the function on the strength of it. Rust naga's
 	// force_loop_bounding defaults to true, and wgpu-hal passes true.
 	SkipLoopBounding bool
 
