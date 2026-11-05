@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sample_mask` or `sample_index` were rejected by IDxcValidator: PSV0 wrote StartRow 0xFF for these unallocated
   elements where DXC writes 0, OSG1 named the coverage output `SV_Unknown6` instead of `SV_Coverage`, and the
   signature string table followed the sorted records instead of the module's element order.
+- **DXIL: only the first of 2 to 4 `clip_distances` was written** (P1-DXIL-082). A struct return counted an array
+  member as one scalar, so a vertex shader returning `@builtin(clip_distances) clip: array<f32, N>` stored element 0
+  and IDxcValidator rejected it ("Not all elements of output SV_ClipDistance were written"); PSV0 also counted one
+  output row per element where the signature and the metadata declare one row with a column per element. Every
+  element is now stored in its column. An array of 5 to 8 is still rejected: it needs a second `SV_ClipDistance`
+  signature element.
 - **DXIL: `subgroupAny` and `subgroupAll` gave a u32 where the shader has a bool** (P1-DXIL-085). The i1 that
   `dx.op.waveAnyTrue` / `waveAllTrue` return was widened to an i32, so `select(0u, 1u, subgroupAny(c))` was rejected
   ("Invalid type for value") and `!subgroupAll(c)` or an `if` on it gave a malformed record. The result is now the i1

@@ -80,7 +80,9 @@ func TestSigElementInfoForBinding_AllBuiltinClasses(t *testing.T) {
 }
 
 // TestSigElementInfoForBinding_ClipDistance verifies SV_ClipDistance uses
-// ScalarArray packing with rows = array size capped at 4.
+// ScalarArray packing in one row with a column per element, the layout the
+// signature part and the entry point metadata declare (P1-DXIL-082: one row
+// per element gave PSV0 more output vectors than the module).
 func TestSigElementInfoForBinding_ClipDistance(t *testing.T) {
 	three := uint32(3)
 	mod := buildModule(
@@ -91,11 +93,11 @@ func TestSigElementInfoForBinding_ClipDistance(t *testing.T) {
 	if info.Kind != SigPackBuiltinScalarArray {
 		t.Fatalf("Kind = %v, want SigPackBuiltinScalarArray", info.Kind)
 	}
-	if info.ColCount != 1 {
-		t.Errorf("ColCount = %d, want 1 (scalar per row)", info.ColCount)
+	if info.ColCount != 3 {
+		t.Errorf("ColCount = %d, want 3 (a column per element)", info.ColCount)
 	}
-	if info.Rows != 3 {
-		t.Errorf("Rows = %d, want 3 (array size)", info.Rows)
+	if info.Rows != 1 {
+		t.Errorf("Rows = %d, want 1", info.Rows)
 	}
 }
 
