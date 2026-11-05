@@ -153,6 +153,10 @@ type Writer struct {
 	// immediateItems is TranslationInfo.ImmediateItems (immediates.go).
 	immediateItems []ImmediateItem
 
+	// clipDistanceCount is TranslationInfo.ClipDistanceCount: the size of the
+	// gl_ClipDistance re-declaration, 0 when none was written.
+	clipDistanceCount uint32
+
 	// std140-compatible declarations of the types uniform buffers hold that
 	// contain two-row matrices (std140.go), in declaration order.
 	std140Types map[ir.TypeHandle]*std140Type
@@ -1682,6 +1686,7 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 			if int(typeHandle) < len(w.module.Types) {
 				if arr, ok := w.module.Types[typeHandle].Inner.(ir.ArrayType); ok {
 					if arr.Size.Constant != nil {
+						w.clipDistanceCount = *arr.Size.Constant
 						w.WriteLine("out float gl_ClipDistance[%d];", *arr.Size.Constant)
 					}
 				}
