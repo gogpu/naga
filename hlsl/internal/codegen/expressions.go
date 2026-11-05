@@ -2475,6 +2475,26 @@ func (w *Writer) writeDerivativeExpression(e ir.ExprDerivative) error {
 // Image Expressions
 // =============================================================================
 
+// offsetTypeName returns the HLSL type of a texture sample offset: int, int2
+// or int3, following the texture's dimension (Rust naga writes the offset's
+// own type). The validator allows only signed integer scalars and vectors.
+func (w *Writer) offsetTypeName(offset ir.ExpressionHandle) (string, error) {
+	if !w.hasExprType(offset) {
+		return "", fmt.Errorf("offset expression %d has no type", offset)
+	}
+	switch t := w.exprType(offset).Inner(w.module.Types).(type) {
+	case ir.ScalarType:
+		if t.Kind == ir.ScalarSint {
+			return w.typeInnerToHLSLStr(t), nil
+		}
+	case ir.VectorType:
+		if t.Scalar.Kind == ir.ScalarSint {
+			return w.typeInnerToHLSLStr(t), nil
+		}
+	}
+	return "", fmt.Errorf("offset expression %d is not a signed integer scalar or vector", offset)
+}
+
 // writeImageSampleExpression writes a texture sampling operation.
 func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 	// Handle ClampToEdge with SampleLevelZero: emit nagaTextureSampleBaseClampToEdge helper call.
@@ -2597,11 +2617,16 @@ func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 		}
 	}
 
-	// Offset — wrap in int2() to work around DXC bug
+	// Offset — wrap in a constructor of its own type (int, int2 or int3) to
+	// work around a DXC bug:
 	// https://github.com/microsoft/DirectXShaderCompiler/issues/5082#issuecomment-1540147807
 	// Use writeConstExpression to bypass named expression baking (matches Rust naga).
 	if e.Offset != nil {
-		w.Out.WriteString(", int2(")
+		typeName, err := w.offsetTypeName(*e.Offset)
+		if err != nil {
+			return fmt.Errorf("image sample: offset: %w", err)
+		}
+		fmt.Fprintf(&w.Out, ", %s(", typeName)
 		if err := w.writeConstExpression(*e.Offset); err != nil {
 			return fmt.Errorf("image sample: offset: %w", err)
 		}

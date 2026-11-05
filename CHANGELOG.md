@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `atomicSub(&b, -1li)` became `InterlockedAdd(b, --1L, …)` in HLSL, which compilers reject. GLSL now writes
   `- -1` as Rust does; HLSL writes the space only before an operand that starts with a minus, where Rust still writes
   `--`.
+- **HLSL: a 3D texture sample offset lost its z** (BUG-HLSL-SAMPLE-OFFSET-001). The offset was always wrapped in
+  `int2(...)` (a DXC workaround), so `textureSampleLevel(t3d, s, uvw, 0.0, vec3<i32>(-1, 2, -3))` sampled at offset
+  (-1, 2, 0) and a 1D offset was widened. The wrapper now has the offset's own type, `int`, `int2` or `int3`, as in
+  Rust naga (gfx-rs/wgpu#9951).
 
 ## [0.21.2] - 2026-11-03
 
