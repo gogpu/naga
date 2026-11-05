@@ -151,6 +151,10 @@ func (w *Writer) writeExpressionInline(handle ir.ExpressionHandle) error {
 
 // writeExpressionKind writes the expression based on its kind.
 func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.ExpressionHandle) error {
+	prevExpr := w.currentExpr
+	w.currentExpr = handle
+	defer func() { w.currentExpr = prevExpr }()
+
 	switch k := kind.(type) {
 	case ir.Literal:
 		return w.writeLiteral(k)
