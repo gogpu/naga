@@ -3308,17 +3308,25 @@ func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) err
 	return scalarizeWorkgroupMemory(irModule, ep)
 }
 
-// lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
-// pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE), and
-// then clamps run-time indices under the Index and BindingArray policies. It
-// returns the expression types of the module as the passes leave it, for the
-// emitter and the PSV dependency table; the emitter grows them over the
-// expressions it appends.
+// lowerForEmit clamps run-time indices under the Index and BindingArray
+// policies, splits the aggregate locals of the entry points into pieces
+// (splitLocalVariables), and runs the optimization passes, mem2reg and DCE
+// in the DXC pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst ->
+// DCE). The clamps come first so that each index of an access into a local
+// is clamped to its own dimension, as the HLSL writer clamps it, before the
+// split folds the indices into one. It returns the expression types of the
+// module as the passes leave it, for the emitter and the PSV dependency
+// table; the emitter grows them over the expressions it appends.
 func lowerForEmit(irModule *ir.Module, opts Options) (*typifier.Module, error) {
-	if err := runOptPasses(irModule); err != nil {
+	if err := restrictIndices(irModule, opts); err != nil {
 		return nil, err
 	}
-	if err := restrictIndices(irModule, opts); err != nil {
+	for i := range irModule.EntryPoints {
+		if err := splitLocalVariables(irModule, &irModule.EntryPoints[i].Function); err != nil {
+			return nil, err
+		}
+	}
+	if err := runOptPasses(irModule); err != nil {
 		return nil, err
 	}
 	types, err := typifier.ForModule(irModule)

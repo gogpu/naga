@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "function-local structs, arrays of structs, arrays of vectors, a matrix and a loop-indexed array, read and written by part with run-time indices: 0, 11, 84, 212, 43, 43, 11111, 7; words 8 to 11 not written (P1-DXIL-064, P1-DXIL-065 incl. its zero-initialized struct read uninitialized, P1-DXIL-071, P1-DXIL-079, P1-DXIL-081)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [1, 2, 3, 4]},
+    {"binding": 1, "kind": "storage-rw", "len": 12, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[0, 11, 84, 212, 43, 43, 11111, 7, "fill", "fill", "fill", "fill"]]}
+  ]
+}

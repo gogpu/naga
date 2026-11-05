@@ -88,6 +88,9 @@ func scalarizeWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 type wgVar struct {
 	ty     ir.TypeHandle
 	leaves map[string]*wgLeaf
+	// local: a function-local variable, whose pieces are locals of the
+	// function (splitLocalVariables).
+	local bool
 }
 
 // wgLeaf is one piece of a split variable: the variable holding the scalars
@@ -95,6 +98,9 @@ type wgVar struct {
 // element of the arrays of structs above it.
 type wgLeaf struct {
 	global ir.GlobalVariableHandle
+	// local is the piece of a split function-local variable, a local of the
+	// function, in place of global.
+	local ir.LocalVariableHandle
 	// dims are the sizes of the arrays of structs above the member, outer
 	// first.
 	dims []uint32
@@ -104,6 +110,9 @@ type wgLeaf struct {
 	elem ir.TypeHandle
 	// single: the variable is that one scalar, not an array of them.
 	single bool
+	// vector: the variable is that one vector, kept whole (pieces of locals
+	// only: the emitter holds a vector local in one local per component).
+	vector bool
 }
 
 // wgLoc is where a pointer into a split variable points: a value of type ty
@@ -150,6 +159,8 @@ type wgScalarizer struct {
 	m    *ir.Module
 	fn   *ir.Function
 	vars map[ir.GlobalVariableHandle]*wgVar
+	// locals are the split function-local variables.
+	locals map[ir.LocalVariableHandle]*wgVar
 	// locs memoizes loc: nil for an expression that is not a pointer into a
 	// split variable.
 	locs map[ir.ExpressionHandle]*wgLoc
@@ -207,10 +218,26 @@ func (s *wgScalarizer) addLeaf(v *wgVar, name string, ty ir.TypeHandle, dims, pa
 
 	leaf := &wgLeaf{dims: dims, count: sh.count, elem: sh.elem}
 	varType := ty
-	if total == 1 && len(dims) == 0 && sh.arrays == 0 && sh.vectors == 0 {
+	switch {
+	case total == 1 && len(dims) == 0 && sh.arrays == 0 && sh.vectors == 0:
 		leaf.single = true
-	} else {
+	case v.local && len(dims) == 0 && sh.arrays == 0 && sh.vectors == 1:
+		leaf.vector = true
+	default:
 		varType = s.arrayOf(sh.elem, total)
+	}
+	if v.local {
+		vectors := sh.vectors
+		if leaf.vector {
+			vectors = 0 // a whole vector, not an array of its components
+		}
+		leaf.local = ir.LocalVariableHandle(len(s.fn.LocalVars)) //nolint:gosec // local count fits uint32 by IR design
+		s.fn.LocalVars = append(s.fn.LocalVars, ir.LocalVariable{
+			Name: name + leafSuffix(path, vectors, len(dims)+sh.arrays),
+			Type: varType,
+		})
+		v.leaves[pathKey(path)] = leaf
+		return nil
 	}
 	leaf.global = ir.GlobalVariableHandle(len(s.m.GlobalVariables)) //nolint:gosec // global count fits uint32 by IR design
 	s.m.GlobalVariables = append(s.m.GlobalVariables, ir.GlobalVariable{
@@ -324,6 +351,10 @@ func (s *wgScalarizer) loc(h ir.ExpressionHandle) *wgLoc {
 		if v, ok := s.vars[k.Variable]; ok {
 			l = s.enter(&wgLoc{v: v, ty: v.ty})
 		}
+	case ir.ExprLocalVariable:
+		if v, ok := s.locals[k.Variable]; ok {
+			l = s.enter(&wgLoc{v: v, ty: v.ty})
+		}
 	case ir.ExprAccessIndex:
 		if base := s.loc(k.Base); base != nil {
 			l = s.step(base, wgIndex{c: k.Index})
@@ -397,12 +428,24 @@ func (s *wgScalarizer) elementCount(ty ir.TypeHandle) (uint32, bool) {
 	return 0, false
 }
 
-// scalarPtr returns a pointer to the scalar l points to.
+// scalarPtr returns a pointer to the scalar l points to, or to the whole
+// vector of a vector piece.
 func (s *wgScalarizer) scalarPtr(l *wgLoc) ir.ExpressionHandle {
 	leaf := l.leaf
-	g := s.add(ir.ExprGlobalVariable{Variable: leaf.global})
-	if leaf.single {
+	var g ir.ExpressionHandle
+	if l.v.local {
+		g = s.add(ir.ExprLocalVariable{Variable: leaf.local})
+	} else {
+		g = s.add(ir.ExprGlobalVariable{Variable: leaf.global})
+	}
+	if leaf.single || s.wholeVector(l) {
 		return g
+	}
+	if leaf.vector {
+		if len(l.off.terms) == 0 {
+			return s.add(ir.ExprAccessIndex{Base: g, Index: l.off.c})
+		}
+		return s.add(ir.ExprAccess{Base: g, Index: s.linear(l.off)})
 	}
 	index := wgLinear{}
 	stride := leaf.count
@@ -450,7 +493,7 @@ func (s *wgScalarizer) asU32(h ir.ExpressionHandle) ir.ExpressionHandle {
 // its scalar, or the composite of the loads of its elements.
 func (s *wgScalarizer) loadKind(l *wgLoc) ir.ExpressionKind {
 	n, composite := s.elementCount(l.ty)
-	if !composite {
+	if !composite || s.wholeVector(l) {
 		return ir.ExprLoad{Pointer: s.scalarPtr(l)}
 	}
 	components := make([]ir.ExpressionHandle, n)
@@ -459,6 +502,16 @@ func (s *wgScalarizer) loadKind(l *wgLoc) ir.ExpressionKind {
 		components[i] = s.add(s.loadKind(e))
 	}
 	return ir.ExprCompose{Type: l.ty, Components: components}
+}
+
+// wholeVector reports whether l is the whole vector a vector piece holds,
+// which is loaded and stored as one value.
+func (s *wgScalarizer) wholeVector(l *wgLoc) bool {
+	if l.leaf == nil || !l.leaf.vector {
+		return false
+	}
+	_, isVector := s.m.Types[l.ty].Inner.(ir.VectorType)
+	return isVector
 }
 
 // valueType is the type of a value loaded from a ty: an atomic's scalar.
@@ -472,7 +525,7 @@ func (s *wgScalarizer) valueType(ty ir.TypeHandle) ir.TypeHandle {
 // store returns the statements storing value to where l points.
 func (s *wgScalarizer) store(l *wgLoc, value ir.ExpressionHandle) ir.Block {
 	n, composite := s.elementCount(l.ty)
-	if !composite {
+	if !composite || s.wholeVector(l) {
 		return ir.Block{{Kind: ir.StmtStore{Pointer: s.scalarPtr(l), Value: value}}}
 	}
 	var b ir.Block

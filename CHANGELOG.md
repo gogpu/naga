@@ -73,6 +73,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sample_mask` or `sample_index` were rejected by IDxcValidator: PSV0 wrote StartRow 0xFF for these unallocated
   elements where DXC writes 0, OSG1 named the coverage output `SV_Unknown6` instead of `SV_Coverage`, and the
   signature string table followed the sorted records instead of the module's element order.
+- **DXIL: function-local structs, arrays of structs, arrays of vectors and matrices accessed by part** (P1-DXIL-064,
+  P1-DXIL-065, P1-DXIL-071, P1-DXIL-079, P1-DXIL-081). The emitter kept such a local whole and had a path for each
+  shape of access, and many shapes had none or a wrong one: `p[i].x` of an array of vectors gave a malformed record,
+  a member of an element of an array of structs (`ss[i].b`, `ss[i].a = x`) or a column component of a matrix
+  (`m[1].y`) was refused, copying a struct member that is a struct gave a mistyped GEP, and a run-time `T(array(a, 1),
+  2)` stored the array's second element into `t.k`. One case was silent: a zero-initialized struct with a struct
+  member started uninitialized, so reading a part of it read undefined memory. Such locals are now split before the
+  emitter as DXC's SROA splits them, with the pass that already split workgroup memory: one local per struct member,
+  one array per member below arrays of structs, vectors whole, everything else a one-dimensional array of its
+  scalars, initializers split with them. Each index is clamped to its own dimension first under the Restrict policy.
 - **DXIL: 64-bit shifts, negation and integer `abs` gave modules the validator could not read** (P1-DXIL-080). An
   LLVM shift takes both operands in the shifted type, but a WGSL shift amount is a `u32`: `u64 << 3u`, `i64 >> n` and
   `-i64(x)` put an i32 next to an i64 ("Invalid record"), as did `sign`, `~x`, `x * 2^N`, `x % 2^N` and `x - C` on
