@@ -136,6 +136,13 @@ func (w *Writer) updateExpressionsToBake(fn *ir.Function) {
 	// - CountLeadingZeros on sint: force bake
 	for i := range fn.Expressions {
 		e := fn.Expressions[i].Kind
+		// An atomic load is written as an InterlockedOr statement, so it is
+		// baked even when nothing reads its result.
+		if l, ok := e.(ir.ExprLoad); ok {
+			if _, atomic := w.atomicPointee(l.Pointer); atomic {
+				w.needBakeExpressions[ir.ExpressionHandle(i)] = struct{}{}
+			}
+		}
 		if d, ok := e.(ir.ExprDerivative); ok {
 			if d.Axis == ir.DerivativeWidth &&
 				(d.Control == ir.DerivativeCoarse || d.Control == ir.DerivativeFine) {
@@ -369,6 +376,12 @@ func (w *Writer) writeEmittedExpression(handle ir.ExpressionHandle) error {
 	name := fmt.Sprintf("_e%d", handle)
 	if irName != "" {
 		name = w.namer.call(irName)
+	}
+
+	if l, ok := w.currentFunction.Expressions[handle].Kind.(ir.ExprLoad); ok {
+		if scalar, atomic := w.atomicPointee(l.Pointer); atomic {
+			return w.writeAtomicLoad(handle, l.Pointer, scalar, name)
+		}
 	}
 
 	// Write variable declaration with initialization.
@@ -929,6 +942,10 @@ func (w *Writer) writeMemoryBarrierStatement(s ir.StmtMemoryBarrier) {
 
 // writeStoreStatement writes a store statement.
 func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
+	if scalar, ok := w.atomicPointee(s.Pointer); ok {
+		return w.writeAtomicStore(s, scalar)
+	}
+
 	// Check if storing to a storage buffer pointer -> use ByteAddressBuffer Store
 	if w.isStoragePointer(s.Pointer) {
 		varHandle, err := w.fillAccessChain(s.Pointer)
@@ -1674,7 +1691,9 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 			return err
 		}
 		w.tempAccessChain = chain
-		w.writeAtomicTail(s.Fun, compareExpr, s.Value, resVarName)
+		if err := w.writeAtomicTail(s.Fun, compareExpr, s.Value, resVarName); err != nil {
+			return err
+		}
 
 	default:
 		// WorkGroup (and other): InterlockedXxx(pointer_expr, ...)
@@ -1682,7 +1701,9 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 		if err := w.writeExpression(s.Pointer); err != nil {
 			return fmt.Errorf("atomic pointer: %w", err)
 		}
-		w.writeAtomicTail(s.Fun, compareExpr, s.Value, resVarName)
+		if err := w.writeAtomicTail(s.Fun, compareExpr, s.Value, resVarName); err != nil {
+			return err
+		}
 	}
 
 	// CompareExchange follow-up: .exchanged = (.old_value == compare)
@@ -1700,16 +1721,30 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 
 // writeAtomicTail writes the remaining arguments of an atomic call after the first
 // argument (pointer or byte offset). Matches Rust naga's emit_hlsl_atomic_tail.
-func (w *Writer) writeAtomicTail(fun ir.AtomicFunction, compareExpr *ir.ExpressionHandle, value ir.ExpressionHandle, resVarName string) {
+func (w *Writer) writeAtomicTail(fun ir.AtomicFunction, compareExpr *ir.ExpressionHandle, value ir.ExpressionHandle, resVarName string) error {
 	if compareExpr != nil {
 		w.Out.WriteString(", ")
-		_ = w.writeExpression(*compareExpr) // error ignored for tail
+		if err := w.writeExpression(*compareExpr); err != nil {
+			return fmt.Errorf("atomic compare value: %w", err)
+		}
 	}
 	w.Out.WriteString(", ")
-	if _, ok := fun.(ir.AtomicSubtract); ok {
-		w.Out.WriteByte('-')
+	operand, err := w.writeExpressionToString(value)
+	if err != nil {
+		return fmt.Errorf("atomic value: %w", err)
 	}
-	_ = w.writeExpression(value) // error ignored for tail
+	if _, ok := fun.(ir.AtomicSubtract); ok {
+		// InterlockedAdd of the negated value. Rust writes "-" right before
+		// the operand; an operand that starts with a minus itself (a 64-bit
+		// literal, -1L) would make the predecrement "--", which DXC rejects,
+		// so it gets a space. Rust has that bug.
+		if strings.HasPrefix(operand, "-") {
+			w.Out.WriteString("- ")
+		} else {
+			w.Out.WriteByte('-')
+		}
+	}
+	w.Out.WriteString(operand)
 	if resVarName != "" {
 		w.Out.WriteString(", ")
 		if compareExpr != nil {
@@ -1719,6 +1754,96 @@ func (w *Writer) writeAtomicTail(fun ir.AtomicFunction, compareExpr *ir.Expressi
 		}
 	}
 	w.Out.WriteString(");\n")
+	return nil
+}
+
+// atomicPointee returns the scalar of the atomic that expression h points
+// to, and whether h is a pointer to an atomic (Rust naga's
+// TypeInner::is_atomic_pointer).
+func (w *Writer) atomicPointee(h ir.ExpressionHandle) (ir.ScalarType, bool) {
+	if !w.hasExprType(h) {
+		return ir.ScalarType{}, false
+	}
+	ptr, ok := w.exprType(h).Inner(w.module.Types).(ir.PointerType)
+	if !ok {
+		return ir.ScalarType{}, false
+	}
+	atomic, ok := w.module.Types[ptr.Base].Inner.(ir.AtomicType)
+	return atomic.Scalar, ok
+}
+
+// writeAtomicStore writes atomicStore as an exchange into a dummy. HLSL has
+// no atomic store, and a plain Store would race with the other invocations'
+// Interlocked* calls (Rust naga, gfx-rs/wgpu f0201c9c).
+func (w *Writer) writeAtomicStore(s ir.StmtStore, scalar ir.ScalarType) error {
+	dummy := w.namer.call("dummy")
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "{ %s %s = 0; ", scalarTypeToHLSL(scalar), dummy)
+	if err := w.writeAtomicPolyfillHead("Exchange", s.Pointer, scalar); err != nil {
+		return err
+	}
+	w.Out.WriteString(", ")
+	if err := w.writeExpression(s.Value); err != nil {
+		return fmt.Errorf("atomic store value: %w", err)
+	}
+	fmt.Fprintf(&w.Out, ", %s); }\n", dummy)
+	return nil
+}
+
+// writeAtomicLoad writes the baked atomic load handle, named name, as an
+// InterlockedOr with zero. HLSL has no atomic load, and a plain Load would
+// race with the other invocations' Interlocked* calls (Rust naga, gfx-rs/wgpu
+// f0201c9c).
+func (w *Writer) writeAtomicLoad(handle, pointer ir.ExpressionHandle, scalar ir.ScalarType, name string) error {
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "%s %s; ", scalarTypeToHLSL(scalar), name)
+	if err := w.writeAtomicPolyfillHead("Or", pointer, scalar); err != nil {
+		return err
+	}
+	fmt.Fprintf(&w.Out, ", 0, %s);\n", name)
+	w.namedExpressions[handle] = name
+	return nil
+}
+
+// writeAtomicPolyfillHead writes `Interlocked<fun>(pointer` for a workgroup
+// atomic and `buffer.Interlocked<fun>(offset` for a storage one; the caller
+// writes the remaining arguments.
+//
+// A 64-bit atomic in a storage buffer takes the method's 64 form, as
+// writeAtomicStatement does. Rust naga writes the 32-bit InterlockedExchange
+// and InterlockedOr there, which DXC accepts with "conversion from larger type
+// 'uint64_t' to smaller type 'unsigned int &'": the value is cut to 32 bits.
+// The groupshared intrinsics are overloaded on the operand type and need no
+// suffix.
+func (w *Writer) writeAtomicPolyfillHead(fun string, pointer ir.ExpressionHandle, scalar ir.ScalarType) error {
+	switch space := w.getPointerAddressSpace(pointer); space {
+	case ir.SpaceWorkGroup:
+		fmt.Fprintf(&w.Out, "Interlocked%s(", fun)
+		if err := w.writeExpression(pointer); err != nil {
+			return fmt.Errorf("atomic pointer: %w", err)
+		}
+	case ir.SpaceStorage:
+		varHandle, err := w.fillAccessChain(pointer)
+		if err != nil {
+			return fmt.Errorf("atomic storage access chain: %w", err)
+		}
+		suffix := ""
+		if scalar.Width == 8 {
+			suffix = "64"
+		}
+		varName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(varHandle)}]
+		fmt.Fprintf(&w.Out, "%s.Interlocked%s%s(", varName, fun, suffix)
+		chain := w.tempAccessChain
+		w.tempAccessChain = nil
+		if err := w.writeStorageAddress(chain); err != nil {
+			return err
+		}
+		w.tempAccessChain = chain
+	default:
+		// The validator allows atomics only in these two address spaces.
+		return fmt.Errorf("atomic in address space %v", space)
+	}
+	return nil
 }
 
 // atomicFunSuffix returns the HLSL suffix for an atomic function.

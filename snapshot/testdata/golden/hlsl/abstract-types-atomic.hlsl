@@ -13,7 +13,7 @@ RWByteAddressBuffer atomic_u32_ : register(u1);
 
 void test_atomic_i32_()
 {
-    atomic_i32_.Store(0, asuint(int(1)));
+    { int dummy = 0; atomic_i32_.InterlockedExchange(0, int(1), dummy); }
     _atomic_compare_exchange_result_Sint_4_ _e5; atomic_i32_.InterlockedCompareExchange(0, int(1), int(1), _e5.old_value);
     _e5.exchanged = (_e5.old_value == int(1));
     _atomic_compare_exchange_result_Sint_4_ _e9; atomic_i32_.InterlockedCompareExchange(0, int(1), int(1), _e9.old_value);
@@ -31,7 +31,7 @@ void test_atomic_i32_()
 
 void test_atomic_u32_()
 {
-    atomic_u32_.Store(0, asuint(1u));
+    { uint dummy_1 = 0; atomic_u32_.InterlockedExchange(0, 1u, dummy_1); }
     _atomic_compare_exchange_result_Uint_4_ _e5; atomic_u32_.InterlockedCompareExchange(0, 1u, 1u, _e5.old_value);
     _e5.exchanged = (_e5.old_value == 1u);
     _atomic_compare_exchange_result_Uint_4_ _e9; atomic_u32_.InterlockedCompareExchange(0, 1u, 1u, _e9.old_value);

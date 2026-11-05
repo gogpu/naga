@@ -6,6 +6,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -1115,6 +1116,11 @@ func (w *Writer) writeLocalVariableExpression(e ir.ExprLocalVariable) error {
 // For matCx2 types in uniform buffers, wraps with a cast to the native HLSL matrix type.
 // Matches Rust naga back/hlsl/writer.rs Expression::Load handling.
 func (w *Writer) writeLoadExpression(e ir.ExprLoad) error {
+	// An atomic load is an InterlockedOr statement written when it is baked
+	// (writeAtomicLoad); reaching here means it was not baked.
+	if _, ok := w.atomicPointee(e.Pointer); ok {
+		return errors.New("atomic loads must be baked")
+	}
 	// Check if this load needs a matCx2-to-matrix cast.
 	// Applies to: global uniform matCx2 and struct member array-of-matCx2.
 	// Matches Rust naga: get_inner_matrix_of_struct_array_member || get_inner_matrix_of_global_uniform.

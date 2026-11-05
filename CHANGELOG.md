@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HLSL and GLSL: `atomicStore` and `atomicLoad` were plain stores and reads** (BUG-ATOMIC-POLYFILL-001). Neither
+  language has an atomic load or store, and we wrote `workgroup_x = 1u;`, `buf.Store(0, asuint(1u))` and
+  `uint v = workgroup_x;`, which race with the other invocations' atomics: a silent data race on wgpu's default DX12
+  path (FXC). They are now atomic, as in Rust naga (gfx-rs/wgpu#9387): HLSL
+  `{ uint dummy = 0; InterlockedExchange(x, 1u, dummy); }` and `uint v; InterlockedOr(x, 0, v);`, GLSL
+  `atomicExchange(x, 1u);` and `atomicOr(x, 0u)`. For a 64-bit atomic in a storage buffer we write
+  `InterlockedExchange64` and `InterlockedOr64`; Rust writes the 32-bit methods there, which DXC accepts with a
+  narrowing warning and which cut the value to 32 bits.
+- **GLSL and HLSL: `atomicSub` with a negative operand produced a predecrement.** The subtraction is an add of the
+  negated value, and `atomicSub(&a, -1)` became `atomicAdd(a, --1)` in GLSL (gfx-rs/wgpu#9924) and
+  `atomicSub(&b, -1li)` became `InterlockedAdd(b, --1L, …)` in HLSL, which compilers reject. GLSL now writes
+  `- -1` as Rust does; HLSL writes the space only before an operand that starts with a minus, where Rust still writes
+  `--`.
+
 ## [0.21.2] - 2026-11-03
 
 An MSL patch: every index into a runtime-sized array is now bounds-checked under Restrict, which gogpu/wgpu's Metal
