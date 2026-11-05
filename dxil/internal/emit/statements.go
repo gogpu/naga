@@ -1483,14 +1483,16 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 	// Same convention as buildSignatures (dxil/dxil.go) so storeOutput sigID
 	// stays in lockstep with the OSG1 register slot for each member.
 	//
-	// Compose flattens its sub-expressions in WGSL declaration order, so we
-	// precompute the per-member flat scalar offset once and index into it from
-	// the sorted iteration order.
+	// Compose flattens its sub-expressions in WGSL declaration order, an
+	// array member into all its elements, so we precompute the per-member
+	// flat scalar offset once and index into it from the sorted iteration
+	// order. An array member counted as one scalar stored only element 0 of
+	// @builtin(clip_distances) (P1-DXIL-082).
 	memberCompOffsets := make([]int, len(st.Members))
 	cumComps := 0
 	for i, member := range st.Members {
 		memberCompOffsets[i] = cumComps
-		cumComps += totalScalarCount(e.ir, e.ir.Types[member.Type].Inner)
+		cumComps += cbvComponentCount(e.ir, e.ir.Types[member.Type].Inner)
 	}
 
 	order := d3d.SortedMemberIndices(st.Members)
@@ -1504,7 +1506,7 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 			if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
 				elemInner := e.ir.Types[arr.Base].Inner
 				scalar, ok = scalarOfType(elemInner)
-				numComps = totalScalarCount(e.ir, memberType.Inner)
+				numComps = cbvComponentCount(e.ir, memberType.Inner)
 			}
 		}
 		if member.Binding == nil || !ok {

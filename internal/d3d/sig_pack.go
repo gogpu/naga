@@ -289,13 +289,18 @@ func SigElementInfoForBinding(
 				Rows:     1,
 			}
 		case ir.BuiltinClipDistances:
+			// One row with a column per element, as the signature element
+			// and the entry point metadata declare it (a `float2 c :
+			// SV_ClipDistance0` in HLSL terms). Counted as one row per
+			// element, PSV0 had more output vectors than the module for
+			// N >= 2 (P1-DXIL-082).
 			if rows < 1 {
 				rows = 1
 			}
 			return SigElementInfo{
 				Kind:     SigPackBuiltinScalarArray,
-				ColCount: 1,
-				Rows:     rows,
+				ColCount: min(rows, 4),
+				Rows:     1,
 			}
 		case ir.BuiltinFragDepth, ir.BuiltinSampleMask:
 			// PS outputs SV_Depth / SV_Coverage are system-managed (not
