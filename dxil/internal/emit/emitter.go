@@ -205,6 +205,11 @@ type Emitter struct {
 	// integers, and dx.op.fma.
 	doubleExtensions bool
 
+	// native16 is set for a module with 16-bit types, which is compiled as
+	// DXC compiles with -enable-16bit-types: the native data layout and
+	// UseNativeLowPrecision on every entry point.
+	native16 bool
+
 	// typedUAVLoadMulti is set by a textureLoad from a storage texture whose
 	// element has more than one component, which DXC sets
 	// TypedUAVLoadAdditionalFormats for.
@@ -550,6 +555,10 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 	mod := module.NewModule(shaderKind)
 	mod.MajorVersion = 1
 	mod.MinorVersion = opts.ShaderModelMinor
+	native16 := moduleHas16BitTypes(irMod)
+	if native16 {
+		mod.DataLayout = module.NativeDataLayout
+	}
 
 	e := &Emitter{
 		ir:                   irMod,
@@ -568,6 +577,7 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 		callResultComponents: make(map[ir.ExpressionHandle][]int),
 		helperFunctions:      make(map[ir.FunctionHandle]*module.Function),
 		helperConstMaps:      make(map[ir.FunctionHandle]map[int]*module.Constant),
+		native16:             native16,
 	}
 
 	// Type every function first, so a function that can't be typed fails
@@ -1746,6 +1756,13 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 	// -enable-16bit-types: LowPrecisionPresent with UseNativeLowPrecision.
 	// QuantizeF16 uses dx.op.legacyF32ToF16 / legacyF16ToF32 (opcodes
 	// 130/131), which don't introduce the LLVM half type.
+	// UseNativeLowPrecision is a module option in DXC (!UseMinPrecision,
+	// DxilShaderFlags.cpp:412): every entry point of a module compiled with
+	// native 16-bit types has it. LowPrecisionPresent follows the 16-bit
+	// values the entry point uses (:829).
+	if e.native16 {
+		flags |= 0x800000 // UseNativeLowPrecision (bit 23)
+	}
 	if e.moduleUses16Bit() {
 		flags |= 0x20     // LowPrecisionPresent (bit 5)
 		flags |= 0x800000 // UseNativeLowPrecision (bit 23)
@@ -3939,4 +3956,27 @@ func indexByte(s string, b byte) int {
 		}
 	}
 	return -1
+}
+
+// moduleHas16BitTypes reports whether the module has a 16-bit scalar,
+// vector or matrix type, which takes native 16-bit types (enable f16, 16-bit
+// integers): the case wgpu-hal compiles HLSL with -enable-16bit-types.
+func moduleHas16BitTypes(irMod *ir.Module) bool {
+	for i := range irMod.Types {
+		var s ir.ScalarType
+		switch inner := irMod.Types[i].Inner.(type) {
+		case ir.ScalarType:
+			s = inner
+		case ir.VectorType:
+			s = inner.Scalar
+		case ir.MatrixType:
+			s = inner.Scalar
+		default:
+			continue
+		}
+		if s.Width == 2 {
+			return true
+		}
+	}
+	return false
 }

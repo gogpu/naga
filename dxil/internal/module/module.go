@@ -68,6 +68,15 @@ type Module struct {
 	float64Type *Type
 }
 
+// The DXIL data layouts (DXC kLegacyLayoutString / kNewLayoutString,
+// DxilModule.cpp): the legacy one keeps 8- and 16-bit values in 32 bits (min
+// precision), the native one at their own width, which a module with native
+// 16-bit types uses.
+const (
+	LegacyDataLayout = "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:32-f64:64-n8:16:32:64"
+	NativeDataLayout = "e-m:e-p:32:32-i1:32-i8:8-i16:16-i32:32-i64:64-f16:16-f32:32-f64:64-n8:16:32:64"
+)
+
 // NewModule creates a new empty DXIL module with the given shader kind.
 func NewModule(kind ShaderKind) *Module {
 	return &Module{
@@ -75,7 +84,7 @@ func NewModule(kind ShaderKind) *Module {
 		MajorVersion: 1,
 		MinorVersion: 0,
 		TargetTriple: "dxil-ms-dx",
-		DataLayout:   "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:32-f64:64-n8:16:32:64",
+		DataLayout:   LegacyDataLayout,
 	}
 }
 
