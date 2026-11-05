@@ -1329,9 +1329,9 @@ func shiftOpcode(op ir.BinaryOperator, isSigned bool) (BinOpKind, bool) {
 
 // intWidthBits is the bit width of the scalar of the integer type inner, 32
 // when it has none.
-func intWidthBits(inner ir.TypeInner) uint {
+func intWidthBits(inner ir.TypeInner) int64 {
 	if s, ok := scalarOfType(inner); ok && s.Width != 0 {
-		return uint(s.Width) * 8
+		return int64(s.Width) * 8
 	}
 	return 32
 }
@@ -1720,7 +1720,7 @@ func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (i
 	case ir.BinaryShiftLeft:
 		// The amount is a u32 constant whatever the shifted type is, taken
 		// modulo the bit width as the emitted shift does.
-		result = lv << uint(rv&int64(intBitsOf(lc.ConstType)-1))
+		result = lv << (rv & (intBitsOf(lc.ConstType) - 1))
 	default:
 		return 0, false
 	}
@@ -1728,9 +1728,16 @@ func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (i
 }
 
 // intBitsOf is the width of the integer type ty, 32 for any other type.
-func intBitsOf(ty *module.Type) uint {
-	if ty != nil && ty.Kind == module.TypeInteger && ty.IntBits != 0 {
-		return ty.IntBits
+func intBitsOf(ty *module.Type) int64 {
+	if ty != nil && ty.Kind == module.TypeInteger {
+		switch ty.IntBits {
+		case 8:
+			return 8
+		case 16:
+			return 16
+		case 64:
+			return 64
+		}
 	}
 	return 32
 }
@@ -1742,9 +1749,9 @@ func intBitsOf(ty *module.Type) uint {
 // width: as DXC does, the amount is widened with zext (narrowed with trunc)
 // to the result's type and masked with width-1; a constant amount is masked
 // at compile time, and DXC folds the mask away for it.
-func (e *Emitter) emitShift(resultTy *module.Type, op BinOpKind, value, amount int, amountBits uint) int {
+func (e *Emitter) emitShift(resultTy *module.Type, op BinOpKind, value, amount int, amountBits int64) int {
 	bits := intBitsOf(resultTy)
-	mask := int64(bits - 1)
+	mask := bits - 1
 	if c, ok := e.constMap[amount]; ok && !c.IsUndef && !c.IsAggregate && c.ConstType != nil &&
 		c.ConstType.Kind == module.TypeInteger {
 		return e.addBinOpInstr(resultTy, op, value, e.intConstOfType(resultTy, c.IntValue&mask))
@@ -2757,12 +2764,6 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathDegrees(fn, mathExpr)
 	case ir.MathRadians:
 		return e.emitMathRadians(fn, mathExpr)
-	case ir.MathSign:
-		return e.emitMathSign(fn, mathExpr)
-	case ir.MathExp, ir.MathLog:
-		return e.emitMathExpLog(fn, mathExpr)
-	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
-		return e.emitMathDot4Packed(fn, mathExpr)
 	case ir.MathExtractBits:
 		return e.emitMathExtractBits(fn, mathExpr)
 	case ir.MathInsertBits:
@@ -2823,10 +2824,8 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathUnpack4xU8(fn, mathExpr)
 	}
 
-	if mathExpr.Fun == ir.MathAbs {
-		if s, ok := scalarOfType(e.resolveExprType(fn, mathExpr.Arg)); ok && s.Kind != ir.ScalarFloat {
-			return e.emitMathIntAbs(fn, mathExpr.Arg, s)
-		}
+	if v, ok, err := e.tryEmitMathLowered(fn, mathExpr); ok {
+		return v, err
 	}
 
 	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
@@ -3538,6 +3537,29 @@ func (e *Emitter) mulByFloatConst(fn *ir.Function, h ir.ExpressionHandle, arg in
 	}
 	ty := e.overloadReturnType(overloadForScalar(scalar))
 	return e.addBinOpInstr(ty, BinOpFMul, arg, e.floatConstFor(scalar, c))
+}
+
+// tryEmitMathLowered emits the built-ins DXIL has no single operation for
+// that are lowered as DXC lowers them: sign, integer abs, exp, log and the
+// packed dot products. ok is false for any other built-in.
+func (e *Emitter) tryEmitMathLowered(fn *ir.Function, mathExpr ir.ExprMath) (int, bool, error) {
+	switch mathExpr.Fun {
+	case ir.MathSign:
+		v, err := e.emitMathSign(fn, mathExpr)
+		return v, true, err
+	case ir.MathAbs:
+		if s, ok := scalarOfType(e.resolveExprType(fn, mathExpr.Arg)); ok && s.Kind != ir.ScalarFloat {
+			v, err := e.emitMathIntAbs(fn, mathExpr.Arg, s)
+			return v, true, err
+		}
+	case ir.MathExp, ir.MathLog:
+		v, err := e.emitMathExpLog(fn, mathExpr)
+		return v, true, err
+	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
+		v, err := e.emitMathDot4Packed(fn, mathExpr)
+		return v, true, err
+	}
+	return 0, false, nil
 }
 
 // emitMathExpLog emits exp or log per component. DXIL's Exp and Log are base
