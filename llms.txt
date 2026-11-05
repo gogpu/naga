@@ -1,7 +1,7 @@
 # naga — GoGPU Ecosystem
 
-> Pure Go shader compiler (~392K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
-> Tested output by output against Rust naga's WGSL corpus; SPIR-V checked with spirv-val in CI. v1.0 target: December 2026.
+> Pure Go shader compiler. WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
+> Tested output by output against Rust naga's WGSL corpus; SPIR-V checked with spirv-val in CI.
 
 ## Docs
 
@@ -14,5 +14,6 @@
 
 ## Ecosystem
 
-- [GoGPU Ecosystem](https://github.com/gogpu/gogpu/blob/main/AGENTS.md): Full ecosystem map
+- [GoGPU ecosystem](https://gogpu.dev/llms.txt): map of all modules
+- [gogpu AGENTS.md](https://github.com/gogpu/gogpu/blob/main/AGENTS.md): Agent instructions for the gogpu framework
 - [Open Collective](https://opencollective.com/gogpu): Support development
