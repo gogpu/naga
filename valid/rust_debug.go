@@ -26,6 +26,29 @@ var vectorSizeNames = [...]string{
 	ir.Vec4: "Quad",
 }
 
+// addressSpaceNames are Rust naga's AddressSpace variant names as its
+// derived Debug prints them. Rust's Storage variant carries the access
+// (`Storage { access: StorageAccess(LOAD | STORE) }`); naga's pointer types
+// do not, so the field is elided as typeInnerDebug elides fields.
+var addressSpaceNames = [...]string{
+	ir.SpaceFunction:    "Function",
+	ir.SpacePrivate:     "Private",
+	ir.SpaceWorkGroup:   "WorkGroup",
+	ir.SpaceUniform:     "Uniform",
+	ir.SpaceStorage:     "Storage { .. }",
+	ir.SpaceHandle:      "Handle",
+	ir.SpaceImmediate:   "Immediate",
+	ir.SpaceTaskPayload: "TaskPayload",
+}
+
+// addressSpaceDebug is s as Rust's Debug prints an AddressSpace.
+func addressSpaceDebug(s ir.AddressSpace) string {
+	if int(s) < len(addressSpaceNames) {
+		return addressSpaceNames[s]
+	}
+	return fmt.Sprintf("AddressSpace(%d)", s)
+}
+
 // scalarDebug is s as Rust's Debug prints a Scalar.
 func scalarDebug(s ir.ScalarType) string {
 	kind := fmt.Sprintf("ScalarKind(%d)", s.Kind)
