@@ -338,3 +338,34 @@ func TestBuiltinInterpolation(t *testing.T) {
 		}
 	}
 }
+
+// TestIntrinsicInputHasNoRow: a built-in input read through its own dx.op
+// gets no signature row, so the elements after it keep theirs.
+func TestIntrinsicInputHasNoRow(t *testing.T) {
+	cases := []struct {
+		b     ir.BuiltinValue
+		stage ir.ShaderStage
+		want  bool
+	}{
+		{ir.BuiltinSubgroupSize, ir.StageFragment, true},
+		{ir.BuiltinSubgroupInvocationID, ir.StageFragment, true},
+		{ir.BuiltinSubgroupSize, ir.StageVertex, true},
+		{ir.BuiltinViewIndex, ir.StageFragment, true},
+		{ir.BuiltinSampleMask, ir.StageFragment, true},
+		{ir.BuiltinSampleMask, ir.StageVertex, false},
+		{ir.BuiltinPosition, ir.StageFragment, false},
+		{ir.BuiltinPrimitiveIndex, ir.StageFragment, false},
+	}
+	for _, c := range cases {
+		if got := IntrinsicInput(c.b, c.stage); got != c.want {
+			t.Errorf("IntrinsicInput(%d, %d) = %v, want %v", c.b, c.stage, got, c.want)
+		}
+		if !c.want {
+			continue
+		}
+		info := SigElementInfoForBinding(nil, ir.BuiltinBinding{Builtin: c.b}, 0, c.stage, false, nil)
+		if info.Kind != SigPackOther {
+			t.Errorf("builtin %d stage %d: kind %d, want SigPackOther", c.b, c.stage, info.Kind)
+		}
+	}
+}

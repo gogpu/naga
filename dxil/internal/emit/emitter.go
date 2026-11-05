@@ -2635,7 +2635,7 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 // BuiltinViewIndex is skipped — SV_ViewID is read via dx.op.viewID()
 // intrinsic, not via a signature element.
 //
-//nolint:gocognit,funlen,gocyclo,cyclop // signature element collection iterates two parallel walks
+//nolint:gocognit,funlen // signature element collection iterates two parallel walks
 func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) (inputs, outputs []dxilSigInfo) {
 	fn := &ep.Function
 
@@ -2651,24 +2651,17 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 		return false
 	}
 
-	// skipInputBuiltin handles the additional input-only exclusions:
-	// @builtin(sample_mask) on a fragment input maps to SV_Coverage,
-	// which DXC declares as NotInSig for PS input (DxilSigPoint.inl:97-98
-	// 'NotInSig _50'). The value is read via dx.op.coverage(91) instead.
-	// The validator rejects 'Semantic SV_Coverage is invalid as ps Input'
-	// when an SV_Coverage element appears in the PS input signature.
+	// skipInputBuiltin handles the additional input-only exclusions: the
+	// inputs read through their own dx.op (d3d.IntrinsicInput), such as
+	// @builtin(sample_mask) on a fragment input, SV_Coverage, which DXC
+	// declares NotInSig for PS input (DxilSigPoint.inl:97-98), and the
+	// subgroup built-ins.
 	skipInputBuiltin := func(b ir.Binding) bool {
 		if skipBuiltin(b) {
 			return true
 		}
 		bb, ok := b.(ir.BuiltinBinding)
-		if !ok {
-			return false
-		}
-		if bb.Builtin == ir.BuiltinSampleMask && isFragment {
-			return true
-		}
-		return false
+		return ok && d3d.IntrinsicInput(bb.Builtin, ep.Stage)
 	}
 
 	// addInputPacked / addOutputPacked replace the per-element row counter

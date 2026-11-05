@@ -1110,17 +1110,17 @@ func buildSigElementFromPacked(
 // vec2 with startCol=2 produces Mask=0x0C (bits 2,3) instead of 0x03.
 func bindingToSignatureElements(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, startCol uint8, isOutput, isFragment bool) []container.SignatureElement {
 	if bb, ok := binding.(ir.BuiltinBinding); ok {
-		switch bb.Builtin {
-		case ir.BuiltinViewIndex:
-			// SV_ViewID lives in dx.viewIdState metadata, not ISG1.
+		stage := ir.StageVertex
+		if isFragment {
+			stage = ir.StageFragment
+		}
+		// SV_ViewID, a pixel input's SV_Coverage and the subgroup
+		// built-ins are read through their own dx.op, not ISG1.
+		if !isOutput && d3d.IntrinsicInput(bb.Builtin, stage) {
 			return nil
-		case ir.BuiltinSampleMask:
-			// SV_Coverage on PS INPUT is NotInSig (DxilSigPoint.inl:97).
-			// DXC reads it via dx.op.coverage instead. SV_Coverage on
-			// output remains a system-managed signature element.
-			if !isOutput && isFragment {
-				return nil
-			}
+		}
+		if bb.Builtin == ir.BuiltinViewIndex {
+			return nil
 		}
 	}
 	var sem container.SemanticMapping
@@ -1640,9 +1640,10 @@ type psvSemantic struct {
 //	6=LinearSample, 7=LinearNoperspectiveSample.
 func psvSemanticForBinding(binding ir.Binding, stage ir.ShaderStage, isOutput bool) (psvSemantic, bool) {
 	if bb, ok := binding.(ir.BuiltinBinding); ok {
-		// SV_Coverage on PS input is NotInSig (DxilSigPoint.inl:97). Skip
-		// from PSV0 sig element list to mirror the OSG1 / bitcode sides.
-		if bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment && !isOutput {
+		// Inputs read through their own dx.op (SV_Coverage on a pixel
+		// input is NotInSig, DxilSigPoint.inl:97; SV_ViewID; subgroup
+		// built-ins) are left out, as on the OSG1 / bitcode sides.
+		if !isOutput && d3d.IntrinsicInput(bb.Builtin, stage) {
 			return psvSemantic{}, false
 		}
 		sem, ok := psvSemanticForBuiltin(bb.Builtin)

@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@builtin(subgroup_size)` or a `subgroupBarrier()` (a plain `dx.op.barrier`) declared WaveOps, and IDxcValidator
   rejected the shader with "Flags must match usage". It is now set from the emitted wave and quad `dx.op` calls, as
   DXC derives it.
+- **DXIL: subgroup built-ins on vertex and fragment shaders became input signature elements** (P1-DXIL-087).
+  `@builtin(subgroup_size)` and `subgroup_invocation_id` on a graphics entry point were given a signature row and
+  read with `loadInput`, so the input signature and PSV0 did not match the module. They are now read with
+  `WaveGetLaneCount` / `WaveGetLaneIndex`, as in compute and as DXC lowers them, and have no signature element;
+  one rule (`d3d.IntrinsicInput`) now decides which inputs are read through their own `dx.op` for every
+  signature producer. A `subgroup_invocation_id` in a compute input struct declared `dx.op.waveGetLaneIndex.i32`,
+  which the validator rejects; the intrinsic has no overload suffix.
 - **DXIL: fragment system-value inputs had no interpolation mode, and unallocated system values broke the container**
   (P1-DXIL-083). `@builtin(primitive_index)`, `front_facing` and `sample_index` were declared with interpolation mode
   Undefined; DXC gives every non-float pixel input `nointerpolation`, and Intel's driver read a wrong primitive index
