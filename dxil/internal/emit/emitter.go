@@ -1140,6 +1140,9 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	// point — multi-EP modules share the global arena and would
 	// otherwise produce fake "Resource X overlap" errors.
 	e.analyzeResources()
+	if err := e.checkResourceRanges(); err != nil {
+		return err
+	}
 
 	// Emit I/O: load inputs into value map, then emit function body,
 	// then store outputs. At this point we use temporary IDs starting

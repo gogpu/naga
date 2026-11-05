@@ -726,7 +726,10 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	shaderKind := stageToContainerKind(ep.Stage)
 	isFragment := ep.Stage == ir.StageFragment
 	isMesh := ep.Stage == ir.StageMesh
-	inputSig, outputSig, primSig := buildSignaturesEx(irModule, ep, isFragment, isMesh)
+	inputSig, outputSig, primSig, err := buildFittingSignatures(irModule, ep, isFragment, isMesh)
+	if err != nil {
+		return nil, err
+	}
 
 	c := container.New()
 	c.AddFeaturesPart(featureInfoFromShaderFlags(bitcodeShaderFlags))
@@ -739,11 +742,7 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	// part always trips ContainerPartMissing. The prior exemption for
 	// compute was BUG-DXIL-021: it masqueraded a PSV0/metadata leak as
 	// "compute may omit", but DXC reference output proves otherwise.
-	c.AddInputSignature(inputSig)
-	c.AddOutputSignature(outputSig)
-	if len(primSig) > 0 {
-		c.AddPrimitiveSignature(primSig)
-	}
+	addSignatureParts(c, inputSig, outputSig, primSig)
 
 	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), psvTargets{
 		reachable:      reachableGlobals,
@@ -3472,4 +3471,59 @@ func psvSigsToViewIDElems(elems []container.PSVSignatureElement) []viewid.SigEle
 		cumScalars += cols
 	}
 	return out
+}
+
+// maxSignatureRows is the number of rows of a D3D signature: the validator
+// packs every signature into 32 rows (DxilSignatureAllocator(32, ...)) and
+// rejects an element past them (kConflictFit, MetaSignatureOutOfRange).
+const maxSignatureRows = 32
+
+// checkSignatureRows refuses a signature element at row 32 or later, which
+// D3D cannot take. DXC's validator reports it as "signature element LOC at
+// location (32,0) size (1,1) is out of range"; a vertex shader with more than
+// 32 inputs is the common case, since each vertex input has its own row.
+// Unallocated system values (register 0xFFFFFFFF) have no row.
+func checkSignatureRows(kind string, elems []container.SignatureElement) error {
+	for _, e := range elems {
+		if e.Register == 0xFFFFFFFF || e.Register < maxSignatureRows {
+			continue
+		}
+		startCol, cols := -1, 0
+		for c := 0; c < 4; c++ {
+			if e.Mask&(1<<c) != 0 {
+				cols++
+				if startCol < 0 {
+					startCol = c
+				}
+			}
+		}
+		startCol = max(startCol, 0)
+		return fmt.Errorf("%s signature element %s%d at location (%d,%d) size (1,%d) is out of range: a D3D signature has %d rows",
+			kind, e.SemanticName, e.SemanticIndex, e.Register, startCol, cols, maxSignatureRows)
+	}
+	return nil
+}
+
+// addSignatureParts adds ISG1, OSG1 and, when there is one, PSG1.
+func addSignatureParts(c *container.Container, in, out, prim []container.SignatureElement) {
+	c.AddInputSignature(in)
+	c.AddOutputSignature(out)
+	if len(prim) > 0 {
+		c.AddPrimitiveSignature(prim)
+	}
+}
+
+// buildFittingSignatures is buildSignaturesEx refusing a signature D3D
+// cannot take (checkSignatureRows).
+func buildFittingSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool) (in, out, prim []container.SignatureElement, err error) {
+	in, out, prim = buildSignaturesEx(irMod, ep, isFragment, isMesh)
+	for _, s := range []struct {
+		kind  string
+		elems []container.SignatureElement
+	}{{"input", in}, {"output", out}, {"primitive", prim}} {
+		if err := checkSignatureRows(s.kind, s.elems); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return in, out, prim, nil
 }

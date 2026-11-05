@@ -92,7 +92,11 @@ func rayCompilers(m *ir.Module) []rayCompiler {
 	for i := range m.EntryPoints {
 		ep := &backend.EntryPointSelector{Stage: m.EntryPoints[i].Stage, Name: m.EntryPoints[i].Name}
 		cs = append(cs, rayCompiler{"dxil/" + ep.Name, func(m *ir.Module) error {
-			_, _, err := dxil.Compile(m, dxil.Options{ShaderModel: sm65, EntryPoint: ep, ImmediatesTarget: &dxil.BindTarget{}})
+			// Immediates in a space of their own, as wgpu-hal puts them
+			// (dx12/device.rs): at b0 of space 0 they overlap group 0's
+			// uniform buffer, which dxil.Compile refuses.
+			immediates := &dxil.BindTarget{Space: 100}
+			_, _, err := dxil.Compile(m, dxil.Options{ShaderModel: sm65, EntryPoint: ep, ImmediatesTarget: immediates})
 			return err
 		}})
 	}

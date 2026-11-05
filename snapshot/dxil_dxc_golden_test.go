@@ -64,7 +64,14 @@ var dxilDxcSkipShaders = map[string]string{
 	"texture-arg":                   "BUG-DXIL-029 inline gap",
 	"texture-external":              "BUG-DXIL-029 inline gap",
 	"int64":                         "EXTRACTVAL invalid struct index",
-	"policy-mix":                    "ICE Cast incompatible",
+	// 45 vertex inputs, one signature row each, where D3D has 32 rows:
+	// dxil.Compile refuses them (P1-DXIL-094), as DXC does when it
+	// validates; their goldens were compiled with -Vd.
+	"msl-vpt-formats-x1": "45 vertex inputs, D3D has 32 signature rows",
+	"msl-vpt-formats-x2": "45 vertex inputs, D3D has 32 signature rows",
+	"msl-vpt-formats-x3": "45 vertex inputs, D3D has 32 signature rows",
+	"msl-vpt-formats-x4": "45 vertex inputs, D3D has 32 signature rows",
+	"policy-mix":         "ICE Cast incompatible",
 	// Backend gaps:
 	"ray-query":                  "ray-query expressions not implemented",
 	"ray-query-no-init-tracking": "ray-query expressions not implemented",
