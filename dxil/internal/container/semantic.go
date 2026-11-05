@@ -41,6 +41,10 @@ func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 		return SemanticMapping{"SV_Depth", 0, SVDepth}
 	case ir.BuiltinSampleIndex:
 		return SemanticMapping{"SV_SampleIndex", 0, SVSampleIndex}
+	case ir.BuiltinSampleMask:
+		// SV_Coverage is a pixel output only; on a pixel input it is not a
+		// signature element (callers leave it out).
+		return SemanticMapping{"SV_Coverage", 0, SVCoverage}
 	case ir.BuiltinClipDistances:
 		return SemanticMapping{"SV_ClipDistance", 0, SVClipDistance}
 	case ir.BuiltinPrimitiveIndex:

@@ -894,7 +894,8 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 		}
 		inputs = append(inputs, elem)
 	}
-	sortSignatureElements(inputs)
+	// inputs stay in module order: EncodeSignature names them in that order
+	// and sorts the records itself.
 
 	// Outputs from function result.
 	outputs := buildOutputSigElements(irMod, ep.Function.Result, stage, isFragment, interpFnOut)
@@ -941,38 +942,8 @@ func buildOutputSigElements(
 		}
 		out = append(out, elem)
 	}
-	// DXC's validator regenerates OSG1 from module metadata sorted by
-	// register (ascending), then by start column within a register. The
-	// binary OSG1 part must match this ordering or validation fails with
-	// "Container part 'Program Output Signature' does not match expected".
-	sortSignatureElements(out)
+	// Module order; EncodeSignature sorts the records by register.
 	return out
-}
-
-// sortSignatureElements sorts OSG1/ISG1 elements by (Register, StartCol)
-// ascending. DXC's validator regenerates the container signature from module
-// metadata in this order; if our binary doesn't match, validation fails.
-// Elements with Register == 0xFFFFFFFF (system-managed, e.g. SV_Depth) sort
-// to the end — matching DXC's convention.
-func sortSignatureElements(elems []container.SignatureElement) {
-	sort.SliceStable(elems, func(i, j int) bool {
-		ri, rj := elems[i].Register, elems[j].Register
-		if ri != rj {
-			return ri < rj
-		}
-		// Within the same register, sort by lowest mask bit (start column).
-		return maskStartCol(elems[i].Mask) < maskStartCol(elems[j].Mask)
-	})
-}
-
-// maskStartCol returns the starting column index from a component mask.
-func maskStartCol(mask uint8) uint8 {
-	for col := uint8(0); col < 4; col++ {
-		if mask&(1<<col) != 0 {
-			return col
-		}
-	}
-	return 0
 }
 
 // collectFlatBindings walks the function's arguments and (for struct args)
@@ -1678,47 +1649,13 @@ func psvSemanticForBinding(binding ir.Binding, stage ir.ShaderStage, isOutput bo
 		if !ok {
 			return sem, false
 		}
-		sem.Interpolation = sigInterpModeForBuiltin(bb.Builtin, stage, isOutput)
+		sem.Interpolation = uint8(d3d.BuiltinInterpolation(bb.Builtin, stage, isOutput))
 		return sem, true
 	}
 	if loc, ok := binding.(ir.LocationBinding); ok {
 		return psvSemanticForLocation(loc, stage, isOutput), true
 	}
 	return psvSemantic{}, false
-}
-
-// sigInterpModeForBuiltin returns the DXIL InterpolationMode for a
-// system-value sig element. Mirrored on the bitcode side as
-// sigInterpForBuiltin in emit/emitter.go. Verified against dxc -dumpbin
-// output for vs_flat_out.hlsl and sv_position_in_out.hlsl.
-//
-// Rule from dxc reference:
-//
-//	stage    direction  →  interp
-//	------   ---------     -----------
-//	vertex   in            0 (Undefined)        — vertex inputs come from buffer
-//	vertex   out           per-builtin (4 for SV_Position, else 0/2)
-//	fragment in            per-builtin (4 for SV_Position, else 0/2)
-//	fragment out           0 (Undefined)        — SV_Target / SV_Depth etc.
-//	compute  *             0
-func sigInterpModeForBuiltin(b ir.BuiltinValue, stage ir.ShaderStage, isOutput bool) uint8 {
-	isFragment := stage == ir.StageFragment
-	isVertex := stage == ir.StageVertex
-	carries := (isVertex && isOutput) || (isFragment && !isOutput)
-	if !carries {
-		return 0
-	}
-	switch b {
-	case ir.BuiltinPosition:
-		return 4 // NoPerspective
-	case ir.BuiltinClipDistances:
-		return 2 // Linear (perspective)
-	default:
-		// VertexID, InstanceID, FrontFacing, etc. don't actually appear
-		// here for the carrier directions, but emit Undefined as a safe
-		// default if they do.
-		return 0
-	}
 }
 
 // psvSemanticForBuiltin maps a WGSL builtin to its PSV semantic encoding.
@@ -1932,17 +1869,15 @@ func makePSVSignatureElement(irMod *ir.Module, typeHandle ir.TypeHandle, sem psv
 	// StartCol packs into 2 bits (max value 3 = column w). Caller must clamp.
 	colsAndStart := cols | ((startCol & 0x03) << 4) | (1 << 6)
 	row := startRow
-	// System-managed pixel outputs (SV_Depth family / SV_Coverage /
-	// SV_StencilRef) carry IsAllocated=0 in PSV0. DXC's
-	// PSVSignatureElement::IsAllocated returns false for these, and the
-	// validator regenerates the element with bit 6 cleared and StartRow
-	// = 0xFF. Rows stays at 1 (the element STILL has 1 row's worth of
-	// data, it's just not packed into the output register file). Mirror
-	// that here so the PSV0 part matches the OSG1 container's
-	// Register=0xFFFFFFFF and the bitcode metadata's startRow=-1.
+	// System values that get no register (SV_Depth family, SV_Coverage,
+	// SV_StencilRef on output, SV_SampleIndex on input) are unallocated.
+	// InitPSVSignatureElement (DxilPipelineStateValidation.cpp) zeroes the
+	// element and sets StartRow and the allocated bit only for allocated
+	// elements, so here StartRow is 0 and bit 6 is clear; the validator
+	// rebuilds the element that way and compares the bytes. Rows stays 1.
 	if isPSVSemanticSystemManaged(sem.Kind) {
 		colsAndStart = cols // clear allocated bit
-		row = 0xFF
+		row = 0
 	}
 
 	return container.PSVSignatureElement{

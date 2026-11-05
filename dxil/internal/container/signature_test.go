@@ -292,3 +292,41 @@ func readNullTermString(data []byte, offset int) string {
 	}
 	return string(data[offset:end])
 }
+
+// TestEncodeSignatureOrder (P1-DXIL-083): the semantic names are laid out in
+// the string table in the order the module lists the elements, and the
+// records are then sorted by register, unallocated elements last.
+// DxilProgramSignatureWriter assigns each name its offset while it walks the
+// module's elements and sorts the records afterwards
+// (DxilContainerAssembler.cpp:286-296, 380-396, sort_sig at :211-218); the
+// validator rebuilds the part that way and compares the bytes. A pixel
+// shader whose module lists SV_SampleIndex (unallocated) before
+// SV_PrimitiveID (row 2) was rejected because we named them in record order.
+func TestEncodeSignatureOrder(t *testing.T) {
+	// Module order.
+	elements := []SignatureElement{
+		{SemanticName: "SV_Position", SystemValue: SVPosition, CompType: CompTypeFloat32, Register: 0, Mask: 0x0F},
+		{SemanticName: "SV_IsFrontFace", SystemValue: SVIsFrontFace, CompType: CompTypeUint32, Register: 1, Mask: 0x01},
+		{SemanticName: "SV_SampleIndex", SystemValue: SVSampleIndex, CompType: CompTypeUint32, Register: 0xFFFFFFFF, Mask: 0x01},
+		{SemanticName: "SV_PrimitiveID", SystemValue: SVPrimitiveID, CompType: CompTypeUint32, Register: 2, Mask: 0x01},
+	}
+	data := EncodeSignature(elements)
+
+	wantRecords := []string{"SV_Position", "SV_IsFrontFace", "SV_PrimitiveID", "SV_SampleIndex"}
+	offsets := make(map[string]uint32)
+	for i, want := range wantRecords {
+		base := 8 + i*signatureElementSize
+		off := binary.LittleEndian.Uint32(data[base+4:])
+		if got := readNullTermString(data, int(off)); got != want {
+			t.Errorf("record %d: %q, want %q", i, got, want)
+		}
+		offsets[want] = off
+	}
+	// String table in module order.
+	for i := 1; i < len(elements); i++ {
+		prev, cur := elements[i-1].SemanticName, elements[i].SemanticName
+		if offsets[prev] >= offsets[cur] {
+			t.Errorf("string table: %q at %d, not before %q at %d", prev, offsets[prev], cur, offsets[cur])
+		}
+	}
+}

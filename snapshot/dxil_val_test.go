@@ -156,12 +156,6 @@ var dxilKnownFailures = map[string]string{
 	"msl-vpt-formats-x3/render_vertex": "P1-DXIL-094",
 	"msl-vpt-formats-x4/render_vertex": "P1-DXIL-094",
 
-	// PSV0 leaves out the semantic name of unallocated system values
-	// (SV_Depth, SV_Coverage, SV_SampleIndex); interface also has an
-	// output signature mismatch.
-	"early-depth-test-conservative/main": "P1-DXIL-083",
-	"interface/fragment":                 "P1-DXIL-083",
-
 	// Input signature part does not match the module.
 	"f16-native/test_component_access":   "P1-DXIL-095",
 	"f16-polyfill/test_component_access": "P1-DXIL-095",

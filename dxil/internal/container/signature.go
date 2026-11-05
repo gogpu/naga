@@ -16,6 +16,7 @@ package container
 
 import (
 	"encoding/binary"
+	"sort"
 )
 
 // SystemValueKind identifies DXIL system-value semantics.
@@ -84,6 +85,13 @@ const signatureElementSize = 32
 // EncodeSignature serializes a list of SignatureElements into the ISG1/OSG1
 // binary format. The result is the part data (not including the FourCC/size
 // part envelope).
+//
+// elements come in the order the module's !dx.entryPoints signature lists
+// them. As DxilProgramSignatureWriter does (DxilContainerAssembler.cpp), the
+// semantic names get their string-table offsets in that order, and the
+// records are then sorted by register and name offset (sort_sig), so
+// unallocated elements (register 0xFFFFFFFF) come last. The validator
+// rebuilds the part from the module this way and compares the bytes.
 func EncodeSignature(elements []SignatureElement) []byte {
 	if len(elements) == 0 {
 		// Empty signature: header only.
@@ -133,12 +141,28 @@ func EncodeSignature(elements []SignatureElement) []byte {
 	binary.LittleEndian.PutUint32(out[0:], uint32(len(elements))) //nolint:gosec // bounded
 	binary.LittleEndian.PutUint32(out[4:], uint32(headerSize))
 
+	// Records in register order. The sort is stable: elements that share a
+	// register and a name (packed LOC elements) keep the module order,
+	// which is also their column order.
+	order := make([]int, len(elements))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ea, eb := order[a], order[b]
+		if elements[ea].Register != elements[eb].Register {
+			return elements[ea].Register < elements[eb].Register
+		}
+		return nameOffsets[ea] < nameOffsets[eb]
+	})
+
 	// Elements.
-	for i, elem := range elements {
+	for i, idx := range order {
+		elem := elements[idx]
 		base := headerSize + i*signatureElementSize
 		// stream = 0
 		binary.LittleEndian.PutUint32(out[base+0:], 0)
-		binary.LittleEndian.PutUint32(out[base+4:], nameOffsets[i])
+		binary.LittleEndian.PutUint32(out[base+4:], nameOffsets[idx])
 		binary.LittleEndian.PutUint32(out[base+8:], elem.SemanticIndex)
 		binary.LittleEndian.PutUint32(out[base+12:], uint32(elem.SystemValue))
 		binary.LittleEndian.PutUint32(out[base+16:], uint32(elem.CompType))

@@ -59,6 +59,41 @@ const (
 // a register row only if they have the same interpolation mode.
 type SigPackInterp uint8
 
+// DXC InterpolationMode values (DxilConstants.h enum class InterpolationMode)
+// that a system value can take.
+const (
+	InterpUndefined           SigPackInterp = 0
+	InterpConstant            SigPackInterp = 1
+	InterpLinear              SigPackInterp = 2
+	InterpLinearNoperspective SigPackInterp = 4
+)
+
+// BuiltinInterpolation returns the InterpolationMode of a system-value
+// signature element, as DXC assigns it. Only the signature points that pack
+// as vertices — vertex output and pixel input — carry an interpolation mode;
+// every other point gets Undefined. There a float element defaults to Linear
+// and any other to Constant (HLSignatureLower.cpp ProcessArgument), and
+// SV_Position's Linear becomes LinearNoperspective
+// (UpdateSemanticAndInterpMode). So SV_IsFrontFace, SV_PrimitiveID and
+// SV_SampleIndex on a pixel input are nointerpolation. Every producer of the
+// element (PSV0, !dx.entryPoints) must use this one rule.
+func BuiltinInterpolation(b ir.BuiltinValue, stage ir.ShaderStage, isOutput bool) SigPackInterp {
+	carries := (stage == ir.StageVertex && isOutput) || (stage == ir.StageFragment && !isOutput)
+	if !carries {
+		return InterpUndefined
+	}
+	switch b {
+	case ir.BuiltinPosition, ir.BuiltinBarycentricNoPerspective:
+		return InterpLinearNoperspective
+	case ir.BuiltinClipDistances, ir.BuiltinBarycentric, ir.BuiltinPointSize:
+		return InterpLinear
+	default:
+		// The remaining system values a vertex output or pixel input can
+		// carry are integer or bool.
+		return InterpConstant
+	}
+}
+
 // SigElementInfo is the per-member input to PackSignatureElements.
 type SigElementInfo struct {
 	Kind        SigPackKind
