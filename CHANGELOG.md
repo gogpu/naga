@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`dxil.Compile` wrote blobs D3D cannot take instead of refusing them** (P1-DXIL-094). Two resources of one
+  class whose register ranges overlap in a space (for example a binding array at `t0` and another buffer at `t1`
+  without a binding map), or two unbounded ranges in a space, and a signature element past D3D's 32 rows (more
+  than 32 vertex inputs) compiled, and only IDxcValidator or pipeline creation rejected the result. `Compile` now
+  returns an error naming the resources or the element, in DXC's words ("resource plain at register 1 overlaps
+  with resource arr at register 0, space 0", "input signature element LOC32 at location (32,0) size (1,1) is
+  out of range").
 - **DXIL: a load from a multi-channel storage texture did not declare TypedUAVLoadAdditionalFormats**
   (P1-DXIL-096). `textureLoad` from a storage texture whose format has more than one channel needs the typed UAV
   load of additional formats; DXC sets the shader flag (and SFI0 bit) for it, we did not, and IDxcValidator

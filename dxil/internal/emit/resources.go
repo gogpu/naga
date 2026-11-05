@@ -4213,3 +4213,50 @@ func (e *Emitter) imageResourceKind(img ir.ImageType) int {
 		return 2 // default Texture2D
 	}
 }
+
+// checkResourceRanges refuses resources D3D cannot bind: two of one class
+// whose register ranges overlap in a space, or two unbounded ones in a
+// space. DXC refuses them with these messages (DxilCondenseResources.cpp
+// AllocateRegisters); the validator rejects a blob that has them.
+func (e *Emitter) checkResourceRanges() error {
+	type placed struct {
+		res          *resourceInfo
+		lower, upper uint64
+		unbounded    bool
+	}
+	type classSpace struct {
+		class uint8
+		space uint32
+	}
+	byKey := make(map[classSpace][]placed)
+	for i := range e.resources {
+		res := &e.resources[i]
+		if res.virtual {
+			continue
+		}
+		p := placed{res: res, lower: uint64(res.binding), upper: uint64(res.binding)}
+		if res.isBindingArray {
+			if res.arraySize > 0 {
+				p.upper = uint64(res.binding) + uint64(res.arraySize) - 1
+			} else {
+				p.upper, p.unbounded = math.MaxUint32, true
+			}
+		}
+		k := classSpace{res.class, res.group}
+		for _, q := range byKey[k] {
+			if p.unbounded && q.unbounded {
+				return fmt.Errorf("more than one unbounded resource (%s and %s) in space %d", q.res.name, res.name, k.space)
+			}
+			if p.lower <= q.upper && q.lower <= p.upper {
+				prefix := ""
+				if p.unbounded {
+					prefix = "unbounded "
+				}
+				return fmt.Errorf("%sresource %s at register %d overlaps with resource %s at register %d, space %d",
+					prefix, res.name, res.binding, q.res.name, q.res.binding, k.space)
+			}
+		}
+		byKey[k] = append(byKey[k], p)
+	}
+	return nil
+}

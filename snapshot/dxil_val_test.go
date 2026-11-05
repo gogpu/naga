@@ -112,6 +112,20 @@ var dxilExpectedCompileFail = map[string]string{
 	"ptr-deref-test":       "no entry points",
 }
 
+// dxilExpectedRefusals are corpus entry points that ask for what D3D cannot
+// take, which dxil.Compile refuses with the error containing the given text
+// (P1-DXIL-094). An entry that compiles, or fails otherwise, fails the test.
+var dxilExpectedRefusals = map[string]string{
+	// No binding map (Rust's targets leave HLSL out for this shader): the
+	// binding array at t0 overlaps plain_storage at t1.
+	"binding-buffer-arrays/main": "overlaps with resource",
+	// One input row per vertex attribute: 45 attributes, D3D has 32 rows.
+	"msl-vpt-formats-x1/render_vertex": "is out of range: a D3D signature has 32 rows",
+	"msl-vpt-formats-x2/render_vertex": "is out of range: a D3D signature has 32 rows",
+	"msl-vpt-formats-x3/render_vertex": "is out of range: a D3D signature has 32 rows",
+	"msl-vpt-formats-x4/render_vertex": "is out of range: a D3D signature has 32 rows",
+}
+
 // dxilKnownFailures are the corpus entry points ("shader/entry", or "shader"
 // when the shader does not get as far as its entry points) that DXIL does not
 // produce a valid blob for today — a parse or dxil.Compile error, or an
@@ -138,15 +152,6 @@ var dxilKnownFailures = map[string]string{
 
 	// atomicBinOp.f32: DXIL has no float atomics; the backend should refuse.
 	"atomicOps-float32/cs_main": "P2-API-005",
-
-	// Input D3D cannot take (register ranges that overlap without a
-	// binding map, @location past the 32 signature rows) gives a blob
-	// instead of a compile error.
-	"binding-buffer-arrays/main":       "P1-DXIL-094",
-	"msl-vpt-formats-x1/render_vertex": "P1-DXIL-094",
-	"msl-vpt-formats-x2/render_vertex": "P1-DXIL-094",
-	"msl-vpt-formats-x3/render_vertex": "P1-DXIL-094",
-	"msl-vpt-formats-x4/render_vertex": "P1-DXIL-094",
 
 	"int64/main":                      "P1-DXIL-080",
 	"ray-query/main":                  "P1-DXIL-075",
@@ -176,7 +181,7 @@ func TestDxilValSummary(t *testing.T) {
 	shaders := loadCorpus(t)
 	known := newKnownFailures("dxilKnownFailures", dxilKnownFailures)
 
-	var totalEPs, passCount, compileFailCount, valFailCount, knownCount, expectedFailCount int
+	var totalEPs, passCount, compileFailCount, valFailCount, knownCount, expectedFailCount, refusedCount int
 	var unexpected []string
 	fail := func(key, msg string) {
 		if known.fail(t, key, msg) {
@@ -234,6 +239,17 @@ func TestDxilValSummary(t *testing.T) {
 			epOpts := shaderOpts
 			epOpts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 			blob, compileErr := dxilAtNeededModel(module, epOpts)
+			if want, ok := dxilExpectedRefusals[key]; ok {
+				switch {
+				case compileErr == nil:
+					t.Errorf("%s compiles; dxilExpectedRefusals expects it refused (%q)", key, want)
+				case !strings.Contains(compileErr.Error(), want):
+					t.Errorf("%s: refused with %q, want an error containing %q", key, compileErr, want)
+				default:
+					refusedCount++
+				}
+				continue
+			}
 			if compileErr != nil {
 				compileFailCount++
 				fail(key, "compile: "+compileErr.Error())
@@ -254,6 +270,7 @@ func TestDxilValSummary(t *testing.T) {
 	t.Logf("Pass:         %d (%.1f%%)", passCount, pct(passCount, totalEPs))
 	t.Logf("Val fail:     %d", valFailCount)
 	t.Logf("Compile fail: %d (shader-level parse failures count once)", compileFailCount)
+	t.Logf("Refused:      %d of %d in dxilExpectedRefusals (D3D cannot take them)", refusedCount, len(dxilExpectedRefusals))
 	t.Logf("Known:        %d of %d listed in dxilKnownFailures", knownCount, len(dxilKnownFailures))
 
 	known.checkFixed(t)
