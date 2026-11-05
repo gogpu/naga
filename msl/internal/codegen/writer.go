@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/gogpu/naga/backend"
@@ -215,6 +216,20 @@ type Writer struct {
 	// Rust naga emits naga_abs() using metal::select + as_type for signed integers.
 	absHelpers []absHelper
 	negHelpers []absHelper
+
+	// The first expression (lowest handle) of the function being written
+	// that needs each helper, parallel to helperOverloads, dotWrappers,
+	// f2iHelpers, absHelpers and negHelpers. Rust naga writes a function's
+	// wrapped helpers in expression-handle order (write_wrapped_functions
+	// walks func_ctx.expressions), whatever their kind; the helpers new to a
+	// function are emitted sorted by these handles.
+	helperOverloadsUse []helperUse
+	dotWrappersUse     []helperUse
+	f2iHelpersUse      []helperUse
+	absHelpersUse      []helperUse
+	negHelpersUse      []helperUse
+	// currentExpr is the expression writeExpressionKind is writing.
+	currentExpr ir.ExpressionHandle
 
 	// needsRayQuery is set to true when the module contains RayQuery types,
 	// triggering emission of the _RayQuery struct and _map_intersection_type helper.
@@ -721,16 +736,13 @@ func (w *Writer) writeModule() error {
 			}
 			savedOut := w.Out
 			w.Out = strings.Builder{}
-			// Emit f2i helpers before dot wrappers to match Rust naga's
-			// write_wrapped_functions ordering (casts come before binary ops).
-			for _, ovl := range newF2I {
-				w.writeF2IHelper(ovl)
-			}
-			// Emit neg helpers before div/mod (matches Rust naga ordering)
-			for _, neg := range newNeg {
-				w.writeNegHelper(neg)
-			}
-			w.writeHelperSubsetWithAbs(newHelpers, newAbs, newDotWrappers)
+			w.writeWrappedHelpers(wrappedHelperRanges{
+				divMod: [2]int{prevHelpers, fo.helpersAfter},
+				dot:    [2]int{prevDotWrappers, fo.dotWrappersAfter},
+				f2i:    [2]int{prevF2I, fo.f2iHelpersAfter},
+				abs:    [2]int{prevAbs, fo.absHelpersAfter},
+				neg:    [2]int{prevNeg, fo.negHelpersAfter},
+			})
 			if needsClampToEdge && !needsExtSample {
 				w.writeTextureSampleBaseClampToEdge()
 			}
@@ -1027,12 +1039,14 @@ func (w *Writer) registerAtomicCompareExchange(scalar ir.ScalarType) {
 // registerF2IHelper registers a float-to-int helper function for the given overload.
 func (w *Writer) registerF2IHelper(srcScalar ir.ScalarType, vectorSize ir.VectorSize, dstScalar ir.ScalarType) {
 	ovl := f2iOverload{srcScalar: srcScalar, vectorSize: vectorSize, dstScalar: dstScalar}
-	for _, existing := range w.f2iHelpers {
+	for i, existing := range w.f2iHelpers {
 		if existing == ovl {
+			w.noteHelperUse(w.f2iHelpersUse, i)
 			return
 		}
 	}
 	w.f2iHelpers = append(w.f2iHelpers, ovl)
+	w.f2iHelpersUse = append(w.f2iHelpersUse, w.newHelperUse())
 }
 
 // f2iFunctionName returns the helper function name for a float-to-int cast.
@@ -1722,217 +1736,115 @@ func (w *Writer) write(format string, args ...any) {
 	}
 }
 
-// writeHelperFunctions writes typed naga_div/naga_mod overloads in first-use order.
-// Rust naga emits per-type overloads using metal::select, not C++ templates.
-// Overloads are written in the order they were first encountered during expression
-// writing, matching Rust naga's write_wrapped_binary_op behavior.
-func (w *Writer) writeHelperFunctions() {
-	if len(w.helperOverloads) == 0 && len(w.dotWrappers) == 0 && len(w.absHelpers) == 0 {
-		return
-	}
+// wrappedHelperRanges are the [from, to) indexes of the helpers of each kind
+// that one function registered first.
+type wrappedHelperRanges struct {
+	divMod, dot, f2i, abs, neg [2]int
+}
 
-	for _, o := range w.helperOverloads {
-		typeName := o.mslTypeName()
-		if o.isDiv {
-			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
-			case ir.ScalarUint:
-				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
-			}
-			w.PopIndent()
-		} else {
-			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
-			case ir.ScalarUint:
-				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
-			}
-			w.PopIndent()
-		}
-		w.WriteLine("}")
-		// Rust naga emits a trailing blank line after each helper function.
-		w.WriteLine("")
+// writeWrappedHelpers writes the helpers in ranges in the order of the
+// first expression that needs each, as Rust naga's write_wrapped_functions
+// walks a function's expressions in handle order and writes each wrapper it
+// meets. Helpers first needed by one expression keep the order Rust's
+// match arms give them: casts, unary, binary, math.
+func (w *Writer) writeWrappedHelpers(r wrappedHelperRanges) {
+	type pending struct {
+		use   ir.ExpressionHandle
+		write func()
 	}
-
-	// Abs helpers for signed integers (emitted before dot wrappers to match Rust ordering).
-	// Rust naga emits: T naga_abs(T val) { return metal::select(as_type<T>(-as_type<U>(val)), val, val >= 0); }
-	for _, a := range w.absHelpers {
-		typeName := scalarTypeName(a.scalar)
-		unsignedScalar := ir.ScalarType{Kind: ir.ScalarUint, Width: a.scalar.Width}
-		unsignedName := scalarTypeName(unsignedScalar)
-		if a.vecSize > 0 {
-			typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, a.vecSize)
-			unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, a.vecSize)
+	var all []pending
+	add := func(rng [2]int, uses []helperUse, write func(i int)) {
+		for i := rng[0]; i < rng[1]; i++ {
+			all = append(all, pending{use: uses[i].expr, write: func() { write(i) }})
 		}
-		w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
+	}
+	add(r.f2i, w.f2iHelpersUse, func(i int) { w.writeF2IHelper(w.f2iHelpers[i]) })
+	add(r.neg, w.negHelpersUse, func(i int) { w.writeNegHelper(w.negHelpers[i]) })
+	add(r.divMod, w.helperOverloadsUse, func(i int) { w.writeDivModHelper(w.helperOverloads[i]) })
+	add(r.abs, w.absHelpersUse, func(i int) { w.writeAbsHelper(w.absHelpers[i]) })
+	add(r.dot, w.dotWrappersUse, func(i int) { w.writeDotWrapper(w.dotWrappers[i]) })
+	sort.SliceStable(all, func(a, b int) bool { return all[a].use < all[b].use })
+	for _, p := range all {
+		p.write()
+	}
+}
+
+// writeDivModHelper writes one naga_div or naga_mod overload (Rust naga's
+// write_wrapped_binary_op).
+func (w *Writer) writeDivModHelper(o divModOverload) {
+	typeName := o.mslTypeName()
+	if o.isDiv {
+		w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
 		w.PushIndent()
-		w.WriteLine("return %sselect(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", Namespace, typeName, unsignedName)
+		switch o.kind {
+		case ir.ScalarSint:
+			w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", sintMinLiteral(o.width))
+		case ir.ScalarUint:
+			w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
+		}
 		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
+	} else {
+		w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
+		w.PushIndent()
+		switch o.kind {
+		case ir.ScalarSint:
+			w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, sintMinLiteral(o.width))
+			w.WriteLine("return lhs - (lhs / divisor) * divisor;")
+		case ir.ScalarUint:
+			w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
+		}
+		w.PopIndent()
 	}
+	w.WriteLine("}")
+	w.WriteLine("")
+}
 
-	// Integer dot product wrappers: naga_dot_{type}{size}
-	// MSL metal::dot doesn't support int/uint vectors, so we emit manual wrappers.
+// writeAbsHelper writes one naga_abs overload for a signed integer type
+// (Rust naga's write_wrapped_math_function, MathFunction::Abs).
+func (w *Writer) writeAbsHelper(a absHelper) {
+	typeName, unsignedName := absHelperTypeNames(a)
+	w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
+	w.PushIndent()
+	w.WriteLine("return metal::select(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", typeName, unsignedName)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
+}
+
+// absHelperTypeNames returns the signed and unsigned MSL type names of an
+// abs or neg helper.
+func absHelperTypeNames(a absHelper) (typeName, unsignedName string) {
+	typeName = scalarTypeName(a.scalar)
+	unsignedName = scalarTypeName(ir.ScalarType{Kind: ir.ScalarUint, Width: a.scalar.Width})
+	if a.vecSize > 0 {
+		typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, a.vecSize)
+		unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, a.vecSize)
+	}
+	return typeName, unsignedName
+}
+
+// writeDotWrapper writes one integer dot product wrapper, naga_dot_{type}{size}.
+func (w *Writer) writeDotWrapper(d dotWrapper) {
 	components := [4]string{"x", "y", "z", "w"}
-	for _, d := range w.dotWrappers {
-		retType := scalarTypeName(d.scalar)
-		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.PushIndent()
-		w.WriteIndent()
-		w.write("return (")
-		for i := ir.VectorSize(0); i < d.size; i++ {
-			w.write(" + a.%s * b.%s", components[i], components[i])
-		}
-		w.write(");\n")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
+	retType := scalarTypeName(d.scalar)
+	vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
+	w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
+	w.PushIndent()
+	w.WriteIndent()
+	w.write("return (")
+	for i := ir.VectorSize(0); i < d.size; i++ {
+		w.write(" + a.%s * b.%s", components[i], components[i])
 	}
-}
-
-// writeHelperSubset writes a subset of helper overloads and dot wrappers.
-// Used for demand-driven helper emission between functions.
-func (w *Writer) writeHelperSubset(overloads []divModOverload, dots []dotWrapper) {
-	for _, o := range overloads {
-		typeName := o.mslTypeName()
-		if o.isDiv {
-			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
-			case ir.ScalarUint:
-				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
-			}
-			w.PopIndent()
-		} else {
-			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
-			case ir.ScalarUint:
-				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
-			}
-			w.PopIndent()
-		}
-		w.WriteLine("}")
-		w.WriteLine("")
-	}
-
-	components := [4]string{"x", "y", "z", "w"}
-	for _, d := range dots {
-		retType := scalarTypeName(d.scalar)
-		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.PushIndent()
-		w.WriteIndent()
-		w.write("return (")
-		for i := ir.VectorSize(0); i < d.size; i++ {
-			w.write(" + a.%s * b.%s", components[i], components[i])
-		}
-		w.write(");\n")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-	}
-}
-
-// writeHelperSubsetWithAbs writes helpers in the Rust naga order: divmod, abs, dot.
-func (w *Writer) writeHelperSubsetWithAbs(overloads []divModOverload, absHelpers []absHelper, dots []dotWrapper) {
-	w.writeHelperSubsetDivMod(overloads)
-	w.writeHelperSubsetAbs(absHelpers)
-	w.writeHelperSubsetDot(dots)
-}
-
-func (w *Writer) writeHelperSubsetDivMod(overloads []divModOverload) {
-	for _, o := range overloads {
-		typeName := o.mslTypeName()
-		if o.isDiv {
-			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
-			case ir.ScalarUint:
-				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
-			}
-			w.PopIndent()
-		} else {
-			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.PushIndent()
-			switch o.kind {
-			case ir.ScalarSint:
-				minVal := sintMinLiteral(o.width)
-				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
-			case ir.ScalarUint:
-				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
-			}
-			w.PopIndent()
-		}
-		w.WriteLine("}")
-		w.WriteLine("")
-	}
-}
-
-func (w *Writer) writeHelperSubsetAbs(helpers []absHelper) {
-	for _, a := range helpers {
-		typeName := scalarTypeName(a.scalar)
-		unsignedScalar := ir.ScalarType{Kind: ir.ScalarUint, Width: a.scalar.Width}
-		unsignedName := scalarTypeName(unsignedScalar)
-		if a.vecSize > 0 {
-			typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, a.vecSize)
-			unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, a.vecSize)
-		}
-		w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
-		w.PushIndent()
-		w.WriteLine("return metal::select(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", typeName, unsignedName)
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-	}
-}
-
-func (w *Writer) writeHelperSubsetDot(dots []dotWrapper) {
-	components := [4]string{"x", "y", "z", "w"}
-	for _, d := range dots {
-		retType := scalarTypeName(d.scalar)
-		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.PushIndent()
-		w.WriteIndent()
-		w.write("return (")
-		for i := ir.VectorSize(0); i < d.size; i++ {
-			w.write(" + a.%s * b.%s", components[i], components[i])
-		}
-		w.write(");\n")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-	}
+	w.write(");\n")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // sintMinLiteral returns the MSL literal for the minimum value of a signed integer.
 // Uses the (-MAX - 1) pattern to avoid literal overflow warnings in Metal compilers.
 func sintMinLiteral(width uint8) string {
 	switch width {
-	case 4:
-		return "(-2147483647 - 1)"
 	case 8:
 		return "(-9223372036854775807L - 1L)"
 	default:
@@ -1943,23 +1855,47 @@ func sintMinLiteral(width uint8) string {
 // addDivOverload registers a typed div helper overload if not already registered.
 func (w *Writer) addDivOverload(o divModOverload) {
 	o.isDiv = true
-	for _, existing := range w.helperOverloads {
-		if existing == o {
-			return
-		}
-	}
-	w.helperOverloads = append(w.helperOverloads, o)
+	w.addDivModOverload(o)
 }
 
 // addModOverload registers a typed mod helper overload if not already registered.
 func (w *Writer) addModOverload(o divModOverload) {
 	o.isDiv = false
-	for _, existing := range w.helperOverloads {
+	w.addDivModOverload(o)
+}
+
+func (w *Writer) addDivModOverload(o divModOverload) {
+	for i, existing := range w.helperOverloads {
 		if existing == o {
+			w.noteHelperUse(w.helperOverloadsUse, i)
 			return
 		}
 	}
 	w.helperOverloads = append(w.helperOverloads, o)
+	w.helperOverloadsUse = append(w.helperOverloadsUse, w.newHelperUse())
+}
+
+// helperUse is the first expression that needs a helper in the function
+// that registered it.
+type helperUse struct {
+	fn   *ir.Function
+	expr ir.ExpressionHandle
+}
+
+// newHelperUse is the use of a helper registered by the expression being
+// written.
+func (w *Writer) newHelperUse() helperUse {
+	return helperUse{fn: w.currentFunction, expr: w.currentExpr}
+}
+
+// noteHelperUse lowers the recorded first use of helper i to the expression
+// being written when that is in the registering function and comes earlier.
+// A later function's use does not count: the helper is written before the
+// function that registered it.
+func (w *Writer) noteHelperUse(uses []helperUse, i int) {
+	if uses[i].fn == w.currentFunction && w.currentExpr < uses[i].expr {
+		uses[i].expr = w.currentExpr
+	}
 }
 
 // registerDotWrapper registers an integer dot product wrapper function and returns its name.
@@ -1967,12 +1903,14 @@ func (w *Writer) addModOverload(o divModOverload) {
 func (w *Writer) registerDotWrapper(scalar ir.ScalarType, size ir.VectorSize) string {
 	typeName := scalarTypeName(scalar)
 	name := fmt.Sprintf("naga_dot_%s%d", typeName, size)
-	for _, existing := range w.dotWrappers {
+	for i, existing := range w.dotWrappers {
 		if existing.name == name {
+			w.noteHelperUse(w.dotWrappersUse, i)
 			return name
 		}
 	}
 	w.dotWrappers = append(w.dotWrappers, dotWrapper{scalar: scalar, size: size, name: name})
+	w.dotWrappersUse = append(w.dotWrappersUse, w.newHelperUse())
 	return name
 }
 
@@ -1984,23 +1922,20 @@ type absHelper struct {
 
 // registerAbsHelper registers a naga_abs helper function for the given scalar/vector type.
 func (w *Writer) registerAbsHelper(scalar ir.ScalarType, vecSize ir.VectorSize) {
-	for _, existing := range w.absHelpers {
+	for i, existing := range w.absHelpers {
 		if existing.scalar == scalar && existing.vecSize == vecSize {
+			w.noteHelperUse(w.absHelpersUse, i)
 			return
 		}
 	}
 	w.absHelpers = append(w.absHelpers, absHelper{scalar: scalar, vecSize: vecSize})
+	w.absHelpersUse = append(w.absHelpersUse, w.newHelperUse())
 }
 
 // writeNegHelper emits a naga_neg function for signed integer negation.
 // Matches Rust: T naga_neg(T val) { return as_type<T>(-as_type<unsigned_T>(val)); }
 func (w *Writer) writeNegHelper(h absHelper) {
-	typeName := scalarTypeName(h.scalar)
-	unsignedName := scalarTypeName(ir.ScalarType{Kind: ir.ScalarUint, Width: h.scalar.Width})
-	if h.vecSize > 0 {
-		typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, h.vecSize)
-		unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, h.vecSize)
-	}
+	typeName, unsignedName := absHelperTypeNames(h)
 	w.WriteLine("%s naga_neg(%s val) {", typeName, typeName)
 	w.PushIndent()
 	w.WriteLine("return as_type<%s>(-as_type<%s>(val));", typeName, unsignedName)
@@ -2012,12 +1947,14 @@ func (w *Writer) writeNegHelper(h absHelper) {
 // registerNegHelper registers a naga_neg helper function for signed integer negation.
 // Avoids UB on INT_MIN by casting to unsigned, negating, then casting back.
 func (w *Writer) registerNegHelper(scalar ir.ScalarType, vecSize ir.VectorSize) {
-	for _, existing := range w.negHelpers {
+	for i, existing := range w.negHelpers {
 		if existing.scalar == scalar && existing.vecSize == vecSize {
+			w.noteHelperUse(w.negHelpersUse, i)
 			return
 		}
 	}
 	w.negHelpers = append(w.negHelpers, absHelper{scalar: scalar, vecSize: vecSize})
+	w.negHelpersUse = append(w.negHelpersUse, w.newHelperUse())
 }
 
 // getTypeName returns the MSL type name for a type handle.

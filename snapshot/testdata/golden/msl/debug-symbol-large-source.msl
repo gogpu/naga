@@ -263,12 +263,12 @@ kernel void gen_terrain_compute(
     return;
 }
 
-uint naga_f2u32(float value) {
-    return static_cast<uint>(metal::clamp(value, 0.0, 4294967000.0));
-}
-
 uint naga_mod(uint lhs, uint rhs) {
     return lhs % metal::select(rhs, 1u, rhs == 0u);
+}
+
+uint naga_f2u32(float value) {
+    return static_cast<uint>(metal::clamp(value, 0.0, 4294967000.0));
 }
 
 
