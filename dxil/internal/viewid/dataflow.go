@@ -138,6 +138,31 @@ type SigElement struct {
 	SystemManaged bool
 }
 
+// packedExtent returns how far a signature's allocated elements reach in the
+// packed register space: the scalar count (one past the last
+// row*4 + col, DXC's DetermineMaxPackedLocation) and the rows used (one past
+// the last row, DXC's DxilSignature::NumVectorsUsed, DxilSignature.cpp:110).
+// The PSV0 header's SigInputVectors and SigOutputVectors are those row
+// counts, and the PSV0 dependency table is read with them
+// (DxilContainerAssembler.cpp:541-561): counting elements instead gives a
+// table with a different stride wherever elements share a row. Every WGSL
+// interface element fits in one row.
+func packedExtent(elems []SigElement) (scalars, rows uint32) {
+	for i := range elems {
+		e := &elems[i]
+		if e.SystemManaged {
+			continue
+		}
+		if end := e.VectorRow*4 + e.StartCol + e.NumChannels; end > scalars {
+			scalars = end
+		}
+		if end := e.VectorRow + 1; end > rows {
+			rows = end
+		}
+	}
+	return scalars, rows
+}
+
 // Analyze walks the entry point function body, whose expression types are
 // types, and computes dataflow dependencies between inputs and outputs.
 //
@@ -152,32 +177,13 @@ type SigElement struct {
 // machinery while still honoring the emit-order ↔ ViewIdState-scalar-
 // order contract.
 func Analyze(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, inputs, outputs []SigElement) *Deps {
-	var numInScalars, numOutScalars uint32
-	var sigInVectors, sigOutVectors uint32
-
 	// DXC's ComputeViewIdState uses PACKED LINEAR indexing for scalar
-	// positions (GetLinearIndex = row*4 + col). NumInput/OutputSigScalars
-	// is max(elem.VectorRow*4 + elem.NumChannels) over non-system-managed
-	// elements, NOT sum of NumChannels. See DXC
-	// ComputeViewIdStateBuilder.cpp DetermineMaxPackedLocation.
-	for i := range inputs {
-		if !inputs[i].SystemManaged {
-			sigInVectors++
-			end := inputs[i].VectorRow*4 + inputs[i].NumChannels
-			if end > numInScalars {
-				numInScalars = end
-			}
-		}
-	}
-	for i := range outputs {
-		if !outputs[i].SystemManaged {
-			sigOutVectors++
-			end := outputs[i].VectorRow*4 + outputs[i].NumChannels
-			if end > numOutScalars {
-				numOutScalars = end
-			}
-		}
-	}
+	// positions (GetLinearIndex = (StartRow+row)*4 + StartCol + col).
+	// NumInput/OutputSigScalars is one past the last packed location over
+	// the allocated elements, NOT the sum of NumChannels
+	// (ComputeViewIdStateBuilder.cpp:279-296 DetermineMaxPackedLocation).
+	numInScalars, sigInVectors := packedExtent(inputs)
+	numOutScalars, sigOutVectors := packedExtent(outputs)
 
 	outMaskDwords := MaskDwordsForScalars(numOutScalars)
 	outCompMaskDwords := MaskDwordsForComponents(sigOutVectors)

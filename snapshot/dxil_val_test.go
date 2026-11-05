@@ -309,9 +309,6 @@ var ggKnownDXILFailures = map[string]string{
 	// The vendored blend.wgsl is invalid WGSL (a float select condition),
 	// which the validator rejects since P1-WGSL-095; gg fixes the shader.
 	"internal/gpu/shaders/blend.wgsl/fs_main": "gogpu/gg:P1-BLEND-003",
-	// PSV0 indexes the ViewID input table one row per location, the module
-	// by packed signature row.
-	"internal/gpu/shaders/sdf_render.wgsl/vs_main": "P1-DXIL-089",
 }
 
 // TestDxilValGGProduction walks the gg production shader corpora and requires
