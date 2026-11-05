@@ -434,35 +434,6 @@ func TestLocationInputAttribute(t *testing.T) {
 }
 
 // =============================================================================
-// functions.go coverage: literalScalarTypeName
-// =============================================================================
-
-func TestLiteralScalarTypeName(t *testing.T) {
-	w := &Writer{}
-
-	tests := []struct {
-		name string
-		lit  ir.Literal
-		want string
-	}{
-		{"i32", ir.Literal{Value: ir.LiteralI32(1)}, "int"},
-		{"u32", ir.Literal{Value: ir.LiteralU32(1)}, "uint"},
-		{"f32", ir.Literal{Value: ir.LiteralF32(1.0)}, "float"},
-		{"bool", ir.Literal{Value: ir.LiteralBool(true)}, "bool"},
-		{"f64", ir.Literal{Value: ir.LiteralF64(1.0)}, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := w.literalScalarTypeName(tt.lit)
-			if got != tt.want {
-				t.Errorf("literalScalarTypeName(%+v) = %q, want %q", tt.lit, got, tt.want)
-			}
-		})
-	}
-}
-
-// =============================================================================
 // Compile-level coverage: workgroup zero-init, private globals, ForLoopBounding
 // =============================================================================
 

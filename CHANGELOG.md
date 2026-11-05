@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   buffer. Resource slots move up by one in a module with immediate data. More than 256 slots of one kind is now an
   error instead of a wrap. gogpu/wgpu always passes a map and is not affected.
 - **MSL: errors raised while writing the module were prefixed `msl: msl:`.** They now carry the prefix once.
+- **MSL: a module-scope splat took a `float` vector type unless its value was an i32, u32, f32 or bool literal**
+  (BUG-F16-SILENT-BACKENDS-001). `const h = vec3<f16>(1.5h);` was written
+  `constant metal::half3 h = metal::float3(1.5h);`, and a splat of a named constant of any type became a float vector.
+  The vector type now comes from the type of the splatted value, as in Rust naga, through the types of the module's
+  global expressions. An expression that cannot be a constant, and a global expression handle out of range, are now
+  errors instead of an empty `{}` initializer.
 
 ## [0.21.2] - 2026-11-03
 
