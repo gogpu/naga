@@ -3115,7 +3115,14 @@ func (l *Lowerer) lowerUnary(un *parser.UnaryExpr, target *[]ir.Statement) (ir.E
 	// Handle address-of operator (&)
 	// Returns the reference (pointer) for the operand without applying load rule.
 	if un.Op == parser.TokenAmpersand {
-		return l.lowerExpressionForRef(un.Operand, target)
+		ref, err := l.lowerExpressionForRef(un.Operand, target)
+		if err != nil {
+			return 0, err
+		}
+		if l.isVectorComponentReference(ref) {
+			return 0, errAddrOfVectorComponent
+		}
+		return ref, nil
 	}
 
 	// Handle dereference operator (*)
@@ -3150,6 +3157,39 @@ func (l *Lowerer) lowerUnary(un *parser.UnaryExpr, target *[]ir.Statement) (ir.E
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprUnary{Op: op, Expr: operand},
 	})
+}
+
+// errAddrOfVectorComponent is Rust naga's Error::InvalidAddrOfOperand text.
+var errAddrOfVectorComponent = errors.New("cannot take the address of a vector component")
+
+// isVectorComponentReference reports whether ref, the operand of `&`, names
+// one component of a vector: an Access or AccessIndex whose base is a pointer
+// to a vector. A pointer may not name a vector component (WGSL spec,
+// "Address-Of Expression"); Rust naga checks the same shape in its lowerer
+// (front/wgsl/lower/mod.rs, ast::Expression::AddrOf, pointer_base_type).
+func (l *Lowerer) isVectorComponentReference(ref ir.ExpressionHandle) bool {
+	if l.currentFunc == nil || int(ref) >= len(l.currentFunc.Expressions) {
+		return false
+	}
+	var base ir.ExpressionHandle
+	switch e := l.currentFunc.Expressions[ref].Kind.(type) {
+	case ir.ExprAccess:
+		base = e.Base
+	case ir.ExprAccessIndex:
+		base = e.Base
+	default:
+		return false
+	}
+	switch p := l.exprResolution(base).Inner(l.module.Types).(type) {
+	case ir.PointerType:
+		if int(p.Base) < len(l.module.Types) {
+			_, isVector := l.module.Types[p.Base].Inner.(ir.VectorType)
+			return isVector
+		}
+	case ir.ValuePointerType:
+		return p.Size != nil
+	}
+	return false
 }
 
 // lowerNegatedLiteral directly creates a negative literal from a positive one,

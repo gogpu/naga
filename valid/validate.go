@@ -610,7 +610,9 @@ func (v *validator) validateFunction(fn *ir.Function) {
 	for i, arg := range fn.Arguments {
 		if !v.isValidTypeHandle(arg.Type) {
 			v.addErrorInFunction(fmt.Sprintf("argument %d (%s): type %d does not exist", i, arg.Name, arg.Type))
+			continue
 		}
+		v.validateArgumentPointerSpace(i, &arg)
 	}
 
 	// Validate result
@@ -648,6 +650,31 @@ func (v *validator) validateFunction(fn *ir.Function) {
 	if typeErr != nil && len(v.errors) == errorsBefore && errors.As(typeErr, &te) {
 		v.addErrorInExpression(te.Expression, "Type resolution failed: "+te.Err.Error())
 	}
+}
+
+// validateArgumentPointerSpace rejects a pointer argument outside the
+// function and private address spaces, as Rust naga's validate_function
+// (valid/function.rs, FunctionError::InvalidArgumentPointerSpace). The WGSL
+// spec lifts the restriction only under the unrestricted_pointer_parameters
+// language extension, which neither Rust naga nor naga implements, so the
+// check is unconditional, as in Rust. Without it a storage or workgroup
+// pointer reaches backends that cannot express it (the MSL runtime-array
+// bound needs the originating global, P0-MSL-100).
+func (v *validator) validateArgumentPointerSpace(index int, arg *ir.FunctionArgument) {
+	var space ir.AddressSpace
+	switch t := v.module.Types[arg.Type].Inner.(type) {
+	case ir.PointerType:
+		space = t.Space
+	case ir.ValuePointerType:
+		space = t.Space
+	default:
+		return
+	}
+	if space == ir.SpaceFunction || space == ir.SpacePrivate {
+		return
+	}
+	v.addErrorInFunction(fmt.Sprintf("Argument '%s' at index %d is a pointer of space %s, which can't be passed into functions.",
+		arg.Name, index, addressSpaceDebug(space)))
 }
 
 // validateExpression validates a single expression.
