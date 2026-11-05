@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: a module with 16-bit types kept the min-precision data layout** (P2-DXIL-098). Every module was written
+  with the legacy layout that stores 8- and 16-bit values in 32 bits, and the UseNativeLowPrecision flag was set
+  only on an entry point that used a 16-bit value. A module with 16-bit types is now written as DXC writes it with
+  `-enable-16bit-types` (what wgpu-hal passes for `shader-f16` and 16-bit integers): the native data layout, and
+  UseNativeLowPrecision on each of its entry points; LowPrecisionPresent, and with it the SFI0 requirement, still
+  follows the 16-bit values an entry point uses.
 - **`dxil.Compile` wrote blobs D3D cannot take instead of refusing them** (P1-DXIL-094). Two resources of one
   class whose register ranges overlap in a space (for example a binding array at `t0` and another buffer at `t1`
   without a binding map), or two unbounded ranges in a space, and a signature element past D3D's 32 rows (more
