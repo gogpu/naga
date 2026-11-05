@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a local array of arrays or of structs read by index holds its initializer, or zero without one: 3 2 4 7 8 (P0-DXIL-091: DXIL read uninitialized memory for every indexed load)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [1, 0]},
+    {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [[3, 2, 4, 7, 8, "fill"]]}
+  ]
+}

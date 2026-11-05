@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/dxil/internal/emit"
 	"github.com/gogpu/naga/dxil/internal/module"
 )
 
@@ -33,6 +34,7 @@ func straightLineStores(t *testing.T, mod *module.Module, fn *module.Function) m
 		return fmt.Sprintf("%%%d", id)
 	}
 	addr := map[int]string{} // GEP or alloca value → place in a local
+	gepResult := map[int]bool{}
 	mem := map[string]string{}
 	stores := map[int64]string{}
 	for _, bb := range fn.BasicBlocks {
@@ -48,7 +50,14 @@ func straightLineStores(t *testing.T, mod *module.Module, fn *module.Function) m
 					continue // not a local
 				}
 				path := base
-				for _, idx := range in.Operands[3:] {
+				indices := in.Operands[3:]
+				if _, fromGEP := gepResult[in.Operands[2]]; fromGEP && len(indices) > 0 && consts[indices[0]] == 0 {
+					// A GEP of a GEP: its first index steps over whole
+					// pointees, 0 here, and the place continues the base's.
+					indices = indices[1:]
+				}
+				gepResult[in.ValueID] = true
+				for _, idx := range indices {
 					v, isConst := consts[idx]
 					if !isConst {
 						t.Fatalf("straightLineStores: GEP with a run-time index")
@@ -73,6 +82,18 @@ func straightLineStores(t *testing.T, mod *module.Module, fn *module.Function) m
 			case module.InstrCmp:
 				sym[in.ValueID] = fmt.Sprintf("(%s cmp %s)", symOf(in.Operands[0]), symOf(in.Operands[1]))
 			case module.InstrBinOp:
+				// An integer add or mul of constants (a flat element index
+				// of a nested array) is a constant.
+				l, lok := consts[in.Operands[0]]
+				r, rok := consts[in.Operands[1]]
+				if lok && rok && (in.Operands[2] == int(emit.BinOpAdd) || in.Operands[2] == int(emit.BinOpMul)) {
+					if in.Operands[2] == int(emit.BinOpAdd) {
+						consts[in.ValueID] = l + r
+					} else {
+						consts[in.ValueID] = l * r
+					}
+					continue
+				}
 				sym[in.ValueID] = fmt.Sprintf("(%s op%d %s)", symOf(in.Operands[0]), in.Operands[2], symOf(in.Operands[1]))
 			case module.InstrExtractVal:
 				sym[in.ValueID] = fmt.Sprintf("%s[%d]", symOf(in.Operands[0]), in.Operands[1])
