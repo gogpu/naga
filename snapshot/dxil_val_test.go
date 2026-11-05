@@ -148,9 +148,6 @@ var dxilKnownFailures = map[string]string{
 	"msl-vpt-formats-x3/render_vertex": "P1-DXIL-094",
 	"msl-vpt-formats-x4/render_vertex": "P1-DXIL-094",
 
-	// Shader flags: TypedUAVLoadAdditionalFormats missing.
-	"image/main": "P1-DXIL-096",
-
 	"int64/main":                      "P1-DXIL-080",
 	"ray-query/main":                  "P1-DXIL-075",
 	"ray-query-no-init-tracking/main": "P1-DXIL-075",

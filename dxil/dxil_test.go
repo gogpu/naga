@@ -696,6 +696,9 @@ func TestFeatureInfoFromShaderFlags(t *testing.T) {
 		},
 		{"int64 alone", flagInt64, sfiInt64},
 		{"raytracing alone", flagRaytracing, sfiRayTier11},
+		// TypedUAVLoadAdditionalFormats: bit 13 -> SFI0 0x0800
+		// (DxilConstants.h ShaderFeatureInfo_TypedUAVLoadAdditionalFormats).
+		{"typed UAV load of more than one component", 0x2000, 0x0800},
 		{
 			"f16-native + int64 + raytracing",
 			flagLowPrec | flagNativeLP | flagInt64 | flagRaytracing,
