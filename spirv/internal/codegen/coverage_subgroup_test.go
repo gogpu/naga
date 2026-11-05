@@ -336,10 +336,13 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 			wantCap: CapabilityGroupNonUniformBallot,
 		},
 		{
+			// A shuffle, as Rust naga writes subgroupBroadcast
+			// (back/spv/subgroup.rs): before SPIR-V 1.5 the index of
+			// OpGroupNonUniformBroadcast must be a constant instruction.
 			name:    "Broadcast",
 			mode:    ir.GatherBroadcast{Index: 2},
-			wantOp:  OpGroupNonUniformBroadcast,
-			wantCap: CapabilityGroupNonUniformBallot,
+			wantOp:  OpGroupNonUniformShuffle,
+			wantCap: CapabilityGroupNonUniformShuffle,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // expr 2: index
 			},

@@ -10660,13 +10660,16 @@ func (e *ExpressionEmitter) emitSubgroupGather(stmt ir.StmtSubgroupGather) error
 		e.backend.builder.funcAppend(ib.Build(OpGroupNonUniformBroadcastFirst))
 
 	case ir.GatherBroadcast:
-		e.backend.addCapability(CapabilityGroupNonUniformBallot)
+		// A shuffle, as Rust naga (back/spv/subgroup.rs): before SPIR-V 1.5
+		// the index of OpGroupNonUniformBroadcast must be a constant
+		// instruction, a shuffle takes any dynamically uniform one.
+		e.backend.addCapability(CapabilityGroupNonUniformShuffle)
 		indexID, err := e.emitExpression(mode.Index)
 		if err != nil {
 			return err
 		}
 		ib.AddWord(indexID)
-		e.backend.builder.funcAppend(ib.Build(OpGroupNonUniformBroadcast))
+		e.backend.builder.funcAppend(ib.Build(OpGroupNonUniformShuffle))
 
 	case ir.GatherShuffle:
 		e.backend.addCapability(CapabilityGroupNonUniformShuffle)
