@@ -6525,8 +6525,12 @@ func (l *Lowerer) lowerTextureCall(name string, args []parser.Expr, target *[]ir
 		if len(args) < 4 {
 			return 0, fmt.Errorf("textureSampleBias requires at least 4 arguments")
 		}
+		image, img, err := l.lowerImage(args[0], target)
+		if err != nil {
+			return 0, err
+		}
 		biasIdx := 3
-		if l.isTextureArrayed(args[0]) {
+		if img.Arrayed {
 			biasIdx = 4
 		}
 		if biasIdx >= len(args) {
@@ -6535,15 +6539,19 @@ func (l *Lowerer) lowerTextureCall(name string, args []parser.Expr, target *[]ir
 		// Lower image/sampler/coord/array_index first (args before bias + args after bias)
 		sampleArgs := append(args[:biasIdx:biasIdx], args[biasIdx+1:]...)
 		// Use placeholder level — will be replaced after lowerTextureSample lowers image/sampler/coord
-		return l.lowerTextureSampleWithDeferredLevel(sampleArgs, args[biasIdx], "bias", target)
+		return l.lowerTextureSampleWithDeferredLevel(image, img, sampleArgs, args[biasIdx], "bias", target)
 
 	case "textureSampleLevel":
 		// textureSampleLevel(t, s, coord, [array_index,] level [, offset])
 		if len(args) < 4 {
 			return 0, fmt.Errorf("textureSampleLevel requires at least 4 arguments")
 		}
+		image, img, err := l.lowerImage(args[0], target)
+		if err != nil {
+			return 0, err
+		}
 		levelIdx := 3
-		if l.isTextureArrayed(args[0]) {
+		if img.Arrayed {
 			levelIdx = 4
 		}
 		if levelIdx >= len(args) {
@@ -6551,25 +6559,29 @@ func (l *Lowerer) lowerTextureCall(name string, args []parser.Expr, target *[]ir
 		}
 		sampleArgs := append(args[:levelIdx:levelIdx], args[levelIdx+1:]...)
 		levelKind := "level"
-		if l.isTextureDepth(args[0]) {
+		if img.Class == ir.ImageClassDepth {
 			levelKind = "level_depth"
 		}
-		return l.lowerTextureSampleWithDeferredLevel(sampleArgs, args[levelIdx], levelKind, target)
+		return l.lowerTextureSampleWithDeferredLevel(image, img, sampleArgs, args[levelIdx], levelKind, target)
 
 	case "textureSampleGrad":
 		// textureSampleGrad(t, s, coord, [array_index,] ddx, ddy [, offset])
 		if len(args) < 5 {
 			return 0, fmt.Errorf("textureSampleGrad requires at least 5 arguments")
 		}
+		image, img, err := l.lowerImage(args[0], target)
+		if err != nil {
+			return 0, err
+		}
 		ddxIdx := 3
-		if l.isTextureArrayed(args[0]) {
+		if img.Arrayed {
 			ddxIdx = 4
 		}
 		if ddxIdx+1 >= len(args) {
 			return 0, fmt.Errorf("textureSampleGrad: missing gradient arguments")
 		}
 		sampleArgs := append(args[:ddxIdx:ddxIdx], args[ddxIdx+2:]...)
-		return l.lowerTextureSampleWithDeferredGrad(sampleArgs, args[ddxIdx], args[ddxIdx+1], target)
+		return l.lowerTextureSampleWithDeferredGrad(image, img, sampleArgs, args[ddxIdx], args[ddxIdx+1], target)
 
 	case "textureSampleCompare":
 		// textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
@@ -6631,16 +6643,8 @@ func (l *Lowerer) lowerTextureCall(name string, args []parser.Expr, target *[]ir
 // lowerTextureSample converts a texture sampling call to IR.
 // lowerTextureSampleWithDeferredLevel lowers image/sampler/coord/array_index via
 // lowerTextureSample, then lowers the level/bias arg AFTER (matching Rust expression order).
-func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, levelArg parser.Expr, kind string, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// First lower image/sampler/coord/array_index (creates GlobalVariable expressions)
-	// by calling lowerTextureSample with a placeholder level.
-	// BUT we need to intercept BEFORE addExpression creates ImageSample.
-	// Simpler: just lower image/sampler/coord first, then level, then create ImageSample.
-
-	image, err := l.lowerExpression(sampleArgs[0], target)
-	if err != nil {
-		return 0, err
-	}
+// The caller has lowered the image, sampleArgs[0], to image of type img.
+func (l *Lowerer) lowerTextureSampleWithDeferredLevel(image ir.ExpressionHandle, img ir.ImageType, sampleArgs []parser.Expr, levelArg parser.Expr, kind string, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	sampler, err := l.lowerExpression(sampleArgs[1], target)
 	if err != nil {
 		return 0, err
@@ -6656,7 +6660,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
 	nextArg := 3
-	if nextArg < len(sampleArgs) && l.isTextureArrayed(sampleArgs[0]) {
+	if nextArg < len(sampleArgs) && img.Arrayed {
 		ai, aiErr := l.lowerExpression(sampleArgs[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -6719,11 +6723,8 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 }
 
 // lowerTextureSampleWithDeferredGrad is like lowerTextureSampleWithDeferredLevel but for gradients.
-func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, ddxArg, ddyArg parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	image, err := l.lowerExpression(sampleArgs[0], target)
-	if err != nil {
-		return 0, err
-	}
+// The caller has lowered the image, sampleArgs[0], to image of type img.
+func (l *Lowerer) lowerTextureSampleWithDeferredGrad(image ir.ExpressionHandle, img ir.ImageType, sampleArgs []parser.Expr, ddxArg, ddyArg parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	sampler, err := l.lowerExpression(sampleArgs[1], target)
 	if err != nil {
 		return 0, err
@@ -6739,7 +6740,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, d
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
 	nextArg := 3
-	if nextArg < len(sampleArgs) && l.isTextureArrayed(sampleArgs[0]) {
+	if nextArg < len(sampleArgs) && img.Arrayed {
 		ai, aiErr := l.lowerExpression(sampleArgs[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -6817,7 +6818,7 @@ func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement,
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
 	nextArg := 3
-	if nextArg < len(args) && l.isTextureArrayed(args[0]) {
+	if nextArg < len(args) && l.imageTypeOf(image).Arrayed {
 		ai, aiErr := l.lowerExpression(args[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -6882,7 +6883,7 @@ func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Sta
 	var arrayIndex *ir.ExpressionHandle
 	depthRefIdx := 3
 
-	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+	if l.imageTypeOf(image).Arrayed && len(args) >= 5 {
 		ai, aiErr := l.lowerExpression(args[3], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -6960,32 +6961,35 @@ func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement)
 		return 0, fmt.Errorf("textureGather requires at least 3 arguments, got %d", len(args))
 	}
 
-	// Detect depth texture overload: first arg is a depth texture identifier
-	isDepth := l.isTextureDepth(args[0])
-
+	// The first argument is the image when it is a depth texture and the
+	// component otherwise: Rust lowers it and decides by its type
+	// (texture_sample_helper, Texture::Gather).
 	var component ir.SwizzleComponent
 	var textureArgIdx int
+	var image ir.ExpressionHandle
+	first, firstImg, err := l.lowerImage(args[0], target)
+	if err != nil {
+		return 0, err
+	}
 
-	if isDepth {
+	if firstImg.Class == ir.ImageClassDepth {
 		// Depth overload: textureGather(texture, sampler, coords [, offset])
 		component = ir.SwizzleX // always component 0 for depth
 		textureArgIdx = 0
+		image = first
 	} else {
 		// Normal overload: textureGather(component, texture, sampler, coords [, offset])
 		if len(args) < 4 {
 			return 0, fmt.Errorf("textureGather requires at least 4 arguments for non-depth textures, got %d", len(args))
 		}
-		var err error
-		component, err = l.evalGatherComponent(args[0])
+		component, err = l.gatherComponent(first)
 		if err != nil {
 			return 0, fmt.Errorf("textureGather component: %w", err)
 		}
 		textureArgIdx = 1
-	}
-
-	image, err := l.lowerExpression(args[textureArgIdx], target)
-	if err != nil {
-		return 0, err
+		if image, err = l.lowerExpression(args[textureArgIdx], target); err != nil {
+			return 0, err
+		}
 	}
 
 	sampler, err := l.lowerExpression(args[textureArgIdx+1], target)
@@ -7006,7 +7010,7 @@ func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement)
 	var offset *ir.ExpressionHandle
 	nextArg := textureArgIdx + 3
 
-	if l.isTextureArrayed(args[textureArgIdx]) && len(args) > nextArg {
+	if l.imageTypeOf(image).Arrayed && len(args) > nextArg {
 		ai, aiErr := l.lowerExpression(args[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -7067,7 +7071,7 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 	var arrayIndex *ir.ExpressionHandle
 	depthRefIdx := 3
 
-	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+	if l.imageTypeOf(image).Arrayed && len(args) >= 5 {
 		ai, aiErr := l.lowerExpression(args[3], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -7114,10 +7118,18 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 	})
 }
 
-// evalGatherComponent evaluates the component argument of textureGather.
-// The component must be a constant integer expression in range [0, 3].
-func (l *Lowerer) evalGatherComponent(expr parser.Expr) (ir.SwizzleComponent, error) {
-	val, err := l.constU32(expr)
+// gatherComponent is the component argument of textureGather, lowered to
+// h: a concrete integer const-expression in [0, 3] (Rust's
+// ExpressionContext::gather_component).
+func (l *Lowerer) gatherComponent(h ir.ExpressionHandle) (ir.SwizzleComponent, error) {
+	h, err := l.concretize(h)
+	if err != nil {
+		return 0, err
+	}
+	// A run-time or non-scalar h has no literal; literalU32 rejects nil as
+	// not a concrete integer const-expression.
+	lit, _ := l.eval().Literal(h)
+	val, err := literalU32(lit, nil)
 	if err != nil {
 		return 0, fmt.Errorf("component must be a constant expression: %w", err)
 	}
@@ -7127,47 +7139,27 @@ func (l *Lowerer) evalGatherComponent(expr parser.Expr) (ir.SwizzleComponent, er
 	return ir.SwizzleComponent(val), nil
 }
 
-// isTextureArrayed checks if a texture expression refers to an arrayed image type.
-func (l *Lowerer) isTextureArrayed(expr parser.Expr) bool {
-	img, ok := l.getTextureImageType(expr)
-	return ok && img.Arrayed
+// imageTypeOf is the image type of the lowered expression image, which
+// decides how a texture call reads its other arguments (an arrayed image
+// takes an array index, a multisampled one a sample index, ...). Rust naga
+// resolves the image expression's type the same way (resolve_inner! /
+// ExpressionContext::image_data in front/wgsl/lower/mod.rs), so a global,
+// an argument, a local and an element of a binding_array all count. An
+// expression that is not an image gives the zero ImageType (not arrayed,
+// not multisampled, sampled class); the validator reports the call.
+func (l *Lowerer) imageTypeOf(image ir.ExpressionHandle) ir.ImageType {
+	img, _ := l.resolveExprTypeInner(image).(ir.ImageType)
+	return img
 }
 
-// isTextureDepth checks if a texture expression refers to a depth image type.
-func (l *Lowerer) isTextureDepth(expr parser.Expr) bool {
-	img, ok := l.getTextureImageType(expr)
-	return ok && img.Class == ir.ImageClassDepth
-}
-
-// isTextureMultisampled checks if a texture expression refers to a multisampled image type.
-func (l *Lowerer) isTextureMultisampled(expr parser.Expr) bool {
-	img, ok := l.getTextureImageType(expr)
-	return ok && img.Multisampled
-}
-
-// getTextureImageType retrieves the ImageType of the texture an identifier
-// names: an argument or another local of the function, which shadows a
-// global of the same name, or a global.
-func (l *Lowerer) getTextureImageType(expr parser.Expr) (ir.ImageType, bool) {
-	ident, ok := expr.(*parser.Ident)
-	if !ok {
-		return ir.ImageType{}, false
+// lowerImage lowers the image argument of a texture call and resolves its
+// type.
+func (l *Lowerer) lowerImage(expr parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, ir.ImageType, error) {
+	image, err := l.lowerExpression(expr, target)
+	if err != nil {
+		return 0, ir.ImageType{}, err
 	}
-	if handle, ok := l.locals[ident.Name]; ok {
-		img, ok := l.resolveExprTypeInner(handle).(ir.ImageType)
-		return img, ok
-	}
-	for _, gv := range l.module.GlobalVariables {
-		if gv.Name == ident.Name {
-			if int(gv.Type) < len(l.module.Types) {
-				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
-					return img, true
-				}
-			}
-			return ir.ImageType{}, false
-		}
-	}
-	return ir.ImageType{}, false
+	return image, l.imageTypeOf(image), nil
 }
 
 // lowerTextureLoad converts a texture load call to IR.
@@ -7195,8 +7187,8 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 	var sample *ir.ExpressionHandle
 	var level *ir.ExpressionHandle
 
-	isArrayed := l.isTextureArrayed(args[0])
-	isMultisampled := l.isTextureMultisampled(args[0])
+	isArrayed := l.imageTypeOf(image).Arrayed
+	isMultisampled := l.imageTypeOf(image).Multisampled
 
 	nextArg := 2
 
@@ -7272,7 +7264,7 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 	var arrayIndex *ir.ExpressionHandle
 	nextArg := 2
 
-	if l.isTextureArrayed(args[0]) && nextArg < len(args)-1 {
+	if l.imageTypeOf(image).Arrayed && nextArg < len(args)-1 {
 		ai, aiErr := l.lowerExpression(args[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -7291,7 +7283,7 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 
 	// The value converts to the scalar of the storage format (Rust
 	// expression_with_leaf_scalar for textureStore).
-	if imgType, ok := l.getTextureImageType(args[0]); ok && imgType.Class == ir.ImageClassStorage {
+	if imgType := l.imageTypeOf(image); imgType.Class == ir.ImageClassStorage {
 		if err := l.convertInto(&value, imgType.StorageFormat.Scalar()); err != nil {
 			return 0, err
 		}
@@ -7346,7 +7338,7 @@ func (l *Lowerer) lowerTextureAtomic(name string, args []parser.Expr, target *[]
 	var arrayIndex *ir.ExpressionHandle
 	nextArg := 2
 
-	if l.isTextureArrayed(args[0]) && nextArg < len(args)-1 {
+	if l.imageTypeOf(image).Arrayed && nextArg < len(args)-1 {
 		ai, aiErr := l.lowerExpression(args[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
