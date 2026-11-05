@@ -63,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: nested helpers cost extra allocas since v0.21.1** (P2-DXIL-088). The inliner stored a dead initial value into
   its own return slots, flags and argument spills when it inlined an already-inlined helper, which kept them out of
   mem2reg. gg's coarse shader is back from 139 to 74 allocas at SM 6.2.
+- **nagac: flags after the input file were ignored** (P2-API-004). `nagac t.wgsl -o a.spv` exited 0, wrote no file and
+  dumped the binary SPIR-V to stdout: Go's flag package stops at the first non-flag argument, and nagac never checked
+  what was left. It now rejects any argument after the input file with a usage error that names them and exits with
+  status 2; write `nagac -o a.spv t.wgsl`. nagac also refuses to write binary SPIR-V to a terminal and asks for `-o`
+  (redirected stdout and `/dev/null` still work). The README examples had the flags after the input file.
 
 ## [0.21.2] - 2026-11-03
 
