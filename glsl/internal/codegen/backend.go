@@ -274,6 +274,11 @@ type TranslationInfo struct {
 	// ImmediateItems lists the GL uniforms of the immediate data.
 	// Matches Rust naga ReflectionInfo.immediates_items.
 	ImmediateItems []ImmediateItem
+
+	// ClipDistanceCount is the size of the gl_ClipDistance re-declaration the
+	// vertex entry point writes, 0 otherwise.
+	// Matches Rust naga ReflectionInfo.clip_distance_count.
+	ClipDistanceCount uint32
 }
 
 // Compile generates GLSL source code from an IR module.
@@ -357,6 +362,7 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 		TextureMappings:     textureMappings,
 		Uniforms:            w.uniformInfos,
 		ImmediateItems:      w.immediateItems,
+		ClipDistanceCount:   w.clipDistanceCount,
 	}
 
 	return w.String(), info, nil

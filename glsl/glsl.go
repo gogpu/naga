@@ -234,6 +234,14 @@ type TranslationInfo struct {
 	// declaration order; empty when there is none. Matches Rust naga
 	// ReflectionInfo.immediates_items.
 	ImmediateItems []ImmediateItem
+
+	// ClipDistanceCount is the number of clip distances a vertex entry point
+	// writes: the N of the `out float gl_ClipDistance[N];` re-declaration in
+	// the GLSL, 0 for a fragment or compute entry point and for a vertex one
+	// without @builtin(clip_distances). The runtime enables
+	// GL_CLIP_DISTANCE0 to GL_CLIP_DISTANCE(N-1) for the program (glEnable);
+	// GLSL itself does not. Matches Rust naga ReflectionInfo.clip_distance_count.
+	ClipDistanceCount uint32
 }
 
 // ImmediateItem is one GL uniform that carries part of the immediate data.
@@ -412,5 +420,6 @@ func fromCodegenTranslationInfo(ci codegen.TranslationInfo) TranslationInfo {
 		TextureMappings:     texMappings,
 		Uniforms:            uniforms,
 		ImmediateItems:      immediates,
+		ClipDistanceCount:   ci.ClipDistanceCount,
 	}
 }

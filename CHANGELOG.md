@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GLSL: `TranslationInfo.ClipDistanceCount`** (P2-GLSL-012), Rust naga's `ReflectionInfo.clip_distance_count`. It is
+  the N of the `out float gl_ClipDistance[N];` re-declaration a vertex entry point writes for
+  `@builtin(clip_distances)`, and 0 for every other entry point. A GLES runtime needs it to `glEnable`
+  `GL_CLIP_DISTANCE0` to `GL_CLIP_DISTANCE(N-1)`; the GLSL text does not say how many.
 - **WGSL: 16-bit integers `i16` and `u16` under `enable wgpu_int16`** (P2-WGSL-102), as in Rust naga. The enable and its
   capability check existed, but the type names did not, so every use failed with "unknown type". New IR literal kinds
   `ir.LiteralU16` and `ir.LiteralI16`; the constant evaluator folds 16-bit values; SPIR-V, MSL and HLSL write them
