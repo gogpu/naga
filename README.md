@@ -134,10 +134,10 @@ version (`errors.Is(err, backend.ErrUnsupported)`).
 go install github.com/gogpu/naga/cmd/nagac@latest
 
 # Compile shader
-nagac shader.wgsl -o shader.spv
+nagac -o shader.spv shader.wgsl
 
 # With debug info
-nagac -debug shader.wgsl -o shader.spv
+nagac -debug -o shader.spv shader.wgsl
 
 # Show version
 nagac -version
