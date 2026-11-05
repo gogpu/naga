@@ -37,7 +37,7 @@
 ; Name                                 Type  Format         Dim      ID      HLSL Bind  Count
 ; ------------------------------ ---------- ------- ----------- ------- -------------- ------
 ;
-target datalayout = "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:32-f64:64-n8:16:32:64"
+target datalayout = "e-m:e-p:32:32-i1:32-i8:8-i16:16-i32:32-i64:64-f16:16-f32:32-f64:64-n8:16:32:64"
 target triple = "dxil-ms-dx"
 
 define void @main() {
@@ -55,6 +55,6 @@ define void @main() {
 !M2 = !{i32 1, i32 0}
 !M3 = !{!"cs", i32 6, i32 0}
 !M4 = !{void ()* @main, !"main", null, null, !M5}
-!M5 = !{i32 4, !M6}
+!M5 = !{i32 0, i64 8388608, i32 4, !M6}
 !M6 = !{i32 1, i32 1, i32 1}
 
