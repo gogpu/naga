@@ -1379,7 +1379,10 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 		// Write "uint(index) < length"
 		w.write("uint(")
 		if c.indexExpr != nil {
-			_ = w.writeExpression(*c.indexExpr)
+			if err := w.writeExpression(*c.indexExpr); err != nil {
+				w.Out = savedOut
+				return "", false, err
+			}
 		} else if c.indexConst != nil {
 			w.write("%d", *c.indexConst)
 		}
