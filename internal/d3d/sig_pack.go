@@ -94,6 +94,27 @@ func BuiltinInterpolation(b ir.BuiltinValue, stage ir.ShaderStage, isOutput bool
 	}
 }
 
+// IntrinsicInput reports whether a built-in input of a stage is read through
+// its own dx.op instead of an input signature element: SV_ViewID
+// (dx.op.viewID), a pixel shader's SV_Coverage (dx.op.coverage, NotInSig for
+// pixel input in DxilSigPoint.inl), and the subgroup built-ins
+// (WaveGetLaneCount, WaveGetLaneIndex and what derives from them), which
+// HLSL has only as intrinsics. Such an input gets no signature element, no
+// row and no PSV0 entry in any producer.
+func IntrinsicInput(b ir.BuiltinValue, stage ir.ShaderStage) bool {
+	switch b {
+	case ir.BuiltinViewIndex,
+		ir.BuiltinSubgroupSize,
+		ir.BuiltinSubgroupInvocationID,
+		ir.BuiltinSubgroupID,
+		ir.BuiltinNumSubgroups:
+		return true
+	case ir.BuiltinSampleMask:
+		return stage == ir.StageFragment
+	}
+	return false
+}
+
 // SigElementInfo is the per-member input to PackSignatureElements.
 type SigElementInfo struct {
 	Kind        SigPackKind
@@ -252,6 +273,9 @@ func SigElementInfoForBinding(
 
 	switch b := binding.(type) {
 	case ir.BuiltinBinding:
+		if !isOutput && IntrinsicInput(b.Builtin, stage) {
+			return SigElementInfo{Kind: SigPackOther}
+		}
 		switch b.Builtin {
 		case ir.BuiltinPosition:
 			return SigElementInfo{

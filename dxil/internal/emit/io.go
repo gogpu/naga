@@ -90,7 +90,9 @@ func (e *Emitter) classifyInputArgs(fn *ir.Function, stage ir.ShaderStage, rowMa
 		} else if handled {
 			continue
 		}
-		if e.tryEmitSpecialInput(fn, argIdx, arg, stage) {
+		if handled, err := e.tryEmitSpecialInput(fn, argIdx, arg, stage); err != nil {
+			return nil, err
+		} else if handled {
 			continue
 		}
 		row := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
@@ -99,23 +101,54 @@ func (e *Emitter) classifyInputArgs(fn *ir.Function, stage ir.ShaderStage, rowMa
 	return loadArgs, nil
 }
 
-// tryEmitSpecialInput handles input arguments that require dedicated dx.op
-// intrinsics instead of loadInput (ViewID, SampleMask/Coverage). Returns
-// true if the argument was handled.
-func (e *Emitter) tryEmitSpecialInput(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) bool {
+// tryEmitSpecialInput handles input arguments that are read through a
+// dedicated dx.op instead of loadInput (d3d.IntrinsicInput: ViewID,
+// SampleMask/Coverage, subgroup built-ins). Returns true if the argument was
+// handled.
+func (e *Emitter) tryEmitSpecialInput(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) (bool, error) {
 	bb, ok := (*arg.Binding).(ir.BuiltinBinding)
-	if !ok {
-		return false
+	if !ok || !d3d.IntrinsicInput(bb.Builtin, stage) {
+		return false, nil
 	}
-	if bb.Builtin == ir.BuiltinViewIndex {
-		e.emitViewIDLoad(fn, argIdx)
-		return true
+	if isSubgroupInput(bb.Builtin) && !isArgRead(fn, argIdx) {
+		// An unread wave intrinsic is not emitted (DXC's DCE drops it), so
+		// it does not set the WaveOps flag.
+		return true, nil
 	}
-	if bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
-		e.emitCoverageLoad(fn, argIdx)
+	valueID, err := e.emitIntrinsicInput(bb.Builtin)
+	if err != nil {
+		return true, err
+	}
+	e.exprValues[e.findArgExprHandle(fn, argIdx)] = valueID
+	return true, nil
+}
+
+// isSubgroupInput reports whether b is a subgroup built-in, read through a
+// wave intrinsic.
+func isSubgroupInput(b ir.BuiltinValue) bool {
+	switch b {
+	case ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID, ir.BuiltinSubgroupID, ir.BuiltinNumSubgroups:
 		return true
 	}
 	return false
+}
+
+// emitIntrinsicInput emits the dx.op that reads a built-in input outside the
+// input signature (d3d.IntrinsicInput) and returns its value:
+// dx.op.viewID for SV_ViewID, dx.op.coverage for a pixel shader's
+// SV_Coverage (NotInSig for pixel input, DxilSigPoint.inl:97), and the wave
+// intrinsics for the subgroup built-ins.
+func (e *Emitter) emitIntrinsicInput(b ir.BuiltinValue) (int, error) {
+	i32Ty := e.mod.GetIntType(32)
+	switch b {
+	case ir.BuiltinViewIndex:
+		viewFn := e.getDxOpComputeBuiltinFunc("dx.op.viewID", false)
+		return e.addCallInstr(viewFn, i32Ty, []int{e.getIntConstID(int64(OpViewID))}), nil
+	case ir.BuiltinSampleMask:
+		covFn := e.getDxOpComputeBuiltinFunc("dx.op.coverage", false)
+		return e.addCallInstr(covFn, i32Ty, []int{e.getIntConstID(int64(OpCoverage))}), nil
+	}
+	return e.emitComputeBuiltinMemberLoad(b)
 }
 
 // inputRowKey identifies a specific binding element in the flat input list.
@@ -265,42 +298,7 @@ func isSkippedInputBinding(binding ir.Binding, stage ir.ShaderStage, isComputeLi
 	if !ok {
 		return false
 	}
-	if bb.Builtin == ir.BuiltinViewIndex {
-		return true
-	}
-	if bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
-		return true
-	}
-	if isComputeLike {
-		return true
-	}
-	return false
-}
-
-// emitCoverageLoad emits dx.op.coverage.i32(i32 91) and binds the result
-// to the entry point's @builtin(sample_mask) input argument. DXC reads
-// PS coverage via this dedicated intrinsic; SV_Coverage as PS input is
-// NotInSig per DxilSigPoint.inl:97 'NotInSig _50'.
-func (e *Emitter) emitCoverageLoad(fn *ir.Function, argIdx int) {
-	i32Ty := e.mod.GetIntType(32)
-	covFn := e.getDxOpComputeBuiltinFunc("dx.op.coverage", false)
-	opcodeVal := e.getIntConstID(int64(OpCoverage))
-	valueID := e.addCallInstr(covFn, i32Ty, []int{opcodeVal})
-	exprHandle := e.findArgExprHandle(fn, argIdx)
-	e.exprValues[exprHandle] = valueID
-}
-
-// emitViewIDLoad emits dx.op.viewID.i32(i32 138) and binds the result to
-// the entry point's view_index argument. Mirrors DXC's lowering of
-// SV_ViewID — the value is read via the dedicated intrinsic instead of
-// participating in the input signature.
-func (e *Emitter) emitViewIDLoad(fn *ir.Function, argIdx int) {
-	i32Ty := e.mod.GetIntType(32)
-	viewFn := e.getDxOpComputeBuiltinFunc("dx.op.viewID", false)
-	opcodeVal := e.getIntConstID(int64(OpViewID))
-	valueID := e.addCallInstr(viewFn, i32Ty, []int{opcodeVal})
-	exprHandle := e.findArgExprHandle(fn, argIdx)
-	e.exprValues[exprHandle] = valueID
+	return isComputeLike || d3d.IntrinsicInput(bb.Builtin, stage)
 }
 
 // emitSingleInputLoad emits dx.op.loadInput calls for a single argument.
@@ -695,6 +693,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 	// Also identify which sorted members will produce loadInput calls and
 	// their ISG1 row assignments.
 	order := d3d.SortedMemberIndices(st.Members)
+	usedMembers := usedStructMembers(fn, argExprHandle)
 	type loadMember struct {
 		memberIdx int
 		inputID   int // signature element index (sigId) for loadInput
@@ -722,6 +721,20 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 			memberValues[memberIdx] = &memberInfo{firstID: valueID, comps: []int{valueID}}
 			continue
 		}
+		// The same for a graphics input read through its own dx.op
+		// (d3d.IntrinsicInput): it has no signature element. An unread
+		// subgroup member emits nothing.
+		if bb, ok := (*member.Binding).(ir.BuiltinBinding); ok && d3d.IntrinsicInput(bb.Builtin, stage) {
+			if isSubgroupInput(bb.Builtin) && usedMembers != nil && !usedMembers[memberIdx] {
+				continue
+			}
+			valueID, err := e.emitIntrinsicInput(bb.Builtin)
+			if err != nil {
+				return fmt.Errorf("struct member %q: %w", member.Name, err)
+			}
+			memberValues[memberIdx] = &memberInfo{firstID: valueID, comps: []int{valueID}}
+			continue
+		}
 
 		// Look up the signature element index (sigId) from the precomputed
 		// map if available. The map accounts for cross-argument sorting
@@ -743,7 +756,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 	// by checking each member individually. The ISG1 signature element is
 	// retained (for pipeline compatibility) but the bitcode body omits the
 	// call. loadInput is readnone so elision is observably correct.
-	usedMembers := usedStructMembers(fn, argExprHandle)
+	// usedMembers is computed before phase 1.
 	for i := len(loadMembers) - 1; i >= 0; i-- {
 		lm := loadMembers[i]
 		member := &st.Members[lm.memberIdx]
@@ -1102,9 +1115,8 @@ func (e *Emitter) emitComputeBuiltinMemberLoad(builtin ir.BuiltinValue) (int, er
 
 	switch builtin {
 	case ir.BuiltinSubgroupInvocationID:
-		fn := e.getDxOpComputeBuiltinFunc("dx.op.waveGetLaneIndex", false)
-		op := e.getIntConstID(int64(OpWaveGetLaneIndex))
-		return e.addCallInstr(fn, i32Ty, []int{op}), nil
+		// WaveGetLaneIndex has no overload: the symbol has no type suffix.
+		return e.emitWaveGetLaneIndex(), nil
 
 	case ir.BuiltinSubgroupSize:
 		// DxilOperations.cpp:1015 — WaveGetLaneCount has overload count 0
