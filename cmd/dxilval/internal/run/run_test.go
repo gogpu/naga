@@ -181,3 +181,111 @@ func TestMainSingleMissingFile(t *testing.T) {
 		t.Errorf("stderr missing path: %q", stderr.String())
 	}
 }
+
+// partlyCompilableWGSL has one entry point dxil.Compile takes and one it
+// refuses (barycentric has no DXIL lowering yet).
+const partlyCompilableWGSL = `
+@fragment
+fn good() -> @location(0) vec4<f32> {
+    return vec4(1.0);
+}
+
+@fragment
+fn bad(@builtin(barycentric) bary: vec3<f32>) -> @location(0) vec4<f32> {
+    return vec4(bary, 1.0);
+}
+`
+
+func writePartlyCompilable(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "partly.wgsl")
+	if err := os.WriteFile(path, []byte(partlyCompilableWGSL), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestCompileWGSLKeepsFailures verifies that an entry point that does not
+// compile comes back with its error instead of being dropped.
+func TestCompileWGSLKeepsFailures(t *testing.T) {
+	got, err := compileWGSL(writePartlyCompilable(t), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.blobs) != 1 || got.names[0] != "good" {
+		t.Errorf("compiled entry points: %v, want [good]", got.names)
+	}
+	if len(got.failures) != 1 || got.failures[0].name != "bad" ||
+		!strings.Contains(got.failures[0].err.Error(), "barycentric") {
+		t.Fatalf("failures: %+v, want bad with its barycentric error", got.failures)
+	}
+
+	one, err := compileWGSL(writePartlyCompilable(t), "bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.blobs) != 0 || len(one.failures) != 1 {
+		t.Errorf("--entry bad: %d blobs, %d failures, want 0 and 1", len(one.blobs), len(one.failures))
+	}
+	if _, err := compileWGSL(writePartlyCompilable(t), "missing"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Errorf("--entry missing: err %v, want not found", err)
+	}
+}
+
+// TestMainWGSLReportsCompileError verifies that --wgsl prints the compile
+// error of an entry point it cannot compile and exits non-zero.
+func TestMainWGSLReportsCompileError(t *testing.T) {
+	path := writePartlyCompilable(t)
+	for _, args := range [][]string{
+		{"--wgsl", path},
+		{"--wgsl", path, "--entry", "bad"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Main(args, &stdout, &stderr)
+		if code != ExitFail {
+			t.Errorf("args=%v: exit code %d, want %d", args, code, ExitFail)
+		}
+		if !strings.Contains(stdout.String(), "FS/bad: COMPILE_ERROR") ||
+			!strings.Contains(stdout.String(), "barycentric") {
+			t.Errorf("args=%v: stdout misses the compile error:\n%s", args, stdout.String())
+		}
+	}
+}
+
+// TestMainDumpReportsCompileError verifies that --dump writes the entry
+// points that compiled, prints the error of the one that did not, and exits
+// non-zero.
+func TestMainDumpReportsCompileError(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "out")
+	var stdout, stderr bytes.Buffer
+	code := Main([]string{"--wgsl", writePartlyCompilable(t), "--dump", prefix}, &stdout, &stderr)
+	if code != ExitFail {
+		t.Errorf("exit code %d, want %d", code, ExitFail)
+	}
+	if !strings.Contains(stderr.String(), "FS/bad: COMPILE_ERROR") {
+		t.Errorf("stderr misses the compile error:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(prefix + "_FS_good.dxil"); err != nil {
+		t.Errorf("the compiled entry point was not written: %v", err)
+	}
+}
+
+// TestCorpusExitCode verifies that a corpus with an entry point that did not
+// compile does not exit OK.
+func TestCorpusExitCode(t *testing.T) {
+	cases := []struct {
+		counts map[string]int
+		want   int
+	}{
+		{map[string]int{"VALID": 3}, ExitOK},
+		{map[string]int{"VALID": 3, outcomeCompileFail: 1}, ExitFail},
+		{map[string]int{"INVALID": 1, outcomeCompileFail: 1}, ExitValidation},
+		{map[string]int{"VALIDATE_ERROR": 1}, ExitValidation},
+	}
+	for _, c := range cases {
+		if got := corpusExitCode(c.counts); got != c.want {
+			t.Errorf("corpusExitCode(%v) = %d, want %d", c.counts, got, c.want)
+		}
+	}
+}

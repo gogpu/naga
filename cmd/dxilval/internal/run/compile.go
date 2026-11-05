@@ -3,6 +3,7 @@ package run
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/gogpu/naga/backend"
@@ -11,9 +12,27 @@ import (
 	"github.com/gogpu/naga/wgsl"
 )
 
+// epFailure is an entry point dxil.Compile refused.
+type epFailure struct {
+	name  string
+	stage ir.ShaderStage
+	err   error
+}
+
+// wgslBlobs is what compileWGSL produced for one .wgsl file: the blobs of the
+// entry points that compiled (parallel slices) and the entry points that did
+// not, with their errors.
+type wgslBlobs struct {
+	blobs    [][]byte
+	names    []string
+	stages   []ir.ShaderStage
+	failures []epFailure
+}
+
 // compileWGSL parses a .wgsl file and emits one DXIL blob per entry point.
-// Returns parallel slices of (blob, entry-point name, stage). When entry is
-// non-empty only that single entry point is compiled.
+// An entry point that fails to compile is returned in failures with its
+// error, never dropped. When entry is non-empty only that single entry point
+// is compiled.
 //
 // When a sibling .toml file declares `[[hlsl.binding_map]]` entries they
 // are parsed and passed to dxil.Compile via dxil.Options.BindingMap so
@@ -22,17 +41,15 @@ import (
 // (binding-arrays.wgsl puts every resource in its own space via the map)
 // and for unbounded binding arrays where the TOML carries the concrete
 // array size the runtime will use (binding_array_size override).
-func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages []ir.ShaderStage, err error) {
+func compileWGSL(srcPath, entry string) (wgslBlobs, error) {
+	var out wgslBlobs
 	src, err := os.ReadFile(srcPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return out, err
 	}
 	module, _, err := wgsl.Parse(string(src), wgsl.ParseOptions{})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parse: %w", err)
-	}
-	if len(module.EntryPoints) == 0 {
-		return nil, nil, nil, nil
+		return out, fmt.Errorf("parse: %w", err)
 	}
 
 	opts := dxil.DefaultOptions()
@@ -43,11 +60,13 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 		opts.BindingMap = bm
 	}
 
+	found := false
 	for j := range module.EntryPoints {
 		ep := module.EntryPoints[j]
 		if entry != "" && ep.Name != entry {
 			continue
 		}
+		found = true
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 		bytes, _, cerr := dxil.Compile(module, opts)
 		// An entry point that needs a newer shader model is validated at it,
@@ -59,18 +78,26 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 			bytes, _, cerr = dxil.Compile(module, epOpts)
 		}
 		if cerr != nil {
-			// Skip individual EP failures; corpus mode tallies these
-			// separately and single mode reports the first error.
+			out.failures = append(out.failures, epFailure{name: ep.Name, stage: ep.Stage, err: cerr})
 			continue
 		}
-		blobs = append(blobs, bytes)
-		names = append(names, ep.Name)
-		stages = append(stages, ep.Stage)
+		out.blobs = append(out.blobs, bytes)
+		out.names = append(out.names, ep.Name)
+		out.stages = append(out.stages, ep.Stage)
 	}
-	if entry != "" && len(blobs) == 0 {
-		return nil, nil, nil, fmt.Errorf("entry point %q not found or failed to compile", entry)
+	if entry != "" && !found {
+		return out, fmt.Errorf("entry point %q not found", entry)
 	}
-	return blobs, names, stages, nil
+	return out, nil
+}
+
+// reportCompileFailures prints one line per entry point that did not
+// compile and reports whether there was any.
+func reportCompileFailures(w io.Writer, failures []epFailure) bool {
+	for _, f := range failures {
+		fmt.Fprintf(w, "%s/%s: COMPILE_ERROR %v\n", stageString(f.stage), f.name, f.err)
+	}
+	return len(failures) > 0
 }
 
 func stageString(s ir.ShaderStage) string {

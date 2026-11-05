@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`dxilval --wgsl` dropped the entry points it could not compile without a word** (P1-TEST-007). It validated the
+  rest and could exit 0, and `--corpus` counted a shader whose entry points all failed as having none. Each such entry
+  point is now printed with its compile error (`CS/compute1: COMPILE_ERROR …`), `--wgsl` and `--dump` exit 1 when one
+  did not compile, and `--corpus` counts it as `COMPILE_FAIL` and exits 1 when nothing was rejected by the
+  validator.
 - **HLSL and GLSL: `atomicStore` and `atomicLoad` were plain stores and reads** (BUG-ATOMIC-POLYFILL-001). Neither
   language has an atomic load or store, and we wrote `workgroup_x = 1u;`, `buf.Store(0, asuint(1u))` and
   `uint v = workgroup_x;`, which race with the other invocations' atomics: a silent data race on wgpu's default DX12
