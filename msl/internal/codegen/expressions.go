@@ -171,7 +171,7 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 
 	case ir.ExprOverride:
 		// Rust Error::Override: naga.ProcessOverrides replaces them first.
-		return fmt.Errorf("msl: %w", ir.ErrUnresolvedOverride)
+		return ir.ErrUnresolvedOverride
 
 	case ir.ExprZeroValue:
 		return w.writeZeroValue(k.Type)
@@ -1422,10 +1422,10 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool,
 func (w *Writer) writeRuntimeArrayMaxIndex(base ir.ExpressionHandle) error {
 	globalIdx, globalType, found := w.resolveGlobalVariable(base)
 	if !found {
-		return fmt.Errorf("msl: runtime-sized array access does not originate from a global variable")
+		return fmt.Errorf("runtime-sized array access does not originate from a global variable")
 	}
 	if int(globalType) >= len(w.module.Types) {
-		return fmt.Errorf("msl: global %d has an invalid type handle %d", globalIdx, globalType)
+		return fmt.Errorf("global %d has an invalid type handle %d", globalIdx, globalType)
 	}
 
 	var offset uint32
@@ -1433,7 +1433,7 @@ func (w *Writer) writeRuntimeArrayMaxIndex(base ir.ExpressionHandle) error {
 	switch gt := w.module.Types[globalType].Inner.(type) {
 	case ir.StructType:
 		if len(gt.Members) == 0 {
-			return fmt.Errorf("msl: global %d: struct has no members", globalIdx)
+			return fmt.Errorf("global %d: struct has no members", globalIdx)
 		}
 		last := gt.Members[len(gt.Members)-1]
 		offset = last.Offset
@@ -1444,17 +1444,17 @@ func (w *Writer) writeRuntimeArrayMaxIndex(base ir.ExpressionHandle) error {
 		// Rust indexes per-element sizes (_buffer_sizes.sizeN[i]) and passes the
 		// elements as device pointers; this backend passes neither, so there is
 		// no size to bound the array with (P1-MSL-101).
-		return fmt.Errorf("msl: global %d: bounds check of a runtime-sized array inside binding_array is not supported", globalIdx)
+		return fmt.Errorf("global %d: bounds check of a runtime-sized array inside binding_array is not supported", globalIdx)
 	default:
-		return fmt.Errorf("msl: global %d: expected a type with a runtime-sized array, got %T", globalIdx, gt)
+		return fmt.Errorf("global %d: expected a type with a runtime-sized array, got %T", globalIdx, gt)
 	}
 
 	if int(arrayTypeHandle) >= len(w.module.Types) {
-		return fmt.Errorf("msl: global %d: invalid array type handle %d", globalIdx, arrayTypeHandle)
+		return fmt.Errorf("global %d: invalid array type handle %d", globalIdx, arrayTypeHandle)
 	}
 	at, ok := w.module.Types[arrayTypeHandle].Inner.(ir.ArrayType)
 	if !ok || at.Stride == 0 {
-		return fmt.Errorf("msl: global %d: expected a runtime-sized array, got %T", globalIdx, w.module.Types[arrayTypeHandle].Inner)
+		return fmt.Errorf("global %d: expected a runtime-sized array, got %T", globalIdx, w.module.Types[arrayTypeHandle].Inner)
 	}
 
 	w.write("(_buffer_sizes.size%d - %d - %d) / %d",

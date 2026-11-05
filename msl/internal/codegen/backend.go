@@ -179,7 +179,7 @@ type Options struct {
 	LangVersion Version
 
 	// PerEntryPointMap maps entry point names to their resource bindings.
-	// If nil, bindings are auto-generated.
+	// If nil, every slot is numbered automatically (autoEntryPointResources).
 	PerEntryPointMap map[string]EntryPointResources
 
 	// InlineSamplers defines constexpr samplers to be inlined into the code.

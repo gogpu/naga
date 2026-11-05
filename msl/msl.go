@@ -164,9 +164,13 @@ type Options struct {
 	LangVersion Version
 
 	// PerEntryPointMap maps entry point names to their resource bindings.
-	// If nil, bindings are auto-generated: the module's resource globals,
-	// sorted by (group, binding), get consecutive buffer, texture and sampler
-	// slots. These slots depend on which globals the module has, so
+	// If nil, every slot is numbered automatically, as Rust wgpu-hal's Metal
+	// device numbers a pipeline layout: the immediates buffer first (buffer
+	// 0, when the module has immediate data or ClampFragDepth is set), then
+	// the module's resource globals sorted by (group, binding), each taking
+	// the next buffer, texture or sampler slot of its kind (an external
+	// texture three textures and a buffer), then the sizes buffer after the
+	// last buffer. These slots depend on which globals the module has, so
 	// naga.ProcessOverrides with an EntryPoint, which removes unused globals,
 	// can move them. Pass a map for stable slots (Rust naga requires one).
 	// A non-nil map, empty too, must give every resource an entry point uses
