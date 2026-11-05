@@ -21,13 +21,22 @@ import (
 //   - Otherwise treats `out` as a prefix and writes one file per entry
 //     point as `<prefix>_<stage>_<name>.dxil`.
 func runDump(path, entry, out string, stdout, stderr io.Writer) int {
-	blobs, names, stages, err := compileWGSL(path, entry)
+	compiled, err := compileWGSL(path, entry)
 	if err != nil {
 		fmt.Fprintf(stderr, "dxilval: compile %s: %v\n", path, err)
 		return ExitFail
 	}
+	// The entry points that compiled are still written; the exit status
+	// says that some did not.
+	done := ExitOK
+	if reportCompileFailures(stderr, compiled.failures) {
+		done = ExitFail
+	}
+	blobs, names, stages := compiled.blobs, compiled.names, compiled.stages
 	if len(blobs) == 0 {
-		fmt.Fprintf(stderr, "dxilval: %s has no compilable entry points\n", path)
+		if done == ExitOK {
+			fmt.Fprintf(stderr, "dxilval: %s has no entry points\n", path)
+		}
 		return ExitFail
 	}
 
@@ -39,7 +48,7 @@ func runDump(path, entry, out string, stdout, stderr io.Writer) int {
 			return ExitFail
 		}
 		fmt.Fprintf(stdout, "%s: %d bytes (%s/%s)\n", out, len(blobs[0]), stageString(stages[0]), names[0])
-		return ExitOK
+		return done
 	}
 
 	// Multi-entry-point: treat `out` as a prefix, strip a trailing
@@ -56,7 +65,7 @@ func runDump(path, entry, out string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "%s: %d bytes\n", p, len(blob))
 	}
-	return ExitOK
+	return done
 }
 
 func writeBlob(path string, data []byte) error {

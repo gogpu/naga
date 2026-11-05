@@ -13,7 +13,10 @@ import (
 )
 
 // Outcome kind constants for corpus validation results.
-const outcomeSkip = "SKIP"
+const (
+	outcomeSkip        = "SKIP"
+	outcomeCompileFail = "COMPILE_FAIL"
+)
 
 // outcome categorizes a single entry point's fate.
 type outcome struct {
@@ -28,10 +31,8 @@ type outcome struct {
 // alongside their names and stages, plus any compile-time error.
 type compiled struct {
 	shader string
-	blobs  [][]byte
-	names  []string
-	stages []ir.ShaderStage
-	err    error
+	wgslBlobs
+	err error
 	// skipReason is set when the shader should be reported as SKIP rather
 	// than compiled/validated (e.g. targets field excludes HLSL/DXIL).
 	skipReason string
@@ -56,14 +57,17 @@ func runCorpus(dir, save string, quiet bool, stdout, stderr io.Writer) int {
 		toValidate []compiled
 	)
 	for _, c := range precompiled {
+		for _, f := range c.failures {
+			outcomes = append(outcomes, outcome{shader: c.shader, ep: f.name, stage: f.stage, kind: outcomeCompileFail, detail: f.err.Error()})
+		}
 		switch {
 		case c.skipReason != "":
 			outcomes = append(outcomes, outcome{shader: c.shader, kind: outcomeSkip, detail: c.skipReason})
 		case c.err != nil:
-			outcomes = append(outcomes, outcome{shader: c.shader, kind: "COMPILE_FAIL", detail: c.err.Error()})
-		case len(c.blobs) == 0:
+			outcomes = append(outcomes, outcome{shader: c.shader, kind: outcomeCompileFail, detail: c.err.Error()})
+		case len(c.blobs) == 0 && len(c.failures) == 0:
 			outcomes = append(outcomes, outcome{shader: c.shader, kind: outcomeSkip, detail: "no entry points"})
-		default:
+		case len(c.blobs) > 0:
 			toValidate = append(toValidate, c)
 		}
 	}
@@ -86,9 +90,17 @@ func runCorpus(dir, save string, quiet bool, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "saved to %s\n", save)
 	}
 
-	counts := tally(outcomes)
-	if counts["INVALID"] > 0 || counts["VALIDATE_ERROR"] > 0 {
+	return corpusExitCode(tally(outcomes))
+}
+
+// corpusExitCode is ExitValidation when the validator rejected an entry
+// point, ExitFail when one did not compile, ExitOK otherwise.
+func corpusExitCode(counts map[string]int) int {
+	switch {
+	case counts["INVALID"] > 0 || counts["VALIDATE_ERROR"] > 0:
 		return ExitValidation
+	case counts[outcomeCompileFail] > 0:
+		return ExitFail
 	}
 	return ExitOK
 }
@@ -126,14 +138,8 @@ func precompileAll(shaderFiles []string) []compiled {
 			})
 			continue
 		}
-		blobs, names, stages, cerr := compileWGSL(sf, "")
-		out = append(out, compiled{
-			shader: filepath.Base(sf),
-			blobs:  blobs,
-			names:  names,
-			stages: stages,
-			err:    cerr,
-		})
+		blobs, cerr := compileWGSL(sf, "")
+		out = append(out, compiled{shader: filepath.Base(sf), wgslBlobs: blobs, err: cerr})
 	}
 	return out
 }
@@ -204,7 +210,7 @@ func logPreCompile(stderr io.Writer, outcomes []outcome, toValidate []compiled) 
 	skip := 0
 	for _, o := range outcomes {
 		switch o.kind {
-		case "COMPILE_FAIL":
+		case outcomeCompileFail:
 			compileFail++
 		case outcomeSkip:
 			skip++
@@ -279,7 +285,7 @@ func renderReport(outcomes []outcome, quiet bool) string {
 	fmt.Fprintf(&b, "Total entry points : %d\n", len(outcomes))
 	fmt.Fprintf(&b, "  VALID           : %d\n", counts["VALID"])
 	fmt.Fprintf(&b, "  INVALID         : %d\n", counts["INVALID"])
-	fmt.Fprintf(&b, "  COMPILE_FAIL    : %d\n", counts["COMPILE_FAIL"])
+	fmt.Fprintf(&b, "  COMPILE_FAIL    : %d\n", counts[outcomeCompileFail])
 	fmt.Fprintf(&b, "  SKIP            : %d\n", counts[outcomeSkip])
 	fmt.Fprintf(&b, "  VALIDATE_ERROR  : %d\n", counts["VALIDATE_ERROR"])
 

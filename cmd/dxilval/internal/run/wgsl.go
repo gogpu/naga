@@ -8,16 +8,20 @@ import (
 )
 
 // runWGSL compiles a WGSL file through naga, then validates each emitted
-// entry point. Reports per-entry-point results and exits non-zero if any
-// of them returned INVALID.
+// entry point. Reports per-entry-point results, a compile error included,
+// and exits non-zero if any entry point did not compile or returned INVALID.
 func runWGSL(path, entry string, stdout, stderr io.Writer) int {
-	blobs, names, stages, err := compileWGSL(path, entry)
+	compiled, err := compileWGSL(path, entry)
 	if err != nil {
 		fmt.Fprintf(stderr, "dxilval: compile %s: %v\n", path, err)
 		return ExitFail
 	}
+	compileFailed := reportCompileFailures(stdout, compiled.failures)
+	blobs, names, stages := compiled.blobs, compiled.names, compiled.stages
 	if len(blobs) == 0 {
-		fmt.Fprintf(stderr, "dxilval: %s has no compilable entry points\n", path)
+		if !compileFailed {
+			fmt.Fprintf(stderr, "dxilval: %s has no entry points\n", path)
+		}
 		return ExitFail
 	}
 
@@ -43,6 +47,9 @@ func runWGSL(path, entry string, stdout, stderr io.Writer) int {
 	}
 
 	exitCode := ExitOK
+	if compileFailed {
+		exitCode = ExitFail
+	}
 	for _, r := range results {
 		switch {
 		case r.valErr != nil:
