@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: shader model 6.6 and later created resource handles with `dx.op.createHandle`** (P1-DXIL-090). The
+  validator rejects it from 6.6 ("opcode 'CreateHandle' should only be used in 'Shader model 6.5 and below'"), so
+  every pipeline compiled for a device that reports 6.6 or later failed. From 6.6 handles are now created as DXC
+  creates them, with `dx.op.createHandleFromBinding` and `dx.op.annotateHandle` and resource properties built as
+  DXC builds them; a UAV that takes 64-bit atomics is marked with `Atomic64Use` instead of the
+  `AtomicInt64OnHeapResource` flag, which only applies to unbound handles. Checked with IDxcValidator at 6.0
+  through 6.8 (the validator we run does not know 6.9).
 - **DXIL: the WaveOps shader flag was set for subgroup built-ins and barriers that emit no wave operation**
   (P1-DXIL-086). The flag came from the declared subgroup built-ins and subgroup statements, so an unread
   `@builtin(subgroup_size)` or a `subgroupBarrier()` (a plain `dx.op.barrier`) declared WaveOps, and IDxcValidator

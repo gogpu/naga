@@ -1856,13 +1856,23 @@ func globalVarHasInt64Atomic(irMod *ir.Module, gv *ir.GlobalVariable) bool {
 	return walk(gv.Type)
 }
 
-// moduleUsesInt64HeapAtomic reports whether any reachable non-workgroup
-// global variable holds a 64-bit atomic. Since our emitter uses
-// createHandleFromHeap for all resource handles, any 64-bit atomic on
-// a storage buffer or typed resource counts. DXC sets
-// m_bAtomicInt64OnHeapResource (bit 32) when the resource comes from
-// CreateHandleFromHeap (DxilShaderFlags.cpp ~line 663).
+// moduleUsesInt64HeapAtomic reports whether a 64-bit atomic targets a
+// resource whose handle the validator cannot trace to a declared resource.
+// DXC sets m_bAtomicInt64OnHeapResource (bit 32) for every 64-bit atomic
+// whose handle is not dx.op.annotateHandle of a createHandleFromBinding
+// (DxilShaderFlags.cpp:647-664, GetResourceFromAnnotateHandle): that is
+// every dx.op.createHandle handle below SM 6.6, and none from 6.6, where the
+// resource is marked with Atomic64Use instead.
 func (e *Emitter) moduleUsesInt64HeapAtomic() bool {
+	if e.usesBindingHandles() {
+		return false
+	}
+	return e.anyResourceHasInt64Atomic()
+}
+
+// anyResourceHasInt64Atomic reports whether any reachable non-workgroup
+// global variable holds a 64-bit atomic.
+func (e *Emitter) anyResourceHasInt64Atomic() bool {
 	for i := range e.ir.GlobalVariables {
 		gv := &e.ir.GlobalVariables[i]
 		if gv.Space == ir.SpaceWorkGroup {
@@ -1871,18 +1881,24 @@ func (e *Emitter) moduleUsesInt64HeapAtomic() bool {
 		if e.reachableGlobals != nil && !e.reachableGlobals[ir.GlobalVariableHandle(i)] {
 			continue
 		}
-		// Check storage buffers with atomic<u64/i64> members.
-		if globalVarHasInt64Atomic(e.ir, gv) {
+		if e.resourceHasInt64Atomic(gv) {
 			return true
 		}
-		// Check typed textures with R64 format.
-		if int(gv.Type) < len(e.ir.Types) {
-			if img, ok := e.ir.Types[gv.Type].Inner.(ir.ImageType); ok {
-				if img.Class == ir.ImageClassStorage &&
-					(img.StorageFormat == ir.StorageFormatR64Uint || img.StorageFormat == ir.StorageFormatR64Sint) {
-					return true
-				}
-			}
+	}
+	return false
+}
+
+// resourceHasInt64Atomic reports whether a resource global takes 64-bit
+// atomics: a storage buffer with atomic<u64/i64> members or a storage
+// texture of an R64 format.
+func (e *Emitter) resourceHasInt64Atomic(gv *ir.GlobalVariable) bool {
+	if globalVarHasInt64Atomic(e.ir, gv) {
+		return true
+	}
+	if int(gv.Type) < len(e.ir.Types) {
+		if img, ok := e.ir.Types[gv.Type].Inner.(ir.ImageType); ok {
+			return img.Class == ir.ImageClassStorage &&
+				(img.StorageFormat == ir.StorageFormatR64Uint || img.StorageFormat == ir.StorageFormatR64Sint)
 		}
 	}
 	return false

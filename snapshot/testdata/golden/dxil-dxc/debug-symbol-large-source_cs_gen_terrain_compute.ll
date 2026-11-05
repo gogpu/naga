@@ -1045,12 +1045,12 @@ define void @gen_terrain_compute() {
   %R962 = bitcast float %R210 to i32
   %R963 = bitcast float %R22 to i32
   %R964 = shl i32 %R3, 5
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R1, i32 %R964, i32 undef, i32 %R961, i32 %R962, i32 %R963, i32 undef, i8 7)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R1, i32 %R964, i32 undef, i32 %R961, i32 %R962, i32 %R963, i32 undef, i8 7, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R965 = bitcast float %R958 to i32
   %R966 = bitcast float %R959 to i32
   %R967 = bitcast float %R960 to i32
   %R968 = or i32 %R964, 16
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R1, i32 %R968, i32 undef, i32 %R965, i32 %R966, i32 %R967, i32 undef, i8 7)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R1, i32 %R968, i32 undef, i32 %R965, i32 %R966, i32 %R967, i32 undef, i8 7, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R969 = mul i32 %R3, 6
   %R970 = call %dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32 59, %dx.types.Handle %R2, i32 0)  ; CBufferLoadLegacy(handle,regIndex)
   %R971 = extractvalue %dx.types.CBufRet.i32 %R970, 0
@@ -1070,17 +1070,17 @@ define void @gen_terrain_compute() {
   %R984 = add i32 %R983, 1
   %R985 = add i32 %R983, 2
   %R986 = mul i32 %R3, 24
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R986, i32 undef, i32 %R981, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R986, i32 undef, i32 %R981, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R987 = or i32 %R986, 4
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R987, i32 undef, i32 %R984, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R987, i32 undef, i32 %R984, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R988 = add i32 %R986, 8
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R988, i32 undef, i32 %R985, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R988, i32 undef, i32 %R985, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R989 = add i32 %R986, 12
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R989, i32 undef, i32 %R981, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R989, i32 undef, i32 %R981, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R990 = add i32 %R986, 16
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R990, i32 undef, i32 %R985, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R990, i32 undef, i32 %R985, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   %R991 = add i32 %R986, 20
-  call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R991, i32 undef, i32 %R982, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+  call void @dx.op.rawBufferStore.i32(i32 140, %dx.types.Handle %R0, i32 %R991, i32 undef, i32 %R982, i32 undef, i32 undef, i32 undef, i8 1, i32 4)  ; RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
   br label %R977
 
 ; <label>:991                                     ; preds = %R976, %R782
@@ -1090,23 +1090,23 @@ define void @gen_terrain_compute() {
 ; Function Attrs: nounwind readnone
 declare float @dx.op.binary.f32(i32, float, float) #A0
 
-; Function Attrs: nounwind
-declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A1
+; Function Attrs: nounwind readonly
+declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A1
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A2
+declare %dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32, %dx.types.Handle, i32) #A1
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32, %dx.types.Handle, i32) #A2
-
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
 
 ; Function Attrs: nounwind readnone
 declare float @dx.op.dot2.f32(i32, float, float, float, float) #A0
 
 ; Function Attrs: nounwind readnone
 declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float) #A0
+
+; Function Attrs: nounwind
+declare void @dx.op.rawBufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8, i32) #A2
 
 ; Function Attrs: nounwind readnone
 declare float @dx.op.tertiary.f32(i32, float, float, float) #A0
@@ -1118,8 +1118,8 @@ declare i32 @dx.op.threadId.i32(i32, i32) #A0
 declare float @dx.op.unary.f32(i32, float) #A0
 
 attributes #A0 = { nounwind readnone }
-attributes #A1 = { nounwind }
-attributes #A2 = { nounwind readonly }
+attributes #A1 = { nounwind readonly }
+attributes #A2 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

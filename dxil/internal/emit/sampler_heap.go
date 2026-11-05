@@ -399,7 +399,11 @@ func (e *Emitter) emitSamplerHeapHandle(indexBufHandleID int, heap *resourceInfo
 
 	addedID := e.addBinOpInstr(i32Ty, BinOpAdd, extractID, e.getIntConstID(int64(heap.binding)))
 
-	// createHandle(57, sampler=3, rangeID=heapRangeID, index=addedID, false)
+	// createHandle(57, sampler=3, rangeID=heapRangeID, index=addedID, false),
+	// or the binding pair from SM 6.6.
+	if e.usesBindingHandles() {
+		return e.emitHandleFromBinding(heap, addedID)
+	}
 	handleTy := e.getDxHandleType()
 	createFn := e.getDxOpCreateHandleFunc()
 	createOpcodeVal := e.getIntConstID(int64(OpCreateHandle))

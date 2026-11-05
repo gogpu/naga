@@ -108,7 +108,7 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 	}
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor:   6,
-		ShaderModelMinor:   0,
+		ShaderModelMinor:   uint32(opts.ShaderModel.Minor),
 		BindingMap:         convertBindingMap(opts.BindingMap, opts.BoundsCheckPolicies.Buffer),
 		SamplerHeapTargets: convertSamplerHeapTargets(opts.SamplerHeapTargets),
 		ReachableGlobals:   reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),

@@ -2,7 +2,6 @@
 ; Note: shader requires additional functionality:
 ;       64-Bit integer
 ;       64-bit Atomics on Typed Resources
-;       64-bit Atomics on Heap Resources
 ;
 ;
 ; Input signature:
@@ -48,28 +47,35 @@ target datalayout = "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:3
 target triple = "dxil-ms-dx"
 
 %dx.types.Handle = type { i8* }
+%dx.types.ResBind = type { i32, i32, i32, i8 }
+%dx.types.ResourceProperties = type { i32, i32 }
 %"class.RWTexture2D<unsigned long long>" = type { i64 }
 
 define void @cs_main() {
-  %R0 = call %dx.types.Handle @dx.op.createHandle(i32 57, i8 1, i32 0, i32 0, i1 false)  ; CreateHandle(resourceClass,rangeId,index,nonUniformIndex)
-  %R1 = call i64 @dx.op.atomicBinOp.i64(i32 78, %dx.types.Handle %R0, i32 7, i32 0, i32 0, i32 undef, i64 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R0 = call %dx.types.Handle @dx.op.createHandleFromBinding(i32 217, %dx.types.ResBind { i32 0, i32 0, i32 0, i8 1 }, i32 0, i1 false)  ; CreateHandleFromBinding(bind,index,nonUniformIndex)
+  %R1 = call %dx.types.Handle @dx.op.annotateHandle(i32 216, %dx.types.Handle %R0, %dx.types.ResourceProperties { i32 4098, i32 261 })  ; AnnotateHandle(res,props)  resource: RWTexture2D<U32>
+  %R2 = call i64 @dx.op.atomicBinOp.i64(i32 78, %dx.types.Handle %R1, i32 7, i32 0, i32 0, i32 undef, i64 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
   call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
-  %R2 = call i64 @dx.op.atomicBinOp.i64(i32 78, %dx.types.Handle %R0, i32 6, i32 0, i32 0, i32 undef, i64 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R3 = call %dx.types.Handle @dx.op.annotateHandle(i32 216, %dx.types.Handle %R0, %dx.types.ResourceProperties { i32 4098, i32 261 })  ; AnnotateHandle(res,props)  resource: RWTexture2D<U32>
+  %R4 = call i64 @dx.op.atomicBinOp.i64(i32 78, %dx.types.Handle %R3, i32 6, i32 0, i32 0, i32 undef, i64 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
   ret void
 }
 
+; Function Attrs: nounwind readnone
+declare %dx.types.Handle @dx.op.annotateHandle(i32, %dx.types.Handle, %dx.types.ResourceProperties) #A0
+
 ; Function Attrs: nounwind
-declare i64 @dx.op.atomicBinOp.i64(i32, %dx.types.Handle, i32, i32, i32, i32, i64) #A0
+declare i64 @dx.op.atomicBinOp.i64(i32, %dx.types.Handle, i32, i32, i32, i32, i64) #A1
 
 ; Function Attrs: noduplicate nounwind
-declare void @dx.op.barrier(i32, i32) #A1
+declare void @dx.op.barrier(i32, i32) #A2
 
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
+; Function Attrs: nounwind readnone
+declare %dx.types.Handle @dx.op.createHandleFromBinding(i32, %dx.types.ResBind, i32, i1) #A0
 
-attributes #A0 = { nounwind }
-attributes #A1 = { noduplicate nounwind }
-attributes #A2 = { nounwind readonly }
+attributes #A0 = { nounwind readnone }
+attributes #A1 = { nounwind }
+attributes #A2 = { noduplicate nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}
@@ -85,8 +91,8 @@ attributes #A2 = { nounwind readonly }
 !M4 = !{null, !M6, null, null}
 !M6 = !{!M7}
 !M7 = !{i32 0, %"class.RWTexture2D<unsigned long long>"* undef, !"", i32 0, i32 0, i32 1, i32 2, i1 false, i1 false, i1 false, !M8}
-!M8 = !{i32 0, i32 5}
+!M8 = !{i32 0, i32 5, i32 3, i32 1}
 !M5 = !{void ()* @cs_main, !"cs_main", null, !M4, !M9}
-!M9 = !{i32 0, i64 4430233600, i32 4, !M10}
+!M9 = !{i32 0, i64 135266304, i32 4, !M10}
 !M10 = !{i32 2, i32 1, i32 1}
 
