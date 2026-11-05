@@ -937,7 +937,7 @@ func isFloat16(inner ir.TypeInner) bool {
 // This handles Compose, ZeroValue, Literal, and Constant references.
 func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
 	if int(handle) >= len(w.module.GlobalExpressions) {
-		return "0", nil
+		return "", fmt.Errorf("global expression [%d] out of range (%d expressions)", handle, len(w.module.GlobalExpressions))
 	}
 	expr := &w.module.GlobalExpressions[handle]
 	switch k := expr.Kind.(type) {
@@ -946,10 +946,10 @@ func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
 	case ir.ExprZeroValue:
 		return w.zeroInitValue(k.Type), nil
 	case ir.ExprConstant:
-		if int(k.Constant) < len(w.module.Constants) {
-			return w.writeConstExpr(w.module.Constants[k.Constant].Init)
+		if int(k.Constant) >= len(w.module.Constants) {
+			return "", fmt.Errorf("constant %d out of range (%d constants)", k.Constant, len(w.module.Constants))
 		}
-		return "0", nil
+		return w.writeConstExpr(w.module.Constants[k.Constant].Init)
 	case ir.ExprCompose:
 		typeName := w.getTypeName(k.Type)
 		parts := make([]string, len(k.Components))
@@ -966,24 +966,26 @@ func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		// Determine vector type from splat size + value scalar type
-		prefix := ""
-		if int(k.Value) < len(w.module.GlobalExpressions) {
-			valExpr := &w.module.GlobalExpressions[k.Value]
-			if lit, ok := valExpr.Kind.(ir.Literal); ok {
-				switch lit.Value.(type) {
-				case ir.LiteralI32:
-					prefix = "i"
-				case ir.LiteralU32:
-					prefix = "u"
-				case ir.LiteralBool:
-					prefix = "b"
-				}
-			}
+		// The vector type is the value's scalar type, from the global
+		// expression types, whatever expression the value is (Rust naga's
+		// write_possibly_const_expression).
+		global, err := w.typifiers.Global()
+		if err != nil {
+			return "", err
 		}
-		return fmt.Sprintf("%svec%d(%s)", prefix, k.Size, value), nil
+		if int(k.Value) >= global.Len() {
+			return "", fmt.Errorf("splat value [%d] has no type", k.Value)
+		}
+		scalar, ok := global.Inner(w.module, k.Value).(ir.ScalarType)
+		if !ok {
+			return "", fmt.Errorf("splat value [%d] must be a scalar, got %T", k.Value, global.Inner(w.module, k.Value))
+		}
+		return fmt.Sprintf("%s(%s)", w.typeInnerToGLSL(ir.VectorType{Size: k.Size, Scalar: scalar}), value), nil
 	default:
-		return "0", nil
+		// Only literals, constants, zero values, composes and splats are
+		// constant expressions once naga.ProcessOverrides has run; Rust
+		// naga reports anything else as Error::Override.
+		return "", ir.ErrUnresolvedOverride
 	}
 }
 

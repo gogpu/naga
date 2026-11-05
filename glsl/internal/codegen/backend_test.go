@@ -1400,8 +1400,7 @@ func TestWriteConstExpr_Splat(t *testing.T) {
 			{Name: "c", Type: 1, Init: ir.ExpressionHandle(1)},
 		},
 	}
-	w := newWriter(module, &Options{LangVersion: Version330})
-	got, err := w.writeConstExpr(ir.ExpressionHandle(1))
+	got, err := constWriter(t, module).writeConstExpr(ir.ExpressionHandle(1))
 	if err != nil {
 		t.Fatal(err)
 	}
