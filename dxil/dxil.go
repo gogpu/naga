@@ -457,6 +457,9 @@ func shaderModelTooLow(feature string, minor uint8, requested backend.ShaderMode
 // flow/return-in-switch-in-loop-rt, calls/helper-chain-rt), and read
 // correctly with every helper inlined (wgpu's A/B run, 2026-10-31).
 func prepareModule(irModule *ir.Module) (*ir.Module, error) {
+	if err := checkInlinedSize(irModule); err != nil {
+		return nil, err
+	}
 	irModule = irModule.Clone()
 	if err := irutil.InlineUserFunctions(irModule, nil); err != nil {
 		return nil, fmt.Errorf("dxil: inline user functions: %w", err)
