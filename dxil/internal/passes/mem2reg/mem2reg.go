@@ -116,10 +116,12 @@ func Run(mod *ir.Module, fn *ir.Function) error {
 	// (variables stored inside loop bodies keep their alloca lowering)
 	// because the back-edge value is a forward reference at emit time
 	// and we lack the deferred-emit infrastructure to fix-up phi
-	// operands after walking the body. Bool variables become `phi i1`,
-	// as in DXC's output.
+	// operands after walking the body. Bool variables are also
+	// disqualified: WARP runs a `phi i1` chain wrong (see
+	// selectStructuredCandidates).
 	//
-	// Loop-header phi tracked under BUG-DXIL-041.
+	// Loop-header phi tracked under BUG-DXIL-041, i32-widened bool phis
+	// under P2-DXIL-107.
 	uses2 := classifyLocals(mod, fn)
 	if !anyPromotable(uses2) {
 		return nil

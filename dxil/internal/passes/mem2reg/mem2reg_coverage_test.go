@@ -552,11 +552,12 @@ func TestPromoteBlocksRecursesIntoNestedControlFlow(t *testing.T) {
 	}
 }
 
-// TestBoolLocalPromotedToPhi verifies that a bool local stored in both arms
-// of an if and loaded at the merge becomes a phi, as DXC makes it `phi i1`
-// (its golden for atomics.wgsl has one). A short-circuit `||` or `&&` lowers
-// to exactly this shape.
-func TestBoolLocalPromotedToPhi(t *testing.T) {
+// TestIsBoolLocalDisqualifiesPhiCandidate verifies that bool-typed locals
+// are excluded from Phase B (WARP runs a phi i1 chain wrong; see
+// selectStructuredCandidates).
+//
+// Covers: isBoolLocal, selectStructuredCandidates bool exclusion.
+func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
 	mod := &ir.Module{}
 	boolTH := scalarTypeHandle(mod, ir.ScalarBool, 1)
 
@@ -582,8 +583,9 @@ func TestBoolLocalPromotedToPhi(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	if _, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias); !isAlias {
-		t.Fatalf("load of the bool local = %T, want ssa.Alias of the merge value", fn.Expressions[loadH].Kind)
+	// Bool variables should remain as alloca (ExprLoad, not ssa.Alias).
+	if _, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias); isAlias {
+		t.Fatal("bool local should NOT be promoted to phi (DXC rejects i1 phi)")
 	}
 }
 
@@ -757,6 +759,34 @@ func TestIsPromotableLocalInvalidTypeHandle(t *testing.T) {
 	lv := &ir.LocalVariable{Name: "x", Type: 999}
 	if isPromotableLocal(mod, lv) {
 		t.Error("out-of-bounds type handle should return false")
+	}
+}
+
+// TestIsBoolLocalInvalidTypeHandle verifies that an out-of-bounds type
+// handle returns false from isBoolLocal.
+//
+// Covers: isBoolLocal out-of-bounds guard.
+func TestIsBoolLocalInvalidTypeHandle(t *testing.T) {
+	mod := &ir.Module{}
+	lv := &ir.LocalVariable{Name: "x", Type: 999}
+	if isBoolLocal(mod, lv) {
+		t.Error("out-of-bounds type handle should return false")
+	}
+}
+
+// TestIsBoolLocalNonScalar verifies that isBoolLocal returns false for
+// non-scalar types.
+//
+// Covers: isBoolLocal non-scalar type path.
+func TestIsBoolLocalNonScalar(t *testing.T) {
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+	lv := &ir.LocalVariable{Name: "v", Type: 0}
+	if isBoolLocal(mod, lv) {
+		t.Error("vector type should return false")
 	}
 }
 
