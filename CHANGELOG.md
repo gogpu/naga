@@ -43,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selector and `break if` counted as live, so a loop that only counts, or a branch that only steers dead code,
   stayed in the shader and cost GPU time. A condition is now live only when its construct holds something live (a
   store to memory, an atomic, a barrier, a discard, a return, a value read later, or a break or continue out of a
-  construct that is itself live), and a loop with nothing live in it is removed, as DXC's LoopDeletion does. Eight
+  construct that is itself live), and a loop with nothing live in it is removed, as DXC's LoopDeletion does. A loop
+  kept because a value read after it depends on it keeps its exit conditions, and the analysis takes time linear in
+  loop nesting (each block is walked once per pass, not twice per enclosing loop). Eight
   corpus shaders whose `main` DXC compiles to `ret void` now match DXC.
 - **DXIL: no basic block without a predecessor** (P2-DXIL-092). When both arms of an `if`/`else` returned (the IR's
   trailing return goes into each arm), the merge block after it stayed in the function holding only a branch to the
