@@ -480,6 +480,59 @@ func (v *validatorImpl) validate(blob []byte) (Result, error) {
 // All COM work for one Run invocation must happen inside ONE
 // syscall.NewCallback execution; nesting goroutines or spawning
 // long-lived ones from a callback context is unsafe.
+//
+// The thread procedure is one callback for the whole process: the runtime
+// has a fixed number of callback slots (2000) and never frees one, so a
+// callback per Run would end the process after that many validations. Each
+// Run registers its job under an id and passes the id as the thread
+// parameter.
+
+// runJob carries one Run's callback and its results across the thread.
+type runJob struct {
+	fn      func(*Validator) error
+	impl    *validatorImpl
+	initErr error
+	fnErr   error
+}
+
+var (
+	runThreadProcOnce sync.Once
+	runThreadProcAddr uintptr
+
+	runJobsMu  sync.Mutex
+	runJobs    = map[uintptr]*runJob{}
+	runJobNext uintptr
+)
+
+func runThreadProc(id uintptr) uintptr {
+	runJobsMu.Lock()
+	job := runJobs[id]
+	runJobsMu.Unlock()
+	if job == nil {
+		return 0
+	}
+	job.impl, job.initErr = newValidatorImpl()
+	if job.initErr != nil {
+		return 0
+	}
+	job.fnErr = job.fn(&Validator{impl: job.impl})
+	job.impl.close()
+	return 0
+}
+
+func registerRunJob(job *runJob) uintptr {
+	runJobsMu.Lock()
+	defer runJobsMu.Unlock()
+	runJobNext++
+	runJobs[runJobNext] = job
+	return runJobNext
+}
+
+func unregisterRunJob(id uintptr) {
+	runJobsMu.Lock()
+	delete(runJobs, id)
+	runJobsMu.Unlock()
+}
 
 func runImpl(fn func(*Validator) error) error {
 	if fn == nil {
@@ -503,27 +556,16 @@ func runImpl(fn func(*Validator) error) error {
 		return fmt.Errorf("FindProc CloseHandle: %w", err)
 	}
 
-	// Outputs from the worker thread, populated inside the callback.
-	var (
-		impl    *validatorImpl
-		initErr error
-		fnErr   error
-	)
+	runThreadProcOnce.Do(func() { runThreadProcAddr = syscall.NewCallback(runThreadProc) })
 
-	threadProc := syscall.NewCallback(func(arg uintptr) uintptr {
-		impl, initErr = newValidatorImpl()
-		if initErr != nil {
-			return 0
-		}
-		v := &Validator{impl: impl}
-		fnErr = fn(v)
-		impl.close()
-		return 0
-	})
+	// The worker thread fills the job's outputs inside the callback.
+	job := &runJob{fn: fn}
+	id := registerRunJob(job)
+	defer unregisterRunJob(id)
 
 	var threadID uint32
 	hThread, _, _ := syscall.SyscallN(createThread.Addr(),
-		0, 0, threadProc, 0, 0, uintptr(unsafe.Pointer(&threadID)))
+		0, 0, runThreadProcAddr, id, 0, uintptr(unsafe.Pointer(&threadID)))
 	if hThread == 0 {
 		return fmt.Errorf("CreateThread returned 0")
 	}
@@ -532,11 +574,11 @@ func runImpl(fn func(*Validator) error) error {
 	// INFINITE = 0xFFFFFFFF
 	_, _, _ = syscall.SyscallN(waitForSingleObject.Addr(), hThread, 0xFFFFFFFF)
 
-	if initErr != nil {
-		return initErr
+	if job.initErr != nil {
+		return job.initErr
 	}
-	if impl == nil {
+	if job.impl == nil {
 		return fmt.Errorf("dxcvalidator: validator initialisation produced nil")
 	}
-	return fnErr
+	return job.fnErr
 }
