@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -210,14 +211,19 @@ func TestNestingLimits(t *testing.T) {
 	}
 }
 
-// TestNestingLimitsHugeInput feeds a million levels of each construct. Before
-// the limits existed this killed the process with Go's fatal, unrecoverable
-// "stack overflow" (500 000 parentheses were enough); now each is one error.
+// TestNestingLimitsHugeInput feeds 50 000 levels of each construct with the
+// goroutine stack capped at 16 MiB. Before the limits existed 11 of the 13
+// nesting cases here killed the process with Go's fatal, unrecoverable
+// "stack overflow" at this size (checked on fe489b4; with the default 1 GB
+// stack 500 000 parentheses were enough); now each is one error. The cap
+// keeps the input small: a million levels took over 10 minutes under CI's
+// -race and coverage.
 func TestNestingLimitsHugeInput(t *testing.T) {
 	if testing.Short() {
-		t.Skip("allocates a few hundred MB of tokens")
+		t.Skip("allocates tens of MB of tokens")
 	}
-	const huge = 1_000_000
+	defer debug.SetMaxStack(debug.SetMaxStack(16 << 20))
+	const huge = 50_000
 	for _, tc := range append(nestingCases(), chainCases()...) {
 		t.Run(tc.name, func(t *testing.T) {
 			errs := parseErrors(t, tc.src(huge))
