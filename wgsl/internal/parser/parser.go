@@ -35,6 +35,23 @@ const (
 	// Rust's Error::ExceededLimitForNestedBraces texts.
 	errBraceNestingLimit   = "brace nesting limit reached"
 	labelBraceNestingLimit = "limit reached at this brace"
+
+	// maxExpressionDepth bounds the height of an expression tree (edges
+	// from the root to the deepest operand). Operator chains (`1 + 1 + …`,
+	// `- - … x`, `a.b.c…`) are parsed in loops, so the recursion limit
+	// does not bound them, yet the lowerer, the validator and every backend
+	// walk the tree recursively: a million-long chain overflowed the MSL
+	// writer's stack. Rust naga has no such limit and crashes too; the value
+	// and the text are Tint's (resolver.cc, Resolver::Expression,
+	// kMaxExpressionDepth = 512). The WGSL spec lets an implementation
+	// refuse a program beyond its limits (§2.4).
+	maxExpressionDepth = 512
+	errExpressionDepth = "reached max expression depth of 512"
+
+	// errStatementChaining is Tint's text for its kMaxStatementDepth (127,
+	// resolver.cc): an `else if` nests the rest of its chain one level
+	// deeper, so a chain counts toward maxBraceNesting like nested braces.
+	errStatementChaining = "statement nesting depth / chaining length exceeds limit of 127"
 )
 
 // Parser parses WGSL tokens into an AST.
@@ -51,6 +68,9 @@ type Parser struct {
 	// counts; braceNesting the open braces of the current function.
 	recursionDepth int
 	braceNesting   int
+	// exprHeight is the height (in nodes) of the expression the last
+	// expression production returned; see maxExpressionDepth.
+	exprHeight int
 }
 
 // Errors returns every error Parse found, in source order.
@@ -1070,6 +1090,11 @@ func (p *Parser) returnStmt() (*ReturnStmt, *ParseError) {
 func (p *Parser) ifStmt() (*IfStmt, *ParseError) {
 	var chain []*IfStmt
 	var elseBlock *BlockStmt
+	// Each `else if` is nested in the one before it once lowered, and every
+	// later pass walks that nesting recursively, so each link counts as one
+	// brace level (Tint counts it the same way; see errStatementChaining).
+	saved := p.braceNesting
+	defer func() { p.braceNesting = saved }()
 	for {
 		start := p.advance() // consume 'if'
 
@@ -1101,6 +1126,11 @@ func (p *Parser) ifStmt() (*IfStmt, *ParseError) {
 			}
 			break
 		}
+		// The next link's body opens two levels above this one's start.
+		if p.braceNesting+2 > maxBraceNesting {
+			return nil, &ParseError{Message: errStatementChaining, Token: p.peek()}
+		}
+		p.braceNesting++
 	}
 
 	// Nest the chain: each `if` is the else of the one before it.
@@ -1565,6 +1595,7 @@ func (p *Parser) templateShift() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	// Only allow left-shift (<<) inside template args, not right-shift (>>)
 	for p.check(TokenLessLess) {
@@ -1573,13 +1604,12 @@ func (p *Parser) templateShift() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1589,19 +1619,19 @@ func (p *Parser) logicalOr() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.match(TokenPipePipe) {
 		right, err := p.logicalAnd()
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    TokenPipePipe,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, TokenPipePipe, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1611,19 +1641,19 @@ func (p *Parser) logicalAnd() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.match(TokenAmpAmp) {
 		right, err := p.bitwiseOr()
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    TokenAmpAmp,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, TokenAmpAmp, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1633,19 +1663,19 @@ func (p *Parser) bitwiseOr() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.match(TokenPipe) {
 		right, err := p.bitwiseXor()
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    TokenPipe,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, TokenPipe, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1655,19 +1685,19 @@ func (p *Parser) bitwiseXor() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.match(TokenCaret) {
 		right, err := p.bitwiseAnd()
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    TokenCaret,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, TokenCaret, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1677,19 +1707,19 @@ func (p *Parser) bitwiseAnd() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.match(TokenAmpersand) {
 		right, err := p.equality()
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    TokenAmpersand,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, TokenAmpersand, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1699,6 +1729,7 @@ func (p *Parser) equality() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.check(TokenEqualEqual) || p.check(TokenBangEqual) {
 		op := p.advance()
@@ -1706,13 +1737,12 @@ func (p *Parser) equality() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1722,6 +1752,7 @@ func (p *Parser) comparison() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.check(TokenLess) || p.check(TokenGreater) ||
 		p.check(TokenLessEqual) || p.check(TokenGreaterEqual) {
@@ -1730,13 +1761,12 @@ func (p *Parser) comparison() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1746,6 +1776,7 @@ func (p *Parser) shift() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.check(TokenLessLess) || p.check(TokenGreaterGreater) {
 		op := p.advance()
@@ -1753,13 +1784,12 @@ func (p *Parser) shift() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1769,6 +1799,7 @@ func (p *Parser) additive() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.check(TokenPlus) || p.check(TokenMinus) {
 		op := p.advance()
@@ -1776,13 +1807,12 @@ func (p *Parser) additive() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1792,6 +1822,7 @@ func (p *Parser) multiplicative() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	h := p.exprHeight
 
 	for p.check(TokenStar) || p.check(TokenSlash) || p.check(TokenPercent) {
 		op := p.advance()
@@ -1799,13 +1830,12 @@ func (p *Parser) multiplicative() (Expr, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{
-			Left:  left,
-			Op:    op.Kind,
-			Right: right,
+		if left, h, err = p.binaryNode(left, h, op.Kind, right); err != nil {
+			return nil, err
 		}
 	}
 
+	p.exprHeight = h
 	return left, nil
 }
 
@@ -1824,6 +1854,13 @@ func (p *Parser) unary() (Expr, *ParseError) {
 	expr, err := p.postfix()
 	if err != nil {
 		return nil, err
+	}
+	if len(ops) > 0 {
+		h := p.exprHeight + len(ops)
+		if err := p.checkExprHeight(h, ops[0]); err != nil {
+			return nil, err
+		}
+		p.exprHeight = h
 	}
 	for i := len(ops) - 1; i >= 0; i-- {
 		op := ops[i]
@@ -1844,22 +1881,29 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 	if err != nil {
 		return nil, err
 	}
+	// h is the height of expr; each postfix operation adds a level over
+	// the higher of expr and its operands.
+	h := p.exprHeight
 
 	for {
+		start := p.peek()
 		if p.match(TokenLeftParen) {
 			// Function call
 			args := make([]Expr, 0, 4)
+			argsHeight := 0
 			for !p.check(TokenRightParen) && !p.isAtEnd() {
 				arg, err := p.expression()
 				if err != nil {
 					return nil, err
 				}
+				argsHeight = max(argsHeight, p.exprHeight)
 				args = append(args, arg)
 				if !p.match(TokenComma) {
 					break
 				}
 			}
 			p.expect(TokenRightParen)
+			h = 1 + max(h, argsHeight)
 
 			if ident, ok := expr.(*Ident); ok {
 				expr = &CallExpr{
@@ -1879,6 +1923,7 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 				return nil, err
 			}
 			p.expect(TokenRightBracket)
+			h = 1 + max(h, p.exprHeight)
 			expr = &IndexExpr{
 				Expr:  expr,
 				Index: index,
@@ -1889,6 +1934,7 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 				return nil, &ParseError{Message: errExpectedMemberName, Token: p.peek()}
 			}
 			member := p.advance()
+			h++
 			expr = &MemberExpr{
 				Expr:   expr,
 				Member: member.Lexeme,
@@ -1896,14 +1942,19 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 		} else {
 			break
 		}
+		if err := p.checkExprHeight(h, start); err != nil {
+			return nil, err
+		}
 	}
 
+	p.exprHeight = h
 	return expr, nil
 }
 
 // primary parses primary expressions.
 func (p *Parser) primary() (Expr, *ParseError) {
 	tok := p.peek()
+	p.exprHeight = 1 // a leaf; the cases below that have operands raise it
 
 	switch tok.Kind {
 	case TokenIntLiteral, TokenFloatLiteral:
@@ -1950,6 +2001,10 @@ func (p *Parser) primary() (Expr, *ParseError) {
 			if err := p.expectErr(TokenRightParen); err != nil {
 				return nil, err
 			}
+			p.exprHeight++ // over its argument
+			if err := p.checkExprHeight(p.exprHeight, tok); err != nil {
+				return nil, err
+			}
 			return &BitcastExpr{
 				Type: targetType,
 				Expr: arg,
@@ -1984,6 +2039,9 @@ func (p *Parser) primary() (Expr, *ParseError) {
 			if err != nil {
 				return nil, err
 			}
+			// The type's template expressions are not operands; postfix
+			// adds the constructor arguments.
+			p.exprHeight = 1
 			return &ConstructExpr{
 				Type: typeExpr,
 				Span: Span{
@@ -2043,6 +2101,25 @@ func (p *Parser) openBrace() *ParseError {
 
 func (p *Parser) closeBrace() {
 	p.braceNesting--
+}
+
+// checkExprHeight fails when an expression of height h (in nodes) is
+// deeper than maxExpressionDepth edges.
+func (p *Parser) checkExprHeight(h int, at Token) *ParseError {
+	if h-1 > maxExpressionDepth {
+		return &ParseError{Message: errExpressionDepth, Token: at}
+	}
+	return nil
+}
+
+// binaryNode builds `left op right`, where leftHeight is left's height and
+// p.exprHeight right's, and returns it with its own height.
+func (p *Parser) binaryNode(left Expr, leftHeight int, op TokenKind, right Expr) (Expr, int, *ParseError) {
+	h := 1 + max(leftHeight, p.exprHeight)
+	if err := p.checkExprHeight(h, p.previous()); err != nil {
+		return nil, 0, err
+	}
+	return &BinaryExpr{Left: left, Op: op, Right: right}, h, nil
 }
 
 // templateArgType parses a type written as a template argument

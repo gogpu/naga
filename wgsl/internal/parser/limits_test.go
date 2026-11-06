@@ -126,6 +126,72 @@ func nestingCases() []nestingCase {
 	}
 }
 
+// chainCases are the constructs the parser reads in a loop, where Rust naga
+// has no limit (its later passes overflow the stack on a long enough chain)
+// and the limits are Tint's: expression depth 512 (resolver.cc
+// kMaxExpressionDepth; Tint's MaxExpressionDepth_Pass/Fail tests use the same
+// left-deep `b + b + …` chain) and statement chaining 127 (kMaxStatementDepth).
+func chainCases() []nestingCase {
+	r := strings.Repeat
+	return []nestingCase{
+		{
+			name:    "binary operator chain",
+			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return a" + r(" + a", n) + "; }" },
+			maxOK:   512,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			name:    "chain in a global initializer",
+			src:     func(n int) string { return "const x = 1" + r(" * 1", n) + ";" },
+			maxOK:   512,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			name:    "unary operator chain",
+			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return " + r("- ", n) + "a; }" },
+			maxOK:   512,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			name:    "logical not chain",
+			src:     func(n int) string { return "fn f() -> bool { let a = true; return " + r("!", n) + "a; }" },
+			maxOK:   512,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			name:    "member access chain",
+			src:     func(n int) string { return "fn f() { let a = v" + r(".x", n) + "; }" },
+			maxOK:   512,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			// The heights of a chain's operands add up: each operand here is a
+			// parenthesized chain of 2, so the tree is three times as high.
+			name:    "chain of parenthesized chains",
+			src:     func(n int) string { return "const x = 1" + r(" + (1 + (1 + 1))", n) + ";" },
+			maxOK:   510,
+			wantMsg: errExpressionDepth,
+		},
+		{
+			// The function body is level 1, the first `if` body level 2 and
+			// the k-th `else if` body level 2+k.
+			name:    "else-if chain",
+			src:     func(n int) string { return "fn f() { if true {} " + r("else if true {} ", n) + "else {} }" },
+			maxOK:   125,
+			wantMsg: errStatementChaining,
+		},
+		{
+			// A chain inside nested blocks shares their budget.
+			name: "else-if chain in nested blocks",
+			src: func(n int) string {
+				return "fn f() { {{{{ if true {} " + r("else if true {} ", n) + "}}}} }"
+			},
+			maxOK:   121,
+			wantMsg: errStatementChaining,
+		},
+	}
+}
+
 // TestNestingLimits checks Rust naga's limits: recursion depth 200
 // (Parser::track_recursion) and brace nesting 127 (WGSL §2.4), at the exact
 // depth where Rust starts to refuse, with Rust's texts.
@@ -152,7 +218,7 @@ func TestNestingLimitsHugeInput(t *testing.T) {
 		t.Skip("allocates a few hundred MB of tokens")
 	}
 	const huge = 1_000_000
-	for _, tc := range nestingCases() {
+	for _, tc := range append(nestingCases(), chainCases()...) {
 		t.Run(tc.name, func(t *testing.T) {
 			errs := parseErrors(t, tc.src(huge))
 			if len(errs) == 0 {
@@ -183,24 +249,30 @@ func checkLimitError(t *testing.T, got ParseError, wantMsg string) {
 		if len(got.Notes) != 1 || got.Notes[0] != "nesting limit is currently set to 127" {
 			t.Errorf("notes = %q, want Rust's", got.Notes)
 		}
+	case errExpressionDepth, errStatementChaining:
+		// Tint's texts, which carry no label or note.
+		if got.Label != "" || len(got.Notes) != 0 {
+			t.Errorf("label %q, notes %q: want none", got.Label, got.Notes)
+		}
 	}
 }
 
-// TestUnboundedChains: Rust reads prefix operators and else-if chains in a
-// loop, so neither counts toward a limit. Rust accepts these and so must we,
-// at any length, without recursing in the parser.
-func TestUnboundedChains(t *testing.T) {
-	const n = 100_000
-	cases := map[string]string{
-		"unary operators": "fn f() -> i32 { let a = 1; return " + strings.Repeat("- ", n) + "a; }",
-		"logical not":     "fn f() -> bool { let a = true; return " + strings.Repeat("!", n) + "a; }",
-		"else-if chain":   "fn f() { if true {} " + strings.Repeat("else if true {} ", n) + "else {} }",
-	}
-	for name, src := range cases {
-		t.Run(name, func(t *testing.T) {
-			if errs := parseErrors(t, src); len(errs) != 0 {
-				t.Fatalf("want accepted, got %v", errs[0])
+// TestChainLimits: Rust reads prefix operators, operator chains and else-if
+// chains in a loop and bounds none of them, so a long chain reaches its
+// recursive later passes and overflows the stack there. We refuse them at
+// Tint's limits instead (WGSL §2.4 lets an implementation refuse a program
+// beyond its limits): the limit is accepted, one past it refused.
+func TestChainLimits(t *testing.T) {
+	for _, tc := range chainCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			if errs := parseErrors(t, tc.src(tc.maxOK)); len(errs) != 0 {
+				t.Fatalf("length %d: want accepted, got %v", tc.maxOK, errs[0])
 			}
+			errs := parseErrors(t, tc.src(tc.maxOK+1))
+			if len(errs) == 0 {
+				t.Fatalf("length %d: want %q, got no error", tc.maxOK+1, tc.wantMsg)
+			}
+			checkLimitError(t, errs[0], tc.wantMsg)
 		})
 	}
 }
