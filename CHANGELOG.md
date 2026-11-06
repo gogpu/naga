@@ -268,8 +268,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   program that compiles untrusted WGSL. The parser now has Rust naga's limits at the same productions: recursion depth
   200 (expressions, statements, template arguments), refused with Rust's `internal WGSL front end error` / note `Parser
   recursion limit exceeded`, and brace nesting 127 (the WGSL spec limit), refused with Rust's `brace nesting limit
-  reached`. Prefix-operator and else-if chains are read in a loop, as Rust reads them. Every release from v0.1.0 to
-  v0.21.2 is affected.
+  reached`. Long chains, which Rust leaves unbounded and which then overflowed the stack after parsing (a million
+  `- ` or `+ 1` in a backend writer, a million `else if` while lowering), are bounded too, beyond Rust and at Tint's
+  limits (WGSL spec §2.4 lets an implementation refuse a program past its limits): an expression tree deeper than 512
+  operators (binary, unary, member, index and call chains, heights of operands added) is refused with `reached max
+  expression depth of 512`, and each `else if` counts as one more level of the 127 statement nesting, refused with
+  `statement nesting depth / chaining length exceeds limit of 127`. The deepest expression in Rust naga's, gg's, g3d's
+  and Tint's 23 000 test shaders is 72 and the longest chain 125 `if`s (Tint's own test), so no real shader comes near
+  either limit. Every release from v0.1.0 to v0.21.2 is affected.
 
 ## [0.21.2] - 2026-11-03
 
