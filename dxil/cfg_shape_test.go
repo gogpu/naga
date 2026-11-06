@@ -15,10 +15,9 @@ import (
 
 // wgpu's indirect-dispatch validation shader: an if/else on an `||` chain
 // whose arms both store. DXC's output for it has no block without a
-// predecessor and no i1 alloca: the short-circuit local of the chain becomes
-// SSA. Ours had an extra block holding only a branch to the merge, with no
-// predecessor, and two `alloca i1` stored in each arm; D3D12 GPU-based
-// validation on WARP then ran the wrong arm.
+// predecessor; ours had an extra block holding only a branch to the merge.
+// Its two short-circuit locals stay `alloca i1`: as `phi i1` (v0.21.3's
+// candidate) WARP ran neither arm's stores.
 const orChainSource = `
 @group(0) @binding(0) var<storage, read_write> dst: array<u32, 3>;
 @group(0) @binding(1) var<uniform> src_index: SrcIndex;
@@ -171,21 +170,21 @@ func TestNoUnreachableBlocks(t *testing.T) {
 	}
 }
 
-// The two short-circuit locals of the `||` chain are bools stored in both
-// arms of an if and loaded at its merge. DXC makes them SSA (its golden for
-// atomics.wgsl has `phi i1`); they must not stay `alloca i1`.
-func TestOrChainShortCircuitLocalsPromoted(t *testing.T) {
+// The short-circuit locals of the `||` chain must not become `phi i1`. WARP,
+// the D3D12 adapter of GPU-less CI runners, runs this shader wrong with the
+// two `phi i1` at its merges (neither arm's stores take effect, gogpu/wgpu's
+// TestDispatchIndirectReadsItsOwnArguments), and right with the allocas, as
+// do Intel and NVIDIA. P2-DXIL-107 widens bool phis to i32 as DXC's frontend
+// does.
+func TestOrChainNoBoolPhi(t *testing.T) {
 	for _, tc := range orChainOptions {
 		t.Run(tc.name, func(t *testing.T) {
 			_, fn := emitMainModuleOpts(t, orChainSource, tc.opts())
 			for _, bb := range fn.BasicBlocks {
 				for _, in := range bb.Instructions {
-					if in.Kind != module.InstrAlloca {
-						continue
-					}
-					if ty := in.ResultType; ty != nil && ty.PointerElem != nil &&
-						ty.PointerElem.Kind == module.TypeInteger && ty.PointerElem.IntBits == 1 {
-						t.Errorf("alloca i1 %%%d: the short-circuit local is not promoted", in.ValueID)
+					if in.Kind == module.InstrPhi && in.ResultType != nil &&
+						in.ResultType.Kind == module.TypeInteger && in.ResultType.IntBits == 1 {
+						t.Errorf("phi i1 %%%d: a bool local was promoted", in.ValueID)
 					}
 				}
 			}

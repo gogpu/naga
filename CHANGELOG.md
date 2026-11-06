@@ -49,14 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corpus shaders whose `main` DXC compiles to `ret void` now match DXC.
 - **DXIL: no basic block without a predecessor** (P2-DXIL-092). When both arms of an `if`/`else` returned (the IR's
   trailing return goes into each arm), the merge block after it stayed in the function holding only a branch to the
-  exit, and nothing branched to it. DXC never emits such a block, and D3D12 GPU-based validation on WARP then ran the
-  wrong arm of wgpu's indirect-dispatch validation shader. Blocks no path from the entry reaches are now dropped
-  before value numbering. 17 corpus entry points had one, 8 of them gg production entry points (fine.wgsl x3,
+  exit, and nothing branched to it. DXC never emits such a block. Blocks no path from the entry reaches are now
+  dropped before value numbering. 17 corpus entry points had one, 8 of them gg production entry points (fine.wgsl x3,
   flatten, draw_leaf, draw_reduce, pathtag_reduce, pathtag_scan); a new gate checks every corpus and gg entry point.
-- **DXIL: bool locals stored across an `if` stayed `alloca i1`** (P2-DXIL-092). The short-circuit locals of an `||`
-  or `&&` chain, and any bool local stored in the arms of an `if` and read after it, kept their stack slot, a shape
-  DXC never emits. They now become `phi i1` at the merge, as in DXC's output; the old exclusion assumed DXC's parser
-  rejects i1 phis, which its own output disproves.
+  D3D12 GPU-based validation on WARP still runs the wrong arm of gogpu/wgpu's indirect-dispatch validation shader
+  (P2-DXIL-092 stays open).
 - **DXIL: `dxil.Validate` at `ValidateFull` failed or crashed at random on Windows** (P1-DXIL-101). The IDxcBlob
   handed to dxil.dll and the slot for its result lived on the goroutine stack, while dxil.dll calls back into Go
   through that blob during validation. When the runtime moved the stack in such a callback (a collection shrinking

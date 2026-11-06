@@ -71,14 +71,20 @@ func newPhiWalker(ctx *promotionContext) *phiWalker {
 }
 
 // selectStructuredCandidates returns variables eligible for Phase B
-// promotion: promotable scalars that have at least one load. Phase A
-// already attempted single-block promotion; remaining promotable vars
-// (those whose stores/loads spanned blocks) become Phase B candidates.
+// promotion: promotable scalars (excluding bool) that have at least
+// one load. Phase A already attempted single-block promotion;
+// remaining promotable vars (those whose stores/loads spanned blocks)
+// become Phase B candidates.
 //
-// Bools are candidates too: a register bool is i1 in DXIL, and DXC's
-// mem2reg leaves `phi i1` at a merge (its output for a short-circuit
-// `||` chain, or for atomics.wgsl). Only memory holds bools widened to
-// i32; a bool kept in an alloca is the shape DXC never emits.
+// Bools are excluded and keep their alloca. IDxcValidator accepts a
+// `phi i1` and DXC's optimizer emits one (atomics.wgsl), but WARP, the
+// D3D12 software adapter of GPU-less CI runners, runs the short-circuit
+// `||` chain of gogpu/wgpu's dispatch-indirect validation shader wrong
+// with two `phi i1` at its merges: neither branch's stores take effect
+// (Intel and NVIDIA run it right). With the alloca it is right on all
+// three. DXC's frontend widens a bool local to i32 and compares it with
+// `icmp ne 0` at each load, so its phis are i32; doing the same here is
+// P2-DXIL-107.
 func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 	out := make(map[uint32]struct{})
 	for v, info := range ctx.uses {
@@ -86,6 +92,9 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 			continue
 		}
 		if len(info.loadHandles) == 0 {
+			continue
+		}
+		if isBoolLocal(ctx.mod, &ctx.fn.LocalVars[v]) {
 			continue
 		}
 		out[uint32(v)] = struct{}{}
@@ -197,6 +206,20 @@ func dropLoopStoredCandidates(ptrs *localPtr, candidates map[uint32]struct{}, bl
 			}
 		}
 	}
+}
+
+// isBoolLocal reports whether the local variable's declared type is a
+// bool scalar; such locals keep their alloca (see
+// selectStructuredCandidates).
+func isBoolLocal(mod *ir.Module, lv *ir.LocalVariable) bool {
+	if int(lv.Type) >= len(mod.Types) {
+		return false
+	}
+	st, ok := mod.Types[lv.Type].Inner.(ir.ScalarType)
+	if !ok {
+		return false
+	}
+	return st.Kind == ir.ScalarBool
 }
 
 // initialValueOf returns the starting SSA value handle for a candidate
