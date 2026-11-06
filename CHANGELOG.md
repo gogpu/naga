@@ -262,6 +262,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry point among the test corpora and the gg, g3d, ui and wgpu shaders is under 2000. Affected: every release
   since v0.17.4 for helpers without side effects, and for every helper since v0.20.4 (measured on v0.20.3 and v0.21.2).
   The other backends do not inline and are not affected.
+- **WGSL: deeply nested input crashed the process with a stack overflow.** The parser had no recursion limit, so a few
+  hundred KB of nested parentheses (500 000 `(` were enough), blocks, template types or call arguments ended the
+  host process with Go's `fatal error: stack overflow`, which `recover()` cannot catch: a denial of service for any
+  program that compiles untrusted WGSL. The parser now has Rust naga's limits at the same productions: recursion depth
+  200 (expressions, statements, template arguments), refused with Rust's `internal WGSL front end error` / note `Parser
+  recursion limit exceeded`, and brace nesting 127 (the WGSL spec limit), refused with Rust's `brace nesting limit
+  reached`. Prefix-operator and else-if chains are read in a loop, as Rust reads them. Every release from v0.1.0 to
+  v0.21.2 is affected.
 
 ## [0.21.2] - 2026-11-03
 
