@@ -147,6 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emitter as DXC's SROA splits them, with the pass that already split workgroup memory: one local per struct member,
   one array per member below arrays of structs, vectors whole, everything else a one-dimensional array of its
   scalars, initializers split with them. Each index is clamped to its own dimension first under the Restrict policy.
+  An entry point whose function and private variables take more than 64 KiB together is refused, since each
+  whole-variable initialization is written element by element (see Security).
 - **DXIL: 64-bit shifts, negation and integer `abs` gave modules the validator could not read** (P1-DXIL-080). An
   LLVM shift takes both operands in the shifted type, but a WGSL shift amount is a `u32`: `u64 << 3u`, `i64 >> n` and
   `-i64(x)` put an i32 next to an i64 ("Invalid record"), as did `sign`, `~x`, `x * 2^N`, `x % 2^N` and `x - C` on
@@ -243,6 +245,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HLSL: a load passed straight to a subgroup operation was not baked**, so it was read at the call instead of where
   the WGSL evaluates it.
 - **MSL: wrapped helper functions (`naga_div`, `naga_mod`, …) come in expression order**, as Rust naga writes them.
+
+### Security
+
+- **DXIL: a declared array length became one store per element, with no bound**, when the variable was initialized,
+  so a shader of a few dozen bytes could exhaust memory (`var a: array<f32, 8000000>;`). Arrays of scalars in function
+  and private variables were affected since v0.20.4, which started writing their zero initialization; this release's
+  local split extended it to arrays of vectors and structs. Function and private variables above 64 KiB per entry point are now refused with an unsupported error
+  (WGSL requires 8192 bytes).
 
 ## [0.21.2] - 2026-11-03
 
