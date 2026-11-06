@@ -159,7 +159,8 @@ func fromParserErrors(source string, errs []parser.ParseError, err error) *Parse
 	}
 	pe := &ParseError{
 		Message: errs[0].Message,
-		Labels:  []Label{{Span: tokenSpan(errs[0].Token)}},
+		Labels:  []Label{{Span: tokenSpan(errs[0].Token), Text: errs[0].Label}},
+		Notes:   append([]string(nil), errs[0].Notes...),
 	}
 	for _, e := range errs[1:] {
 		pe.Notes = append(pe.Notes, fmt.Sprintf("%d:%d: %s", e.Token.Line, e.Token.Column, e.Message))

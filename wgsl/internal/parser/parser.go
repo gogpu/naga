@@ -12,6 +12,31 @@ const (
 	errExpectedType          = "expected type"
 )
 
+// Nesting limits. Without them a deeply nested source (a few hundred KB of
+// `(`, `{` or `array<`) recursed until Go's fatal, unrecoverable "stack
+// overflow" killed the host process.
+const (
+	// maxRecursionDepth is Rust naga's Parser::track_recursion bound
+	// (front/wgsl/parse/mod.rs): the parse fails once the depth reaches it.
+	// Rust counts expression, lhs_expression and statement; this parser
+	// counts the same productions (see enterRecursion's callers).
+	maxRecursionDepth = 200
+
+	// maxBraceNesting is the WGSL limit "maximum nesting depth of
+	// brace-enclosed statements in a function" (WGSL §2.4 Limits), Rust's
+	// BRACE_NESTING_MAXIMUM; the function body's own braces are level 1.
+	maxBraceNesting = 127
+
+	// Rust's Error::Internal("Parser recursion limit exceeded") renders as
+	// this message with the text as its note (front/wgsl/error.rs).
+	errInternalFrontEnd = "internal WGSL front end error"
+	noteRecursionLimit  = "Parser recursion limit exceeded"
+
+	// Rust's Error::ExceededLimitForNestedBraces texts.
+	errBraceNestingLimit   = "brace nesting limit reached"
+	labelBraceNestingLimit = "limit reached at this brace"
+)
+
 // Parser parses WGSL tokens into an AST.
 type Parser struct {
 	tokens         []Token
@@ -22,6 +47,10 @@ type Parser struct {
 	// seenDecl is set by the first global declaration, an empty one (`;`)
 	// included: no directive may follow it.
 	seenDecl bool
+	// recursionDepth counts the nested productions Rust's track_recursion
+	// counts; braceNesting the open braces of the current function.
+	recursionDepth int
+	braceNesting   int
 }
 
 // Errors returns every error Parse found, in source order.
@@ -33,6 +62,10 @@ func (p *Parser) Errors() []ParseError {
 type ParseError struct {
 	Message string
 	Token   Token
+	// Label is the text of the label at Token, as Rust's; usually empty.
+	Label string
+	// Notes are Rust's notes for this error, if it has any.
+	Notes []string
 }
 
 func (e ParseError) Error() string {
@@ -774,7 +807,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		if p.check(TokenLess) {
 			p.advance() // consume '<'
 
-			elemType, err := p.typeSpec()
+			elemType, err := p.templateArgType()
 			if err != nil {
 				return nil, err
 			}
@@ -823,7 +856,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 			return nil, err
 		}
 
-		elemType, err := p.typeSpec()
+		elemType, err := p.templateArgType()
 		if err != nil {
 			return nil, err
 		}
@@ -865,7 +898,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 			return nil, err
 		}
 
-		pointeeType, err := p.typeSpec()
+		pointeeType, err := p.templateArgType()
 		if err != nil {
 			return nil, err
 		}
@@ -905,7 +938,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		// Check for generic parameters: vec3<f32>
 		if p.match(TokenLess) {
 			for !p.check(TokenGreater) && !p.isAtEnd() {
-				paramType, err := p.typeSpec()
+				paramType, err := p.templateArgType()
 				if err != nil {
 					return nil, err
 				}
@@ -927,9 +960,10 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 // block parses a block statement.
 func (p *Parser) block() (*BlockStmt, *ParseError) {
 	start := p.peek()
-	if err := p.expectErr(TokenLeftBrace); err != nil {
+	if err := p.openBrace(); err != nil {
 		return nil, err
 	}
+	defer p.closeBrace()
 
 	stmts := make([]Stmt, 0, 4) // most blocks have a few statements
 	for !p.check(TokenRightBrace) && !p.isAtEnd() {
@@ -954,8 +988,21 @@ func (p *Parser) block() (*BlockStmt, *ParseError) {
 	}, nil
 }
 
-// statement parses a statement.
+// statement parses a statement. It counts toward the recursion limit, as
+// Rust's statement().
 func (p *Parser) statement() (Stmt, *ParseError) {
+	err := p.enterRecursion()
+	defer p.leaveRecursion()
+	if err != nil {
+		return nil, err
+	}
+	return p.statementKind()
+}
+
+// statementKind parses a statement without counting a recursion level: the
+// init and update clauses of a for header, which Rust parses without
+// statement().
+func (p *Parser) statementKind() (Stmt, *ParseError) {
 	switch {
 	case p.check(TokenReturn):
 		return p.returnStmt()
@@ -1015,40 +1062,55 @@ func (p *Parser) returnStmt() (*ReturnStmt, *ParseError) {
 	}, nil
 }
 
-// ifStmt parses an if statement.
+// ifStmt parses an if statement with its else-if chain.
+//
+// The chain is read in a loop, as Rust's statement() does, and nested
+// afterwards: `else if` blocks are siblings, so a long chain neither
+// recurses here nor counts toward the recursion or brace limits.
 func (p *Parser) ifStmt() (*IfStmt, *ParseError) {
-	start := p.advance() // consume 'if'
+	var chain []*IfStmt
+	var elseBlock *BlockStmt
+	for {
+		start := p.advance() // consume 'if'
 
-	cond, err := p.expression()
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := p.block()
-	if err != nil {
-		return nil, err
-	}
-
-	var elseStmt Stmt
-	if p.match(TokenElse) {
-		if p.check(TokenIf) {
-			elseStmt, err = p.ifStmt()
-		} else {
-			elseStmt, err = p.block()
-		}
+		cond, err := p.expression()
 		if err != nil {
 			return nil, err
 		}
+
+		body, err := p.block()
+		if err != nil {
+			return nil, err
+		}
+
+		chain = append(chain, &IfStmt{
+			Condition: cond,
+			Body:      body,
+			Span: Span{
+				Start: Position{Line: start.Line, Column: start.Column},
+			},
+		})
+
+		if !p.match(TokenElse) {
+			break
+		}
+		if !p.check(TokenIf) {
+			elseBlock, err = p.block()
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
 	}
 
-	return &IfStmt{
-		Condition: cond,
-		Body:      body,
-		Else:      elseStmt,
-		Span: Span{
-			Start: Position{Line: start.Line, Column: start.Column},
-		},
-	}, nil
+	// Nest the chain: each `if` is the else of the one before it.
+	if elseBlock != nil {
+		chain[len(chain)-1].Else = elseBlock
+	}
+	for i := len(chain) - 1; i > 0; i-- {
+		chain[i-1].Else = chain[i]
+	}
+	return chain[0], nil
 }
 
 // forStmt parses a for statement.
@@ -1063,7 +1125,7 @@ func (p *Parser) forStmt() (*ForStmt, *ParseError) {
 	var init Stmt
 	if !p.check(TokenSemicolon) {
 		p.inForHeader = true
-		s, err := p.statement()
+		s, err := p.statementKind()
 		p.inForHeader = false
 		if err != nil {
 			return nil, err
@@ -1091,7 +1153,7 @@ func (p *Parser) forStmt() (*ForStmt, *ParseError) {
 	var update Stmt
 	if !p.check(TokenRightParen) {
 		p.inForHeader = true
-		s, err := p.statement()
+		s, err := p.statementKind()
 		p.inForHeader = false
 		if err != nil {
 			return nil, err
@@ -1148,9 +1210,10 @@ func (p *Parser) whileStmt() (*WhileStmt, *ParseError) {
 func (p *Parser) loopStmt() (*LoopStmt, *ParseError) {
 	start := p.advance() // consume 'loop'
 
-	if err := p.expectErr(TokenLeftBrace); err != nil {
+	if err := p.openBrace(); err != nil {
 		return nil, err
 	}
+	defer p.closeBrace()
 
 	// Parse body statements, stopping at 'continuing' or '}'
 	bodyStmts := make([]Stmt, 0, 4)
@@ -1203,9 +1266,10 @@ func (p *Parser) switchStmt() (*SwitchStmt, *ParseError) {
 		return nil, err
 	}
 
-	if err := p.expectErr(TokenLeftBrace); err != nil {
+	if err := p.openBrace(); err != nil {
 		return nil, err
 	}
+	defer p.closeBrace()
 
 	var cases []*SwitchCaseClause
 	for !p.check(TokenRightBrace) && !p.isAtEnd() {
@@ -1406,7 +1470,12 @@ func (p *Parser) letStmt() (*ConstDecl, *ParseError) {
 // exprOrAssignStmt parses an expression statement or assignment.
 func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 	start := p.peek()
-	expr, err := p.expression()
+	// Not expression(): Rust parses a call statement's arguments one
+	// recursion level below the statement, and counting this outer
+	// expression would put them two below. An assignment's left side then
+	// counts one level fewer than Rust's lhs_expression, which only accepts
+	// more, never less.
+	expr, err := p.logicalOr()
 	if err != nil {
 		return nil, err
 	}
@@ -1469,13 +1538,24 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 
 // expression parses an expression.
 func (p *Parser) expression() (Expr, *ParseError) {
+	err := p.enterRecursion()
+	defer p.leaveRecursion()
+	if err != nil {
+		return nil, err
+	}
 	return p.logicalOr()
 }
 
 // templateArgExpr parses an expression inside a template argument list.
 // It handles shift/arithmetic operators but stops at > and >= tokens
-// to avoid consuming the template-closing >.
+// to avoid consuming the template-closing >. It is Rust's expression() in a
+// template list, so it counts toward the recursion limit.
 func (p *Parser) templateArgExpr() (Expr, *ParseError) {
+	err := p.enterRecursion()
+	defer p.leaveRecursion()
+	if err != nil {
+		return nil, err
+	}
 	return p.templateShift()
 }
 
@@ -1730,24 +1810,32 @@ func (p *Parser) multiplicative() (Expr, *ParseError) {
 }
 
 // unary parses unary expressions.
+//
+// The prefix operators are collected in a loop and applied innermost first,
+// as Rust's unary_expression: a chain of them neither recurses nor counts
+// toward the recursion limit.
 func (p *Parser) unary() (Expr, *ParseError) {
-	if p.check(TokenMinus) || p.check(TokenBang) || p.check(TokenTilde) ||
+	var ops []Token
+	for p.check(TokenMinus) || p.check(TokenBang) || p.check(TokenTilde) ||
 		p.check(TokenAmpersand) || p.check(TokenStar) {
-		op := p.advance()
-		operand, err := p.unary()
-		if err != nil {
-			return nil, err
-		}
-		return &UnaryExpr{
+		ops = append(ops, p.advance())
+	}
+
+	expr, err := p.postfix()
+	if err != nil {
+		return nil, err
+	}
+	for i := len(ops) - 1; i >= 0; i-- {
+		op := ops[i]
+		expr = &UnaryExpr{
 			Op:      op.Kind,
-			Operand: operand,
+			Operand: expr,
 			Span: Span{
 				Start: Position{Line: op.Line, Column: op.Column},
 			},
-		}, nil
+		}
 	}
-
-	return p.postfix()
+	return expr, nil
 }
 
 // postfix parses postfix expressions (calls, indexing, member access).
@@ -1845,7 +1933,7 @@ func (p *Parser) primary() (Expr, *ParseError) {
 			if err := p.expectErr(TokenLess); err != nil {
 				return nil, err
 			}
-			targetType, err := p.typeSpec()
+			targetType, err := p.templateArgType()
 			if err != nil {
 				return nil, err
 			}
@@ -1909,6 +1997,65 @@ func (p *Parser) primary() (Expr, *ParseError) {
 			Token:   tok,
 		}
 	}
+}
+
+// Nesting limits
+
+// enterRecursion counts one more nested production, as Rust's
+// Parser::track_recursion, and fails once the depth reaches
+// maxRecursionDepth. Every call is paired with a deferred leaveRecursion,
+// so the depth unwinds on error paths too.
+func (p *Parser) enterRecursion() *ParseError {
+	p.recursionDepth++
+	if p.recursionDepth >= maxRecursionDepth {
+		return &ParseError{
+			Message: errInternalFrontEnd,
+			Token:   p.peek(),
+			Notes:   []string{noteRecursionLimit},
+		}
+	}
+	return nil
+}
+
+func (p *Parser) leaveRecursion() {
+	p.recursionDepth--
+}
+
+// openBrace consumes the `{` of a brace-enclosed statement and enters one
+// more brace level, as Rust's increase_brace_nesting. On success the caller
+// defers closeBrace.
+func (p *Parser) openBrace() *ParseError {
+	brace := p.peek()
+	if err := p.expectErr(TokenLeftBrace); err != nil {
+		return err
+	}
+	if p.braceNesting+1 > maxBraceNesting {
+		return &ParseError{
+			Message: errBraceNestingLimit,
+			Token:   brace,
+			Label:   labelBraceNestingLimit,
+			Notes:   []string{fmt.Sprintf("nesting limit is currently set to %d", maxBraceNesting)},
+		}
+	}
+	p.braceNesting++
+	return nil
+}
+
+func (p *Parser) closeBrace() {
+	p.braceNesting--
+}
+
+// templateArgType parses a type written as a template argument
+// (`array<T>`, `vec3<T>`, `ptr<function, T>`, `bitcast<T>`). Rust parses
+// every template argument with expression(), so each one counts toward the
+// recursion limit; the outermost type of a declaration does not.
+func (p *Parser) templateArgType() (Type, *ParseError) {
+	err := p.enterRecursion()
+	defer p.leaveRecursion()
+	if err != nil {
+		return nil, err
+	}
+	return p.typeSpec()
 }
 
 // Helper methods
