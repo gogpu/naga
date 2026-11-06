@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NULL IDxcOperationResult" for a valid container, or dxil.dll called through a stale pointer and the process
   died. The blob, its bytes and the result slot now live together in one process-heap allocation, with real COM
   reference counting (the result keeps a reference to the blob) and QueryInterface for IUnknown and IDxcBlob.
+- **DXIL: the 2001st `dxil.Validate` at `ValidateFull` in a process ended it on Windows** with "fatal error: too
+  many callback functions". Each validation created a new `syscall.NewCallback` for its worker thread, and the Go
+  runtime has 2000 callback slots that it never frees. The worker thread procedure is now one callback for the
+  process.
 - **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
   `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
   failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are
