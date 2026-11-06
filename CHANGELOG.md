@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-11-06
+
+A patch of fixes, mostly DXIL, found reviewing 0.21.2 and testing it on the GPU with gogpu/wgpu, plus three fixes for
+untrusted shader input that could crash or stall the host process (see Security; every user that compiles shaders it
+does not control should update). New, small API: each backend's `SupportedCapabilities()` and
+`valid.MissingCapabilities`, WGSL `i16`/`u16`, GLSL `TranslationInfo.ClipDistanceCount`, and SPIR-V/MSL
+`Options.SkipIntDivChecks`. `Compile` now refuses, with an error matching `backend.ErrUnsupported`, a module that
+needs a capability the backend lacks; such modules used to compile into code no driver accepts.
+
 ### Added
 
 - **GLSL: `TranslationInfo.ClipDistanceCount`** (P2-GLSL-012), Rust naga's `ReflectionInfo.clip_distance_count`. It is
@@ -273,6 +282,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `statement nesting depth / chaining length exceeds limit of 127`. The deepest expression in Rust naga's, gg's, g3d's
   and Tint's 23 000 test shaders is 72 and the longest chain 125 `if`s (Tint's own test), so no real shader comes near
   either limit. Every release from v0.1.0 to v0.21.2 is affected.
+
+### Known issues
+
+- **DXIL:** indexing a local array with a built-in input (`local_invocation_index`) fails `dxil.Compile` with
+  "function argument 0 not in value map" (P1-DXIL-106); a compile error, not a miscompile, and not new in this release.
+- **DXIL:** `clip_distances` arrays of 5 to 8 elements and `@early_depth_test(force)` are refused with an unsupported
+  error (P1-DXIL-082, P2-DXIL-100); the barycentric built-ins are not supported yet (P2-DXIL-073).
+- **DXIL:** workgroup variables larger than D3D12 allows compile without an error, and the DXC validator rejects the
+  result (P2-DXIL-105). The WebGPU limit `maxComputeWorkgroupStorageSize` keeps such shaders out of gogpu/wgpu.
+- **DXIL:** with D3D12 GPU-based validation on WARP, gogpu/wgpu's dispatch-indirect validation shader still runs the
+  wrong arm of its `||` chain, as in 0.21.2 (P2-DXIL-092). Without GPU-based validation it is right on WARP, Intel and
+  NVIDIA.
+- **HLSL:** a storage-buffer store nested more than 20 statements deep is refused (P2-HLSL-036).
+- Still open from 0.21.2 and earlier: per-element buffer sizes for storage-buffer `binding_array`s in MSL
+  (P1-MSL-101) and the WGSL const-expression divisor/shift gap (P1-WGSL-101).
 
 ## [0.21.2] - 2026-11-03
 

@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12, shader models 5.0–6.7 (FXC and DXC); helpers get one exit where FXC would miscompile an early return
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**185 of 199 corpus shaders pass IDxcValidator**; **99 of 181 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. World's first Pure Go DXIL generator.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**238 of 267 corpus entry points pass IDxcValidator**; **113 of 177 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (liveness through control dependence, dead loops removed), SROA (struct decomposition, aggregate locals split per element), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -245,7 +245,7 @@ pkg.go.dev shows.
 ## Supported WGSL Features
 
 ### Types
-- Scalars: `f16`, `f32`, `f64`, `i32`, `u32`, `i64`, `u64`, `bool`
+- Scalars: `f16`, `f32`, `f64`, `i16`, `u16` (`enable wgpu_int16;`), `i32`, `u32`, `i64`, `u64`, `bool`
 - Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>` (and short aliases: `vec2f`, `vec3i`, `vec4u`, etc.)
 - Matrices: `mat2x2<f32>` ... `mat4x4<f32>` (and short aliases: `mat2x2f`, `mat4x4f`, etc.)
 - Arrays: `array<T, N>`, `array<T>` (runtime-sized, storage buffers)
@@ -318,7 +318,7 @@ pkg.go.dev shows.
 | MSL | ✅ Stable | Metal (macOS/iOS) |
 | GLSL | ✅ Stable, version-aware binding | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ Stable | DirectX 11/12 |
-| DXIL | **185/199 IDxcValidator** (Rust naga and own corpus), 99/181 DXC golden | DirectX 12 (SM 6.0-6.9, experimental) |
+| DXIL | **238/267 entry points pass IDxcValidator** (Rust naga and own corpus), 113/177 DXC golden | DirectX 12 (SM 6.0-6.9, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
@@ -349,8 +349,8 @@ SPIR-V, MSL, GLSL, HLSL — is compared with ours. An output that does not match
 recorded in `snapshot/rust_deviations_test.go` with its reason and a fingerprint of the difference; most records
 name the upstream commits not ported yet, and some are bugs being fixed. SPIR-V is still compared by
 instruction counts rather than exactly. Shaders using features we do not support yet (cooperative matrices,
-`debugPrintf`, 16-bit integers, ray tracing pipelines) are listed with their expected error. In addition, 28 own
-test shaders and 936 golden outputs guard against unintended changes.
+`debugPrintf`, ray tracing pipelines) are listed with their expected error. In addition, 29 own test shaders and
+the golden outputs of every backend (`snapshot/testdata/golden/`) guard against unintended changes.
 
 ---
 

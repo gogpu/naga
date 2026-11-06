@@ -73,7 +73,7 @@ naga/
 │   ├── statement.go               # statement kinds (incl. subgroup, ray query)
 │   └── layouter.go                # Layouter: sizes and alignments (Rust proc::Layouter)
 │
-├── valid/                         # Validation (Rust naga::valid): Validate, Options, ModuleInfo, Capabilities
+├── valid/                         # Validation (Rust naga::valid): Validate, Options, ModuleInfo, Capabilities, MissingCapabilities
 │
 ├── backend/                       # Types every backend shares: bounds-check policies, entry point selector,
 │                                  # shader model, zero-init mode, errors (ErrUnsupported, ErrMissingBinding)
@@ -94,23 +94,23 @@ naga/
 │   └── readback/, testcorpus/, testtools/  # GPU readback corpus reader, test-data provenance, external-tool policy
 │
 ├── spirv/                         # SPIR-V backend
-│   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo
+│   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo, SupportedCapabilities
 │   └── internal/codegen/          # ALL implementation
 │
 ├── msl/                           # MSL backend
-│   ├── msl.go                     # Public API: Compile, Options, TranslationInfo
+│   ├── msl.go                     # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
 │   └── internal/codegen/          # ALL implementation
 │
 ├── glsl/                          # GLSL backend
-│   ├── glsl.go                    # Public API: Compile, Options, TranslationInfo
+│   ├── glsl.go                    # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
 │   └── internal/codegen/          # ALL implementation
 │
 ├── hlsl/                          # HLSL backend
-│   ├── hlsl.go                    # Public API: Compile, Options, TranslationInfo
+│   ├── hlsl.go                    # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
 │   └── internal/codegen/          # ALL implementation
 │
 ├── dxil/                          # DXIL backend (experimental; IDxcValidator and DXC parity measured by snapshot tests)
-│   ├── dxil.go                    # Public API: Compile, Options, Validate
+│   ├── dxil.go                    # Public API: Compile, Options, Validate, SupportedCapabilities
 │   ├── sig_usage.go               # Input signature Used mask analysis
 │   ├── privates.go, workgroup_*.go  # Module rewrites before emission: privates as locals, workgroup scalarization
 │   ├── validate.go                # IDxcValidator integration
@@ -119,7 +119,7 @@ naga/
 │       ├── module/                # In-memory DXIL module + bitcode serialization
 │       ├── container/             # DXBC container (DXIL, ISG1, OSG1, PSG1, PSV0, SFI0, HASH)
 │       ├── emit/                  # naga IR → DXIL lowering (VS/PS/CS/MS, CBV/SRV/UAV, atomics, ray query, wave ops)
-│       ├── passes/dce/            # Dead code elimination (mark-and-sweep)
+│       ├── passes/dce/            # Dead code elimination (liveness through control dependence; dead loops removed)
 │       ├── passes/sroa/           # Scalar Replacement of Aggregates
 │       ├── passes/mem2reg/        # Memory to register promotion (SSA construction)
 │       └── viewid/                # ViewID dependency analysis
@@ -211,7 +211,7 @@ Five backends share the same IR but produce different outputs:
 | **MSL** | Text (C++ dialect) | Metal | Bounds check policies, MSL 1.0–3.1 |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
 | **HLSL** | Text | DirectX 11/12 | Shader model 5.0–6.7, semantics; one-exit helpers for FXC below 6.0 |
-| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0–6.9) | IDxcValidator over the Rust naga corpus and DXC roundtrip parity (snapshot tests). DCE, SROA, mem2reg optimization passes. Experimental. |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0–6.9) | IDxcValidator over the Rust naga corpus and DXC roundtrip parity (snapshot tests). DCE, SROA (aggregate locals split before the emitter), mem2reg optimization passes; unreachable blocks dropped. Experimental. |
 
 Every backend is one function, `Compile(*ir.Module, Options) (output, TranslationInfo, error)`; the options it shares
 with the others come from the `backend` package, with safe zero values (bounds checks `Restrict`, workgroup memory
@@ -480,8 +480,8 @@ and eliminates redundant type definitions across all backends.
 
 | Category | Count | Approach |
 |----------|-------|----------|
-| **SPIR-V Validation** | 195/201 | spirv-val on every snapshot shader, also in the Vulkan environment of each SPIR-V version; the 6 others do not compile yet (cooperative matrix, debugPrintf, i16, a mesh shader, ray-tracing pipelines) |
-| **Rust Reference** | 0 unexplained diffs | Exact output match with Rust naga: SPIR-V 101, MSL 63, GLSL 92, HLSL 60 shaders; every other difference is recorded with its reason |
+| **SPIR-V Validation** | 196/201 | spirv-val on every snapshot shader, also in the Vulkan environment of each SPIR-V version; the 5 others do not compile yet (cooperative matrix ×2, debugPrintf, a mesh shader, ray-tracing pipelines) |
+| **Rust Reference** | 0 unexplained diffs | Exact output match with Rust naga: SPIR-V 102, MSL 63, GLSL 94, HLSL 62 shaders; every other difference is recorded with its reason |
 | **Validator corpus** | every shader | The Rust and own corpora, gg's production shaders, gfx-rs's ray query examples and the readback corpus validate; invalid inputs are rejected with Rust's texts |
 | **Determinism** | every shader × backend | Each backend compiles every corpus and gg shader several times to the same bytes |
 | **DXIL** | corpus + gg | IDxcValidator, DXC roundtrip parity (`dxil-dxc` goldens) |

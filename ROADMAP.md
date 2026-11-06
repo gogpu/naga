@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.21.2** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.21.3** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -43,7 +43,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | MSL | exact text | M3 Max Metal 3.1 verified | Production |
 | GLSL | exact text | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
 | HLSL | exact text | SM 5.0 / SM 6.0 | Production |
-| DXIL | — (Rust naga has no DXIL backend) | 172/237 IDxcValidator, 103/182 DXC golden (Rust naga corpus at gfx-rs/wgpu 14328f49) | Experimental |
+| DXIL | — (Rust naga has no DXIL backend) | 238/267 entry points IDxcValidator, 113/177 DXC golden (Rust naga corpus at gfx-rs/wgpu 14328f49 and own corpus) | Experimental |
 | IR | types, expressions, statements | — | Production |
 
 ---
@@ -79,10 +79,10 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| IDxcValidator: whole corpus | P1 | 185/199 | 3 shaders fail validation, 11 do not compile yet (counted per shader of the Rust and own corpora) |
-| DXC golden parity 80%+ | P1 | 99/181 (55%) | Structural match with DXC roundtrip output |
+| IDxcValidator: whole corpus | P1 | 238/267 | 13 entry points fail validation, 15 do not compile yet (counted per entry point of the Rust and own corpora) |
+| DXC golden parity 80%+ | P1 | 113/177 (64%) | Structural match with DXC roundtrip output |
 | DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
-| Microsoft IDxcValidator AV issue | P2 | Draft ready | File upstream issue for validator crash on malformed input |
+| Microsoft IDxcValidator AV issue | P2 | On hold | Re-check before filing: P1-DXIL-101 (v0.21.3) found a crash source in our own validator wrapper (blob on a moving goroutine stack) |
 | SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend is the long-term path |
 
 ### Phase 4: Hardening & Polish (November 2026)
@@ -103,8 +103,8 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | Complete Rust naga parity | In Progress | Corpus synced to gfx-rs/wgpu 14328f49; every difference recorded per output with a reason |
-| SPIR-V binary validation 100% | In Progress | spirv-val in CI, also in the Vulkan environments; 6 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
-| DXIL backend production-ready | In Progress | 185/199 IDxcValidator, GPU readback on Intel and NVIDIA; target: whole corpus |
+| SPIR-V binary validation 100% | In Progress | spirv-val in CI, also in the Vulkan environments; 5 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
+| DXIL backend production-ready | In Progress | 238/267 entry points IDxcValidator, GPU readback on Intel and NVIDIA; target: whole corpus |
 | API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
 | Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |
 | Performance benchmarks published | ✅ Done | 46 benchmarks, −32% allocs, −34% bytes |
