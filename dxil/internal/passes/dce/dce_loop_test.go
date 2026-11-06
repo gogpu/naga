@@ -323,3 +323,43 @@ func TestLoopWithObservableEffectKept(t *testing.T) {
 		})
 	}
 }
+
+// TestLoopKeptByLivePhiKeepsItsExit: a loop whose body holds nothing live
+// but which a live phi right after it keeps (feedsLivePhi) is walked as a
+// live loop, so the condition of the if that leaves it stays. It used to
+// stay unmarked, and the sweep then dropped the exit if: the loop would
+// never end. mem2reg puts no phi after a loop today (ssa.PredKey has no
+// loop-exit edge), so this guards the shape before a pass creates it.
+func TestLoopKeptByLivePhiKeepsItsExit(t *testing.T) {
+	mod := &ir.Module{}
+	storageOut(mod)
+	fn := &ir.Function{Arguments: []ir.FunctionArgument{{Name: "x"}}}
+	x := appendExpr(fn, ir.ExprFunctionArgument{Index: 0})
+	ten := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(10)})
+	cond := appendExpr(fn, ir.ExprBinary{Op: ir.BinaryLess, Left: x, Right: ten})
+	seven := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(7)})
+	phi := appendExpr(fn, ssa.Phi{Incoming: []ssa.Incoming{{PredKey: ssa.PredFallThrough, Value: seven}}})
+	out := appendExpr(fn, ir.ExprGlobalVariable{Variable: 0})
+	fn.Body = ir.Block{
+		{Kind: ir.StmtLoop{Body: ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: cond, End: cond + 1}}},
+			{Kind: ir.StmtIf{Condition: cond, Reject: ir.Block{{Kind: ir.StmtBreak{}}}}},
+		}}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: phi, End: phi + 1}}},
+		{Kind: ir.StmtStore{Pointer: out, Value: phi}},
+		{Kind: ir.StmtReturn{}},
+	}
+
+	Run(mod, fn)
+
+	got := loops(fn.Body)
+	if len(got) != 1 {
+		t.Fatalf("loops after DCE = %d, want 1: the phi after it is stored", len(got))
+	}
+	if len(ifs(got[0].Body)) != 1 {
+		t.Fatalf("the exit if is gone: the loop would never end")
+	}
+	if !emitted(got[0].Body, cond) {
+		t.Errorf("exit condition [%d] is not emitted", cond)
+	}
+}
