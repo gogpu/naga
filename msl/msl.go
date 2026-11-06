@@ -364,13 +364,20 @@ func DefaultOptions() Options {
 // Compile generates MSL source code from an IR module.
 // Returns the MSL source as a string and translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
-	if err := unsupported.Capabilities("msl", module, SupportedCapabilities()); err != nil {
-		return "", TranslationInfo{}, err
-	}
 	// The writer names identifiers over the whole module and writes the
 	// selected entry point only (Rust naga's PipelineOptions.entry_point).
-	if _, err := entrypoint.Index(module, options.EntryPoint, false); err != nil {
+	ep, err := entrypoint.Index(module, options.EntryPoint, false)
+	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
+	}
+	// It writes every function, and a global as an argument of the entry
+	// point and functions that use it.
+	out := unsupported.Output{EntryPoint: ep}
+	if ep != entrypoint.All {
+		out.Globals = entrypoint.ReferencedGlobals(module, ep)
+	}
+	if err := unsupported.OutputCapabilities("msl", module, out, SupportedCapabilities()); err != nil {
+		return "", TranslationInfo{}, err
 	}
 	copts := toCodegenOptions(options)
 	cpipe := codegen.PipelineOptions{EntryPoint: options.EntryPoint, AllowAndForcePointSize: options.AllowAndForcePointSize}

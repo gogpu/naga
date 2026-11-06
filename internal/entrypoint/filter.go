@@ -55,6 +55,27 @@ func NewFilter(m *ir.Module, ep int) Filter {
 	return f
 }
 
+// ReferencedGlobals returns, indexed by global handle, the globals that
+// m.EntryPoints[ep] or any function of m references: what an output that
+// writes every function and that one entry point declares when it passes
+// each global as an argument to the functions that use it (MSL).
+func ReferencedGlobals(m *ir.Module, ep int) []bool {
+	a := &analysis{
+		m:       m,
+		globals: make([][]bool, len(m.Functions)),
+		stages:  make([]stages, len(m.Functions)),
+		done:    make([]bool, len(m.Functions)),
+	}
+	used, _ := a.scan(&m.EntryPoints[ep].Function)
+	for h := range m.Functions {
+		globals, _ := a.function(ir.FunctionHandle(h))
+		for i, g := range globals {
+			used[i] = used[i] || g
+		}
+	}
+	return used
+}
+
 func subset(a, b []bool) bool {
 	for i, used := range a {
 		if used && !b[i] {

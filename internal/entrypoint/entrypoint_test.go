@@ -119,3 +119,24 @@ func TestFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestReferencedGlobals(t *testing.T) {
+	m := module()
+	// g2 is referenced by cs alone.
+	m.GlobalVariables = append(m.GlobalVariables, ir.GlobalVariable{Name: "g2"})
+	cs := &m.EntryPoints[2].Function
+	cs.Expressions = append(cs.Expressions, ir.Expression{Kind: ir.ExprGlobalVariable{Variable: 2}})
+	for _, tt := range []struct {
+		ep   int
+		want []bool
+	}{
+		// vs references nothing; f0 and f3 reference g0 and g1 whether or
+		// not an entry point calls them; g2 belongs to cs.
+		{0, []bool{true, true, false}},
+		{2, []bool{true, true, true}},
+	} {
+		if got := ReferencedGlobals(m, tt.ep); !slices.Equal(got, tt.want) {
+			t.Errorf("%s: ReferencedGlobals = %v, want %v", m.EntryPoints[tt.ep].Name, got, tt.want)
+		}
+	}
+}

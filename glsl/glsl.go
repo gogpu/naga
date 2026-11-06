@@ -286,19 +286,22 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if options.LangVersion == (Version{}) {
 		options.LangVersion = Version330
 	}
-	if err := unsupported.Capabilities("glsl", module, SupportedCapabilities()); err != nil {
+	// The writer names identifiers over the whole module and writes the
+	// selected entry point only, as Rust naga does, with the globals it uses
+	// and the functions they dominate (the writer's reachability set).
+	ep, err := entrypoint.Index(module, options.EntryPoint, true)
+	if err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
+	}
+	out := unsupported.FilteredOutput(module, ep)
+	if err := unsupported.OutputCapabilities("glsl", module, out, SupportedCapabilities()); err != nil {
 		return "", TranslationInfo{}, err
 	}
 	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
-	module, err := irutil.ResolvePendingArraySizes(module)
+	module, err = irutil.ResolvePendingArraySizes(module)
 	if err != nil {
-		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
-	}
-	// The writer names identifiers over the whole module and writes the
-	// selected entry point only, as Rust naga does.
-	if _, err = entrypoint.Index(module, options.EntryPoint, true); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
 	copts := toCodegenOptions(options)

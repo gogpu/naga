@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl/internal/codegen"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
@@ -200,13 +201,20 @@ type TranslationInfo struct {
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
-	if err := unsupported.Capabilities("hlsl", module, SupportedCapabilities()); err != nil {
+	ep, err := entrypoint.Index(module, options.EntryPoint, false)
+	if err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
+	}
+	// The writer writes every function and global and the selected entry
+	// point only, as Rust naga's back/hlsl/writer.rs does.
+	out := unsupported.Output{EntryPoint: ep}
+	if err := unsupported.OutputCapabilities("hlsl", module, out, SupportedCapabilities()); err != nil {
 		return "", TranslationInfo{}, err
 	}
 	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}
-	module, err := irutil.ResolvePendingArraySizes(module)
+	module, err = irutil.ResolvePendingArraySizes(module)
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}

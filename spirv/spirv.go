@@ -1,7 +1,10 @@
 package spirv
 
 import (
+	"fmt"
+
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/codegen"
@@ -234,7 +237,14 @@ type TranslationInfo struct {
 // Compile translates module to a SPIR-V module, returned as its
 // little-endian 32-bit words (Rust naga's back::spv::write_vec, as bytes).
 func Compile(module *ir.Module, options Options) ([]byte, TranslationInfo, error) {
-	if err := unsupported.Capabilities("spirv", module, SupportedCapabilities()); err != nil {
+	// With an entry point selected the writer keeps what
+	// entrypoint.NewFilter keeps (Rust naga's write_logical_layout).
+	ep, err := entrypoint.Index(module, options.EntryPoint, false)
+	if err != nil {
+		return nil, TranslationInfo{}, fmt.Errorf("spirv: %w", err)
+	}
+	out := unsupported.FilteredOutput(module, ep)
+	if err := unsupported.OutputCapabilities("spirv", module, out, SupportedCapabilities()); err != nil {
 		return nil, TranslationInfo{}, err
 	}
 	binary, err := codegen.NewBackend(toCodegenOptions(options)).Compile(module)

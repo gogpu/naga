@@ -72,5 +72,7 @@ func checkSupported(irModule *ir.Module, ep *ir.EntryPoint) error {
 	if _, ok := ep.EarlyDepthTest.(ir.EarlyDepthForce); ok {
 		return unsupported.Errorf("dxil: entry point %q: @early_depth_test(force) is not supported", ep.Name)
 	}
-	return unsupported.Capabilities("dxil", irModule, SupportedCapabilities())
+	// The container holds only what the entry point reaches; irModule holds
+	// that entry point alone (entrypoint.Select in checkOptions).
+	return unsupported.OutputCapabilities("dxil", irModule, unsupported.FilteredOutput(irModule, 0), SupportedCapabilities())
 }
