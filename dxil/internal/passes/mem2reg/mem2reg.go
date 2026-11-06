@@ -116,12 +116,10 @@ func Run(mod *ir.Module, fn *ir.Function) error {
 	// (variables stored inside loop bodies keep their alloca lowering)
 	// because the back-edge value is a forward reference at emit time
 	// and we lack the deferred-emit infrastructure to fix-up phi
-	// operands after walking the body. Bool / i1 variables are also
-	// disqualified because DXC's bitcode parser rejects i1-typed phi
-	// instructions with "Invalid record" — same limitation noted at
-	// emitter.go:639 for i1 return types.
+	// operands after walking the body. Bool variables become `phi i1`,
+	// as in DXC's output.
 	//
-	// Loop-header phi and i1 widening tracked under BUG-DXIL-041.
+	// Loop-header phi tracked under BUG-DXIL-041.
 	uses2 := classifyLocals(mod, fn)
 	if !anyPromotable(uses2) {
 		return nil

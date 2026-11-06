@@ -71,19 +71,14 @@ func newPhiWalker(ctx *promotionContext) *phiWalker {
 }
 
 // selectStructuredCandidates returns variables eligible for Phase B
-// promotion: promotable scalars (excluding bool) that have at least
-// one load. Phase A already attempted single-block promotion;
-// remaining promotable vars (those whose stores/loads spanned blocks)
-// become Phase B candidates.
+// promotion: promotable scalars that have at least one load. Phase A
+// already attempted single-block promotion; remaining promotable vars
+// (those whose stores/loads spanned blocks) become Phase B candidates.
 //
-// Bool (i1) is excluded because DXC's bitcode parser rejects i1-typed
-// LLVM phi instructions with "Invalid record" — see the same
-// limitation noted at emitter.go:639 for i1 return types. WGSL
-// `var temp: bool` written across branches keeps its alloca lowering;
-// DXC's HLSL frontend handles this by widening the bool to i32 +
-// `icmp ne 0` at the load. Mirroring that widening for our phi path
-// is tracked under BUG-DXIL-041 alongside the loop / switch-merge
-// phi work.
+// Bools are candidates too: a register bool is i1 in DXIL, and DXC's
+// mem2reg leaves `phi i1` at a merge (its output for a short-circuit
+// `||` chain, or for atomics.wgsl). Only memory holds bools widened to
+// i32; a bool kept in an alloca is the shape DXC never emits.
 func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 	out := make(map[uint32]struct{})
 	for v, info := range ctx.uses {
@@ -91,9 +86,6 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 			continue
 		}
 		if len(info.loadHandles) == 0 {
-			continue
-		}
-		if isBoolLocal(ctx.mod, &ctx.fn.LocalVars[v]) {
 			continue
 		}
 		out[uint32(v)] = struct{}{}
@@ -205,20 +197,6 @@ func dropLoopStoredCandidates(ptrs *localPtr, candidates map[uint32]struct{}, bl
 			}
 		}
 	}
-}
-
-// isBoolLocal reports whether the local variable's declared type is a
-// bool scalar. Bools in phi position trigger DXC's "Invalid record"
-// bitcode parser rejection.
-func isBoolLocal(mod *ir.Module, lv *ir.LocalVariable) bool {
-	if int(lv.Type) >= len(mod.Types) {
-		return false
-	}
-	st, ok := mod.Types[lv.Type].Inner.(ir.ScalarType)
-	if !ok {
-		return false
-	}
-	return st.Kind == ir.ScalarBool
 }
 
 // initialValueOf returns the starting SSA value handle for a candidate
