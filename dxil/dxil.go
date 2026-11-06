@@ -618,13 +618,54 @@ type TranslationInfo struct {
 
 // compileContainer is Compile without its TranslationInfo.
 func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
-	irModule, err := checkOptions(irModule, &opts)
+	em, err := emitEntryModule(irModule, &opts)
+	if err != nil {
+		return nil, err
+	}
+	irModule, ep, mod := em.irModule, em.ep, em.mod
+	smMinor := uint32(opts.ShaderModel.Minor)
+	reachableGlobals, special, dynamicOffsets, types := em.reachable, em.special, em.dynamicOffsets, em.types
+
+	// Step 2: Serialize DXIL module -> LLVM 3.7 bitcode.
+	bitcodeData := module.Serialize(mod)
+	if len(bitcodeData) == 0 {
+		return nil, fmt.Errorf("dxil: serialization produced empty bitcode")
+	}
+	return buildContainer(irModule, ep, opts, em.shaderFlags, bitcodeData, psvTargets{
+		reachable:      reachableGlobals,
+		bindingMap:     opts.BindingMap,
+		samplerHeap:    opts.SamplerHeapTargets,
+		samplerBufMap:  opts.SamplerBufferBindingMap,
+		dynamicOffsets: dynamicOffsets,
+		special:        special,
+		immediates:     opts.ImmediatesTarget,
+		epTypes:        types.Function(&ep.Function),
+	}, smMinor)
+}
+
+// emittedEntry is the DXIL module emitted for the one entry point of a
+// Compile call, with what the container parts are built from.
+type emittedEntry struct {
+	irModule       *ir.Module // the prepared clone of the caller's module
+	ep             *ir.EntryPoint
+	mod            *module.Module
+	shaderFlags    uint64
+	reachable      map[ir.GlobalVariableHandle]bool
+	special        *BindTarget
+	dynamicOffsets []emit.DynamicOffsetsBuffer
+	types          *typifier.Module
+}
+
+// emitEntryModule runs Compile's checks and passes on the entry point opts
+// selects and emits its DXIL module. It completes opts as checkOptions does.
+func emitEntryModule(irModule *ir.Module, opts *Options) (*emittedEntry, error) {
+	irModule, err := checkOptions(irModule, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	ep := &irModule.EntryPoints[0]
-	if err := checkBindings(irModule, ep, opts); err != nil {
+	if err := checkBindings(irModule, ep, *opts); err != nil {
 		return nil, err
 	}
 	if err := checkSupported(irModule, ep); err != nil {
@@ -640,10 +681,10 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, err
 	}
 	ep = &irModule.EntryPoints[0]
-	if err := prepareEntryPoint(irModule, ep, opts); err != nil {
+	if err := prepareEntryPoint(irModule, ep, *opts); err != nil {
 		return nil, err
 	}
-	types, err := lowerForEmit(irModule, opts)
+	types, err := lowerForEmit(irModule, *opts)
 	if err != nil {
 		return nil, err
 	}
@@ -693,8 +734,8 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 		}
 	}
 
-	special := specialConstantsTarget(irModule, ep, opts)
-	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
+	special := specialConstantsTarget(irModule, ep, *opts)
+	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, *opts)
 
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
@@ -714,13 +755,22 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dxil: emit: %w", err)
 	}
+	return &emittedEntry{
+		irModule:       irModule,
+		ep:             ep,
+		mod:            mod,
+		shaderFlags:    bitcodeShaderFlags,
+		reachable:      reachableGlobals,
+		special:        special,
+		dynamicOffsets: dynamicOffsets,
+		types:          types,
+	}, nil
+}
 
-	// Step 2: Serialize DXIL module -> LLVM 3.7 bitcode.
-	bitcodeData := module.Serialize(mod)
-	if len(bitcodeData) == 0 {
-		return nil, fmt.Errorf("dxil: serialization produced empty bitcode")
-	}
-
+// buildContainer wraps the bitcode of an emitted entry point in its DXBC
+// container.
+func buildContainer(irModule *ir.Module, ep *ir.EntryPoint, opts Options, bitcodeShaderFlags uint64,
+	bitcodeData []byte, targets psvTargets, smMinor uint32) ([]byte, error) {
 	// Step 3: Wrap in DXBC container.
 	// Parts are ordered to match DXC reference: SFI0, ISG1, OSG1, [PSG1], PSV0, STAT, HASH, DXIL.
 	shaderKind := stageToContainerKind(ep.Stage)
@@ -744,16 +794,7 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	// "compute may omit", but DXC reference output proves otherwise.
 	addSignatureParts(c, inputSig, outputSig, primSig)
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), psvTargets{
-		reachable:      reachableGlobals,
-		bindingMap:     opts.BindingMap,
-		samplerHeap:    opts.SamplerHeapTargets,
-		samplerBufMap:  opts.SamplerBufferBindingMap,
-		dynamicOffsets: dynamicOffsets,
-		special:        special,
-		immediates:     opts.ImmediatesTarget,
-		epTypes:        types.Function(&ep.Function),
-	}))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), targets))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator

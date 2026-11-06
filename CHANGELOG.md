@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store to memory, an atomic, a barrier, a discard, a return, a value read later, or a break or continue out of a
   construct that is itself live), and a loop with nothing live in it is removed, as DXC's LoopDeletion does. Eight
   corpus shaders whose `main` DXC compiles to `ret void` now match DXC.
+- **DXIL: no basic block without a predecessor** (P2-DXIL-092). When both arms of an `if`/`else` returned (the IR's
+  trailing return goes into each arm), the merge block after it stayed in the function holding only a branch to the
+  exit, and nothing branched to it. DXC never emits such a block, and D3D12 GPU-based validation on WARP then ran the
+  wrong arm of wgpu's indirect-dispatch validation shader. Blocks no path from the entry reaches are now dropped
+  before value numbering. 17 corpus entry points had one, 8 of them gg production entry points (fine.wgsl x3,
+  flatten, draw_leaf, draw_reduce, pathtag_reduce, pathtag_scan); a new gate checks every corpus and gg entry point.
 - **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
   `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
   failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are

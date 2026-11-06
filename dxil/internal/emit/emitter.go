@@ -1224,6 +1224,8 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 //
 //nolint:gocognit,gocyclo,cyclop // value ID remapping requires iterating multiple data structures
 func (e *Emitter) finalize(mainFn *module.Function) {
+	removeUnreachableBlocks(mainFn)
+
 	// Build the ID mapping table: emitterID -> globalID
 	idMap := make(map[int]int)
 
@@ -1338,6 +1340,7 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 //
 //nolint:gocognit // value ID remapping across basic blocks
 func (e *Emitter) finalizeHelperFunction(fn *module.Function, helperConstMap map[int]*module.Constant) {
+	removeUnreachableBlocks(fn)
 	base := len(e.mod.GlobalVars) + len(e.mod.Functions) + len(e.mod.Constants)
 
 	funcIDMap := make(map[int]int)
