@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: loops and branches with no observable effect were kept** (P1-DXIL-069). Every `if` condition, `switch`
+  selector and `break if` counted as live, so a loop that only counts, or a branch that only steers dead code,
+  stayed in the shader and cost GPU time. A condition is now live only when its construct holds something live (a
+  store to memory, an atomic, a barrier, a discard, a return, a value read later, or a break or continue out of a
+  construct that is itself live), and a loop with nothing live in it is removed, as DXC's LoopDeletion does. Eight
+  corpus shaders whose `main` DXC compiles to `ret void` now match DXC.
 - **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
   `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
   failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are

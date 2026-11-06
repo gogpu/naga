@@ -18,11 +18,11 @@
 //  3. Sweep: walk the statement tree again, removing dead stores and
 //     shrinking StmtEmit ranges to exclude dead expressions.
 //
-// Dead control-flow elimination (ADCE-style): after sweeping, a
-// StmtIf or StmtSwitch whose sub-blocks are ALL empty and whose
-// condition/selector is not marked live is removed entirely. This
-// matches DXC's LLVM ADCE behavior. StmtLoop is kept even with an
-// empty body (infinite loop = observable side effect).
+// Dead control-flow elimination (ADCE-style): a condition, selector or
+// break-if is live only when the construct it controls holds live content
+// (controlDeps). An if or a switch without live content is removed, and
+// so is a loop, as DXC's LoopDeletion removes a loop with no effect
+// whatever its trip count (HLSL forward progress).
 //
 // References:
 //   - DXC pipeline: DxilLinker.cpp:1284 (mem2reg -> SimplifyInst -> CFGSimplify -> DCE -> GlobalDCE)
@@ -49,17 +49,17 @@ func Run(mod *ir.Module, fn *ir.Function) {
 		return
 	}
 
-	// Liveness, then the ifs and switches with nothing live in them go, as
-	// DXC runs CFGSimplification before DCE (DxilLinker.cpp:1282-1284).
-	// An if's condition is live as long as the if is there, as LLVM's ADCE
-	// keeps every terminator (ADCE.cpp:61). Liveness is computed afresh once
-	// a construct goes, so a condition shared with a construct that stays
+	// Liveness, then the ifs, switches and loops with nothing live in them
+	// go, as DXC runs CFGSimplification and LoopDeletion before DCE
+	// (DxilLinker.cpp:1282-1284). A condition is live when its construct
+	// holds live content (controlDeps). Liveness is computed afresh once a
+	// construct goes, so a condition shared with a construct that stays
 	// stays live; taking liveness back from a condition instead missed
 	// statement uses (P1-DXIL-061). Removing a construct can leave another
 	// with nothing live, so this repeats until nothing more goes.
 	live, deadLocals := liveness(mod, fn)
 	for {
-		body, dropped := dropDeadControlFlow(fn, fn.Body, deadLocals, live, buildLocalPtrMap(fn))
+		body, dropped := dropDeadControlFlow(mod, fn, fn.Body, deadLocals, live, buildLocalPtrMap(fn))
 		if !dropped {
 			break
 		}
@@ -111,16 +111,167 @@ func liveness(mod *ir.Module, fn *ir.Function) ([]bool, map[uint32]bool) {
 		live[h] = true
 		irutil.ExprHandles(fn.Expressions[h].Kind, mark)
 	}
+	//
+	// Phase 2c: the conditions of the constructs that hold live content
+	// (controlDeps). A condition loads locals and calls pure
+	// functions like any other live value, and a store it makes live can
+	// make another construct live, so it takes part in the same fixed point.
+	localPtrs := buildLocalPtrMap(fn)
 	for {
 		before := countLive(live)
 		markLiveLocalStoreValues(fn, live, deadLocals)
 		propagateCallResultLiveness(fn.Body, live, mark)
 		deadLocals = findDeadLocals(fn, live)
+		cd := controlDeps{mod: mod, fn: fn, live: live, deadLocals: deadLocals, localPtrs: localPtrs, mark: mark}
+		cd.block(fn.Body, false, false)
 		if countLive(live) == before {
 			break
 		}
 	}
 	return live, deadLocals
+}
+
+// controlDeps decides which constructs hold live content and, when mark is
+// set, marks the condition, selector or break-if of each such construct
+// live. This is the control-dependence half of LLVM's aggressive DCE: a
+// branch is live only when something live depends on which way it goes.
+// DXC's LLVM 3.7 ADCE keeps every terminator and leaves the rest to
+// SimplifyCFG and LoopDeletion (DxilLinker.cpp:1282-1284); in a structured
+// IR the three come down to this one walk.
+//
+// What a construct holds that makes it live:
+//   - a statement with an observable effect: a store to a global, an
+//     atomic, an image store or atomic, a barrier, a kill, a return, a
+//     workgroup uniform load, a ray query, a subgroup operation, a call to a
+//     function with side effects;
+//   - a store to a live local, a live pure call, an emit with a live
+//     expression (a header phi read after its loop is one);
+//   - a phi right after it that is live (feedsLivePhi);
+//   - a break or continue whose target, the innermost loop or switch, is
+//     live by what else it holds: leaving a live construct early decides
+//     what of it runs.
+//
+// A loop with none of it goes whole, as LLVM's LoopDeletion removes it: the
+// HLSL change there (LoopDeletion.cpp, "remove loops even cannot solve the
+// trip count") drops the termination check, since HLSL loops make forward
+// progress. A loop with a return in it has a second exit and stays, as
+// LoopDeletion keeps a loop with more than one exit block.
+type controlDeps struct {
+	mod        *ir.Module
+	fn         *ir.Function
+	live       []bool
+	deadLocals map[uint32]bool
+	localPtrs  map[ir.ExpressionHandle]uint32
+	// mark marks an expression and its operands live; nil only asks.
+	mark func(ir.ExpressionHandle)
+}
+
+// block reports whether block holds live content. breakLive and
+// continueLive say whether the targets of a break and of a continue in it
+// are live.
+func (cd *controlDeps) block(block ir.Block, breakLive, continueLive bool) bool {
+	holds := false
+	for i := range block {
+		// Every statement is visited, so the conditions in it are marked
+		// even after the block is known to be live.
+		if cd.stmt(block, i, breakLive, continueLive) {
+			holds = true
+		}
+	}
+	return holds
+}
+
+// stmt reports whether block[i] is, or holds, live content.
+func (cd *controlDeps) stmt(block ir.Block, i int, breakLive, continueLive bool) bool {
+	switch sk := block[i].Kind.(type) {
+	case ir.StmtBlock:
+		return cd.block(sk.Block, breakLive, continueLive)
+	case ir.StmtIf:
+		accept := cd.block(sk.Accept, breakLive, continueLive)
+		reject := cd.block(sk.Reject, breakLive, continueLive)
+		holds := accept || reject || feedsLivePhi(cd.fn, block, i, cd.live)
+		if holds {
+			cd.markLive(sk.Condition)
+		}
+		return holds
+	case ir.StmtSwitch:
+		holds := cd.switchCases(sk, false, continueLive) || feedsLivePhi(cd.fn, block, i, cd.live)
+		if holds {
+			// Now that the switch is live, a break out of it counts.
+			cd.switchCases(sk, true, continueLive)
+			cd.markLive(sk.Selector)
+		}
+		return holds
+	case ir.StmtLoop:
+		return cd.loop(sk) || feedsLivePhi(cd.fn, block, i, cd.live)
+	default:
+		return cd.simpleStmt(sk, breakLive, continueLive)
+	}
+}
+
+// simpleStmt reports whether a statement that holds no block is live
+// content.
+func (cd *controlDeps) simpleStmt(kind ir.StatementKind, breakLive, continueLive bool) bool {
+	switch sk := kind.(type) {
+	case ir.StmtEmit:
+		for h := sk.Range.Start; h < sk.Range.End; h++ {
+			if isLiveInRange(h, cd.live) {
+				return true
+			}
+		}
+		return false
+	case ir.StmtStore:
+		if varIdx, isLocal := isLocalStore(cd.fn, sk.Pointer, cd.localPtrs); isLocal {
+			return !cd.deadLocals[varIdx]
+		}
+		return true
+	case ir.StmtCall:
+		return calleeHasSideEffects(cd.mod, sk.Function) || sweepCallIsLive(sk, cd.live)
+	case ir.StmtBreak:
+		return breakLive
+	case ir.StmtContinue:
+		return continueLive
+	default:
+		// Returns, kills, barriers, atomics, image stores and atomics,
+		// workgroup uniform loads, ray queries, subgroup operations and any
+		// kind added later: observable, so live.
+		return true
+	}
+}
+
+func (cd *controlDeps) switchCases(sk ir.StmtSwitch, breakLive, continueLive bool) bool {
+	holds := false
+	for ci := range sk.Cases {
+		if cd.block(sk.Cases[ci].Body, breakLive, continueLive) {
+			holds = true
+		}
+	}
+	return holds
+}
+
+// loop reports whether a loop holds live content other than its own
+// breaks and continues; when it does, it marks its break-if and, walking
+// the body again with them counted, the conditions of the ifs that leave
+// it. A break or continue in a loop always targets that loop or one nested
+// in it, so the answer does not depend on what is around the loop.
+func (cd *controlDeps) loop(sk ir.StmtLoop) bool {
+	body := cd.block(sk.Body, false, false)
+	cont := cd.block(sk.Continuing, false, false)
+	if !body && !cont {
+		return false
+	}
+	cd.block(sk.Body, true, true)
+	cd.block(sk.Continuing, true, true)
+	if sk.BreakIf != nil {
+		cd.markLive(*sk.BreakIf)
+	}
+	return true
+}
+
+func (cd *controlDeps) markLive(h ir.ExpressionHandle) {
+	if cd.mark != nil {
+		cd.mark(h)
+	}
 }
 
 func countLive(live []bool) int {
@@ -292,10 +443,9 @@ func markBlockRoots(
 //     the dead-local fixup (atomics on locals are not expected after
 //     mem2reg; classify.go disqualifies such variables);
 //   - barriers and kills, which have no operand but are always live;
-//   - control flow: a construct's condition is live while the construct is
-//     there, as LLVM's ADCE keeps every terminator. dropDeadControlFlow
-//     removes the constructs with nothing live in them, and liveness is
-//     computed again.
+//   - not control flow: a construct's condition, selector or break-if is
+//     left to controlDeps, which marks it when the construct holds live
+//     content; only the roots nested in the construct are marked here.
 func markStmtRoots(
 	mod *ir.Module,
 	fn *ir.Function,
@@ -325,27 +475,37 @@ func markStmtRoots(
 			// nor Result are live.
 			return
 		}
+	case ir.StmtIf, ir.StmtSwitch, ir.StmtLoop:
+		// A condition, selector or break-if is live only when the
+		// construct it controls holds live content: controlDeps
+		// marks it then. Only the roots nested in the construct count here.
+		irutil.NestedBlocks(kind, func(b ir.Block) { markBlockRoots(mod, fn, b, localPtrs, mark) })
+		return
 	}
 	irutil.StmtExprHandles(kind, mark)
 	irutil.NestedBlocks(kind, func(b ir.Block) { markBlockRoots(mod, fn, b, localPtrs, mark) })
 }
 
-// dropDeadControlFlow returns block without the ifs and switches that
-// will be empty once swept, inner ones first, and whether it dropped any.
-// A construct whose branches feed a live phi after it stays (feedsLivePhi).
-// Loops stay: removing a loop is a question of its termination, not of
-// its content.
+// dropDeadControlFlow returns block without the dead constructs, inner
+// ones first, and whether it dropped any. An if or a switch is dead when it
+// will be empty once swept, or when its condition or selector is not live:
+// controlDeps marks it live for every construct
+// that holds live content. A loop is dead when it holds no live content
+// (controlDeps.loop, read-only here). A construct whose branches feed a
+// live phi after it stays (feedsLivePhi).
 func dropDeadControlFlow(
+	mod *ir.Module,
 	fn *ir.Function,
 	block ir.Block,
 	deadLocals map[uint32]bool,
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
 ) (ir.Block, bool) {
+	cd := controlDeps{mod: mod, fn: fn, live: live, deadLocals: deadLocals, localPtrs: localPtrs}
 	out := make(ir.Block, 0, len(block))
 	dropped := false
 	nested := func(b ir.Block) ir.Block {
-		b, d := dropDeadControlFlow(fn, b, deadLocals, live, localPtrs)
+		b, d := dropDeadControlFlow(mod, fn, b, deadLocals, live, localPtrs)
 		dropped = dropped || d
 		return b
 	}
@@ -354,9 +514,9 @@ func dropDeadControlFlow(
 		switch sk := st.Kind.(type) {
 		case ir.StmtIf:
 			sk.Accept, sk.Reject = nested(sk.Accept), nested(sk.Reject)
-			if blockWillBeEmpty(fn, sk.Accept, deadLocals, live, localPtrs) &&
-				blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs) &&
-				!feedsLivePhi(fn, block, i, live) {
+			empty := blockWillBeEmpty(fn, sk.Accept, deadLocals, live, localPtrs) &&
+				blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs)
+			if (empty || !isLiveInRange(sk.Condition, live)) && !feedsLivePhi(fn, block, i, live) {
 				dropped = true
 				continue
 			}
@@ -372,7 +532,7 @@ func dropDeadControlFlow(
 					allEmpty = false
 				}
 			}
-			if allEmpty && !feedsLivePhi(fn, block, i, live) {
+			if (allEmpty || !isLiveInRange(sk.Selector, live)) && !feedsLivePhi(fn, block, i, live) {
 				dropped = true
 				continue
 			}
@@ -380,6 +540,10 @@ func dropDeadControlFlow(
 			st.Kind = sk
 
 		case ir.StmtLoop:
+			if !cd.loop(sk) && !feedsLivePhi(fn, block, i, live) {
+				dropped = true
+				continue
+			}
 			sk.Body, sk.Continuing = nested(sk.Body), nested(sk.Continuing)
 			st.Kind = sk
 

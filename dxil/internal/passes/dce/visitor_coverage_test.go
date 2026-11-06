@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -32,12 +33,21 @@ func TestMarkStmtRootsEveryKind(t *testing.T) {
 			for variant := 0; variant < b.variants(t, kind); variant++ {
 				k := b.build(t, kind, variant).(ir.StatementKind)
 				want := collectExprHandles(reflect.ValueOf(k))
-				if kind == irEmitType {
-					// The one deliberate exception: an Emit range defines
-					// when expressions are evaluated and is not a root; its
-					// expressions become live when a root reaches them
-					// (dce.go, the StmtEmit case of markStmtRoots).
+				switch k.(type) {
+				case ir.StmtEmit:
+					// An Emit range defines when expressions are evaluated
+					// and is not a root; its expressions become live when a
+					// root reaches them (dce.go, the StmtEmit case of
+					// markStmtRoots).
 					want = nil
+				case ir.StmtIf, ir.StmtSwitch, ir.StmtLoop:
+					// A condition, selector or break-if is live only when
+					// its construct holds live content (controlDeps); the
+					// roots nested in the construct are still marked.
+					want = nil
+					irutil.NestedBlocks(k, func(blk ir.Block) {
+						want = append(want, collectExprHandles(reflect.ValueOf(blk))...)
+					})
 				}
 				got := visited{}
 				markStmtRoots(nil, &ir.Function{}, k, map[ir.ExpressionHandle]uint32{}, got.add)
