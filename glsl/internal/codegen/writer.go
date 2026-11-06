@@ -4,7 +4,6 @@
 package codegen
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -927,19 +926,19 @@ func (w *Writer) writeConstants() error {
 // errNoFloat16 is the error for an f16 type, value or literal, as Rust
 // naga's GLSL writer refuses them (UnsupportedScalar): GLSL has no f16
 // type, so they cannot be written.
-var errNoFloat16 = errors.New("GLSL has no 16-bit float type")
+var errNoFloat16 = unsupported.Errorf("GLSL has no 16-bit float type")
 
 // errNoInt64 is the error for a 64-bit integer type or literal, as Rust
 // naga's GLSL writer refuses them (glsl_scalar: UnsupportedScalar; literals:
 // this text): int64_t needs an extension the writer doesn't enable, and
 // GLSL ES has none.
-var errNoInt64 = errors.New("GLSL has no 64-bit integer type")
+var errNoInt64 = unsupported.Errorf("GLSL has no 64-bit integer type")
 
 // errNoInt16 is the error for a 16-bit integer type or literal (enable
 // wgpu_int16). Rust naga does not target GLSL with them; its writer would
 // name int16_t without GL_EXT_shader_explicit_arithmetic_types_int16, which
 // glslang rejects, and GLSL ES has none.
-var errNoInt16 = errors.New("GLSL has no 16-bit integer type")
+var errNoInt16 = unsupported.Errorf("GLSL has no 16-bit integer type")
 
 // isInt16 reports whether inner is a 16-bit integer scalar or a vector of
 // them.
