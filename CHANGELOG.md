@@ -248,11 +248,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **DXIL: a declared array length became one store per element, with no bound**, when the variable was initialized,
-  so a shader of a few dozen bytes could exhaust memory (`var a: array<f32, 8000000>;`). Arrays of scalars in function
-  and private variables were affected since v0.20.4, which started writing their zero initialization; this release's
-  local split extended it to arrays of vectors and structs. Function and private variables above 64 KiB per entry point are now refused with an unsupported error
-  (WGSL requires 8192 bytes).
+- **DXIL: a declared array length became one store per element, with no bound** (P1-DXIL-103), when the variable
+  was initialized, so a shader of a few dozen bytes could exhaust memory (`var a: array<f32, 8000000>;`). Arrays of
+  scalars in function and private variables were affected since v0.20.4, which started writing their zero
+  initialization; this release's local split extended it to arrays of vectors and structs. Function and private
+  variables above 64 KiB per entry point are now refused with an unsupported error (WGSL requires 8192 bytes).
+- **DXIL: a small shader could keep `dxil.Compile` busy for minutes or run it out of memory** (P1-DXIL-104). The DXIL
+  backend inlines every helper function, as DXC does, and a chain of helpers that each call the next one twice inlines
+  into 2^n copies of the last: about one kilobyte of WGSL took over a minute, two kilobytes ran the process out of
+  memory. An application that compiles shaders it does not control could be stalled this way. `dxil.Compile` now
+  computes the inlined size of the entry point before inlining, in time linear in the module, and refuses an entry
+  point larger than 65536 expressions and statements with an error that matches `backend.ErrUnsupported`. The largest
+  entry point among the test corpora and the gg, g3d, ui and wgpu shaders is under 2000. Affected: every release
+  since v0.17.4 for helpers without side effects, and for every helper since v0.20.4 (measured on v0.20.3 and v0.21.2).
+  The other backends do not inline and are not affected.
 
 ## [0.21.2] - 2026-11-03
 
