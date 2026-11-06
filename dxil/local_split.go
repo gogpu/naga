@@ -10,6 +10,7 @@ import (
 
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/typifier"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -354,4 +355,77 @@ func constInit(fn *ir.Function, h ir.ExpressionHandle) bool {
 		return true
 	}
 	return false
+}
+
+// maxFunctionVariableBytes bounds the combined byte size of the function
+// variables of an entry point, its private variables included
+// (lowerPrivatesToLocals makes them locals). The bound is not about the
+// GPU: a declared array length is a literal in the source, and every
+// whole-variable initialization (the zero store of a local declared without
+// an initializer, zeroValueFor) and every whole-array copy is written element
+// by element, since DXIL has no aggregate store. DXC unrolls the same way
+// (a float[4096] = (float[4096])0 gives 4097 stores, a float[65536] takes it
+// 24 s); its HLSL SROA has no size threshold either (ShouldAttemptScalarRepl,
+// ScalarReplAggregatesHLSL.cpp:1231, "promote every struct / array"; the
+// SRThreshold, StructMemberThreshold and ArrayElementThreshold of
+// ScalarReplAggregates.cpp:67-77 belong to LLVM's generic SROA, which the
+// HLSL pipeline does not run). Unbounded, a shader of a few dozen bytes took
+// seconds per million elements and ran the process out of memory at eight
+// million. WGSL requires an implementation to support 8192 bytes of
+// function variables per function and 8192 of private ones, and asks one
+// that does not support more to issue an error ("Limits"); this allows
+// eight times that, the 4096 sixteen-byte temporary registers of D3D's
+// earlier shader models (kMaxTempRegCount, DxilConstants.h:103).
+const maxFunctionVariableBytes = 65536
+
+// variableBytesCap is where variableBytes stops counting: any size above
+// maxFunctionVariableBytes is refused, so a larger count only risks overflow.
+const variableBytesCap = maxFunctionVariableBytes + 1
+
+// checkFunctionVariableBytes refuses entry point ep when its function and
+// private variables take more than maxFunctionVariableBytes together.
+func checkFunctionVariableBytes(m *ir.Module, ep *ir.EntryPoint) error {
+	var total uint64
+	for _, lv := range ep.Function.LocalVars {
+		total = min(total+variableBytes(m, lv.Type), variableBytesCap)
+	}
+	if total > maxFunctionVariableBytes {
+		return unsupported.Errorf("dxil: entry point %q declares more than %d bytes of function and private variables, the most this backend supports",
+			ep.Name, maxFunctionVariableBytes)
+	}
+	return nil
+}
+
+// variableBytes is the byte size of a value of type ty by WGSL's layout
+// rules, saturating at variableBytesCap: an array counts its stride, or its
+// element's size when that is larger, times its length.
+func variableBytes(m *ir.Module, ty ir.TypeHandle) uint64 {
+	switch t := m.Types[ty].Inner.(type) {
+	case ir.ScalarType:
+		return uint64(t.Width)
+	case ir.AtomicType:
+		return uint64(t.Scalar.Width)
+	case ir.VectorType:
+		return uint64(t.Size) * uint64(t.Scalar.Width)
+	case ir.MatrixType:
+		rows := uint64(t.Rows)
+		if rows == 3 {
+			rows = 4 // a column is aligned as a vec4
+		}
+		return uint64(t.Columns) * rows * uint64(t.Scalar.Width)
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			return 0
+		}
+		elem := max(uint64(t.Stride), variableBytes(m, t.Base))
+		return min(elem*uint64(*t.Size.Constant), variableBytesCap)
+	case ir.StructType:
+		total := uint64(t.Span)
+		var members uint64
+		for _, member := range t.Members {
+			members = min(members+variableBytes(m, member.Type), variableBytesCap)
+		}
+		return min(max(total, members), variableBytesCap)
+	}
+	return 0
 }
