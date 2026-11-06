@@ -170,3 +170,25 @@ func TestNoUnreachableBlocks(t *testing.T) {
 		t.Errorf("only %d entry points checked", checked)
 	}
 }
+
+// The two short-circuit locals of the `||` chain are bools stored in both
+// arms of an if and loaded at its merge. DXC makes them SSA (its golden for
+// atomics.wgsl has `phi i1`); they must not stay `alloca i1`.
+func TestOrChainShortCircuitLocalsPromoted(t *testing.T) {
+	for _, tc := range orChainOptions {
+		t.Run(tc.name, func(t *testing.T) {
+			_, fn := emitMainModuleOpts(t, orChainSource, tc.opts())
+			for _, bb := range fn.BasicBlocks {
+				for _, in := range bb.Instructions {
+					if in.Kind != module.InstrAlloca {
+						continue
+					}
+					if ty := in.ResultType; ty != nil && ty.PointerElem != nil &&
+						ty.PointerElem.Kind == module.TypeInteger && ty.PointerElem.IntBits == 1 {
+						t.Errorf("alloca i1 %%%d: the short-circuit local is not promoted", in.ValueID)
+					}
+				}
+			}
+		})
+	}
+}

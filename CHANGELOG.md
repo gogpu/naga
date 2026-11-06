@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrong arm of wgpu's indirect-dispatch validation shader. Blocks no path from the entry reaches are now dropped
   before value numbering. 17 corpus entry points had one, 8 of them gg production entry points (fine.wgsl x3,
   flatten, draw_leaf, draw_reduce, pathtag_reduce, pathtag_scan); a new gate checks every corpus and gg entry point.
+- **DXIL: bool locals stored across an `if` stayed `alloca i1`** (P2-DXIL-092). The short-circuit locals of an `||`
+  or `&&` chain, and any bool local stored in the arms of an `if` and read after it, kept their stack slot, a shape
+  DXC never emits. They now become `phi i1` at the merge, as in DXC's output; the old exclusion assumed DXC's parser
+  rejects i1 phis, which its own output disproves.
 - **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
   `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
   failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are
