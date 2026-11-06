@@ -17,7 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `glsl` and `dxil` each get `SupportedCapabilities() valid.Capabilities` (Rust's `supported_capabilities`, plus
   `CLIP_DISTANCES` for HLSL which Rust leaves out; the DXIL list is ours), and `Compile` returns an error that wraps
   `backend.ErrUnsupported` and names the capability (`Capabilities(SHADER_FLOAT32_ATOMIC)`) for a module that needs one
-  outside the list. GLSL and HLSL used to write `atomic<f32>` code no compiler accepts. New in `valid`:
+  outside the list. With `Options.EntryPoint` set, only what that entry point's output holds counts: another entry
+  point that needs a capability the backend lacks does not block it (MSL and HLSL write every function, HLSL every
+  global too; SPIR-V, GLSL and DXIL write the functions and globals the entry point can use). GLSL and HLSL used to
+  write `atomic<f32>` code no compiler accepts. New in `valid`:
   `MissingCapabilities(module, supported)`, a light walk (about 1% of a SPIR-V compile) and `Capabilities.String`.
   Also refused now, as Rust's lists say: early depth test in HLSL, MSL and DXIL (it was ignored), and binding arrays in
   GLSL. wgpu offers none of these on those backends.
