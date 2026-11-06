@@ -5,9 +5,9 @@ package dxcvalidator
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -69,13 +69,16 @@ func dxcCreateInstance2(proc, pMalloc uintptr, clsid, iid *guid, out *unsafe.Poi
 	return ret
 }
 
-func validatorValidate(validator, blob unsafe.Pointer, flags uint32, resultOut *unsafe.Pointer) uintptr {
+// validatorValidate takes the blob and the result out-slot as process-heap
+// addresses: Validate calls back into Go through the blob, and the goroutine
+// stack may move during those callbacks.
+func validatorValidate(validator unsafe.Pointer, blob uintptr, flags uint32, resultOut uintptr) uintptr {
 	method := vtableMethod(validator, idxValidatorValidate)
 	ret, _, _ := syscall.SyscallN(method,
 		uintptr(validator),
-		uintptr(blob),
+		blob,
 		uintptr(flags),
-		uintptr(unsafe.Pointer(resultOut)))
+		resultOut)
 	return ret
 }
 
@@ -128,60 +131,139 @@ func readBlob(blob unsafe.Pointer) string {
 	return strings.TrimRight(string(data), "\x00\n\r ")
 }
 
-// --- IDxcBlob implemented in Go ---
+// --- IDxcBlob implemented in Go, living outside Go memory ---
 //
-// Mirrors Mesa's ShaderBlob C++ class. We expose an object whose first
-// qword is a vtable pointer; the vtable contains 5 function pointers
-// (IUnknown[3] + IDxcBlob[2]) implemented via syscall.NewCallback. dxil.dll
-// reads the vtable through standard COM dispatch and calls back into Go.
+// Mirrors Mesa's ShaderBlob C++ class: an object whose first qword is a
+// vtable pointer; the vtable holds 5 function pointers (IUnknown[3] +
+// IDxcBlob[2]) implemented via syscall.NewCallback. dxil.dll reads the vtable
+// through standard COM dispatch and calls back into Go.
+//
+// Mesa can keep its ShaderBlob on the C stack; we cannot keep ours on the Go
+// stack. dxil.dll calls the blob's methods while Validate runs, and each of
+// those callbacks runs Go code on the calling goroutine's stack, where the
+// runtime may grow or shrink, and so move, the stack (a collection that scans
+// the goroutine inside a callback shrinks a mostly unused stack). Any address
+// dxil.dll holds into that stack then points at the old copy: the
+// IDxcOperationResult it stores at the end of Validate lands there, and the
+// caller reads S_OK with a NULL result. So the blob object, the result
+// out-slot and the shader bytes share one process-heap allocation, which
+// neither moves nor is seen by the garbage collector.
+//
+// With DxcValidatorFlags_InPlaceEdit the result object keeps a reference to
+// the blob (it is the result's DXC_OUT_OBJECT), so the allocation is
+// reference counted as COM requires and freed by the last Release.
 
-type goBlob struct {
+// heapBlob is the layout of the allocation's header. The shader bytes follow
+// it directly.
+type heapBlob struct {
 	vtablePtr uintptr // MUST be first field
-	data      uintptr // process heap memory (allocOnProcessHeap)
+	data      uintptr // address of the shader bytes, right after the header
 	size      uintptr
+	refs      int32
+	_         int32
+	result    uintptr // IDxcOperationResult* out-slot of Validate
 }
 
-// goBlobVtable is package-global so the vtable address is stable for the
-// process lifetime. Initialized lazily under goBlobOnce.
-var (
-	goBlobOnce   sync.Once
-	goBlobVtable [5]uintptr
+const (
+	heapBlobHeaderSize   = unsafe.Sizeof(heapBlob{})
+	heapBlobResultOffset = unsafe.Offsetof(heapBlob{}.result)
+	pointerSize          = unsafe.Sizeof(uintptr(0))
+
+	hrENoInterface = 0x80004002 // E_NOINTERFACE
+	hrEPointer     = 0x80004003 // E_POINTER
 )
 
-func initGoBlobVtable() {
-	goBlobOnce.Do(func() {
-		// IUnknown::QueryInterface — return E_NOINTERFACE for everything;
-		// dxil.dll only needs IDxcBlob and reaches it via the vtable
-		// directly without an explicit QI call.
-		goBlobVtable[0] = syscall.NewCallback(func(this, riid, ppvObject uintptr) uintptr {
-			return 0x80004002 // E_NOINTERFACE
+// IID_IUnknown = 00000000-0000-0000-C000-000000000046
+var iidIUnknown = guid{0x00000000, 0x0000, 0x0000, [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+
+// IID_IDxcBlob = 8BA5FB08-5195-40E2-AC58-0D989C3A0102
+var iidIDxcBlob = guid{0x8BA5FB08, 0x5195, 0x40E2, [8]byte{0xAC, 0x58, 0x0D, 0x98, 0x9C, 0x3A, 0x01, 0x02}}
+
+// heapBlobVtable is package-global so the vtable address is stable for the
+// process lifetime. Initialized lazily under heapBlobOnce.
+var (
+	heapBlobOnce   sync.Once
+	heapBlobVtable [5]uintptr
+)
+
+func initHeapBlobVtable() {
+	heapBlobOnce.Do(func() {
+		// IUnknown::QueryInterface
+		heapBlobVtable[0] = syscall.NewCallback(func(this unsafe.Pointer, riid *guid, ppvObject *uintptr) uintptr {
+			if ppvObject == nil {
+				return hrEPointer
+			}
+			if riid == nil || (*riid != iidIUnknown && *riid != iidIDxcBlob) {
+				*ppvObject = 0
+				return hrENoInterface
+			}
+			atomic.AddInt32(&(*heapBlob)(this).refs, 1)
+			*ppvObject = uintptr(this)
+			return 0
 		})
 		// IUnknown::AddRef
-		goBlobVtable[1] = syscall.NewCallback(func(this uintptr) uintptr { return 1 })
+		heapBlobVtable[1] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			return uintptr(atomic.AddInt32(&(*heapBlob)(this).refs, 1))
+		})
 		// IUnknown::Release
-		goBlobVtable[2] = syscall.NewCallback(func(this uintptr) uintptr { return 0 })
+		heapBlobVtable[2] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			refs := atomic.AddInt32(&(*heapBlob)(this).refs, -1)
+			if refs == 0 {
+				_, _, _ = syscall.SyscallN(procHeapFree, heapHandle, 0, uintptr(this))
+			}
+			return uintptr(refs)
+		})
 		// IDxcBlob::GetBufferPointer
-		goBlobVtable[3] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
-			b := (*goBlob)(this)
+		heapBlobVtable[3] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			b := (*heapBlob)(this)
 			if b.size == 0 {
 				return 0
 			}
 			return b.data
 		})
 		// IDxcBlob::GetBufferSize
-		goBlobVtable[4] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
-			return (*goBlob)(this).size
+		heapBlobVtable[4] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			return (*heapBlob)(this).size
 		})
 	})
 }
 
-func newGoBlob(data, size uintptr) *goBlob {
-	initGoBlobVtable()
-	return &goBlob{
-		vtablePtr: uintptr(unsafe.Pointer(&goBlobVtable[0])),
-		data:      data,
-		size:      size,
+// newHeapBlob copies shader into a new process-heap IDxcBlob holding one
+// reference, owned by the caller (drop it with releaseHeapBlob). It returns
+// the object's address.
+func newHeapBlob(shader []byte) (uintptr, error) {
+	if err := ensureHeapProcs(); err != nil {
+		return 0, err
 	}
+	initHeapBlobVtable()
+	total := heapBlobHeaderSize + uintptr(len(shader))
+	// HEAP_ZERO_MEMORY = 0x8: the result out-slot starts NULL.
+	obj, _, _ := syscall.SyscallN(procHeapAlloc, heapHandle, 0x8, total)
+	if obj == 0 {
+		return 0, fmt.Errorf("HeapAlloc(%d) failed", total)
+	}
+	header := heapBlob{
+		vtablePtr: uintptr(unsafe.Pointer(&heapBlobVtable[0])),
+		data:      obj + heapBlobHeaderSize,
+		size:      uintptr(len(shader)),
+		refs:      1,
+	}
+	_, _, _ = syscall.SyscallN(procMoveMemory, obj, uintptr(unsafe.Pointer(&header)), heapBlobHeaderSize)
+	_, _, _ = syscall.SyscallN(procMoveMemory, header.data, uintptr(unsafe.Pointer(&shader[0])), header.size)
+	return obj, nil
+}
+
+// heapBlobResult reads the IDxcOperationResult out-slot of a heap blob.
+func heapBlobResult(obj uintptr) unsafe.Pointer {
+	var result unsafe.Pointer
+	_, _, _ = syscall.SyscallN(procMoveMemory, uintptr(unsafe.Pointer(&result)), obj+heapBlobResultOffset, pointerSize)
+	return result
+}
+
+// releaseHeapBlob drops the caller's reference through the object's own
+// IUnknown::Release, the same path dxil.dll uses.
+func releaseHeapBlob(obj uintptr) {
+	_, _, _ = syscall.SyscallN(heapBlobVtable[2], obj)
 }
 
 // --- Process heap allocator ---
@@ -189,7 +271,7 @@ func newGoBlob(data, size uintptr) *goBlob {
 // dxil.dll inspects buffer ownership via HeapSize on the Windows process
 // heap. Go-allocated slices live in Go's heap (VirtualAlloc) and would
 // trigger a NULL deref inside dxil.dll. Each blob is copied into a
-// HeapAlloc'd buffer before validation.
+// HeapAlloc'd buffer before validation (newHeapBlob).
 
 var (
 	heapProcsOnce  sync.Once
@@ -234,20 +316,6 @@ func ensureHeapProcs() error {
 		procMoveMemory = p.Addr()
 	})
 	return errHeapProcs
-}
-
-func allocOnProcessHeap(size int) (uintptr, func(), error) {
-	if err := ensureHeapProcs(); err != nil {
-		return 0, nil, err
-	}
-	ptr, _, _ := syscall.SyscallN(procHeapAlloc, heapHandle, 0, uintptr(size))
-	if ptr == 0 {
-		return 0, nil, fmt.Errorf("HeapAlloc(%d) failed", size)
-	}
-	free := func() {
-		_, _, _ = syscall.SyscallN(procHeapFree, heapHandle, 0, ptr)
-	}
-	return ptr, free, nil
 }
 
 // --- Standard COM task allocator ---
@@ -363,26 +431,22 @@ func (v *validatorImpl) validate(blob []byte) (Result, error) {
 		return Result{}, err
 	}
 
-	// Copy blob into HeapAlloc'd memory so dxil.dll's HeapSize check passes.
-	heapPtr, freeHeap, err := allocOnProcessHeap(len(blob))
+	// The blob object, its bytes and the result out-slot live on the process
+	// heap, never on the goroutine stack (see heapBlob).
+	dxcBlob, err := newHeapBlob(blob)
 	if err != nil {
 		return Result{}, err
 	}
-	defer freeHeap()
-	_, _, _ = syscall.SyscallN(procMoveMemory, heapPtr, uintptr(unsafe.Pointer(&blob[0])), uintptr(len(blob)))
-
-	dxcBlob := newGoBlob(heapPtr, uintptr(len(blob)))
-
-	var opResult unsafe.Pointer
-	hr := validatorValidate(v.validator, unsafe.Pointer(dxcBlob), validatorFlagInPlaceEdit, &opResult)
-	runtime.KeepAlive(dxcBlob)
-	runtime.KeepAlive(blob)
+	hr := validatorValidate(v.validator, dxcBlob, validatorFlagInPlaceEdit, dxcBlob+heapBlobResultOffset)
+	opResult := heapBlobResult(dxcBlob)
+	// The result, when there is one, holds its own reference to the blob.
+	releaseHeapBlob(dxcBlob)
 	if hr != 0 {
+		release(opResult)
 		return Result{}, fmt.Errorf("IDxcValidator::Validate HRESULT=0x%08x", hr)
 	}
-	// dxil.dll occasionally returns S_OK with a NULL IDxcOperationResult on
-	// large or unusual inputs (observed on debug-symbol-large-source.wgsl).
-	// Treat that as a validate-time error instead of dereferencing NULL.
+	// validateWithOptDebugModule sets the result whenever it returns S_OK;
+	// a NULL here is a broken contract, reported instead of dereferenced.
 	if opResult == nil {
 		return Result{}, fmt.Errorf("IDxcValidator::Validate returned S_OK with NULL IDxcOperationResult")
 	}

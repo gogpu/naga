@@ -52,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or `&&` chain, and any bool local stored in the arms of an `if` and read after it, kept their stack slot, a shape
   DXC never emits. They now become `phi i1` at the merge, as in DXC's output; the old exclusion assumed DXC's parser
   rejects i1 phis, which its own output disproves.
+- **DXIL: `dxil.Validate` at `ValidateFull` failed or crashed at random on Windows** (P1-DXIL-101). The IDxcBlob
+  handed to dxil.dll and the slot for its result lived on the goroutine stack, while dxil.dll calls back into Go
+  through that blob during validation. When the runtime moved the stack in such a callback (a collection shrinking
+  it, or growth), dxil.dll wrote the result into the old copy, and Validate reported "Validate returned S_OK with
+  NULL IDxcOperationResult" for a valid container, or dxil.dll called through a stale pointer and the process
+  died. The blob, its bytes and the result slot now live together in one process-heap allocation, with real COM
+  reference counting (the result keeps a reference to the blob) and QueryInterface for IUnknown and IDxcBlob.
 - **DXIL: vector compute built-ins in an input struct were refused** (P2-DXIL-093). `local_invocation_id`,
   `global_invocation_id`, `workgroup_id` and `num_workgroups` as members of a compute entry point's input struct
   failed with "compute builtin … not supported as struct member (scalar only)". They are now read as they are
