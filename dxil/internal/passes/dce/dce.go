@@ -203,7 +203,7 @@ func (cd *controlDeps) stmt(block ir.Block, i int, breakLive, continueLive bool)
 		}
 		return holds
 	case ir.StmtLoop:
-		return cd.loop(sk) || feedsLivePhi(cd.fn, block, i, cd.live)
+		return cd.loop(sk, feedsLivePhi(cd.fn, block, i, cd.live))
 	default:
 		return cd.simpleStmt(sk, breakLive, continueLive)
 	}
@@ -250,14 +250,16 @@ func (cd *controlDeps) switchCases(sk ir.StmtSwitch, breakLive, continueLive boo
 }
 
 // loop reports whether a loop holds live content other than its own
-// breaks and continues; when it does, it marks its break-if and, walking
+// breaks and continues, or is kept, as a live phi right after it keeps it
+// (feedsLivePhi); when either holds, it marks its break-if and, walking
 // the body again with them counted, the conditions of the ifs that leave
-// it. A break or continue in a loop always targets that loop or one nested
-// in it, so the answer does not depend on what is around the loop.
-func (cd *controlDeps) loop(sk ir.StmtLoop) bool {
+// it, since which exit runs decides the phi as much as a live body. A break
+// or continue in a loop always targets that loop or one nested in it, so
+// the answer does not depend on what is around the loop.
+func (cd *controlDeps) loop(sk ir.StmtLoop, kept bool) bool {
 	body := cd.block(sk.Body, false, false)
 	cont := cd.block(sk.Continuing, false, false)
-	if !body && !cont {
+	if !body && !cont && !kept {
 		return false
 	}
 	cd.block(sk.Body, true, true)
@@ -540,7 +542,7 @@ func dropDeadControlFlow(
 			st.Kind = sk
 
 		case ir.StmtLoop:
-			if !cd.loop(sk) && !feedsLivePhi(fn, block, i, live) {
+			if !cd.loop(sk, feedsLivePhi(fn, block, i, live)) {
 				dropped = true
 				continue
 			}
@@ -714,7 +716,8 @@ func doSweepBlock(
 			result = append(result, sweepIf(fn, sk, deadLocals, live, localPtrs))
 
 		case ir.StmtLoop:
-			if swept, keep := sweepLoop(fn, sk, deadLocals, live, localPtrs); keep {
+			kept := feedsLivePhi(fn, block, i, live)
+			if swept, keep := sweepLoop(fn, sk, kept, deadLocals, live, localPtrs); keep {
 				result = append(result, swept)
 			}
 
@@ -759,17 +762,20 @@ func sweepIf(
 // sweepLoop recursively sweeps a loop's body and continuing block and
 // reports whether the loop should be kept. It eliminates loops whose body
 // has no observable side effects after sweeping — this handles the
-// synthetic wrapper loops from the early-return inline pattern.
+// synthetic wrapper loops from the early-return inline pattern. A loop a
+// live phi right after it reads (kept, feedsLivePhi) stays whatever its
+// body holds.
 func sweepLoop(
 	fn *ir.Function,
 	sk ir.StmtLoop,
+	kept bool,
 	deadLocals map[uint32]bool,
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
 ) (ir.Statement, bool) {
 	body := doSweepBlock(fn, sk.Body, deadLocals, live, localPtrs)
 	cont := doSweepBlock(fn, sk.Continuing, deadLocals, live, localPtrs)
-	if loopBodyIsDead(body, cont, sk.BreakIf, live) {
+	if !kept && loopBodyIsDead(body, cont, sk.BreakIf, live) {
 		return ir.Statement{}, false
 	}
 	return ir.Statement{Kind: ir.StmtLoop{
