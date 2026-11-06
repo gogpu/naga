@@ -4,8 +4,12 @@
 package dxil
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // clipDistancesSource is a vertex shader writing @builtin(clip_distances)
@@ -46,5 +50,24 @@ func TestClipDistancesEveryElementWritten(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A clip_distances array of 5 to 8 needs a second SV_ClipDistance signature
+// element, which the emitter does not write yet (P1-DXIL-082): Compile
+// refuses it with an unsupported error naming the size, instead of returning
+// a container IDxcValidator rejects ("Not all elements of output
+// SV_ClipDistance were written").
+func TestClipDistancesOverFourRefused(t *testing.T) {
+	for _, n := range []int{5, 6, 7, 8} {
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			_, _, err := Compile(lowerSource(t, clipDistancesSource(n, false)), DefaultOptions())
+			if !errors.Is(err, backend.ErrUnsupported) {
+				t.Fatalf("Compile: err = %v, want backend.ErrUnsupported", err)
+			}
+			if want := fmt.Sprintf("array<f32, %d>", n); !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not name %s", err, want)
+			}
+		})
 	}
 }

@@ -129,8 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   member as one scalar, so a vertex shader returning `@builtin(clip_distances) clip: array<f32, N>` stored element 0
   and IDxcValidator rejected it ("Not all elements of output SV_ClipDistance were written"); PSV0 also counted one
   output row per element where the signature and the metadata declare one row with a column per element. Every
-  element is now stored in its column. An array of 5 to 8 is still rejected: it needs a second `SV_ClipDistance`
-  signature element.
+  element is now stored in its column. An array of 5 to 8 is refused by `dxil.Compile` with an unsupported error
+  (`backend.ErrUnsupported`) naming the size: it needs a second `SV_ClipDistance` signature element, not written yet.
 - **DXIL: `subgroupAny` and `subgroupAll` gave a u32 where the shader has a bool** (P1-DXIL-085). The i1 that
   `dx.op.waveAnyTrue` / `waveAllTrue` return was widened to an i32, so `select(0u, 1u, subgroupAny(c))` was rejected
   ("Invalid type for value") and `!subgroupAll(c)` or an `if` on it gave a malformed record. The result is now the i1
