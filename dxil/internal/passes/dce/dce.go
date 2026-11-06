@@ -164,12 +164,39 @@ type controlDeps struct {
 	localPtrs  map[ir.ExpressionHandle]uint32
 	// mark marks an expression and its operands live; nil only asks.
 	mark func(ir.ExpressionHandle)
+	// holds memoizes block's answer per block and break/continue setting.
+	// A loop asks about its body and then walks it again with its breaks
+	// counted, and the loops nested in it do the same, so without it a walk
+	// visits about 2^depth blocks for depth nested loops. With mark set, a
+	// condition marked later in the walk can make an answer given earlier
+	// stale; liveness repeats the walk until no mark adds anything, and in
+	// that last walk every answer is exact.
+	holds map[blockKey]bool
+	// walks counts the blocks walked, for the test that bounds it.
+	walks int
+}
+
+// blockKey names a non-empty block (the IR never shares a block's
+// backing array with another block) and the break/continue setting it is
+// asked about.
+type blockKey struct {
+	first                   *ir.Statement
+	n                       int
+	breakLive, continueLive bool
 }
 
 // block reports whether block holds live content. breakLive and
 // continueLive say whether the targets of a break and of a continue in it
 // are live.
 func (cd *controlDeps) block(block ir.Block, breakLive, continueLive bool) bool {
+	if len(block) == 0 {
+		return false
+	}
+	key := blockKey{first: &block[0], n: len(block), breakLive: breakLive, continueLive: continueLive}
+	if holds, ok := cd.holds[key]; ok {
+		return holds
+	}
+	cd.walks++
 	holds := false
 	for i := range block {
 		// Every statement is visited, so the conditions in it are marked
@@ -178,6 +205,10 @@ func (cd *controlDeps) block(block ir.Block, breakLive, continueLive bool) bool 
 			holds = true
 		}
 	}
+	if cd.holds == nil {
+		cd.holds = make(map[blockKey]bool)
+	}
+	cd.holds[key] = holds
 	return holds
 }
 
@@ -503,11 +534,19 @@ func dropDeadControlFlow(
 	live []bool,
 	localPtrs map[ir.ExpressionHandle]uint32,
 ) (ir.Block, bool) {
-	cd := controlDeps{mod: mod, fn: fn, live: live, deadLocals: deadLocals, localPtrs: localPtrs}
+	cd := &controlDeps{mod: mod, fn: fn, live: live, deadLocals: deadLocals, localPtrs: localPtrs}
+	return cd.dropDead(block)
+}
+
+// dropDead is dropDeadControlFlow with one controlDeps for every nesting
+// level, so that its memo answers each loop's question once (read-only: mark
+// is nil, so the answers do not change).
+func (cd *controlDeps) dropDead(block ir.Block) (ir.Block, bool) {
+	fn, deadLocals, live, localPtrs := cd.fn, cd.deadLocals, cd.live, cd.localPtrs
 	out := make(ir.Block, 0, len(block))
 	dropped := false
 	nested := func(b ir.Block) ir.Block {
-		b, d := dropDeadControlFlow(mod, fn, b, deadLocals, live, localPtrs)
+		b, d := cd.dropDead(b)
 		dropped = dropped || d
 		return b
 	}
