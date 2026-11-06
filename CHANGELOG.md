@@ -204,7 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GLSL: 64-bit integers produced GLSL that does not compile.** `i64`/`u64` types were written as
   `int64_t`/`uint64_t` and their literals as `5000000000L`, without the extension that declares them; glslang rejects
   the output at the first `int64_t`, yet Compile reported success. GLSL now refuses 64-bit integer types and literals
-  with "GLSL has no 64-bit integer type", as Rust naga does.
+  with "GLSL has no 64-bit integer type", as Rust naga does. That error, and the ones for 16-bit integers and 16-bit
+  floats, wrap `backend.ErrUnsupported`: `glsl.SupportedCapabilities` lists `SHADER_INT64`, `SHADER_INT16` and
+  `SHADER_FLOAT16` as Rust's list does, and its doc says the writer refuses those types.
 - **DXIL: locals read by part read uninitialized memory** (P0-DXIL-091). A local that is never stored and is read
   through a component, an element or a member never got its initial value: `var v = vec4f(...); v[i]` (even `v.y`),
   an array of arrays `xs[i][j]`, a zero-initialized `var xs: array<vec2f, 2>; xs[i]` and an array of structs read
