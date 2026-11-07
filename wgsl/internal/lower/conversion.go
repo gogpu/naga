@@ -1,3 +1,6 @@
+// Portions of this file are ported from gfx-rs/wgpu naga/src/front/wgsl/lower/conversion.rs,
+// Copyright (c) The gfx-rs developers, MIT License (see third_party/gfx-rs-naga/LICENSE.MIT).
+
 package lower
 
 import (

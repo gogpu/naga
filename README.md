@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus; known differences are recorded per output with a reason. 29 own test shaders; 929 golden outputs
+- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus (SPIR-V by instruction counts); known differences are recorded per output with a reason. 29 own test shaders; 914 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12, shader models 5.0–6.7 (FXC and DXC); helpers get one exit where FXC would miscompile an early return
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**238 of 267 corpus entry points pass IDxcValidator**; **113 of 177 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (liveness through control dependence, dead loops removed), SROA (struct decomposition, aggregate locals split per element), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. World's first Pure Go DXIL generator.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**238 of 267 corpus entry points pass IDxcValidator**; **113 of 177 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (liveness through control dependence, dead loops removed), SROA (struct decomposition, aggregate locals split per element), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -151,7 +151,7 @@ go install github.com/gogpu/naga/cmd/spvdis@latest
 spvdis shader.spv
 
 # DXIL validator — Pure Go wrapper around Microsoft IDxcValidator (Windows)
-# First Pure Go integration with dxil.dll, zero CGO. Runs a three-layer
+# Calls dxil.dll with zero CGO. Runs a three-layer
 # defensive pre-check (DXBC structural + LLVM bitcode metadata walker)
 # before handing blobs to IDxcValidator::Validate.
 go install github.com/gogpu/naga/cmd/dxilval@latest
@@ -338,7 +338,7 @@ All backends follow the DXIL internal package pattern — implementation in `int
 
 - [WGSL Specification](https://www.w3.org/TR/WGSL/)
 - [SPIR-V Specification](https://registry.khronos.org/SPIR-V/)
-- [naga (Rust)](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — the Rust implementation this project was ported from (see [UPSTREAM](UPSTREAM))
+- [naga (Rust)](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — the Rust implementation whose design this project builds on (see [UPSTREAM](UPSTREAM))
 
 ### Rust Naga Compatibility
 
@@ -394,6 +394,11 @@ We welcome contributions! Areas where help is needed:
    <img alt="Star History Chart" src="https://api.starhistory.io/png?repos=gogpu/naga" width="800" />
  </picture>
 </a>
+
+## Acknowledgments
+
+naga is an independent Go implementation. It builds on the design of [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga),
+part of the gfx-rs/wgpu project, and is tested against its WGSL shader corpus. Thanks to its authors and contributors.
 
 ## License
 
