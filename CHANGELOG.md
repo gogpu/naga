@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-11-08
+
+A small patch with three fixes gogpu/wgpu ran into: two GLSL outputs that GL drivers rejected, and WGSL compound
+assignment through a pointer parameter. It also adds a short acknowledgment of Rust naga and updates the README.
+
 ### Fixed
 
 - **GLSL: a u32 mip level or sample was not cast to `int` in bounds-checked image loads** (P1-GLSL-013). Under the
@@ -3683,7 +3688,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.2...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.4...HEAD
+[0.21.4]: https://github.com/gogpu/naga/compare/v0.21.3...v0.21.4
+[0.21.3]: https://github.com/gogpu/naga/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/gogpu/naga/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/gogpu/naga/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/gogpu/naga/compare/v0.20.5...v0.21.0
