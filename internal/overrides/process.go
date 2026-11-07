@@ -1,5 +1,5 @@
-// Package overrides replaces pipeline-overridable constants by their values:
-// a port of Rust naga's back::pipeline_constants::process_overrides on the
+// Package overrides replaces pipeline-overridable constants by their values,
+// following Rust naga's back::pipeline_constants::process_overrides, on the
 // shared constant evaluator (ADR-008).
 package overrides
 

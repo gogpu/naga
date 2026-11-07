@@ -7,7 +7,7 @@ import (
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
-// Type constructor expressions, ported from Rust naga's
+// Type constructor expressions, following Rust naga's
 // front/wgsl/lower/construction.rs. Every constructor form (`vec3<f32>(...)`,
 // `vec3(...)`, `vec3f(...)`, `f32(...)`, `S(...)`, `array(...)`) is lowered
 // here: the arguments are lowered as possibly-abstract values, converted with

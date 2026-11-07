@@ -1,15 +1,19 @@
-gogpu/naga is an independent Go implementation of a WGSL shader compiler. Its
-architecture and IR were ported from Rust naga, part of the gfx-rs/wgpu project
-(MIT OR Apache-2.0). This file records where the port started and what it is
-checked against.
+gogpu/naga is an independent Go implementation of a WGSL shader compiler. It is
+built on the design of Rust naga, part of the gfx-rs/wgpu project
+(MIT OR Apache-2.0). This file records the reference version we started from,
+what we check against, and which files are derived from Rust naga's code.
 
-Port starting point
+Design reference at the start
   Repository: https://github.com/gfx-rs/wgpu
   Path:       naga/
   Commit:     90db08157ccd5a5a25564219f294d023d4253d5a (2025-12-06)
   Version:    wgpu 27.0.0 (naga shares the workspace version)
-  Notes:      a port to Go, not a line-by-line translation; reference code
-              downloaded on 2025-12-07.
+  Notes:      reference code downloaded on 2025-12-07.
+
+Files derived from Rust naga's code
+  wgsl/internal/lower/conversion.go  <- naga/src/front/wgsl/lower/conversion.rs
+  Copyright (c) The gfx-rs developers, MIT License:
+  third_party/gfx-rs-naga/LICENSE.MIT.
 
 Test corpus
   snapshot/testdata/rust/ vendors Rust naga's WGSL test inputs, test parameters

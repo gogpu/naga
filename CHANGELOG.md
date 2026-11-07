@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **GLSL: a u32 mip level or sample was not cast to `int` in bounds-checked image loads** (P1-GLSL-013). Under the
+  Restrict and ReadZeroSkipWrite `ImageLoad` policies, `clamp`, `textureSize`, `texelFetch` and the bounds-check
+  comparisons got the unsigned value as is. GLSL has no implicit `uint` to `int` conversion, so drivers rejected the
+  shader ("cannot convert from uint to int", "textureSize: no matching overloaded function"). This hit every
+  `textureLoad` with a u32 level compiled with ReadZeroSkipWrite, which gogpu/wgpu uses on GL 4.30 and later.
+  Unchecked already cast it. Rust naga has the same bug under Restrict and in the ReadZeroSkipWrite condition.
+- **GLSL: `@builtin(primitive_index)` failed to compile on GLSL ES** (BUG-GLSL-PRIMITIVE-ID-001). `gl_PrimitiveID` is
+  an `int`, and ES has no implicit conversion to the `u32` WGSL declares. It is now read as `uint(gl_PrimitiveID)`.
+  Below ES 3.20 and GLSL 1.50 the output requires `GL_OES_geometry_shader` / `GL_ARB_geometry_shader4`, as Rust naga
+  writes it.
+- **WGSL: compound assignment through a pointer parameter was refused** (P1-WGSL-108). `*p += x`, `(*p)++` and the
+  other compound forms, with `p` a function parameter of pointer type, failed validation with "Operation Add can't
+  work with Pointer": the current value was not loaded through the parameter. The left side of an assignment is
+  always a reference, so it is now always loaded, as Rust naga does. Local pointers (`let p = &v;`) were not affected.
+
+### Documentation
+
+- README: a short Acknowledgments section; the golden-output count is updated (914); two claims we cannot prove are
+  removed; the note that SPIR-V is compared with Rust naga's by instruction counts is added. UPSTREAM records the
+  design reference and the one file derived from Rust naga's code, with its MIT notice in
+  `third_party/gfx-rs-naga/`.
+
+### Known issues
+
+- **WGSL: the chain limits added in 0.21.3 are stricter than Rust naga's** (P1-WGSL-106). A chain of more than 127
+  `else if` and an expression deeper than 512 operators are refused. Rust naga 14328f4 accepts both, for example 500
+  `else if` and 600 unary minus. No shader in the test corpora or in gg, g3d or ui comes near either limit; the
+  deepest expression there is 72. The next patch moves the limits back to Rust's floor.
+
 ## [0.21.3] - 2026-11-06
 
 A patch of fixes, mostly DXIL, found reviewing 0.21.2 and testing it on the GPU with gogpu/wgpu, plus three fixes for
