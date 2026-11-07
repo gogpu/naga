@@ -54,6 +54,63 @@ func TestRestrictBoundsChecks(t *testing.T) {
 	}
 }
 
+// TestImageLoadUnsignedLevelAndSample: GLSL's texelFetch, textureSize, clamp
+// and the comparisons in the bounds checks take an int level or sample, so a
+// u32 one is cast to int under every ImageLoad policy (P1-GLSL-013). Without
+// the cast glslang and the GL drivers reject the shader ("cannot convert from
+// uint to int", "textureSize: no matching overloaded function"); wgpu uses
+// ReadZeroSkipWrite on GL 4.30+. Rust naga 14328f4 writes the u32 level as is
+// under Restrict and in the ReadZeroSkipWrite condition and textureSize (the
+// same bug); it casts only the texelFetch level of ReadZeroSkipWrite.
+func TestImageLoadUnsignedLevelAndSample(t *testing.T) {
+	module := lowerWGSL(t, `
+@group(0) @binding(0) var tex: texture_2d<u32>;
+@group(0) @binding(1) var ms: texture_multisampled_2d<f32>;
+@group(0) @binding(2) var<uniform> lvl: u32;
+@fragment fn main() -> @location(0) vec4<f32> {
+    let a = textureLoad(tex, vec2<i32>(0, 0), lvl);
+    let b = textureLoad(ms, vec2<i32>(0, 0), lvl);
+    return vec4<f32>(a) + b;
+}`)
+	for _, tc := range []struct {
+		policy backend.BoundsCheckPolicy
+		want   []string
+	}{
+		{backend.BoundsCheckRestrict, []string{
+			"int _e6_clamped_lod = clamp(int(_e5), 0, textureQueryLevels(_group_0_binding_0_fs) - 1);",
+			"clamp(int(_e12), 0, textureSamples(_group_0_binding_1_fs) - 1)",
+		}},
+		{backend.BoundsCheckReadZeroSkipWrite, []string{
+			"(int(_e5) < textureQueryLevels(_group_0_binding_0_fs) && all(lessThan(ivec2(0, 0), " +
+				"textureSize(_group_0_binding_0_fs, int(_e5)))) ? texelFetch(_group_0_binding_0_fs, ivec2(0, 0), int(_e5))",
+			"(int(_e12) < textureSamples(_group_0_binding_1_fs) && all(lessThan(ivec2(0, 0), " +
+				"textureSize(_group_0_binding_1_fs))) ? texelFetch(_group_0_binding_1_fs, ivec2(0, 0), int(_e12))",
+		}},
+		{backend.BoundsCheckUnchecked, []string{
+			"texelFetch(_group_0_binding_0_fs, ivec2(0, 0), int(_e5))",
+			"texelFetch(_group_0_binding_1_fs, ivec2(0, 0), int(_e12))",
+		}},
+	} {
+		opts := glsl.Options{LangVersion: glsl.Version430, BoundsCheckPolicies: uncheckedPolicies}
+		opts.BoundsCheckPolicies.ImageLoad = tc.policy
+		code, _, err := glsl.Compile(module, opts)
+		if err != nil {
+			t.Fatalf("ImageLoad %v: %v", tc.policy, err)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(code, w) {
+				t.Errorf("ImageLoad %v: missing %q in:\n%s", tc.policy, w, code)
+			}
+		}
+		// Negative: the u32 uniform loads (_e5, _e12) never reach an int operand uncast.
+		for _, bad := range []string{"(_e5,", "(_e5 <", ", _e5)", "(_e12,", "(_e12 <", ", _e12)"} {
+			if strings.Contains(code, bad) {
+				t.Errorf("ImageLoad %v: uncast unsigned operand %q in:\n%s", tc.policy, bad, code)
+			}
+		}
+	}
+}
+
 func TestReadZeroSkipWriteIndicesAreRefused(t *testing.T) {
 	module := lowerWGSL(t, `@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`)
 	for _, p := range []backend.BoundsCheckPolicies{

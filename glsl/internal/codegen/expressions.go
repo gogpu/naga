@@ -1522,6 +1522,21 @@ func (w *Writer) writeImageLoad(l ir.ExprImageLoad, handle ir.ExpressionHandle) 
 	return load, err
 }
 
+// writeIntOperand writes an image load's level or sample. texelFetch,
+// textureSize, clamp and the bounds-check comparisons take an int there, and
+// GLSL has no implicit uint to int conversion, so an unsigned operand is cast
+// (P1-GLSL-013). Rust naga casts it only in texelFetch.
+func (w *Writer) writeIntOperand(h ir.ExpressionHandle) (string, error) {
+	s, err := w.writeExpression(h)
+	if err != nil {
+		return "", err
+	}
+	if _, isUint := w.isUnsignedExpr(h); isUint {
+		return "int(" + s + ")", nil
+	}
+	return s, nil
+}
+
 // writeImageLoadUnchecked writes texelFetch without bounds checking.
 func (w *Writer) writeImageLoadUnchecked(l ir.ExprImageLoad, image, coordStr string) (string, error) {
 	sampleOrLevel := l.Sample
@@ -1529,12 +1544,9 @@ func (w *Writer) writeImageLoadUnchecked(l ir.ExprImageLoad, image, coordStr str
 		sampleOrLevel = l.Level
 	}
 	if sampleOrLevel != nil {
-		arg, err := w.writeExpression(*sampleOrLevel)
+		arg, err := w.writeIntOperand(*sampleOrLevel)
 		if err != nil {
 			return "", err
-		}
-		if _, isUint := w.isUnsignedExpr(*sampleOrLevel); isUint {
-			arg = fmt.Sprintf("int(%s)", arg)
 		}
 		return fmt.Sprintf("texelFetch(%s, %s, %s)", image, coordStr, arg), nil
 	}
@@ -1553,7 +1565,7 @@ func (w *Writer) writeImageLoadRestrict(l ir.ExprImageLoad, handle ir.Expression
 
 	if isMulti && l.Sample != nil {
 		// Multisampled: clamp sample
-		sampleExpr, err := w.writeExpression(*l.Sample)
+		sampleExpr, err := w.writeIntOperand(*l.Sample)
 		if err != nil {
 			return "", err
 		}
@@ -1600,29 +1612,34 @@ func (w *Writer) writeImageLoadReadZero(l ir.ExprImageLoad, image, coordStr stri
 	var out strings.Builder
 	isMulti := imgType != nil && imgType.Multisampled
 
+	// The level and sample are int operands of every call and comparison below.
+	var levelExpr, sampleExpr string
+	var err error
+	if !isMulti && l.Level != nil {
+		if levelExpr, err = w.writeIntOperand(*l.Level); err != nil {
+			return "", err
+		}
+	}
+	if isMulti && l.Sample != nil {
+		if sampleExpr, err = w.writeIntOperand(*l.Sample); err != nil {
+			return "", err
+		}
+	}
+
 	// Build condition: (level < levels && coords < size) or (sample < samples && coords < size)
 	out.WriteString("(")
 
 	// Level/sample bounds check
-	if !isMulti && l.Level != nil {
-		levelExpr, err := w.writeExpression(*l.Level)
-		if err != nil {
-			return "", err
-		}
+	if levelExpr != "" {
 		fmt.Fprintf(&out, "%s < textureQueryLevels(%s) && ", levelExpr, image)
 	}
-	if isMulti && l.Sample != nil {
-		sampleExpr, err := w.writeExpression(*l.Sample)
-		if err != nil {
-			return "", err
-		}
+	if sampleExpr != "" {
 		fmt.Fprintf(&out, "%s < textureSamples(%s) && ", sampleExpr, image)
 	}
 
 	// Coordinate bounds check
 	texSizeLevel := ""
-	if !isMulti && l.Level != nil {
-		levelExpr, _ := w.writeExpression(*l.Level)
+	if levelExpr != "" {
 		texSizeLevel = fmt.Sprintf(", %s", levelExpr)
 	}
 	if coordVecSize <= 1 {
@@ -1637,11 +1654,9 @@ func (w *Writer) writeImageLoadReadZero(l ir.ExprImageLoad, image, coordStr stri
 	out.WriteString(", ")
 	out.WriteString(coordStr)
 
-	if isMulti && l.Sample != nil {
-		sampleExpr, _ := w.writeExpression(*l.Sample)
+	if sampleExpr != "" {
 		fmt.Fprintf(&out, ", %s", sampleExpr)
-	} else if l.Level != nil {
-		levelExpr, _ := w.writeExpression(*l.Level)
+	} else if levelExpr != "" {
 		fmt.Fprintf(&out, ", %s", levelExpr)
 	}
 	out.WriteString(")")

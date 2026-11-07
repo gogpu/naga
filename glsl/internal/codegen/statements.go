@@ -1201,7 +1201,7 @@ func (w *Writer) maybeEmitClampedLod(handle ir.ExpressionHandle) error {
 	if err != nil {
 		return err
 	}
-	levelExpr, err := w.writeExpression(*imgLoad.Level)
+	levelExpr, err := w.writeIntOperand(*imgLoad.Level)
 	if err != nil {
 		return err
 	}
