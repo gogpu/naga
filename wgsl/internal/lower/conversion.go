@@ -552,7 +552,7 @@ func (l *Lowerer) lowerAssignValue(pointer ir.ExpressionHandle, op parser.TokenK
 			goal, hasGoal = ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, true
 		}
 		var err error
-		if loaded, err = l.applyLoadRule(pointer); err != nil {
+		if loaded, err = l.loadAssignTarget(pointer); err != nil {
 			return 0, err
 		}
 	}
@@ -610,11 +610,22 @@ func (l *Lowerer) lowerIncrementValue(pointer ir.ExpressionHandle, op parser.Tok
 	if err != nil {
 		return 0, err
 	}
-	left, err := l.applyLoadRule(pointer)
+	left, err := l.loadAssignTarget(pointer)
 	if err != nil {
 		return 0, err
 	}
 	return l.addExpression(ir.Expression{Kind: ir.ExprBinary{Op: l.assignOpToBinary(op), Left: left, Right: right}})
+}
+
+// loadAssignTarget loads the current value of an assignment's left side for a
+// compound assignment or an increment. The left side is always a reference,
+// whatever expression produces the pointer (a variable, an access chain, or a
+// pointer parameter dereferenced with *), so it is always loaded, as Rust
+// naga's apply_load_rule on Typed::Reference. applyLoadRule decides by the
+// expression kind and leaves a FunctionArgument as is, which gave `*p += x`
+// the pointer itself (P1-WGSL-108).
+func (l *Lowerer) loadAssignTarget(pointer ir.ExpressionHandle) (ir.ExpressionHandle, error) {
+	return l.addExpression(ir.Expression{Kind: ir.ExprLoad{Pointer: pointer}})
 }
 
 // abstractRule says whether a declaration concretizes an abstract
