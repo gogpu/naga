@@ -13,7 +13,7 @@ smooth in vec4 _vs2fs_location0;
 layout(location = 0) out vec4 _fs2p_location0;
 
 void main() {
-    FragmentIn in_ = FragmentIn(_vs2fs_location0, gl_PrimitiveID);
+    FragmentIn in_ = FragmentIn(_vs2fs_location0, uint(gl_PrimitiveID));
     uint _e4 = _immediates_binding_fs.index;
     if ((in_.primitive_index == _e4)) {
         _fs2p_location0 = in_.color;

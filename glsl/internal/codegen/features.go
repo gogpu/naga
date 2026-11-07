@@ -42,11 +42,15 @@ const (
 	FeatureSubgroupOperations    Features = 1 << 24
 	FeatureTextureAtomics        Features = 1 << 25
 	FeatureShaderBarycentrics    Features = 1 << 26
+	// FeaturePrimitiveIndex is gl_PrimitiveID in a fragment shader: core from
+	// GLSL 1.50 and ES 3.20, below them from GL_ARB_geometry_shader4 and
+	// GL_OES_geometry_shader (Rust naga's PRIMITIVE_INDEX).
+	FeaturePrimitiveIndex Features = 1 << 27
 	// FeatureDrawIndex is gl_DrawID, core in GLSL 4.60 and on older desktop
 	// versions gl_DrawIDARB of GL_ARB_shader_draw_parameters. Rust naga has
 	// no such feature: it writes gl_DrawID at every version, which no GLSL
 	// below 4.60 declares.
-	FeatureDrawIndex Features = 1 << 27
+	FeatureDrawIndex Features = 1 << 28
 )
 
 // featuresManager collects and writes required features.
@@ -93,6 +97,7 @@ var featureNames = []struct {
 	{FeatureSubgroupOperations, "SUBGROUP_OPERATIONS"},
 	{FeatureTextureAtomics, "TEXTURE_ATOMICS"},
 	{FeatureShaderBarycentrics, "SHADER_BARYCENTRICS"},
+	{FeaturePrimitiveIndex, "PRIMITIVE_INDEX"},
 	{FeatureDrawIndex, "DRAW_INDEX"},
 }
 
@@ -298,6 +303,14 @@ func (fm *featuresManager) writeExtensions(w *Writer) {
 	if fm.contains(FeatureShaderBarycentrics) {
 		w.WriteLine("#extension GL_EXT_fragment_shader_barycentric : require")
 	}
+
+	if fm.contains(FeaturePrimitiveIndex) {
+		if opts.LangVersion.ES && opts.LangVersion.versionLessThan(320) {
+			w.WriteLine("#extension GL_OES_geometry_shader : require")
+		} else if !opts.LangVersion.ES && opts.LangVersion.versionLessThan(150) {
+			w.WriteLine("#extension GL_ARB_geometry_shader4 : require")
+		}
+	}
 }
 
 // collectFeatures scans the module and entry point to determine required features.
@@ -421,6 +434,9 @@ func (w *Writer) checkVaryingBinding(binding *ir.Binding, typeHandle ir.TypeHand
 		}
 		if b.Builtin == ir.BuiltinBarycentric || b.Builtin == ir.BuiltinBarycentricNoPerspective {
 			w.features.request(FeatureShaderBarycentrics)
+		}
+		if b.Builtin == ir.BuiltinPrimitiveIndex {
+			w.features.request(FeaturePrimitiveIndex)
 		}
 		if b.Builtin == ir.BuiltinDrawIndex {
 			w.features.request(FeatureInstanceIndex) // Rust: INSTANCE_INDEX for DrawIndex too

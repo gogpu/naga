@@ -3079,7 +3079,9 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 	case ir.BuiltinPointSize:
 		return "gl_PointSize"
 	case ir.BuiltinPrimitiveIndex:
-		return "gl_PrimitiveID"
+		// gl_PrimitiveID is an int; WGSL's primitive_index is a u32, and GLSL ES
+		// has no implicit int to uint conversion (Rust naga conv.rs).
+		return "uint(gl_PrimitiveID)"
 	case ir.BuiltinNumSubgroups:
 		return "gl_NumSubgroups"
 	case ir.BuiltinSubgroupID:
