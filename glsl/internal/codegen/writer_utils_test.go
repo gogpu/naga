@@ -39,7 +39,7 @@ func TestGlslBuiltIn(t *testing.T) {
 		{"view_index", ir.BuiltinViewIndex, false, "gl_ViewID_OVR"},
 		{"barycentric", ir.BuiltinBarycentric, false, "gl_BaryCoordEXT"},
 		{"point_size", ir.BuiltinPointSize, true, "gl_PointSize"},
-		{"primitive_index", ir.BuiltinPrimitiveIndex, false, "gl_PrimitiveID"},
+		{"primitive_index", ir.BuiltinPrimitiveIndex, false, "uint(gl_PrimitiveID)"}, // int → u32, as Rust naga conv.rs
 		{"num_subgroups", ir.BuiltinNumSubgroups, false, "gl_NumSubgroups"},
 		{"subgroup_id", ir.BuiltinSubgroupID, false, "gl_SubgroupID"},
 		{"subgroup_size", ir.BuiltinSubgroupSize, false, "gl_SubgroupSize"},
