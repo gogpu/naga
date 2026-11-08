@@ -28,7 +28,7 @@ const maxMeshWorkgroupVariableBytes = 1024 * 28
 // maxWorkgroupBytes returns the TGSM limit of a stage, and false for a stage
 // DXIL allows no thread group shared memory in at all.
 //
-// DXC's getMaxTGSM first honours a per-function Props.groupSharedLimitBytes
+// DXC's getMaxTGSM first honors a per-function Props.groupSharedLimitBytes
 // override (newer shader models); naga never writes that attribute, so the
 // fixed limits are right today. Whoever adds it moves this check with it.
 func maxWorkgroupBytes(stage ir.ShaderStage) (uint64, bool) {
