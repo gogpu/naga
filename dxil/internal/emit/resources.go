@@ -3437,20 +3437,54 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 	scalarTy := e.overloadReturnType(ol)
 	undefVal := e.getUndefConstID()
 
-	// The original scalar type for bitcasting extracted i32 values back to float.
+	if !raw {
+		// bufferLoad carries four components per call and is the raw buffer
+		// op of every shader model, so an element of more than four
+		// components is one call per four of them, as DXC writes it.
+		return e.emitUAVLoadBatched(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal, needsBitcast)
+	}
+
+	return e.emitUAVLoadRaw(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal, needsBitcast)
+}
+
+// emitUAVLoadBatched emits one dx.op.bufferLoad per four scalar components of
+// a 32-bit element, at the byte offset of each group. A RawBuffer handle has
+// one active coordinate, c0 in bytes (DXIL.rst, BufferLoad), and the calls
+// are the ones DXC writes for a storage buffer element of more than four
+// components at a shader model below 6.2; dx.op.rawBufferLoad's mask and
+// alignment operands are 6.2.
+//
+// The components of each call are extracted and then bitcast together, so the
+// single-call case keeps the instruction order DXC uses.
+func (e *Emitter) emitUAVLoadBatched(
+	chain *uavPointerChain,
+	handleID, indexID, numComps int,
+	ol overloadType, resRetTy, scalarTy *module.Type, undefVal int,
+	needsBitcast bool,
+) (int, error) {
+	i32Ty := e.mod.GetIntType(32)
+	scalarW := uint32(chain.scalar.Width)
+	if scalarW == 0 {
+		scalarW = 4
+	}
+	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
+
 	var targetScalarTy *module.Type
 	if needsBitcast {
 		targetScalarTy = e.mod.GetFloatType(32)
 	}
 
-	if numComps <= 4 && !raw {
-		// Single bufferLoad call (≤4 components fit one ResRet).
-		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
-		opcodeVal := e.getIntConstID(int64(OpBufferLoad))
-		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
-		comps := make([]int, numComps)
-		// Extract all components first (DXC groups extractvalues together).
-		for i := 0; i < numComps; i++ {
+	comps := make([]int, numComps)
+	for compIdx := 0; compIdx < numComps; compIdx += 4 {
+		count := min(4, numComps-compIdx)
+		coord := indexID
+		if compIdx > 0 {
+			ofsID := e.getIntConstID(int64(uint32(compIdx) * scalarW))
+			coord = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, ofsID)
+		}
+		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, coord, undefVal})
+		for i := 0; i < count; i++ {
 			extractID := e.allocValue()
 			instr := &module.Instruction{
 				Kind:       module.InstrExtractVal,
@@ -3460,29 +3494,26 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 				ValueID:    extractID,
 			}
 			e.currentBB.AddInstruction(instr)
-			comps[i] = extractID
+			comps[compIdx+i] = extractID
 		}
-		// Then bitcast i32 to float for raw buffer loads of float data.
-		// DXC groups bitcasts after all extractvalues from the same load.
 		if needsBitcast {
-			for i := 0; i < numComps; i++ {
-				comps[i] = e.addCastInstr(targetScalarTy, CastBitcast, comps[i])
+			for i := 0; i < count; i++ {
+				comps[compIdx+i] = e.addCastInstr(targetScalarTy, CastBitcast, comps[compIdx+i])
 			}
 		}
-		if numComps > 1 {
-			e.pendingComponents = comps
-		}
-		return comps[0], nil
 	}
-
-	return e.emitUAVLoadRaw(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal, needsBitcast)
+	if numComps > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
 }
 
-// emitUAVLoadRaw emits chunked dx.op.rawBufferLoad calls for elements with
-// more than 4 scalar components or 64-bit scalar width — dx.op.bufferLoad
-// caps at 4 components per call and rejects coord1 for non-structured
-// buffers, so we switch to rawBufferLoad which covers all buffer kinds and
-// supports the full i16/i32/i64/f16/f32/f64 overload set.
+// emitUAVLoadRaw emits chunked dx.op.rawBufferLoad calls for an element of
+// 64-bit or 16-bit scalars — bufferLoad's overloads are f32 and i32 only, and
+// its 16-bit one would load a 32-bit word per component. A 32-bit element,
+// however many components it has, is read with bufferLoad by
+// emitUAVLoadBatched: rawBufferLoad's mask and alignment operands need shader
+// model 6.2, bufferLoad is the raw buffer op of every model.
 //
 // When needsBitcast is true, extracted i32 values are bitcast to float to
 // recover the original type (matching DXC's raw buffer load convention where

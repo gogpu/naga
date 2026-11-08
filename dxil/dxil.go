@@ -723,21 +723,15 @@ func emitEntryModule(irModule *ir.Module, opts *Options) (*emittedEntry, error) 
 	// layers byte-symmetric.
 	reachableGlobals := reachableGlobalsForEntry(irModule, ep)
 
-	// Post-DCE SM upgrades: only bump when reachable globals actually need
-	// rawBufferLoad/Store (SM 6.2+) or 64-bit element access (SM 6.3+).
-	// This mirrors DXC behavior: dead storage buffer accesses are optimized
-	// away before SM requirements are applied.
-	// Storage buffers are written with raw buffer operations (SM 6.2; 6.3
-	// for 64-bit elements), where DXC writes bufferLoad and bufferStore below
-	// 6.2: our limit, not the shader's, refused as loudly as a feature
-	// (P1-DXIL-072).
+	// A 64-bit storage element is the one buffer access that still needs a
+	// newer model: dx.op.rawBufferLoad/Store take i64/f64 overloads only from
+	// 6.3, and the emitter writes native 64-bit values there. Checked after
+	// dead-code elimination, so an unreachable access does not refuse the
+	// shader. A 32-bit element of any shape uses bufferLoad/bufferStore,
+	// which take a RawBuffer's byte coordinate from shader model 5.1.
 	if reachableUsesInt64Buffer(irModule, reachableGlobals) && smMinor < 3 {
 		return nil, shaderModelTooLow(
-			"a storage buffer with 64-bit elements (written with raw buffer operations, P1-DXIL-072)", 3, opts.ShaderModel)
-	}
-	if reachableUsesRawBufferAccess(irModule, reachableGlobals) && smMinor < 2 {
-		return nil, shaderModelTooLow(
-			"a storage buffer element of more than four components (written with raw buffer operations, P1-DXIL-072)", 2, opts.ShaderModel)
+			"a storage buffer with 64-bit elements (native 64-bit values, which DXC emulates with 32-bit pairs below 6.3)", 3, opts.ShaderModel)
 	}
 
 	// Pre-compute per-input-arg component usage masks from IR body analysis.
@@ -3176,33 +3170,9 @@ func entryUsesViewIndex(ep *ir.EntryPoint) bool {
 	return false
 }
 
-// reachableUsesRawBufferAccess is the post-DCE version of the SM 6.2
-// upgrade check. It only considers storage-buffer globals that survived
-// dead-code elimination (present in reachableGlobals). When DCE removes
-// all accesses to a >4-component storage buffer, no rawBufferLoad/Store
-// ops are emitted and the SM 6.2 requirement does not apply.
-func reachableUsesRawBufferAccess(m *ir.Module, reachable map[ir.GlobalVariableHandle]bool) bool {
-	for i := range m.GlobalVariables {
-		h := ir.GlobalVariableHandle(i)
-		if !reachable[h] {
-			continue
-		}
-		gv := &m.GlobalVariables[i]
-		if gv.Space != ir.SpaceStorage {
-			continue
-		}
-		if int(gv.Type) >= len(m.Types) {
-			continue
-		}
-		if compositeHasMoreThanFour(m, m.Types[gv.Type].Inner) {
-			return true
-		}
-	}
-	return false
-}
-
-// reachableUsesInt64Buffer is the post-DCE version of the SM 6.3 upgrade
-// check. Only considers storage buffers reachable after dead-code elimination.
+// reachableUsesInt64Buffer reports whether a reachable storage buffer has a
+// 64-bit element, the one buffer access that needs shader model 6.3. Only
+// storage buffers reachable after dead-code elimination are considered.
 func reachableUsesInt64Buffer(m *ir.Module, reachable map[ir.GlobalVariableHandle]bool) bool {
 	for i := range m.GlobalVariables {
 		h := ir.GlobalVariableHandle(i)
@@ -3221,69 +3191,6 @@ func reachableUsesInt64Buffer(m *ir.Module, reachable map[ir.GlobalVariableHandl
 		}
 	}
 	return false
-}
-
-// compositeHasMoreThanFour returns true when an individual element access on
-// this type would require more than 4 scalar components — the threshold
-// above which emitUAVLoad switches from bufferLoad to rawBufferLoad.
-//
-// The check considers per-element component counts, not total array extent,
-// because storage buffer accesses are per-element (arr[i] loads one element,
-// not the whole array). This matches DXC behavior: a runtime array<u32> uses
-// bufferLoad at SM 6.0, not rawBufferLoad at SM 6.2.
-func compositeHasMoreThanFour(m *ir.Module, inner ir.TypeInner) bool {
-	switch t := inner.(type) {
-	case ir.VectorType:
-		return int(t.Size) > 4
-	case ir.MatrixType:
-		return int(t.Columns)*int(t.Rows) > 4
-	case ir.ArrayType:
-		// Per-element access: check the base element type, not array extent.
-		return compositeHasMoreThanFour(m, m.Types[t.Base].Inner)
-	case ir.StructType:
-		total := 0
-		for _, mb := range t.Members {
-			total += memberScalarCount(m, m.Types[mb.Type].Inner)
-			if total > 4 {
-				return true
-			}
-		}
-		return total > 4
-	}
-	return false
-}
-
-// memberScalarCount returns the flattened scalar count of a struct member's
-// type for the purpose of determining whether individual element accesses
-// will require rawBufferLoad (> 4 components per access).
-//
-// For runtime-sized arrays, what matters is the per-element component count
-// (since the emitter accesses elements individually), not the array extent.
-// A runtime array<u32> is accessed one u32 at a time (1 component),
-// so bufferLoad suffices and SM 6.0 is adequate. DXC uses the same logic:
-// the pointers.wgsl shader with DynamicArray{arr: array<u32>} compiles
-// to SM 6.0 with bufferLoad/bufferStore, not rawBuffer variants.
-func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
-	switch t := inner.(type) {
-	case ir.ScalarType:
-		return 1
-	case ir.VectorType:
-		return int(t.Size)
-	case ir.MatrixType:
-		return int(t.Columns) * int(t.Rows)
-	case ir.ArrayType:
-		// For both fixed and runtime arrays, the SM upgrade decision
-		// depends on the per-element component count, because the emitter
-		// accesses array elements individually via bufferLoad/bufferStore.
-		return memberScalarCount(m, m.Types[t.Base].Inner)
-	case ir.StructType:
-		total := 0
-		for _, mb := range t.Members {
-			total += memberScalarCount(m, m.Types[mb.Type].Inner)
-		}
-		return total
-	}
-	return 1
 }
 
 // moduleUsesLowPrecision reports whether any type in the module, or of
