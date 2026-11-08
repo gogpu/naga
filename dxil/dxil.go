@@ -607,8 +607,10 @@ func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
 // written element by element. Both grow with the source faster than the
 // source does, so Compile refuses, with an error that wraps
 // backend.ErrUnsupported, an entry point that is larger than 65536
-// expressions and statements once inlined, or that declares more than 65536
-// bytes of function and private variables (eight times the WGSL minimum).
+// expressions and statements once inlined, that declares more than 65536
+// bytes of function and private variables (eight times the WGSL minimum), or
+// whose workgroup storage exceeds D3D12's groupshared limit (32768 bytes;
+// 28672 for mesh shaders), which DXC's validator enforces.
 func Compile(irModule *ir.Module, opts Options) ([]byte, TranslationInfo, error) {
 	blob, err := compileContainer(irModule, opts)
 	if err != nil {

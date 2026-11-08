@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-11-08
+
+A patch with the WGSL lexer's memory fix, the fragment position.w correction on D3D, and the DXIL and HLSL fixes
+wgpu v0.34.11 needs. No IR change; the one public addition is a SPIR-V option.
+
+### Fixed
+
+- **WGSL: the lexer tokenized the whole source before parsing** (P1-WGSL-107). A 1 MB input held about 40 MB of
+  tokens and allocated 200 MB in total, and a parse that failed early still paid for all of it. The lexer now
+  streams one token at a time, with the parser keeping a one-token cursor and the parser-side template-list
+  splitting unchanged. An early-refused 1 MB parse allocates about 9.7 KB (16 MB: 9.7 KB, against 3.35 GB), and a
+  valid 1 MB module allocates a quarter less. Wall time still grows with the input: the parser's error recovery
+  scans to the end of an input that has no declaration after the error.
+- **HLSL and DXIL: a fragment shader's position.w read the clip w instead of 1/w** (P1-HLSL-037). WGSL defines the
+  fragment position builtin's w as the reciprocal of the clip position, while D3D's SV_Position.w carries the clip
+  w; a shader reading position.w got 3.4914 where Vulkan and GLES gave 0.2865. The position input is now
+  initialized as `float4(pos.xyz, 1.0 / pos.w)` in HLSL, and DXIL inverts the loaded component. A deliberate,
+  recorded deviation from Rust naga, which leaves it un-inverted; wgpu's DX12 readback passes with its exclusion
+  removed.
+- **HLSL: a storage store nested more than 20 statements deep was refused** (P2-HLSL-036). The guard used the
+  emitted indentation as a recursion depth; WGSL allows brace nesting up to 127, and Rust naga has no such limit.
+  The writer's own type-nesting recursion is counted separately, and the output is unchanged for every shader that
+  compiled before.
+- **DXIL: a compute built-in used as a run-time index into a local array failed with "function argument 0 not in
+  value map"** (P1-DXIL-106). The liveness test looked only at emit ranges and missed the index chain reached
+  through a store's pointer; it now uses the compiler's transitive expression liveness.
+- **DXIL: more than 32768 bytes of workgroup storage compiled silently to a container D3D12 refuses**
+  (P2-DXIL-105). `Compile` now refuses with `backend.ErrUnsupported` above 32768 bytes (28672 for mesh shaders),
+  the limit DXC's validator enforces.
+
+### Added
+
+- **SPIR-V: `spirv.Options.DemoteToHelperInvocation`** (P2-SPV-015), an opt-in that writes WGSL `discard` as
+  `OpDemoteToHelperInvocation`, so derivatives in the quad stay defined after a discard, as WGSL requires. Below
+  SPIR-V 1.6 the module declares the `SPV_EXT_demote_to_helper_invocation` extension. The zero value keeps
+  `OpKill`, Rust naga's behaviour; a decision on the default is tracked for v1.0.
+
 ## [0.21.5] - 2026-11-08
 
 A patch with one security fix and the chain-limit fix announced as a known issue in 0.21.4. Everyone on an earlier
@@ -19,7 +56,7 @@ version should update: any version since 0.15.0 can be run out of memory by a fe
   of them, about 200 bytes of WGSL, ended the process with Go's fatal "out of memory", which cannot be recovered.
   The same held through a matrix column or a pointer (`m[0].wzyx…`, `(*p).wzyx…`). Affected since 0.15.0. Each base
   is now lowered once, so the work grows with the length of the chain; a test checks that for every chain the
-  lowerer reaches through a reference.
+  lowerer reaches through a reference. The advisory is published as GHSA-jjcr-w8qv-hvfq.
 
 ### Fixed
 
@@ -3719,7 +3756,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.5...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.6...HEAD
+[0.21.6]: https://github.com/gogpu/naga/compare/v0.21.5...v0.21.6
 [0.21.5]: https://github.com/gogpu/naga/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/gogpu/naga/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/gogpu/naga/compare/v0.21.2...v0.21.3
