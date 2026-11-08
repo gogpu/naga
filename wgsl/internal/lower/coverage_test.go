@@ -972,12 +972,7 @@ fn test() -> f16 {
     return x;
 }`
 	// f16 parsing should work
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Skipf("lexer does not support f16: %v", err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Skipf("parser does not support f16: %v", err)
@@ -1089,12 +1084,7 @@ func TestLowerWithWarnings(t *testing.T) {
 	src := `fn test() {
     var unused: f32 = 1.0;
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatal(err)
@@ -1113,12 +1103,7 @@ func TestLowerWithWarnings(t *testing.T) {
 
 func TestLowerWithSource(t *testing.T) {
 	src := `fn test() -> i32 { return 42; }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatal(err)

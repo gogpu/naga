@@ -855,12 +855,7 @@ fn main() {
     var g0x = g0;
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -925,12 +920,7 @@ fn main() {
     var c1x = c1;
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("parse: %v", err)

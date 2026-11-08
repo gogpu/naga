@@ -9,12 +9,7 @@ import (
 
 // parseWGSL is a helper to parse WGSL source code
 func parseWGSL(source string) (*parser.Module, error) {
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return nil, err
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	return p.Parse()
 }
 

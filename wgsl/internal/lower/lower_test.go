@@ -246,13 +246,7 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(used, used, used, 1.0);
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -281,13 +275,7 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(color.x, color.y, color.z, 1.0);
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -416,13 +404,7 @@ fn test() -> f32 {
 }
 `
 			}
-			lexer := parser.NewLexer(source)
-			tokens, err := lexer.Tokenize()
-			if err != nil {
-				t.Fatalf("Tokenize failed: %v", err)
-			}
-
-			p := parser.NewParser(tokens)
+			p := parser.NewParser(parser.NewLexer(source))
 			ast, err := p.Parse()
 			if err != nil {
 				t.Fatalf("Parse failed: %v", err)
@@ -467,13 +449,7 @@ fn test() -> f32 {
     return select(a, b, c);
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -514,13 +490,7 @@ fn test(x: f32) -> f32 {
     }
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -591,12 +561,7 @@ func TestLowerVec3ZeroValBinop(t *testing.T) {
     var a = vec3(vec2i(), 0) + vec3(1);
     _ = a;
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal("tokenize:", err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal("parse:", parseErr)
@@ -684,12 +649,7 @@ func TestLowerComposeThreeDeep(t *testing.T) {
     var out = vec4(vec3(vec2(6, 7), 8), 9)[0];
     _ = out;
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
@@ -721,12 +681,7 @@ func TestLowerSwizzleOfCompose(t *testing.T) {
     var out = vec4(vec2(1, 2), vec2(3, 4)).wzyx;
     _ = out;
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
@@ -855,12 +810,7 @@ fn packed_dot_product() {
     var unsigned_seventy = dot4U8Packed(0x01020304u, 0x05060708u);
     var minus_four = dot4I8Packed(0xff02fd04u, 0x0506f9f8u);
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
@@ -948,12 +898,7 @@ fn abstract_access(i: u32) {
     var c: i32 = ABSTRACT_ARRAY[i];
     var d: i32 = ABSTRACT_VECTOR[i];
 }`
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
@@ -1330,12 +1275,7 @@ fn test(i: u32) {
 // compileWGSL is a test helper that compiles WGSL source to an IR module.
 func compileWGSL(t *testing.T, src string) (*ir.Module, error) {
 	t.Helper()
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return nil, err
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		return nil, err

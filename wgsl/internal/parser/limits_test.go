@@ -9,11 +9,7 @@ import (
 // parseErrors lexes and parses source and returns the parser's errors.
 func parseErrors(t *testing.T, source string) []ParseError {
 	t.Helper()
-	tokens, err := NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatalf("lex: %v", err)
-	}
-	p := NewParser(tokens)
+	p := NewParser(NewLexer(source))
 	_, _ = p.Parse() // the error is p.Errors()[0]
 	return p.Errors()
 }
