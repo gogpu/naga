@@ -977,7 +977,7 @@ func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
 			return fmt.Errorf("storage store: %w", err)
 		}
 		sv := storeValue{kind: storeValueExpression, expr: s.Value}
-		return w.writeStorageStore(varHandle, sv, w.Indent, nil)
+		return w.writeStorageStore(varHandle, sv, w.Indent, 0, nil)
 	}
 
 	// Check for matCx2 struct member store — use SetMat/SetMatVec/SetMatScalar helpers.

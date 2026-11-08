@@ -1003,7 +1003,7 @@ func TestWriteStorageStore(t *testing.T) {
 		w.Out.Reset()
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 		sv := storeValue{kind: storeValueTempIndex, depth: 1, index: 0}
-		err := w.writeStorageStore(0, sv, 0, nil)
+		err := w.writeStorageStore(0, sv, 0, 0, nil)
 		if err != nil {
 			t.Fatalf("writeStorageStore: %v", err)
 		}
@@ -1021,7 +1021,7 @@ func TestWriteStorageStore(t *testing.T) {
 		// sv.base should be the vec2<f32> type handle
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 8}}
 		sv := storeValue{kind: storeValueTempIndex, depth: 1, index: 0, base: 2} // base=2 -> vec2<f32>
-		err := w.writeStorageStore(0, sv, 0, nil)
+		err := w.writeStorageStore(0, sv, 0, 0, nil)
 		if err != nil {
 			t.Fatalf("writeStorageStore: %v", err)
 		}

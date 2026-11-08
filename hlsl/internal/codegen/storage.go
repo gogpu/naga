@@ -823,9 +823,20 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 // writeStorageStore emits HLSL to store a value to an RWByteAddressBuffer.
 // withinStruct is the containing struct type when storing a struct member (for matCx2 optimization).
 // Matches Rust naga's Writer::write_storage_store.
-func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeValue, level int, withinStruct *ir.TypeHandle) error {
-	if level > 20 {
-		return fmt.Errorf("writeStorageStore: recursion depth limit exceeded (level=%d)", level)
+//
+// level is the statement indent of the emitted store and also the depth suffix of
+// the _valueN temporaries; Rust uses one Level for both, so it stays here. It is
+// NOT a recursion depth: WGSL allows brace nesting up to 127, so a store can sit
+// under any indentation the frontend accepts.
+//
+// typeDepth counts the writer's own recursion, which follows the nesting of the
+// stored type: every level descends into a struct member or an array element,
+// i.e. a distinct type handle. WGSL forbids recursive types, so the chain is
+// finite and cannot be longer than the type arena; that bound is the only guard
+// needed to keep a malformed IR from exhausting the stack (Rust has none).
+func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeValue, level, typeDepth int, withinStruct *ir.TypeHandle) error {
+	if typeDepth > len(w.module.Types) {
+		return fmt.Errorf("writeStorageStore: type nesting depth limit exceeded (depth=%d, types=%d)", typeDepth, len(w.module.Types))
 	}
 	// Resolve the stored value's type
 	var resultTy ir.TypeInner
@@ -934,7 +945,7 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 				base:      *structTy,
 				memberIdx: uint32(i),
 			}
-			if err := w.writeStorageStore(varHandle, memberSv, depth, structTy); err != nil {
+			if err := w.writeStorageStore(varHandle, memberSv, depth, typeDepth+1, structTy); err != nil {
 				return err
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
@@ -1033,7 +1044,7 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 					index: i,
 					base:  inner.Base,
 				}
-				if err := w.writeStorageStore(varHandle, elemSv, depth, nil); err != nil {
+				if err := w.writeStorageStore(varHandle, elemSv, depth, typeDepth+1, nil); err != nil {
 					return err
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
