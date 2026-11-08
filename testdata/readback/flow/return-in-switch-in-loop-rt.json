@@ -1,5 +1,5 @@
 {
-  "format": 2,
+  "format": 1,
   "desc": "returns inside a switch inside a loop of a helper, a break that leaves only the switch, a void helper's early return, a break in a switch outside a loop: [70, 1021, 1000, 10, 5] (P0-DXIL-055, P0-DXIL-057, P0-HLSL-033)",
   "entry": "main",
   "workgroups": [1, 1, 1],

@@ -138,10 +138,10 @@ and the readback run on that branch (through go.work) shows the case passing.
 
 ## How wgpu finds the corpus
 
-`NAGA_READBACK_DIR` if set; otherwise `go list -m -f {{.Dir}} github.com/gogpu/naga` + `/testdata/readback`
-(under go.work the local naga tree, otherwise the version wgpu pins; `testdata/` ships in the module zip). An
-empty `Dir` falls back to `go mod download -json github.com/gogpu/naga@<pinned>`. A naga version without this
-directory makes the harness skip with a message, never fail.
+`go list -m -f {{.Dir}} github.com/gogpu/naga` + `/testdata/readback` (under go.work the local naga tree,
+otherwise the version wgpu pins; `testdata/` ships in the module zip). An empty `Dir` falls back to
+`go mod download -json github.com/gogpu/naga@<pinned>`. There is no directory environment variable (LEAD-013).
+A naga version without this directory makes the harness skip with a message, never fail.
 
 ## Adding a case
 

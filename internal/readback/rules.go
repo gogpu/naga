@@ -10,6 +10,17 @@ import (
 // knownRequirements are the WebGPU feature names a case may require.
 var knownRequirements = []string{"shader-f16"}
 
+// hasSkip reports a known failure that skips its case, the only thing format 2
+// adds to format 1.
+func (s *Spec) hasSkip() bool {
+	for i := range s.KnownFailures {
+		if s.KnownFailures[i].Skip {
+			return true
+		}
+	}
+	return false
+}
+
 // cardRe matches a card ID: an uppercase ID ending in a number, optionally
 // prefixed by a gogpu board ("gogpu:", "gogpu/wgpu:").
 var cardRe = regexp.MustCompile(`^(gogpu(/[a-z0-9-]+)?:)?[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d+$`)
@@ -19,6 +30,9 @@ var cardRe = regexp.MustCompile(`^(gogpu(/[a-z0-9-]+)?:)?[A-Z][A-Z0-9]*(-[A-Z0-9
 func (s *Spec) validate() error {
 	if s.Format < 1 || s.Format > FormatVersion {
 		return fmt.Errorf("format %d: this reader supports formats 1 to %d", s.Format, FormatVersion)
+	}
+	if s.Format > 1 && !s.hasSkip() {
+		return fmt.Errorf("format %d without a `skip` knownFailure: a newer format exists for a reason, and format 2's is `skip`; a case without one declares format 1", s.Format)
 	}
 	var errs []error
 	if s.Desc == "" {

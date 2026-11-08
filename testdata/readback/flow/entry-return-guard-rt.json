@@ -1,5 +1,5 @@
 {
-  "format": 2,
+  "format": 1,
   "desc": "8 invocations, n = 5: the ones past n return before writing: [1, 4, 7, 10, 13, fill, fill, fill] (P0-DXIL-052: the entry point's return did nothing)",
   "entry": "main",
   "workgroups": [1, 1, 1],
