@@ -1,5 +1,5 @@
 // A whole storage struct of three vec2<u32> — six components in one element access — is loaded into a function
-// variable, changed and stored back: a = (1, 2) + (10, 20) = (11, 22), b = (3, 4) + (30, 10) = (13, 14),
+// variable, changed and stored back: a = (1, 2) + (10, 20) = (11, 22), b = (3, 4) + (30, 10) = (33, 14),
 // c = (5, 6) + (20, 30) = (25, 36).
 // P0-DXIL-050 / P1-DXIL-072: an element of more than four components was read with dx.op.rawBufferLoad, whose
 // mask and alignment operands need shader model 6.2, so every shader with one was refused below 6.2 while DXC
