@@ -142,6 +142,69 @@ func TestIsArgRead_UsedViaSwizzle(t *testing.T) {
 	}
 }
 
+// TestIsArgRead_UsedViaStorePointerChain covers P1-DXIL-106: a compute
+// built-in used as a run-time index into a local array. The index chain is
+// reached only from the store's pointer operand, and none of it is inside a
+// StmtEmit range, so the argument was reported as unread.
+func TestIsArgRead_UsedViaStorePointerChain(t *testing.T) {
+	// a[i % 4u] = 1.0;
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{
+				Name:    "i",
+				Type:    ir.TypeHandle(0),
+				Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinLocalInvocationIndex}),
+			},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                     // [0]: i
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                     // [1]: a
+			{Kind: ir.Literal{Value: ir.LiteralU32(4)}},                   // [2]: 4u
+			{Kind: ir.ExprBinary{Op: ir.BinaryModulo, Left: 0, Right: 2}}, // [3]: i % 4u
+			{Kind: ir.ExprAccess{Base: 1, Index: 3}},                      // [4]: a[i % 4u]
+			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},                   // [5]: 1.0
+		},
+		Body: ir.Block{
+			// The pointer carries the whole index chain; no emit range covers it.
+			{Kind: ir.StmtStore{Pointer: 4, Value: 5}},
+		},
+	}
+
+	if !isArgRead(&fn, 0) {
+		t.Error("expected isArgRead to return true for an argument reached through a store pointer")
+	}
+}
+
+// TestIsArgRead_DeadReference verifies that a reference reachable only from
+// expressions outside every emit range and from no statement operand is not
+// a read: DCE removed the consumer, so the intrinsic stays unemitted.
+func TestIsArgRead_DeadReference(t *testing.T) {
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{
+				Name:    "vi",
+				Type:    ir.TypeHandle(0),
+				Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}),
+			},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0]: vi
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1]: dead, no consumer
+			{Kind: ir.ExprZeroValue{Type: 0}},             // [2]: returned
+		},
+		Body: ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+			{Kind: ir.StmtReturn{Value: exprPtr(2)}},
+		},
+	}
+
+	if isArgRead(&fn, 0) {
+		t.Error("expected isArgRead to return false for an argument whose only reference is dead")
+	}
+}
+
 // TestUsedComponentMask_SingleComponent verifies that only the accessed
 // component is marked when a vector is accessed through a single swizzle.
 func TestUsedComponentMask_SingleComponent(t *testing.T) {
