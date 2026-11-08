@@ -287,7 +287,7 @@ func TestWriteStorageStoreScalar(t *testing.T) {
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 
-	err := w.writeStorageStore(0, sv, 0, nil)
+	err := w.writeStorageStore(0, sv, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("writeStorageStore scalar: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestWriteStorageStoreVector(t *testing.T) {
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 
-	err := w.writeStorageStore(0, sv, 0, nil)
+	err := w.writeStorageStore(0, sv, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("writeStorageStore vector: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestWriteStorageStoreMatrix(t *testing.T) {
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 
-	err := w.writeStorageStore(0, sv, 0, nil)
+	err := w.writeStorageStore(0, sv, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("writeStorageStore matrix: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestWriteStorageStoreStruct(t *testing.T) {
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 
-	err := w.writeStorageStore(0, sv, 0, nil)
+	err := w.writeStorageStore(0, sv, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("writeStorageStore struct: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestWriteStorageStoreArray(t *testing.T) {
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 
-	err := w.writeStorageStore(0, sv, 0, nil)
+	err := w.writeStorageStore(0, sv, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("writeStorageStore array: %v", err)
 	}
@@ -458,7 +458,10 @@ func TestWriteStorageStoreArray(t *testing.T) {
 	}
 }
 
-func TestWriteStorageStoreRecursionLimit(t *testing.T) {
+// TestWriteStorageStoreIndentIsNotDepth covers P2-HLSL-036: the store's emitted
+// indentation is not a recursion depth. WGSL allows brace nesting up to 127, so
+// a store indented 30 levels deep is valid and must be emitted.
+func TestWriteStorageStoreIndentIsNotDepth(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -475,13 +478,40 @@ func TestWriteStorageStoreRecursionLimit(t *testing.T) {
 	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 0}
-	// Exceed recursion limit
-	err := w.writeStorageStore(0, sv, 21, nil)
-	if err == nil {
-		t.Error("expected error at recursion depth limit")
+	if err := w.writeStorageStore(0, sv, 30, 0, nil); err != nil {
+		t.Fatalf("writeStorageStore at indent 30: %v", err)
 	}
-	if !strings.Contains(err.Error(), "recursion depth limit") {
-		t.Errorf("expected recursion depth error, got: %v", err)
+	if out := output(w); !strings.Contains(out, "buf.Store(") {
+		t.Errorf("expected a store, got: %s", out)
+	}
+}
+
+// TestWriteStorageStoreTypeDepthLimit: the writer's own recursion follows the
+// stored type's nesting (struct member / array element), so the number of type
+// handles bounds it. Past that bound the guard fires instead of recursing.
+func TestWriteStorageStoreTypeDepthLimit(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+	w := newTestWriter(module, nil, nil)
+	w.names[nameKey{kind: nameKeyGlobalVariable, handle1: 0}] = "buf"
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+		},
+	}
+	setCurrentFunction(t, w, fn)
+
+	sv := storeValue{kind: storeValueExpression, expr: 0}
+	err := w.writeStorageStore(0, sv, 0, len(module.Types)+1, nil)
+	if err == nil {
+		t.Fatal("expected error past the type nesting bound")
+	}
+	if !strings.Contains(err.Error(), "type nesting depth limit") {
+		t.Errorf("expected type nesting depth error, got: %v", err)
 	}
 }
 
