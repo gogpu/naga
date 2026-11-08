@@ -3547,20 +3547,7 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 		})
 	}
 
-	// Multi-component swizzle (.xy, .xyz, etc.) operates on a value, not a pointer.
-	// Apply the Load Rule to get the value before creating the Swizzle expression.
-	loadedBase, err := l.applyLoadRule(base)
-	if err != nil {
-		return 0, err
-	}
-
-	size, pattern, err := l.swizzlePattern(mem.Member, vec.Size)
-	if err != nil {
-		return 0, err
-	}
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprSwizzle{Size: size, Vector: loadedBase, Pattern: pattern},
-	})
+	return l.lowerSwizzle(base, vec.Size, mem.Member)
 }
 
 // tryLowerBuiltinResultMember checks if a member access is on a builtin that returns
@@ -4193,10 +4180,31 @@ func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Stateme
 		})
 	}
 
-	// For multi-component swizzle (.xy, .xyz, etc.), fall through to regular lowering.
-	// This WILL re-lower the base expression (creating duplicate expressions), but
-	// multi-component swizzles are rare in store targets.
+	// A multi-component swizzle is a value: build it on the base lowered
+	// above. Falling back to lowerMember lowered the base a second time, so a
+	// chain of n swizzles did 2^n work (32 of them ran the process out of
+	// memory).
+	if vecOk {
+		return l.lowerSwizzle(base, vec.Size, mem.Member)
+	}
 	return l.lowerMember(mem, target)
+}
+
+// lowerSwizzle builds the multi-component swizzle member of base, a vector or
+// a reference to one. A swizzle operates on a value, so the Load Rule applies
+// to base first.
+func (l *Lowerer) lowerSwizzle(base ir.ExpressionHandle, vecSize ir.VectorSize, member string) (ir.ExpressionHandle, error) {
+	loadedBase, err := l.applyLoadRule(base)
+	if err != nil {
+		return 0, err
+	}
+	size, pattern, err := l.swizzlePattern(member, vecSize)
+	if err != nil {
+		return 0, err
+	}
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprSwizzle{Size: size, Vector: loadedBase, Pattern: pattern},
+	})
 }
 
 // lowerIndexForRef lowers an index expression in reference context.
