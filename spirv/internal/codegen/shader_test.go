@@ -2259,6 +2259,14 @@ func TestCompileMSAALineShader(t *testing.T) {
 // Without spirv-val it fails if the tool is required (NAGA_REQUIRE_TOOLS), logs otherwise.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
 	t.Helper()
+	validateWithVulkanSDKTarget(t, spirvBytes, "spv1.6")
+}
+
+// validateWithVulkanSDKTarget runs spirv-val at the given target
+// environment, so a module that targets an older SPIR-V version is checked
+// against that version's rules.
+func validateWithVulkanSDKTarget(t *testing.T, spirvBytes []byte, targetEnv string) {
+	t.Helper()
 
 	// Check spirv-val availability
 	spirvVal, ok := testtools.Optional(t, "spirv-val", testtools.InstallSPIRVTools)
@@ -2274,7 +2282,7 @@ func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
 	}
 
 	// Run spirv-val
-	cmd := exec.Command(spirvVal, spvPath, "--target-env", "spv1.6")
+	cmd := exec.Command(spirvVal, spvPath, "--target-env", targetEnv)
 	valOut, valErr := cmd.CombinedOutput()
 	if valErr != nil {
 		// Validation failed — dump disassembly for debugging

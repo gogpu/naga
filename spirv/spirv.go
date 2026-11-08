@@ -61,6 +61,7 @@ const (
 	CapabilityStorageInputOutput16               Capability = 4436
 	CapabilityMultiView                          Capability = 4439
 	CapabilityFragmentBarycentricKHR             Capability = 5284
+	CapabilityDemoteToHelperInvocation           Capability = 5379
 	CapabilityShaderNonUniform                   Capability = 5301
 	CapabilityAtomicFloat32AddEXT                Capability = 6033
 	CapabilityDotProductInput4x8BitPacked        Capability = 6018
@@ -206,6 +207,18 @@ type Options struct {
 	// has to be past that data. Every stage that uses such a block then has
 	// the range in its block too.
 	ClampFragDepth *backend.ClampFragDepth
+
+	// DemoteToHelperInvocation writes WGSL discard as
+	// OpDemoteToHelperInvocation, which makes the invocation a helper
+	// invocation: derivatives in the quad stay defined after a discard, as WGSL
+	// requires. The zero value writes OpKill, which ends the invocation and is
+	// what Rust naga always emits (back/spv/block.rs); Tint selects the demote
+	// with extensions.use_demote_to_helper_invocation. The instruction is core
+	// in SPIR-V 1.6; below it the module declares the
+	// SPV_EXT_demote_to_helper_invocation extension. Vulkan needs the
+	// shaderDemoteToHelperInvocation feature (core in Vulkan 1.3), so set this
+	// only from a device that has it.
+	DemoteToHelperInvocation bool
 }
 
 // BindingInfo is where a resource goes in SPIR-V. Mirrors Rust naga's
@@ -289,6 +302,7 @@ func toCodegenOptions(o Options) codegen.Options {
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ClampFragDepth:                o.ClampFragDepth,
+		DemoteToHelperInvocation:      o.DemoteToHelperInvocation,
 	}
 }
 

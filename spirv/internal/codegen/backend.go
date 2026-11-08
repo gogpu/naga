@@ -6712,6 +6712,21 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return nil
 
 	case ir.StmtKill:
+		// WGSL discard makes the invocation a helper invocation, so
+		// derivatives in the quad stay defined. OpKill ends it instead;
+		// Rust naga always writes OpKill (back/spv/block.rs). With the
+		// option, write Tint's demote instruction (EmitDiscard in
+		// src/tint/lang/spirv/writer/printer/printer.cc): its capability,
+		// and its extension below SPIR-V 1.6, where it is core.
+		if e.backend.options.DemoteToHelperInvocation {
+			e.backend.addCapability(CapabilityDemoteToHelperInvocation)
+			if versionLess(e.backend.options.Version, Version1_6) {
+				e.backend.addExtension("SPV_EXT_demote_to_helper_invocation")
+			}
+			// Not a terminator: the invocation continues as a helper.
+			e.backend.builder.funcAppend(Instruction{Opcode: OpDemoteToHelperInvocation})
+			return nil
+		}
 		e.consumeBlock(Instruction{Opcode: OpKill})
 		return nil
 
