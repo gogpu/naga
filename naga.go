@@ -90,7 +90,8 @@ func Compile(source string) ([]byte, error) {
 //
 // The compilation pipeline is:
 //  1. Parse WGSL to IR (wgsl.Parse); a *wgsl.ParseError is returned wrapped,
-//     with its line and column
+//     with its line and column. wgsl.Parse documents the nesting limits
+//     beyond which a source is refused.
 //  2. Validate IR (if enabled)
 //  3. Replace overrides by their defaults (ProcessOverrides with no pipeline
 //     constants), as Rust naga's CLI does; an override without a default is

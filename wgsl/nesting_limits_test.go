@@ -55,26 +55,27 @@ func TestParseNestingLimits(t *testing.T) {
 			wantLabel: "limit reached at this brace",
 			wantNote:  "nesting limit is currently set to 127",
 		},
-		// The chain limits go beyond Rust, which bounds none of these (they
-		// overflow the stack in its later passes); the limits and texts are
-		// Tint's (expression depth 512, statement chaining 127).
+		// Rust bounds none of these chains (they overflow the stack in its
+		// later passes; its CLI survives about 650 else-if links and 1500
+		// unary operators). Our limits sit above that: expression depth 4096,
+		// statement depth 1024, with Tint's texts.
 		{
 			name:    "binary operator chain",
 			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return a" + r(" + a", n) + "; }" },
-			maxOK:   512,
-			wantMsg: "reached max expression depth of 512",
+			maxOK:   4096,
+			wantMsg: "reached max expression depth of 4096",
 		},
 		{
 			name:    "unary operator chain",
 			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return " + r("- ", n) + "a; }" },
-			maxOK:   512,
-			wantMsg: "reached max expression depth of 512",
+			maxOK:   4096,
+			wantMsg: "reached max expression depth of 4096",
 		},
 		{
 			name:    "else-if chain",
 			src:     func(n int) string { return "fn f() { if true {} " + r("else if true {} ", n) + "else {} }" },
-			maxOK:   125,
-			wantMsg: "statement nesting depth / chaining length exceeds limit of 127",
+			maxOK:   1022,
+			wantMsg: "statement nesting depth / chaining length exceeds limit of 1024",
 		},
 	}
 	for _, tc := range cases {
@@ -133,10 +134,10 @@ func TestParseLongChainsDoNotCrash(t *testing.T) {
 	const huge = 1_000_000
 	r := strings.Repeat
 	cases := []struct{ name, src, wantMsg string }{
-		{"binary", "fn f() -> i32 { let a = 1; return a" + r(" + 1", huge) + "; }", "reached max expression depth of 512"},
-		{"unary", "fn f() -> i32 { let a = 1; return " + r("- ", huge) + "a; }", "reached max expression depth of 512"},
+		{"binary", "fn f() -> i32 { let a = 1; return a" + r(" + 1", huge) + "; }", "reached max expression depth of 4096"},
+		{"unary", "fn f() -> i32 { let a = 1; return " + r("- ", huge) + "a; }", "reached max expression depth of 4096"},
 		{"else-if", "fn f() { if true {} " + r("else if true {} ", huge) + "}",
-			"statement nesting depth / chaining length exceeds limit of 127"},
+			"statement nesting depth / chaining length exceeds limit of 1024"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
