@@ -5,9 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.8] - 2026-11-09
 
 ### Fixed
+
+- **DXIL: a 32-bit storage element of more than four components was read with `dx.op.rawBufferLoad`, which
+  needs shader model 6.2** (P1-DXIL-072). DXC writes `dx.op.bufferLoad`, one call per four components at a byte
+  coordinate, at `cs_6_0`, and the emitter now does the same for every 32-bit element, so the 6.2 refusal is
+  gone. A 64-bit element still needs 6.3: `rawBufferLoad`/`Store` take `i64`/`f64` only from 6.3, and the
+  emitter writes native 64-bit values; DXC reaches 6.0 only by emulating every 64-bit operation with 32-bit
+  pairs. P1-DXIL-047 and P2-DXIL-060 gain regression coverage for their local-aggregate probes, which the
+  v0.21.1 aggregate work had already fixed.
 
 - **WGSL: an integer division or remainder by a const-expression zero, and a const-expression shift amount
   at or above the bit width, were accepted** (P1-WGSL-101). WGSL §arithmetic-expr makes both
