@@ -7,12 +7,7 @@ import (
 // Helper function to parse source code
 func parseSource(t *testing.T, source string) *Module {
 	t.Helper()
-	lexer := NewLexer(source)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatalf("Lexer error: %v", lexErr)
-	}
-	parser := NewParser(tokens)
+	parser := NewParser(NewLexer(source))
 	module, err := parser.Parse()
 	if err != nil {
 		t.Fatalf("Parse error: %v", err)
@@ -23,12 +18,7 @@ func parseSource(t *testing.T, source string) *Module {
 // Helper function to try parsing (may return error)
 func tryParseSource(t *testing.T, source string) (*Module, error) {
 	t.Helper()
-	lexer := NewLexer(source)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		return nil, lexErr
-	}
-	parser := NewParser(tokens)
+	parser := NewParser(NewLexer(source))
 	return parser.Parse()
 }
 
@@ -391,9 +381,7 @@ func TestParseErrorRecovery(t *testing.T) {
 fn bad(
 fn another() { return; }`
 
-	lexer := NewLexer(source)
-	tokens, _ := lexer.Tokenize()
-	parser := NewParser(tokens)
+	parser := NewParser(NewLexer(source))
 	module, _ := parser.Parse()
 
 	// Parser should recover and parse what it can

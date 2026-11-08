@@ -13,12 +13,7 @@ import (
 // helperCompileWGSL parses and lowers WGSL source code, returning the IR module.
 func helperCompileWGSL(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize error: %v", err)
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -33,12 +28,7 @@ func helperCompileWGSL(t *testing.T, src string) *ir.Module {
 // helperCompileWGSLError parses and lowers WGSL source code, expecting an error.
 func helperCompileWGSLError(t *testing.T, src string) error {
 	t.Helper()
-	lexer := parser.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return err
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(src))
 	ast, err := p.Parse()
 	if err != nil {
 		return err

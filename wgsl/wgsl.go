@@ -139,11 +139,7 @@ func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	if uint64(len(source)) > math.MaxUint32 {
 		return nil, ParseInfo{}, &ParseError{Message: "source is longer than 4 GiB"}
 	}
-	tokens, err := parser.NewLexer(source).Tokenize()
-	if err != nil {
-		return nil, ParseInfo{}, &ParseError{Message: err.Error()}
-	}
-	p := parser.NewParser(tokens)
+	p := parser.NewParser(parser.NewLexer(source))
 	ast, err := p.Parse()
 	if err != nil {
 		return nil, ParseInfo{}, fromParserErrors(source, p.Errors(), err)

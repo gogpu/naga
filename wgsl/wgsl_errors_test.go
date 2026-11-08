@@ -10,11 +10,7 @@ import (
 // tryParse runs the parser alone, so a test of a syntax error cannot pass on
 // an error of the lowerer.
 func tryParse(source string) error {
-	tokens, err := parser.NewLexer(source).Tokenize()
-	if err != nil {
-		return err
-	}
-	_, err = parser.NewParser(tokens).Parse()
+	_, err := parser.NewParser(parser.NewLexer(source)).Parse()
 	return err
 }
 

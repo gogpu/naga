@@ -4,6 +4,19 @@ import (
 	"testing"
 )
 
+// tokenizeAll collects every token, EOF included. Tests use it; the parser
+// streams through Next (ADR-011).
+func tokenizeAll(l *Lexer) []Token {
+	var tokens []Token
+	for {
+		tok := l.Next()
+		tokens = append(tokens, tok)
+		if tok.Kind == TokenEOF {
+			return tokens
+		}
+	}
+}
+
 func TestLexerBasicTokens(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -17,11 +30,7 @@ func TestLexerBasicTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		lexer := NewLexer(tt.input)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-			continue
-		}
+		tokens := tokenizeAll(lexer)
 
 		if len(tokens) != len(tt.expected) {
 			t.Errorf("Expected %d tokens, got %d", len(tt.expected), len(tokens))
@@ -45,10 +54,7 @@ func TestLexerOperators(t *testing.T) {
 	}
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	if len(tokens) != len(expected) {
 		t.Fatalf("Expected %d tokens, got %d", len(expected), len(tokens))
@@ -69,10 +75,7 @@ func TestLexerKeywords(t *testing.T) {
 	}
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	if len(tokens) != len(expected) {
 		t.Fatalf("Expected %d tokens, got %d", len(expected), len(tokens))
@@ -93,10 +96,7 @@ func TestLexerTypes(t *testing.T) {
 	}
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	if len(tokens) != len(expected) {
 		t.Fatalf("Expected %d tokens, got %d", len(expected), len(tokens))
@@ -131,11 +131,7 @@ func TestLexerNumbers(t *testing.T) {
 
 	for _, tt := range tests {
 		lexer := NewLexer(tt.input)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			t.Errorf("Input %q: unexpected error: %v", tt.input, err)
-			continue
-		}
+		tokens := tokenizeAll(lexer)
 
 		if len(tokens) != 2 { // number + EOF
 			t.Errorf("Input %q: expected 2 tokens, got %d", tt.input, len(tokens))
@@ -157,10 +153,7 @@ func TestLexerIdentifiers(t *testing.T) {
 	expected := []string{"foo", "_bar", "baz123", "my_variable"}
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	if len(tokens) != len(expected)+1 { // identifiers + EOF
 		t.Fatalf("Expected %d tokens, got %d", len(expected)+1, len(tokens))
@@ -185,10 +178,7 @@ qux`
 	expected := []string{"foo", "bar", "baz", "qux"}
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	identTokens := make([]Token, 0)
 	for _, tok := range tokens {
@@ -215,10 +205,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 }`
 
 	lexer := NewLexer(input)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
+	tokens := tokenizeAll(lexer)
 
 	// Just verify we got tokens without errors
 	if len(tokens) < 10 {

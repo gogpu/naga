@@ -119,6 +119,16 @@ var benchShaders = []benchCase{
 // Lexer benchmarks
 // ---------------------------------------------------------------------------
 
+// lexAll streams every token, as wgsl.Parse does (ADR-011).
+func lexAll(source string) int {
+	lexer := parser.NewLexer(source)
+	n := 0
+	for lexer.Next().Kind != parser.TokenEOF {
+		n++
+	}
+	return n
+}
+
 // BenchmarkLex benchmarks tokenization throughput for shaders of different sizes.
 // Reports bytes/sec throughput for comparing across shader sizes.
 func BenchmarkLex(b *testing.B) {
@@ -129,12 +139,7 @@ func BenchmarkLex(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				lexer := parser.NewLexer(bc.source)
-				tokens, err := lexer.Tokenize()
-				if err != nil {
-					b.Fatalf("tokenize failed: %v", err)
-				}
-				runtime.KeepAlive(tokens)
+				runtime.KeepAlive(lexAll(bc.source))
 			}
 		})
 	}
@@ -164,12 +169,7 @@ func BenchmarkLexIdentifiers(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := parser.NewLexer(source)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			b.Fatalf("tokenize failed: %v", err)
-		}
-		runtime.KeepAlive(tokens)
+		runtime.KeepAlive(lexAll(source))
 	}
 }
 
@@ -195,12 +195,7 @@ func BenchmarkLexNumbers(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := parser.NewLexer(source)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			b.Fatalf("tokenize failed: %v", err)
-		}
-		runtime.KeepAlive(tokens)
+		runtime.KeepAlive(lexAll(source))
 	}
 }
 
@@ -226,12 +221,7 @@ func BenchmarkLexKeywords(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := parser.NewLexer(source)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			b.Fatalf("tokenize failed: %v", err)
-		}
-		runtime.KeepAlive(tokens)
+		runtime.KeepAlive(lexAll(source))
 	}
 }
 
@@ -256,12 +246,7 @@ func BenchmarkLexOperators(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := parser.NewLexer(source)
-		tokens, err := lexer.Tokenize()
-		if err != nil {
-			b.Fatalf("tokenize failed: %v", err)
-		}
-		runtime.KeepAlive(tokens)
+		runtime.KeepAlive(lexAll(source))
 	}
 }
 
@@ -269,24 +254,18 @@ func BenchmarkLexOperators(b *testing.B) {
 // Parser benchmarks
 // ---------------------------------------------------------------------------
 
-// BenchmarkParse benchmarks parsing throughput (tokens to AST) for shaders
-// of different sizes.
+// BenchmarkParse benchmarks parsing throughput for shaders of different sizes.
+// With the streaming lexer (ADR-011) a parse includes tokenization, so this is
+// the whole front end, not tokens-to-AST alone.
 func BenchmarkParse(b *testing.B) {
 	for _, bc := range benchShaders {
 		b.Run(bc.name, func(b *testing.B) {
-			// Pre-tokenize so we only measure parsing
-			lexer := parser.NewLexer(bc.source)
-			tokens, err := lexer.Tokenize()
-			if err != nil {
-				b.Fatalf("tokenize failed: %v", err)
-			}
-
 			b.ReportAllocs()
 			b.SetBytes(int64(len(bc.source)))
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				p := parser.NewParser(tokens)
+				p := parser.NewParser(parser.NewLexer(bc.source))
 				module, pErr := p.Parse()
 				if pErr != nil {
 					b.Fatalf("parse failed: %v", pErr)
@@ -314,18 +293,12 @@ fn main(@location(0) x: f32, @location(1) y: f32, @location(2) z: f32) -> @locat
     return vec4<f32>(h, h, h, 1.0);
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		b.Fatalf("tokenize failed: %v", err)
-	}
-
 	b.ReportAllocs()
 	b.SetBytes(int64(len(source)))
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		p := parser.NewParser(tokens)
+		p := parser.NewParser(parser.NewLexer(source))
 		module, pErr := p.Parse()
 		if pErr != nil {
 			b.Fatalf("parse failed: %v", pErr)
@@ -371,18 +344,12 @@ fn main() -> @builtin(position) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }
 `
-	lexer := parser.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		b.Fatalf("tokenize failed: %v", err)
-	}
-
 	b.ReportAllocs()
 	b.SetBytes(int64(len(source)))
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		p := parser.NewParser(tokens)
+		p := parser.NewParser(parser.NewLexer(source))
 		module, pErr := p.Parse()
 		if pErr != nil {
 			b.Fatalf("parse failed: %v", pErr)
@@ -391,43 +358,11 @@ fn main() -> @builtin(position) vec4<f32> {
 	}
 }
 
-// BenchmarkLexAndParse benchmarks the combined lex+parse pipeline
-// to measure total frontend throughput.
-func BenchmarkLexAndParse(b *testing.B) {
-	for _, bc := range benchShaders {
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.SetBytes(int64(len(bc.source)))
-			b.ResetTimer()
-
-			for i := 0; i < b.N; i++ {
-				lexer := parser.NewLexer(bc.source)
-				tokens, err := lexer.Tokenize()
-				if err != nil {
-					b.Fatalf("tokenize failed: %v", err)
-				}
-
-				p := parser.NewParser(tokens)
-				module, pErr := p.Parse()
-				if pErr != nil {
-					b.Fatalf("parse failed: %v", pErr)
-				}
-				runtime.KeepAlive(module)
-			}
-		})
-	}
-}
-
 // BenchmarkLower benchmarks AST-to-IR lowering for different shader sizes.
 func BenchmarkLower(b *testing.B) {
 	for _, bc := range benchShaders {
 		b.Run(bc.name, func(b *testing.B) {
-			lexer := parser.NewLexer(bc.source)
-			tokens, err := lexer.Tokenize()
-			if err != nil {
-				b.Fatalf("tokenize failed: %v", err)
-			}
-			p := parser.NewParser(tokens)
+			p := parser.NewParser(parser.NewLexer(bc.source))
 			ast, err := p.Parse()
 			if err != nil {
 				b.Fatalf("parse failed: %v", err)

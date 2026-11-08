@@ -5,53 +5,56 @@ import (
 	"unicode/utf8"
 )
 
-// Lexer tokenizes WGSL source code.
+// Lexer tokenizes WGSL source code one token at a time.
 type Lexer struct {
 	source string
 	pos    int
 	line   int
 	column int
 	start  int
-	tokens []Token
+	// token holds the token addToken just produced, and has reports whether
+	// scanToken produced one (whitespace and comments produce none).
+	token Token
+	has   bool
 }
 
 // NewLexer creates a new lexer for the given source.
 func NewLexer(source string) *Lexer {
-	// Estimate ~1 token per 4 characters of source.
-	// WGSL averages ~4 chars/token (operators, keywords, punctuation).
-	// Slight overallocation is cheap — it's one slice, and avoids regrowth.
-	estTokens := len(source) / 4
-	if estTokens < 16 {
-		estTokens = 16
-	}
 	return &Lexer{
 		source: source,
-		pos:    0,
 		line:   1,
 		column: 1,
-		tokens: make([]Token, 0, estTokens),
 	}
 }
 
-// Tokenize returns all tokens from the source.
-func (l *Lexer) Tokenize() ([]Token, error) {
-	for !l.isAtEnd() {
+// SourceLen returns the length of the source in bytes.
+func (l *Lexer) SourceLen() int {
+	return len(l.source)
+}
+
+// Next returns the next token, skipping whitespace and comments. At the end of
+// the source it returns TokenEOF on every call. It allocates nothing per token:
+// the parser streams tokens through it (ADR-011).
+func (l *Lexer) Next() Token {
+	for {
+		if l.isAtEnd() {
+			return Token{
+				Kind:   TokenEOF,
+				Line:   l.line,
+				Column: l.column,
+			}
+		}
+
+		l.has = false
 		l.start = l.pos
-		if err := l.scanToken(); err != nil {
-			return nil, err
+		l.scanToken()
+		if l.has {
+			return l.token
 		}
 	}
-
-	l.tokens = append(l.tokens, Token{
-		Kind:   TokenEOF,
-		Line:   l.line,
-		Column: l.column,
-	})
-
-	return l.tokens, nil
 }
 
-func (l *Lexer) scanToken() error {
+func (l *Lexer) scanToken() {
 	r := l.advance()
 
 	switch r {
@@ -201,8 +204,6 @@ func (l *Lexer) scanToken() error {
 			l.addToken(TokenError)
 		}
 	}
-
-	return nil
 }
 
 func (l *Lexer) blockComment() {
@@ -415,12 +416,13 @@ func (l *Lexer) lookupKeyword(text string) TokenKind {
 }
 
 func (l *Lexer) addToken(kind TokenKind) {
-	l.tokens = append(l.tokens, Token{
+	l.token = Token{
 		Kind:   kind,
 		Lexeme: l.source[l.start:l.pos],
 		Line:   l.line,
 		Column: l.column - (l.pos - l.start),
-	})
+	}
+	l.has = true
 }
 
 func (l *Lexer) advance() rune {

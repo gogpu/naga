@@ -74,8 +74,11 @@ var (
 
 // Parser parses WGSL tokens into an AST.
 type Parser struct {
-	tokens         []Token
-	current        int
+	// The parser keeps a one-token cursor over the streaming lexer (ADR-011):
+	// cur is the token under the cursor, prev the last consumed one.
+	lexer          *Lexer
+	cur            Token
+	prev           Token
 	errors         []ParseError
 	inForHeader    bool // true when parsing for-loop init/update (no trailing semicolon)
 	pendingEnables []Enable
@@ -113,24 +116,26 @@ func (e ParseError) Error() string {
 	return fmt.Sprintf("line %d, column %d: %s", e.Token.Line, e.Token.Column, e.Message)
 }
 
-// NewParser creates a new parser for the given tokens.
-func NewParser(tokens []Token) *Parser {
-	return &Parser{
-		tokens:  tokens,
-		current: 0,
-	}
+// NewParser creates a new parser that reads tokens from lexer.
+func NewParser(lexer *Lexer) *Parser {
+	p := &Parser{lexer: lexer}
+	p.cur = lexer.Next()
+	return p
 }
 
 // Parse parses the tokens and returns a Module AST.
 func (p *Parser) Parse() (*Module, error) {
-	// Estimate declaration counts from token count for pre-allocation.
-	// Only pre-allocate for shaders with enough tokens to benefit from
-	// avoiding slice regrowth. Small shaders (< ~100 tokens) are fine
-	// with nil slice append growth.
-	nTokens := len(p.tokens)
+	// Estimate declaration counts from the source size for pre-allocation
+	// (tokens average ~4 bytes each, so about one declaration per 80 bytes).
+	// Cap the estimate: a pathological source, e.g. a megabyte of nested
+	// parentheses refused early, must not pre-allocate a slice proportional to
+	// the input — that would make the cost grow with the input again (ADR-011).
+	// Real shaders are far below the cap; above it the slice grows normally.
+	const maxPreallocDecls = 256
+	nBytes := p.lexer.SourceLen()
 	module := &Module{}
-	if nTokens > 100 {
-		estDecls := nTokens/20 + 1
+	if nBytes > 400 {
+		estDecls := min(nBytes/80+1, maxPreallocDecls)
 		module.Declarations = make([]Decl, 0, estDecls)
 		module.Functions = make([]*FunctionDecl, 0, estDecls/3+1)
 	}
@@ -2165,22 +2170,26 @@ func (p *Parser) templateArgType() (Type, *ParseError) {
 // Helper methods
 
 func (p *Parser) advance() Token {
-	if !p.isAtEnd() {
-		p.current++
+	if p.cur.Kind == TokenEOF {
+		// Match the slice-cursor behavior: advancing at EOF returns the last
+		// consumed token and does not move.
+		return p.prev
 	}
-	return p.previous()
+	p.prev = p.cur
+	p.cur = p.lexer.Next()
+	return p.prev
 }
 
 func (p *Parser) peek() Token {
-	return p.tokens[p.current]
+	return p.cur
 }
 
 func (p *Parser) previous() Token {
-	return p.tokens[p.current-1]
+	return p.prev
 }
 
 func (p *Parser) isAtEnd() bool {
-	return p.peek().Kind == TokenEOF
+	return p.cur.Kind == TokenEOF
 }
 
 func (p *Parser) check(kind TokenKind) bool {
@@ -2263,9 +2272,9 @@ func (p *Parser) expectTemplateClose() *ParseError {
 // splitGreaterGreater splits a >> token into two > tokens, consuming the first.
 // This handles the WGSL angle bracket ambiguity in nested template args (e.g., vec3<f32>>).
 func (p *Parser) splitGreaterGreater() {
-	tok := p.tokens[p.current]
+	tok := p.cur
 	// Replace >> with a single > at position+1
-	p.tokens[p.current] = Token{
+	p.cur = Token{
 		Kind:   TokenGreater,
 		Lexeme: ">",
 		Line:   tok.Line,
@@ -2277,9 +2286,9 @@ func (p *Parser) splitGreaterGreater() {
 // splitGreaterEqual splits a >= token into > and = tokens, consuming the >.
 // This handles the WGSL template disambiguation: array<i32, 1 << 1>=...
 func (p *Parser) splitGreaterEqual() {
-	tok := p.tokens[p.current]
+	tok := p.cur
 	// Replace >= with = at position+1
-	p.tokens[p.current] = Token{
+	p.cur = Token{
 		Kind:   TokenEqual,
 		Lexeme: "=",
 		Line:   tok.Line,
@@ -2290,9 +2299,9 @@ func (p *Parser) splitGreaterEqual() {
 
 // splitGreaterGreaterEqual splits a >>= token into > and >= tokens, consuming the >.
 func (p *Parser) splitGreaterGreaterEqual() {
-	tok := p.tokens[p.current]
+	tok := p.cur
 	// Replace >>= with >= at position+1
-	p.tokens[p.current] = Token{
+	p.cur = Token{
 		Kind:   TokenGreaterEqual,
 		Lexeme: ">=",
 		Line:   tok.Line,
