@@ -2,11 +2,12 @@
 
 ## Supported Versions
 
-Naga is currently in early development (v0.x.x).
+Naga is pre-1.0 (v0.x.x). Security fixes go into the latest minor version only.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.0.x   | :white_check_mark: |
+| 0.21.x  | :white_check_mark: |
+| < 0.21  | :x:                |
 
 ## Reporting a Vulnerability
 

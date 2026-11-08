@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-11-08
+
+A patch with one security fix and the chain-limit fix announced as a known issue in 0.21.4. Everyone on an earlier
+version should update: any version since 0.15.0 can be run out of memory by a few hundred bytes of WGSL.
+
+### Security
+
+- **WGSL: a chain of swizzles took work exponential in its length** (P1-WGSL-109). Lowering a multi-component swizzle
+  lowered its base twice, so `v.wzyx.wzyx…` with n swizzles did 2^n work: 16 allocated 200 times more than 8, and 32
+  of them, about 200 bytes of WGSL, ended the process with Go's fatal "out of memory", which cannot be recovered.
+  The same held through a matrix column or a pointer (`m[0].wzyx…`, `(*p).wzyx…`). Affected since 0.15.0. Each base
+  is now lowered once, so the work grows with the length of the chain; a test checks that for every chain the
+  lowerer reaches through a reference.
+
 ### Fixed
 
 - **WGSL: long `else if` chains and deep expressions that Rust naga compiles were refused** (P1-WGSL-106, the known
@@ -3705,7 +3719,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.4...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.5...HEAD
+[0.21.5]: https://github.com/gogpu/naga/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/gogpu/naga/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/gogpu/naga/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/gogpu/naga/compare/v0.21.1...v0.21.2
