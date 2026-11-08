@@ -12,6 +12,12 @@ const (
 	errExpectedType          = "expected type"
 )
 
+// wordFunction is the keyword `function`: the address space a variable
+// declaration in a function body may name (WGSL §var-decls), the name of the
+// function attribute target in @must_use errors, and a reserved word for
+// declarations.
+const wordFunction = "function"
+
 // Nesting limits. Without them a deeply nested source (a few hundred KB of
 // `(`, `{` or `array<`) recursed until Go's fatal, unrecoverable "stack
 // overflow" killed the host process.
@@ -209,7 +215,7 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 	case p.check(TokenStruct):
 		return p.structDecl(attrs)
 	case p.check(TokenVar):
-		return p.varDecl(attrs)
+		return p.varDecl(attrs, false)
 	case p.check(TokenConst):
 		return p.constDecl()
 	case p.check(TokenLet):
@@ -264,7 +270,7 @@ const (
 // naga's FunctionMustUseOnNonFunction ("attribute `@must_use` is only valid
 // on function declarations").
 var attributeTargetNames = [...]string{
-	targetFunction: "function",
+	targetFunction: wordFunction,
 	targetVariable: "variable",
 	targetOverride: TokenOverride.String(),
 }
@@ -533,8 +539,13 @@ func (p *Parser) structMember() (*StructMember, *ParseError) {
 	}, nil
 }
 
-// varDecl parses a variable declaration.
-func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
+// varDecl parses a variable declaration. local says the declaration sits in a
+// function body: WGSL §var-decls allows only the function address space there
+// ("Variables in the private, storage, uniform, workgroup, and handle address
+// spaces must only be declared in module scope"), and Rust naga rejects any
+// other word in the parser (InvalidLocalVariableAddressSpace,
+// front/wgsl/parse/mod.rs:1213) with the message and note reproduced here.
+func (p *Parser) varDecl(attrs []Attribute, local bool) (*VarDecl, *ParseError) {
 	start := p.peek()
 	if !p.match(TokenVar) {
 		return nil, &ParseError{Message: "expected 'var'", Token: p.peek()}
@@ -547,6 +558,16 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 	if p.match(TokenLess) {
 		if p.check(TokenIdent) {
 			asTok := p.advance()
+			if local && asTok.Lexeme != wordFunction {
+				return nil, &ParseError{
+					Message: fmt.Sprintf("invalid address space for local variable: `%s`", asTok.Lexeme),
+					Token:   asTok,
+					Notes: []string{
+						"local variables can only use 'function' address space",
+						"WGSL spec §var-decls: variables in the private, storage, uniform, workgroup and handle address spaces must only be declared in module scope",
+					},
+				}
+			}
 			addressSpace = asTok.Lexeme
 			addressSpaceSpan = WordSpan(Position{Line: asTok.Line, Column: asTok.Column}, asTok.Lexeme)
 		}
@@ -1069,7 +1090,7 @@ func (p *Parser) statementKind() (Stmt, *ParseError) {
 	case p.check(TokenSwitch):
 		return p.switchStmt()
 	case p.check(TokenVar):
-		return p.varDecl(nil)
+		return p.varDecl(nil, true)
 	case p.check(TokenLet):
 		return p.letStmt()
 	case p.check(TokenConst):

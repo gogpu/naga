@@ -313,7 +313,7 @@ func isBuiltinName(name string) bool {
 		"sampler", "sampler_comparison",
 		"array", "atomic", "ptr",
 		"read", "write", "read_write",
-		"function", "private", "workgroup", "uniform", "storage", "handle",
+		wordFunction, "private", "workgroup", "uniform", "storage", "handle",
 		"true", "false":
 		return true
 	}
