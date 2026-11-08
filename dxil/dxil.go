@@ -601,6 +601,14 @@ func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
 //
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
+//
+// DXIL has no calls to user functions and no aggregate stores, so every
+// function is inlined into its entry point and every whole-variable store is
+// written element by element. Both grow with the source faster than the
+// source does, so Compile refuses, with an error that wraps
+// backend.ErrUnsupported, an entry point that is larger than 65536
+// expressions and statements once inlined, or that declares more than 65536
+// bytes of function and private variables (eight times the WGSL minimum).
 func Compile(irModule *ir.Module, opts Options) ([]byte, TranslationInfo, error) {
 	blob, err := compileContainer(irModule, opts)
 	if err != nil {

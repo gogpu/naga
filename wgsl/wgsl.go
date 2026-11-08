@@ -122,6 +122,18 @@ func (e *ParseError) Format(source, path string) string {
 // front::wgsl::Frontend::parse. A syntax or semantic error is a *ParseError.
 // The module is not validated: call valid.Validate with the capabilities the
 // device has.
+//
+// Parse refuses, with a *ParseError and without recursing deeper, a source
+// over 4 GiB and one that nests beyond these limits:
+//   - 200 levels of parser recursion (expressions, statements and template
+//     arguments, as Rust naga counts them; about 197 nested parentheses);
+//   - 127 levels of braces in a function, the WGSL minimum and Rust's limit;
+//   - 1024 levels of statements once lowered, each `else if` one level;
+//   - expressions 4096 operators deep (operator and member-access chains).
+//
+// Each limit is above what Rust naga compiles before it overflows its own
+// stack, and the deepest program they admit needs a few MiB of goroutine
+// stack through the validator and every backend.
 func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	// Spans are 32-bit byte offsets, as Rust naga's.
 	if uint64(len(source)) > math.MaxUint32 {

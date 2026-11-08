@@ -19,7 +19,10 @@ const (
 	// maxRecursionDepth is Rust naga's Parser::track_recursion bound
 	// (front/wgsl/parse/mod.rs): the parse fails once the depth reaches it.
 	// Rust counts expression, lhs_expression and statement; this parser
-	// counts the same productions (see enterRecursion's callers).
+	// counts the same productions (see enterRecursion's callers). It counts
+	// productions, not parentheses: in `let x = ((…));` inside a function the
+	// statement and the outer expression take two levels, so 197 parentheses
+	// fit, 198 in a global initializer, as in Rust.
 	maxRecursionDepth = 200
 
 	// maxBraceNesting is the WGSL limit "maximum nesting depth of
@@ -41,17 +44,32 @@ const (
 	// `- - … x`, `a.b.c…`) are parsed in loops, so the recursion limit
 	// does not bound them, yet the lowerer, the validator and every backend
 	// walk the tree recursively: a million-long chain overflowed the MSL
-	// writer's stack. Rust naga has no such limit and crashes too; the value
-	// and the text are Tint's (resolver.cc, Resolver::Expression,
-	// kMaxExpressionDepth = 512). The WGSL spec lets an implementation
-	// refuse a program beyond its limits (§2.4).
-	maxExpressionDepth = 512
-	errExpressionDepth = "reached max expression depth of 512"
+	// writer's stack. Rust naga has no such limit and crashes too: its CLI
+	// (14328f49, 1 MiB main stack on Windows) compiles about 1500 unary and
+	// 770 binary operators, then overflows. The WGSL spec lets an
+	// implementation refuse a program beyond its limits (§2.4); Tint refuses
+	// past 512 (kMaxExpressionDepth), and its error text is used here. 4096
+	// is above Rust's crash point, and a 4096-deep chain needs about 4 MiB
+	// of stack through the validator and every backend (measured 2026-11-08,
+	// TestDeepestAcceptedShaderFitsTheStack).
+	maxExpressionDepth = 4096
 
-	// errStatementChaining is Tint's text for its kMaxStatementDepth (127,
-	// resolver.cc): an `else if` nests the rest of its chain one level
-	// deeper, so a chain counts toward maxBraceNesting like nested braces.
-	errStatementChaining = "statement nesting depth / chaining length exceeds limit of 127"
+	// maxStatementDepth bounds how deep statements nest once lowered: every
+	// brace level plus one per `else if`, since each link becomes the else
+	// block of the one before it and every later pass walks that nesting
+	// recursively. Rust bounds only the braces; its CLI compiles about 650
+	// else-if links and overflows its stack beyond. Tint refuses past 127
+	// (kMaxStatementDepth) with the text used here. 1024 is above Rust's
+	// crash point and needs about 4 KiB of stack per level (the validator is
+	// the deepest pass). Higher would mostly buy time: text backends indent
+	// each level, so their output grows with the square of the depth (8000
+	// links took 30 s, 2026-11-08).
+	maxStatementDepth = 1024
+)
+
+var (
+	errExpressionDepth   = fmt.Sprintf("reached max expression depth of %d", maxExpressionDepth)
+	errStatementChaining = fmt.Sprintf("statement nesting depth / chaining length exceeds limit of %d", maxStatementDepth)
 )
 
 // Parser parses WGSL tokens into an AST.
@@ -68,6 +86,9 @@ type Parser struct {
 	// counts; braceNesting the open braces of the current function.
 	recursionDepth int
 	braceNesting   int
+	// statementDepth is braceNesting plus the `else if` links on the path
+	// to the current statement; see maxStatementDepth.
+	statementDepth int
 	// exprHeight is the height (in nodes) of the expression the last
 	// expression production returned; see maxExpressionDepth.
 	exprHeight int
@@ -1092,9 +1113,10 @@ func (p *Parser) ifStmt() (*IfStmt, *ParseError) {
 	var elseBlock *BlockStmt
 	// Each `else if` is nested in the one before it once lowered, and every
 	// later pass walks that nesting recursively, so each link counts as one
-	// brace level (Tint counts it the same way; see errStatementChaining).
-	saved := p.braceNesting
-	defer func() { p.braceNesting = saved }()
+	// statement level (see maxStatementDepth). Like Rust, a link is not a
+	// brace level: the 127 brace limit counts only real braces.
+	saved := p.statementDepth
+	defer func() { p.statementDepth = saved }()
 	for {
 		start := p.advance() // consume 'if'
 
@@ -1127,10 +1149,10 @@ func (p *Parser) ifStmt() (*IfStmt, *ParseError) {
 			break
 		}
 		// The next link's body opens two levels above this one's start.
-		if p.braceNesting+2 > maxBraceNesting {
+		if p.statementDepth+2 > maxStatementDepth {
 			return nil, &ParseError{Message: errStatementChaining, Token: p.peek()}
 		}
-		p.braceNesting++
+		p.statementDepth++
 	}
 
 	// Nest the chain: each `if` is the else of the one before it.
@@ -2095,12 +2117,17 @@ func (p *Parser) openBrace() *ParseError {
 			Notes:   []string{fmt.Sprintf("nesting limit is currently set to %d", maxBraceNesting)},
 		}
 	}
+	if p.statementDepth+1 > maxStatementDepth {
+		return &ParseError{Message: errStatementChaining, Token: brace}
+	}
 	p.braceNesting++
+	p.statementDepth++
 	return nil
 }
 
 func (p *Parser) closeBrace() {
 	p.braceNesting--
+	p.statementDepth--
 }
 
 // checkExprHeight fails when an expression of height h (in nodes) is

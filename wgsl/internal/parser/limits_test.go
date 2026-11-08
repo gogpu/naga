@@ -124,45 +124,56 @@ func nestingCases() []nestingCase {
 			maxOK:   63,
 			wantMsg: errBraceNestingLimit,
 		},
+		{
+			// An `else if` link is not a brace level in Rust: blocks in the
+			// final else of a 300-link chain still get the whole budget (the
+			// else block is level 2).
+			name: "nested blocks at the end of a long else-if chain",
+			src: func(n int) string {
+				return "fn f() { if true {} " + r("else if true {} ", 300) + "else { " + r("{", n) + r("}", n) + " } }"
+			},
+			maxOK:   125,
+			wantMsg: errBraceNestingLimit,
+		},
 	}
 }
 
-// chainCases are the constructs the parser reads in a loop, where Rust naga
-// has no limit (its later passes overflow the stack on a long enough chain)
-// and the limits are Tint's: expression depth 512 (resolver.cc
-// kMaxExpressionDepth; Tint's MaxExpressionDepth_Pass/Fail tests use the same
-// left-deep `b + b + …` chain) and statement chaining 127 (kMaxStatementDepth).
+// chainCases are the constructs the parser reads in a loop. Rust naga bounds
+// none of them, so a long enough chain overflows the stack in its recursive
+// later passes; its CLI on Windows (1 MiB main stack) compiles about 650
+// else-if links and 1500 unary operators. Our limits sit above that (4096
+// expression levels, 1024 statement levels), with Tint's texts.
 func chainCases() []nestingCase {
 	r := strings.Repeat
 	return []nestingCase{
 		{
 			name:    "binary operator chain",
 			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return a" + r(" + a", n) + "; }" },
-			maxOK:   512,
+			maxOK:   4096,
 			wantMsg: errExpressionDepth,
 		},
 		{
 			name:    "chain in a global initializer",
 			src:     func(n int) string { return "const x = 1" + r(" * 1", n) + ";" },
-			maxOK:   512,
+			maxOK:   4096,
 			wantMsg: errExpressionDepth,
 		},
 		{
 			name:    "unary operator chain",
 			src:     func(n int) string { return "fn f() -> i32 { let a = 1; return " + r("- ", n) + "a; }" },
-			maxOK:   512,
+			maxOK:   4096,
 			wantMsg: errExpressionDepth,
 		},
 		{
 			name:    "logical not chain",
 			src:     func(n int) string { return "fn f() -> bool { let a = true; return " + r("!", n) + "a; }" },
-			maxOK:   512,
+			maxOK:   4096,
 			wantMsg: errExpressionDepth,
 		},
 		{
 			name:    "member access chain",
 			src:     func(n int) string { return "fn f() { let a = v" + r(".x", n) + "; }" },
-			maxOK:   512,
+			maxOK:   4096,
 			wantMsg: errExpressionDepth,
 		},
 		{
@@ -170,7 +181,7 @@ func chainCases() []nestingCase {
 			// parenthesized chain of 2, so the tree is three times as high.
 			name:    "chain of parenthesized chains",
 			src:     func(n int) string { return "const x = 1" + r(" + (1 + (1 + 1))", n) + ";" },
-			maxOK:   510,
+			maxOK:   4094,
 			wantMsg: errExpressionDepth,
 		},
 		{
@@ -178,16 +189,26 @@ func chainCases() []nestingCase {
 			// the k-th `else if` body level 2+k.
 			name:    "else-if chain",
 			src:     func(n int) string { return "fn f() { if true {} " + r("else if true {} ", n) + "else {} }" },
-			maxOK:   125,
+			maxOK:   1022,
 			wantMsg: errStatementChaining,
 		},
 		{
-			// A chain inside nested blocks shares their budget.
+			// A chain inside nested blocks shares their statement budget.
 			name: "else-if chain in nested blocks",
 			src: func(n int) string {
 				return "fn f() { {{{{ if true {} " + r("else if true {} ", n) + "}}}} }"
 			},
-			maxOK:   121,
+			maxOK:   1018,
+			wantMsg: errStatementChaining,
+		},
+		{
+			// Blocks below a chain count too: the last body of a 1000-link
+			// chain is level 1002, which leaves room for 22 nested blocks.
+			name: "nested blocks at the end of an else-if chain",
+			src: func(n int) string {
+				return "fn f() { if true {} " + r("else if true {} ", 999) + "else if true { " + r("{", n) + r("}", n) + " } }"
+			},
+			maxOK:   22,
 			wantMsg: errStatementChaining,
 		},
 	}
@@ -265,9 +286,9 @@ func checkLimitError(t *testing.T, got ParseError, wantMsg string) {
 
 // TestChainLimits: Rust reads prefix operators, operator chains and else-if
 // chains in a loop and bounds none of them, so a long chain reaches its
-// recursive later passes and overflows the stack there. We refuse them at
-// Tint's limits instead (WGSL §2.4 lets an implementation refuse a program
-// beyond its limits): the limit is accepted, one past it refused.
+// recursive later passes and overflows the stack there. We refuse them above
+// the depth Rust survives instead (WGSL §2.4 lets an implementation refuse a
+// program beyond its limits): the limit is accepted, one past it refused.
 func TestChainLimits(t *testing.T) {
 	for _, tc := range chainCases() {
 		t.Run(tc.name, func(t *testing.T) {
