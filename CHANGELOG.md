@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **WGSL: a function-scope `var` outside the function address space was accepted** (P2-WGSL-112). WGSL
+  §var-decls: "Variables in the private, storage, uniform, workgroup, and handle address spaces must only be
+  declared in module scope." A `var<workgroup>` inside a function body was lowered to a function variable, a
+  silent semantic change, and such a variable also escaped the DXIL groupshared size limit, which sums
+  module-scope variables. It is now rejected at parse time, as Rust naga does, with the same message and note;
+  the error cites the spec section.
+
 ## [0.21.7] - 2026-11-08
 
 ### Fixed
