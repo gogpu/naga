@@ -72,6 +72,99 @@ var localAggregateCases = []struct{ name, body string }{
     data[0] = i32(coords[idx[2] % 6u]);`},
 }
 
+// A function-local aggregate with no initializer, written under a branch or
+// inside a loop and read back, is the shape P1-DXIL-047 and P2-DXIL-060
+// reported: the emitter refused a component of an uninitialized matrix or
+// array of vectors ("expression [N] has no value for component 1") and an
+// access into the pointer type of one. The zero value of every aggregate is
+// now written into an alloca the access chain can reach.
+var uninitializedAggregateCases = []struct{ name, body string }{
+	{"uninitialized matrix and array of vectors written in a branch (047)", `
+    var m: mat2x2<f32>;
+    var av: array<vec2<f32>, 2>;
+    if data[0] == 12345 {
+        m[1][1] = 1.0;
+        av[1].y = 1.0;
+    }
+    data[1] = i32(m[1][1] + av[1].y);`},
+	{"uninitialized aggregates of every shape in a loop (047)", `
+    var sum: f32 = 0.0;
+    for (var i = 0u; i < u32(data[0]); i++) {
+        var a: array<f32, 4>;
+        var av: array<vec2<f32>, 2>;
+        var m: mat2x2<f32>;
+        var sv: V;
+        var sa: T;
+        if data[1] == 1 {
+            a[1] = 1.0;
+            av[1].y = 2.0;
+            m[1][1] = 3.0;
+            sv.p.y = 4.0;
+            sv.k = 5;
+            sa.a[1] = 6;
+            sa.k = 7;
+        }
+        sum += a[1] + av[1].y + m[1][1] + sv.p.y + f32(sv.k) + f32(sa.a[1]) + f32(sa.k);
+    }
+    data[2] = i32(sum);`},
+}
+
+func TestUninitializedAggregatesValidate(t *testing.T) {
+	for _, tt := range uninitializedAggregateCases {
+		t.Run(tt.name, func(t *testing.T) {
+			src := localAggregatePrelude + "@compute @workgroup_size(1) fn main() {" + tt.body + "\n}\n"
+			blob, _, err := Compile(lowerSource(t, src), DefaultOptions())
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			if err := Validate(blob, ValidateFull); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+		})
+	}
+}
+
+// Module-scope private aggregates of a matrix and of an array of vectors take
+// a component store and a component read (P1-DXIL-047): the access into the
+// private variable's pointer type was refused, and the component of the
+// uninitialized remainder had no value.
+func TestPrivateAggregatesValidate(t *testing.T) {
+	tests := []struct{ name, src string }{
+		{"private matrix component store (047)", `
+var<private> m: mat2x2<f32> = mat2x2(1.0, 2.0, 3.0, 4.0);
+@group(0) @binding(0) var<storage, read_write> data: array<i32, 2>;
+@compute @workgroup_size(1) fn main() {
+    if data[0] == 12345 { m[1][1] = 0.0; }
+    data[1] = i32(m[1][1]);
+}`},
+		{"private array of vectors component store (060)", `
+var<private> av: array<vec2<f32>, 2> = array(vec2(1.0, 2.0), vec2(3.0, 4.0));
+@group(0) @binding(0) var<storage, read_write> data: array<i32, 2>;
+@compute @workgroup_size(1) fn main() {
+    if data[0] == 12345 { av[1].y = 0.0; }
+    data[1] = i32(av[1].y);
+}`},
+		{"constant element component write, as in the 060 probe (060)", `
+@group(0) @binding(0) var<storage, read_write> data: array<i32, 2>;
+@compute @workgroup_size(1) fn main() {
+    var arr = array<vec2<f32>, 2>(vec2(1.0, 2.0), vec2(3.0, 4.0));
+    arr[1].y = 10.0;
+    data[0] = i32(arr[0].x + arr[1].y);
+}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob, _, err := Compile(lowerSource(t, tt.src), DefaultOptions())
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			if err := Validate(blob, ValidateFull); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+		})
+	}
+}
+
 func TestLocalAggregatesValidate(t *testing.T) {
 	for _, tt := range localAggregateCases {
 		t.Run(tt.name, func(t *testing.T) {
