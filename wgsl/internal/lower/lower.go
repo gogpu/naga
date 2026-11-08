@@ -1683,6 +1683,7 @@ func (l *Lowerer) lowerSwizzleAssign(
 		}
 
 		// Apply binary operation: origSwizzled op rhs.
+		l.checkConstantRHS(binOp, origSwizzled, rhsValue, rhs.Pos())
 		sourceValue, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    binOp,
@@ -2146,6 +2147,7 @@ func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
 			return err
 		}
 
+		l.checkConstantRHS(binOp, currentVal, value, rhs.Pos())
 		value, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    binOp,
@@ -2831,6 +2833,11 @@ func (l *Lowerer) lowerBinary(bin *parser.BinaryExpr, target *[]ir.Statement) (i
 			return 0, err
 		}
 	}
+
+	// WGSL §arithmetic-expr: a const-expression divisor of zero and a
+	// const-expression shift amount at or above the bit width are
+	// shader-creation errors (the evaluator handles the fully const case).
+	l.checkConstantRHS(op, left, right, bin.Right.Pos())
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprBinary{Op: op, Left: left, Right: right},

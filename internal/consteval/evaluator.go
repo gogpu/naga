@@ -125,6 +125,20 @@ func (e *Evaluator) Literal(h ir.ExpressionHandle) (lit ir.LiteralValue, ok bool
 	return v.Component(0), true
 }
 
+// Value returns the evaluated value of the const-expression h, scalars and
+// vectors alike, as [Evaluator.Literal] does for a scalar. ok is false when h
+// is not a const-expression or its value cannot be computed.
+func (e *Evaluator) Value(h ir.ExpressionHandle) (Value, bool) {
+	if !e.IsConst(h) {
+		return Value{}, false
+	}
+	v, err := e.value(h)
+	if err != nil {
+		return Value{}, false
+	}
+	return v, true
+}
+
 // IsConst reports whether h is a const-expression.
 func (e *Evaluator) IsConst(h ir.ExpressionHandle) bool { return e.stageOf(h) == stageConst }
 

@@ -574,6 +574,9 @@ func (l *Lowerer) lowerAssignValue(pointer ir.ExpressionHandle, op parser.TokenK
 	if loaded, value, err = l.binaryOpSplat(binOp, loaded, value); err != nil {
 		return 0, err
 	}
+	// A compound assignment performs the binary operation, so the same
+	// shader-creation errors apply (WGSL §arithmetic-expr).
+	l.checkConstantRHS(binOp, loaded, value, rhs.Pos())
 	return l.addExpression(ir.Expression{Kind: ir.ExprBinary{Op: binOp, Left: loaded, Right: value}})
 }
 

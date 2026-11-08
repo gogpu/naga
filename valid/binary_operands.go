@@ -15,7 +15,8 @@ import (
 // when the operand is a const-expression, and in the IR a `let` bound to a
 // constant looks the same: Rust rejects the valid `let z = 0u; x / z`, and
 // after ProcessOverrides a let initialized from an override. Those checks
-// belong in the WGSL frontend, which knows a let from a const (P1-WGSL-101).
+// live in the WGSL frontend instead, which knows a let from a const
+// (wgsl/internal/lower, checkConstantRHS; P1-WGSL-101).
 
 // binaryOperatorNames are Rust naga's BinaryOperator variant names.
 var binaryOperatorNames = [...]string{
