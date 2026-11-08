@@ -196,25 +196,114 @@ struct T { a: f32, b: u32, c: u64, d: f64 }
 // a division here, and not for others, a multiplication: the validator
 // refused the flag on a shader that only multiplies doubles ("Flags must
 // match usage").
-// TestRawBufferShaderModelRefused: a storage buffer whose element has more than
-// four components is written with raw buffer operations (SM 6.2), so below
-// 6.2 Compile refuses with a VersionError that names our code generation
-// (P1-DXIL-072), where it raised the model silently; DXC writes bufferLoad
-// there.
-func TestRawBufferShaderModelRefused(t *testing.T) {
-	m := lowerForTest(t, `
+// A storage buffer element of more than four components is read and written
+// with dx.op.bufferLoad and dx.op.bufferStore: the DXIL spec gives a RawBuffer
+// one active coordinate, c0 in bytes, and bufferLoad/bufferStore carry four
+// components per call from shader model 5.1, so the access is split into one
+// call per four components. The emitter read such an element with
+// dx.op.rawBufferLoad, whose mask and alignment operands are 6.2, and Compile
+// refused the shader; DXC compiles the same storage buffer at cs_6_0
+// (P1-DXIL-072).
+func TestStorageBufferLargeElementBelowSM62(t *testing.T) {
+	tests := []struct{ name, src string }{
+		{"five u32 components, read and written", `
 struct S { a: u32, b: u32, c: u32, d: u32, e: u32 }
 @group(0) @binding(0) var<storage, read_write> s: array<S>;
-@compute @workgroup_size(1) fn main() { s[1] = s[0]; }
-`)
-	_, _, err := Compile(m, DefaultOptions())
-	var vErr *backend.VersionError
-	if !errors.As(err, &vErr) || vErr.Space != backend.VersionShaderModel ||
-		vErr.Required != (backend.Version{Major: 6, Minor: 2}) || !strings.Contains(vErr.Feature, "P1-DXIL-072") {
-		t.Fatalf("SM 6.0: err = %v, want a shader model VersionError requiring 6.2 for the raw buffer operations", err)
+@compute @workgroup_size(1) fn main() { s[1] = s[0]; }`},
+		{"six f32 components, one read per member", `
+struct S { a: vec2<f32>, b: vec3<f32>, c: f32 }
+@group(0) @binding(0) var<storage, read_write> s: array<S>;
+@compute @workgroup_size(1) fn main() { s[1].b.y = s[0].a.x; s[1].c = s[0].b.z; }`},
+		{"nine f32 components, three calls", `
+struct S { a: vec4<f32>, b: vec4<f32>, c: f32 }
+@group(0) @binding(0) var<storage, read> s: array<S>;
+@group(0) @binding(1) var<storage, read_write> o: array<f32>;
+@compute @workgroup_size(1) fn main() { let v = s[0]; o[0] = v.a.x + v.b.w + v.c; }`},
+		{"matrix element of sixteen components", `
+@group(0) @binding(0) var<storage, read_write> m: array<mat4x4<f32>>;
+@compute @workgroup_size(1) fn main() { m[1] = m[0]; }`},
 	}
-	if _, _, err := Compile(m, Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 2}}); err != nil {
-		t.Errorf("SM 6.2: %v", err)
+	for _, sm := range []backend.ShaderModel{{Major: 6, Minor: 0}, {Major: 6, Minor: 1}} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s at 6.%d", tt.name, sm.Minor), func(t *testing.T) {
+				blob, _, err := Compile(lowerForTest(t, tt.src), Options{ShaderModel: sm})
+				if err != nil {
+					t.Fatalf("Compile: %v", err)
+				}
+				if err := Validate(blob, ValidateFull); err != nil {
+					t.Fatalf("Validate: %v", err)
+				}
+				// The container must claim the requested model: a bufferLoad
+				// is legal at 6.0, a rawBufferLoad would not be.
+				stat := dxbcParts(t, blob)["STAT"]
+				if len(stat) < 4 {
+					t.Fatal("container has no STAT part")
+				}
+				v := binary.LittleEndian.Uint32(stat[:4])
+				if major, minor := (v>>4)&0xF, v&0xF; major != 6 || minor != uint32(sm.Minor) {
+					t.Errorf("container shader model %d.%d, want 6.%d", major, minor, sm.Minor)
+				}
+			})
+		}
+	}
+}
+
+// The calls a 32-bit element of more than four components is read and
+// written with: bufferLoad/bufferStore, one per four components, and never
+// their rawBuffer twins, whose mask and alignment operands are 6.2. Nine
+// components are 4 + 4 + 1.
+func TestStorageBufferLargeElementCalls(t *testing.T) {
+	_, fn := emitMainModule(t, `
+struct S { a: vec4<f32>, b: vec4<f32>, c: f32 }
+@group(0) @binding(0) var<storage, read_write> s: array<S>;
+@compute @workgroup_size(1) fn main() { let v = s[0]; s[1] = v; }
+`)
+	loads, stores, raw := 0, 0, []string{}
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			if in.Kind != module.InstrCall || in.CalledFunc == nil {
+				continue
+			}
+			name := in.CalledFunc.Name
+			switch {
+			case strings.HasPrefix(name, "dx.op.bufferLoad"):
+				loads++
+			case strings.HasPrefix(name, "dx.op.bufferStore"):
+				stores++
+			case strings.HasPrefix(name, "dx.op.rawBuffer"):
+				raw = append(raw, name)
+			}
+		}
+	}
+	if loads != 3 || stores != 3 {
+		t.Errorf("bufferLoad/bufferStore calls = %d/%d, want 3/3 for nine components", loads, stores)
+	}
+	if len(raw) != 0 {
+		t.Errorf("raw buffer calls at a 32-bit element: %v", raw)
+	}
+}
+
+// A 64-bit storage buffer element is the one raw buffer access that stays a
+// shader model requirement: dx.op.rawBufferLoad/Store take i64/f64 overloads
+// only from 6.3 (DXIL error SM.64BITRAWBUFFERLOADSTORE), and the emitter
+// writes native 64-bit values there. DXC reaches cs_6_0 by rewriting every
+// 64-bit operation as a pair of 32-bit ones, which we do not do, so the model
+// is a real requirement of this code generation and Compile refuses below it.
+func TestStorageBufferInt64RequiresSM63(t *testing.T) {
+	m := lowerForTest(t, `
+@group(0) @binding(0) var<storage, read_write> s: array<u64>;
+@compute @workgroup_size(1) fn main() { s[1] = s[0] + 1; }
+`)
+	for _, sm := range []backend.ShaderModel{{Major: 6, Minor: 0}, {Major: 6, Minor: 2}} {
+		_, _, err := Compile(m, Options{ShaderModel: sm})
+		var vErr *backend.VersionError
+		if !errors.As(err, &vErr) || vErr.Space != backend.VersionShaderModel ||
+			vErr.Required != (backend.Version{Major: 6, Minor: 3}) {
+			t.Fatalf("SM 6.%d: err = %v, want a shader model VersionError requiring 6.3", sm.Minor, err)
+		}
+	}
+	if _, _, err := Compile(m, Options{ShaderModel: backend.ShaderModel{Major: 6, Minor: 3}}); err != nil {
+		t.Errorf("SM 6.3: %v", err)
 	}
 }
 
