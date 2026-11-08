@@ -347,6 +347,9 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 		}
 		valueID := e.emitLoadInputCall(loadFn, inputRow, comp, isBoolInput)
 		valueID = e.withFirstVertexOrInstance(arg.Binding, valueID)
+		if comp == 3 {
+			valueID = e.invertFragmentPositionW(arg.Binding, stage, valueID)
+		}
 		e.registerInputComponent(exprHandle, comp, numComps, valueID)
 	}
 
@@ -660,6 +663,28 @@ func (e *Emitter) withFirstVertexOrInstance(binding *ir.Binding, valueID int) in
 	return e.addBinOpInstr(i32Ty, BinOpAdd, first, valueID)
 }
 
+// invertFragmentPositionW rewrites the w component of a fragment shader's
+// position input as 1.0 / w.
+//
+// WGSL's fragment position.w is the reciprocal of the clip-space w, while
+// D3D's SV_Position.w in a pixel shader is the clip-space w itself, so the
+// loaded w has to be inverted for the shader to read the value WGSL promises.
+// The HLSL backend writes the same reciprocal into the position input's
+// initializer, which is what DXC compiles the reference DXIL from; Tint
+// inverts it in its HLSL writer's shader_io raise pass (`vec4(pos.xyz, 1.0 /
+// pos.w)`) for the same reason. Any other value, and the w of a position
+// output (a vertex shader's clip position), is returned unchanged.
+func (e *Emitter) invertFragmentPositionW(binding *ir.Binding, stage ir.ShaderStage, valueID int) int {
+	if stage != ir.StageFragment || binding == nil {
+		return valueID
+	}
+	bb, ok := (*binding).(ir.BuiltinBinding)
+	if !ok || bb.Builtin != ir.BuiltinPosition {
+		return valueID
+	}
+	return e.addBinOpInstr(e.mod.GetFloatType(32), BinOpFDiv, e.getFloatConstID(1.0), valueID)
+}
+
 // getDxOpComputeBuiltinFunc creates a dx.op function declaration for compute
 // builtins. For vec3 builtins (hasComponent=true): i32 @name(i32, i32).
 // For scalar builtins (hasComponent=false): i32 @name(i32).
@@ -811,6 +836,9 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 			valueID := e.addCallInstr(loadFn, loadFn.FuncType.RetType,
 				[]int{opcodeVal, inputIDVal, rowVal, colVal, vertexIDVal})
 			valueID = e.withFirstVertexOrInstance(member.Binding, valueID)
+			if comp == 3 {
+				valueID = e.invertFragmentPositionW(member.Binding, stage, valueID)
+			}
 			info.comps[comp] = valueID
 			if comp == 0 {
 				info.firstID = valueID

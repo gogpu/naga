@@ -14,7 +14,7 @@ struct FragmentInput_entry_point_one {
 
 float4 entry_point_one(FragmentInput_entry_point_one fragmentinput_entry_point_one) : SV_Target0
 {
-    float4 pos = fragmentinput_entry_point_one.pos_1;
+    float4 pos = float4(fragmentinput_entry_point_one.pos_1.xyz, 1.0 / fragmentinput_entry_point_one.pos_1.w);
     float4 _e4 = t1_.Sample(s1_, pos.xy);
     return _e4;
 }

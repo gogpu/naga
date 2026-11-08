@@ -32,7 +32,7 @@ VertexOutput_vs_main vs_main(VertexInput model)
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
 {
-    VertexOutput in_ = { fragmentinput_fs_main.clip_position_1, fragmentinput_fs_main.color_2 };
+    VertexOutput in_ = { float4(fragmentinput_fs_main.clip_position_1.xyz, 1.0 / fragmentinput_fs_main.clip_position_1.w), fragmentinput_fs_main.color_2 };
     float3 color = (float3)0;
     int i = int(0);
     float ii = (float)0;

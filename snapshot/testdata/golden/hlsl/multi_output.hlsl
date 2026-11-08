@@ -14,7 +14,7 @@ float4 vs_main(uint vi : SV_VertexID) : SV_Position
 
 FragmentOutput fs_main(FragmentInput_fs_main fragmentinput_fs_main)
 {
-    float4 frag_coord = fragmentinput_fs_main.frag_coord_1;
+    float4 frag_coord = float4(fragmentinput_fs_main.frag_coord_1.xyz, 1.0 / fragmentinput_fs_main.frag_coord_1.w);
     FragmentOutput out_ = (FragmentOutput)0;
 
     out_.color = float4(1.0, 0.0, 0.0, 1.0);

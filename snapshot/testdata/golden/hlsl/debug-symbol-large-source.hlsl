@@ -313,7 +313,7 @@ GenFragmentOutput ConstructGenFragmentOutput(uint arg0, uint arg1) {
 
 GenFragmentOutput gen_terrain_fragment(FragmentInput_gen_terrain_fragment fragmentinput_gen_terrain_fragment)
 {
-    GenVertexOutput in_ = { fragmentinput_gen_terrain_fragment.index_2, fragmentinput_gen_terrain_fragment.position_1, fragmentinput_gen_terrain_fragment.uv_1 };
+    GenVertexOutput in_ = { fragmentinput_gen_terrain_fragment.index_2, float4(fragmentinput_gen_terrain_fragment.position_1.xyz, 1.0 / fragmentinput_gen_terrain_fragment.position_1.w), fragmentinput_gen_terrain_fragment.uv_1 };
     float vert_component = 0.0;
     uint index = 0u;
 
@@ -415,7 +415,7 @@ VertexOutput_vs_main vs_main(Vertex vertex)
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
 {
-    VertexOutput in_1 = { fragmentinput_fs_main.clip_position_1, fragmentinput_fs_main.normal_1, fragmentinput_fs_main.world_pos_1 };
+    VertexOutput in_1 = { float4(fragmentinput_fs_main.clip_position_1.xyz, 1.0 / fragmentinput_fs_main.clip_position_1.w), fragmentinput_fs_main.normal_1, fragmentinput_fs_main.world_pos_1 };
     float3 color = (float3)0;
 
     const float3 _e8 = color23_(float2(1.0, 2.0));

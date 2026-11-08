@@ -131,7 +131,7 @@ void ms_divergent(uint3 thread_id_1 : SV_GroupThreadID)
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
 {
-    VertexOutput vertex = { fragmentinput_fs_main.position, fragmentinput_fs_main.color };
+    VertexOutput vertex = { float4(fragmentinput_fs_main.position.xyz, 1.0 / fragmentinput_fs_main.position.w), fragmentinput_fs_main.color };
     PrimitiveInput primitive = { fragmentinput_fs_main.colorMask };
     return (vertex.color * primitive.colorMask);
 }
