@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   brace level, and expressions 512 operators deep. Rust naga bounds neither chain; its CLI (14328f4, 1 MiB main stack
   on Windows) compiles about 650 `else if` and 1500 unary minus before it overflows its own stack. The limits are now
   1024 statement levels (each `else if` still one level, but no longer one of the 127 brace levels, as in Rust) and
-  4096 expression levels, with the same error texts. The deepest shader they admit compiles through the validator
-  and every backend in under a second with about 4 MiB of stack; a million-long chain is still one parse error.
+  4096 expression levels. The error texts keep their wording with the new numbers: `reached max expression depth of
+  4096` and `statement nesting depth / chaining length exceeds limit of 1024` (code that matched `512` or `127` in
+  them needs updating). The deepest shader they admit compiles through the validator and every backend in under a
+  second with about 4 MiB of stack; a million-long chain is still one parse error.
 
 ### Documentation
 
