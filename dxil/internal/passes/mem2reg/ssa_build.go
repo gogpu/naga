@@ -55,6 +55,13 @@ type phiWalker struct {
 	// candidates is the set of variables Phase B will promote in this
 	// walk. Computed once at the start by selectStructuredCandidates.
 	candidates map[uint32]struct{}
+
+	// widened marks the handles that hold a bool variable's value
+	// widened to i32: the ssa.Phi nodes merging bool variables and the
+	// ExprAs that feed them. A bool variable's current value is i1
+	// until it first passes through a phi; from then on it is i32 and
+	// every load compares it with zero. See widenForMerge.
+	widened map[ir.ExpressionHandle]bool
 }
 
 func newPhiWalker(ctx *promotionContext) *phiWalker {
@@ -62,6 +69,7 @@ func newPhiWalker(ctx *promotionContext) *phiWalker {
 		ctx:          ctx,
 		currentValue: make(map[uint32]ir.ExpressionHandle),
 		candidates:   selectStructuredCandidates(ctx),
+		widened:      make(map[ir.ExpressionHandle]bool),
 	}
 	// Seed initial values from each candidate's Init or a fresh ZeroValue.
 	for _, v := range sortedVars(w.candidates) {
@@ -71,20 +79,17 @@ func newPhiWalker(ctx *promotionContext) *phiWalker {
 }
 
 // selectStructuredCandidates returns variables eligible for Phase B
-// promotion: promotable scalars (excluding bool) that have at least
-// one load. Phase A already attempted single-block promotion;
-// remaining promotable vars (those whose stores/loads spanned blocks)
-// become Phase B candidates.
+// promotion: promotable scalars that have at least one load. Phase A
+// already attempted single-block promotion; remaining promotable vars
+// (those whose stores/loads spanned blocks) become Phase B candidates.
 //
-// Bools are excluded and keep their alloca. IDxcValidator accepts a
-// `phi i1` and DXC's optimizer emits one (atomics.wgsl), but WARP, the
-// D3D12 software adapter of GPU-less CI runners, runs the short-circuit
-// `||` chain of gogpu/wgpu's dispatch-indirect validation shader wrong
-// with two `phi i1` at its merges: neither branch's stores take effect
-// (Intel and NVIDIA run it right). With the alloca it is right on all
-// three. DXC's frontend widens a bool local to i32 and compares it with
-// `icmp ne 0` at each load, so its phis are i32; doing the same here is
-// P2-DXIL-107.
+// Bool variables are promoted too, but their phis are i32: a `phi i1`
+// at the merge of a short-circuit `||` chain is wrong on WARP, the
+// D3D12 software adapter of GPU-less CI runners (neither arm's stores
+// take effect, Intel and NVIDIA run it right), and DXC's frontend
+// widens a bool local to i32 with `icmp ne 0` at each load instead.
+// widenForMerge builds that shape: a zext on every incoming edge and a
+// comparison at every load.
 func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 	out := make(map[uint32]struct{})
 	for v, info := range ctx.uses {
@@ -92,9 +97,6 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 			continue
 		}
 		if len(info.loadHandles) == 0 {
-			continue
-		}
-		if isBoolLocal(ctx.mod, &ctx.fn.LocalVars[v]) {
 			continue
 		}
 		out[uint32(v)] = struct{}{}
@@ -209,8 +211,8 @@ func dropLoopStoredCandidates(ptrs *localPtr, candidates map[uint32]struct{}, bl
 }
 
 // isBoolLocal reports whether the local variable's declared type is a
-// bool scalar; such locals keep their alloca (see
-// selectStructuredCandidates).
+// bool scalar. Such variables are promoted through i32 phis rather
+// than i1 ones (see widenForMerge).
 func isBoolLocal(mod *ir.Module, lv *ir.LocalVariable) bool {
 	if int(lv.Type) >= len(mod.Types) {
 		return false
@@ -283,13 +285,15 @@ func (w *phiWalker) walkBlock(blk *[]ir.Statement) blockExit {
 			w.rewriteLoadsInRange(sk.Range)
 			out = append(out, stmt)
 		case ir.StmtIf:
+			pre, post := w.handleIf(&stmt)
+			out = append(out, pre...)
 			out = append(out, stmt)
-			extra := w.handleIf(&out[len(out)-1])
-			out = append(out, extra...)
+			out = append(out, post...)
 		case ir.StmtSwitch:
+			pre, post := w.handleSwitch(&stmt)
+			out = append(out, pre...)
 			out = append(out, stmt)
-			extra := w.handleSwitch(&out[len(out)-1])
-			out = append(out, extra...)
+			out = append(out, post...)
 		case ir.StmtLoop:
 			out = append(out, stmt)
 			extra := w.handleLoop(&out[len(out)-1])
@@ -325,6 +329,14 @@ func (w *phiWalker) rewriteLoadsInRange(r ir.Range) {
 		if !hasCV {
 			continue
 		}
+		if w.widened[cv] {
+			// The value merged through an i32 phi: a load of the variable is
+			// the comparison with zero, the shape DXC emits at a widened
+			// bool's use.
+			width := boolWidth // a bool's own width in bytes
+			w.ctx.fn.Expressions[h].Kind = ir.ExprAs{Expr: cv, Kind: ir.ScalarBool, Convert: &width}
+			continue
+		}
 		w.ctx.fn.Expressions[h].Kind = ssa.Alias{Source: cv}
 	}
 }
@@ -334,10 +346,10 @@ func (w *phiWalker) rewriteLoadsInRange(r ir.Range) {
 // ssa.Phi statements for any candidate whose value differs between
 // the branches.
 //
-// Returns the synthesized phi-bearing StmtEmit statements that the
-// caller should append immediately after the StmtIf to position the
-// phis at the merge BB prologue.
-func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
+// Returns the statements the caller places before the StmtIf (the
+// widening of a value that comes from before it) and after it (the
+// phi-bearing StmtEmits, positioned at the merge BB prologue).
+func (w *phiWalker) handleIf(stmtPtr *ir.Statement) (pre, post []ir.Statement) {
 	sk := stmtPtr.Kind.(ir.StmtIf)
 	preIf := snapshotValues(w.currentValue)
 
@@ -350,29 +362,25 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 	rejectExit := w.walkBlock(&reject)
 	rejectValues := snapshotValues(w.currentValue)
 
-	stmtPtr.Kind = ir.StmtIf{
-		Condition: sk.Condition,
-		Accept:    ir.Block(accept),
-		Reject:    ir.Block(reject),
-	}
-
 	// A branch that leaves with a break, continue or return is no
 	// predecessor of the merge: the merge sees only the other branch's
 	// values, and a phi with an incoming from it would be invalid.
 	switch {
 	case acceptExit != exitFallsThrough && rejectExit != exitFallsThrough:
 		// The merge is unreachable; any value is right there.
+		stmtPtr.Kind = ir.StmtIf{Condition: sk.Condition, Accept: ir.Block(accept), Reject: ir.Block(reject)}
 		w.currentValue = snapshotValues(preIf)
-		return nil
+		return nil, nil
 	case acceptExit != exitFallsThrough:
+		stmtPtr.Kind = ir.StmtIf{Condition: sk.Condition, Accept: ir.Block(accept), Reject: ir.Block(reject)}
 		w.currentValue = rejectValues
-		return nil
+		return nil, nil
 	case rejectExit != exitFallsThrough:
+		stmtPtr.Kind = ir.StmtIf{Condition: sk.Condition, Accept: ir.Block(accept), Reject: ir.Block(reject)}
 		w.currentValue = acceptValues
-		return nil
+		return nil, nil
 	}
 
-	var phis []ir.Statement
 	for _, v := range sortedVars(w.candidates) {
 		va, haveA := acceptValues[v]
 		vr, haveR := rejectValues[v]
@@ -389,14 +397,19 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 			w.currentValue[v] = va
 			continue
 		}
-		phiHandle := w.appendPhi([]ssa.Incoming{
+		va = w.widenForMerge(v, va, &accept, haveA, &pre)
+		vr = w.widenForMerge(v, vr, &reject, haveR, &pre)
+		phiHandle := w.appendMergePhi(v, []ssa.Incoming{
 			{PredKey: ssa.PredIfAccept, Value: va},
 			{PredKey: ssa.PredIfReject, Value: vr},
 		})
 		w.currentValue[v] = phiHandle
-		phis = append(phis, makePhiEmit(phiHandle))
+		post = append(post, makePhiEmit(phiHandle))
 	}
-	return phis
+	// The widening appends statements to the branch blocks, so the
+	// statement is rebuilt here, after them, not before the loop.
+	stmtPtr.Kind = ir.StmtIf{Condition: sk.Condition, Accept: ir.Block(accept), Reject: ir.Block(reject)}
+	return pre, post
 }
 
 // handleSwitch processes a StmtSwitch during the rename pass. Walks
@@ -407,12 +420,13 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 // Fall-through cases are conservatively treated like a separate
 // incoming — the emit-side BB-tracking maps ssa.PredSwitchCase+CaseIdx
 // to the BB where that case's body terminated.
-func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
+func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) (pre, post []ir.Statement) {
 	sk := stmtPtr.Kind.(ir.StmtSwitch)
 	preSwitch := snapshotValues(w.currentValue)
 
 	caseValues := make([]map[uint32]ir.ExpressionHandle, len(sk.Cases))
 	reachesMerge := make([]bool, len(sk.Cases))
+	stored := make([]bool, len(sk.Cases))
 	cases := make([]ir.SwitchCase, len(sk.Cases))
 	copy(cases, sk.Cases)
 	for ci := range cases {
@@ -425,10 +439,14 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 		reachesMerge[ci] = w.walkBlock(&body) != exitOther && !cases[ci].FallThrough
 		caseValues[ci] = snapshotValues(w.currentValue)
 		cases[ci].Body = ir.Block(body)
+		for v := range w.candidates {
+			if cv, ok := caseValues[ci][v]; ok && cv != preSwitch[v] {
+				stored[ci] = true
+			}
+		}
 	}
 	stmtPtr.Kind = ir.StmtSwitch{Selector: sk.Selector, Cases: cases}
 
-	var phis []ir.Statement
 	for _, v := range sortedVars(w.candidates) {
 		incomings := switchMergeIncomings(v, caseValues, reachesMerge, preSwitch)
 		switch {
@@ -440,12 +458,18 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 			// one every case stored): no phi.
 			w.currentValue[v] = incomings[0].Value
 		default:
-			phiHandle := w.appendPhi(incomings)
+			for i := range incomings {
+				body := []ir.Statement(cases[incomings[i].CaseIdx].Body)
+				ci := incomings[i].CaseIdx
+				incomings[i].Value = w.widenForMerge(v, incomings[i].Value, &body, stored[ci], &pre)
+				cases[ci].Body = ir.Block(body)
+			}
+			phiHandle := w.appendMergePhi(v, incomings)
 			w.currentValue[v] = phiHandle
-			phis = append(phis, makePhiEmit(phiHandle))
+			post = append(post, makePhiEmit(phiHandle))
 		}
 	}
-	return phis
+	return pre, post
 }
 
 // switchMergeIncomings returns v's value along each edge into the switch's
@@ -562,6 +586,60 @@ func collectStores(ptrs *localPtr, candidates map[uint32]struct{}, block []ir.St
 			}
 		}
 	}
+}
+
+// Byte widths of the integer a bool local's value is widened to and of
+// the bool itself. They are the ExprAs target widths, in bytes.
+const (
+	boolIntWidth uint8 = 4
+	boolWidth    uint8 = 1
+)
+
+// widenForMerge returns the i32 expression standing for a bool
+// variable's incoming value on one edge of a merge, appending the
+// zero-extension that produces it.
+//
+// A bool variable's phis are i32, never i1: WARP, the D3D12 software
+// adapter of GPU-less CI runners, runs a shader with a `phi i1` at the
+// merge of a short-circuit `||` chain wrong (neither arm's stores take
+// effect; Intel and NVIDIA run it right), and DXC's frontend widens a
+// bool local to i32 instead. Every load of a widened value is its
+// comparison with zero (rewriteLoadsInRange).
+//
+// The zero-extension is emitted where its operand is available: at the
+// end of the branch that produced the value, or, when the value comes
+// from before the construct, in pre, the statements placed before it.
+func (w *phiWalker) widenForMerge(v uint32, h ir.ExpressionHandle, owner *[]ir.Statement, ownValue bool, pre *[]ir.Statement) ir.ExpressionHandle {
+	if w.widened[h] {
+		return h // already i32: a phi or a zero-extension from an inner merge
+	}
+	if !isBoolLocal(w.ctx.mod, &w.ctx.fn.LocalVars[v]) {
+		return h
+	}
+	width := boolIntWidth
+	zh := ir.ExpressionHandle(len(w.ctx.fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
+	w.ctx.fn.Expressions = append(w.ctx.fn.Expressions, ir.Expression{
+		Kind: ir.ExprAs{Expr: h, Kind: ir.ScalarUint, Convert: &width},
+	})
+	w.widened[zh] = true
+	emit := makePhiEmit(zh)
+	if ownValue {
+		*owner = append(*owner, emit)
+	} else {
+		*pre = append(*pre, emit)
+	}
+	return zh
+}
+
+// appendMergePhi appends the phi of a variable that merges one of its
+// values at an if or switch merge, marking a bool variable's phi as
+// widened: its value is i32 from here on.
+func (w *phiWalker) appendMergePhi(v uint32, incomings []ssa.Incoming) ir.ExpressionHandle {
+	h := w.appendPhi(incomings)
+	if isBoolLocal(w.ctx.mod, &w.ctx.fn.LocalVars[v]) {
+		w.widened[h] = true
+	}
+	return h
 }
 
 // appendPhi appends a new ssa.Phi to fn.Expressions and returns its

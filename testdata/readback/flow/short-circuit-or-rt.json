@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a short-circuit || chain over runtime values decides an if/else: [60, 0, 0, 0, fill] (P2-DXIL-107, P2-DXIL-092: with the chain's bool local as phi i1, and as alloca i1, WARP ran neither arm's stores)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [10, 20, 30, 70000, 20, 30, 10, 70000, 30, 10, 20, 70000]},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[60, 0, 0, 0, "fill"]]}
+  ]
+}

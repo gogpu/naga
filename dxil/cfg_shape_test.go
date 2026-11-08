@@ -16,8 +16,9 @@ import (
 // wgpu's indirect-dispatch validation shader: an if/else on an `||` chain
 // whose arms both store. DXC's output for it has no block without a
 // predecessor; ours had an extra block holding only a branch to the merge.
-// Its two short-circuit locals stay `alloca i1`: as `phi i1` (v0.21.3's
-// candidate) WARP ran neither arm's stores.
+// Its two short-circuit locals are promoted through i32 phis (P2-DXIL-107):
+// as `phi i1` (v0.21.3's candidate) WARP ran neither arm's stores, and as
+// `alloca i1` D3D12's GPU-based validation did the same.
 const orChainSource = `
 @group(0) @binding(0) var<storage, read_write> dst: array<u32, 3>;
 @group(0) @binding(1) var<uniform> src_index: SrcIndex;
@@ -170,23 +171,35 @@ func TestNoUnreachableBlocks(t *testing.T) {
 	}
 }
 
-// The short-circuit locals of the `||` chain must not become `phi i1`. WARP,
-// the D3D12 adapter of GPU-less CI runners, runs this shader wrong with the
-// two `phi i1` at its merges (neither arm's stores take effect, gogpu/wgpu's
-// TestDispatchIndirectReadsItsOwnArguments), and right with the allocas, as
-// do Intel and NVIDIA. P2-DXIL-107 widens bool phis to i32 as DXC's frontend
-// does.
-func TestOrChainNoBoolPhi(t *testing.T) {
+// The short-circuit locals of the `||` chain are promoted, and their two
+// phis are i32, as DXC's frontend emits them (P2-DXIL-107). The i1 shapes are
+// what breaks: `phi i1` at these merges makes WARP, the D3D12 adapter of
+// GPU-less CI runners, run neither arm's stores (gogpu/wgpu's
+// TestDispatchIndirectReadsItsOwnArguments), and `alloca i1` makes D3D12's
+// GPU-based validation drop the stores.
+func TestOrChainBoolMergesThroughI32Phi(t *testing.T) {
 	for _, tc := range orChainOptions {
 		t.Run(tc.name, func(t *testing.T) {
 			_, fn := emitMainModuleOpts(t, orChainSource, tc.opts())
+			phi32 := 0
 			for _, bb := range fn.BasicBlocks {
 				for _, in := range bb.Instructions {
-					if in.Kind == module.InstrPhi && in.ResultType != nil &&
-						in.ResultType.Kind == module.TypeInteger && in.ResultType.IntBits == 1 {
-						t.Errorf("phi i1 %%%d: a bool local was promoted", in.ValueID)
+					if in.ResultType == nil || in.ResultType.Kind != module.TypeInteger {
+						continue
+					}
+					switch {
+					case in.ResultType.IntBits == 1 && in.Kind == module.InstrPhi:
+						t.Errorf("phi i1 %%%d at the chain's merge: a bool local was merged as i1", in.ValueID)
+					case in.ResultType.IntBits == 1 && in.Kind == module.InstrAlloca:
+						t.Errorf("alloca i1 %%%d: a bool local kept an i1 alloca", in.ValueID)
+					case in.ResultType.IntBits == 32 && in.Kind == module.InstrPhi:
+						phi32++
 					}
 				}
+			}
+			// One phi per short-circuit local of the two-term chain.
+			if phi32 < 2 {
+				t.Errorf("%d i32 phis in the chain, want at least 2", phi32)
 			}
 		})
 	}
