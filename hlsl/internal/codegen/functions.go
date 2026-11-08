@@ -655,7 +655,30 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 		}
 	}
 	// Default: read from input struct
-	fmt.Fprintf(&w.Out, "%s.%s", epInput.argName, fakeMember.name)
+	memberExpr := fmt.Sprintf("%s.%s", epInput.argName, fakeMember.name)
+	if isFragmentPositionInput(ep, binding) {
+		// WGSL's fragment position.w is the reciprocal of the clip-space w,
+		// while D3D's SV_Position.w in a pixel shader is the clip-space w
+		// itself, so the w read here has to be inverted. Tint does the same
+		// in its HLSL writer's shader_io raise pass (`vec4(pos.xyz, 1.0 /
+		// pos.w)`); Rust naga (back/hlsl/conv.rs) maps Position straight to
+		// SV_Position and leaves w un-inverted — a deliberate, spec-first
+		// deviation from Rust.
+		fmt.Fprintf(&w.Out, "%s(%s.xyz, 1.0 / %s.w)",
+			w.getTypeName(fakeMember.ty), memberExpr, memberExpr)
+		return
+	}
+	w.Out.WriteString(memberExpr)
+}
+
+// isFragmentPositionInput reports whether binding is the position builtin read
+// as a fragment shader input, whose w has to be inverted (see writeEPArgInit).
+func isFragmentPositionInput(ep *ir.EntryPoint, binding *ir.Binding) bool {
+	if ep == nil || ep.Stage != ir.StageFragment || binding == nil {
+		return false
+	}
+	bb, ok := (*binding).(ir.BuiltinBinding)
+	return ok && bb.Builtin == ir.BuiltinPosition
 }
 
 // writeComputeAttributes writes [numthreads(x,y,z)] attribute for compute shaders.

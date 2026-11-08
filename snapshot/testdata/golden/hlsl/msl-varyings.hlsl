@@ -31,7 +31,7 @@ VertexOutput_vs_main vs_main(Vertex vertex, NoteInstance note)
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
 {
-    VertexOutput in_ = { fragmentinput_fs_main.position_1 };
+    VertexOutput in_ = { float4(fragmentinput_fs_main.position_1.xyz, 1.0 / fragmentinput_fs_main.position_1.w) };
     NoteInstance note_1 = { fragmentinput_fs_main.position_2 };
     float3 position_3 = (1.0).xxx;
     return in_.position;

@@ -82,6 +82,11 @@ const (
 		"InterlockedExchange64 and InterlockedOr64; Rust (f0201c9c) writes the 32-bit InterlockedExchange and " +
 		"InterlockedOr, which DXC accepts with \"conversion from larger type 'uint64_t' to smaller type " +
 		"'unsigned int &'\", cutting the value to 32 bits"
+	reasonHLSLFragmentPositionW = "a fragment shader's position input is initialized with the reciprocal " +
+		"`float4(pos.xyz, 1.0 / pos.w)`: WGSL's fragment position.w is 1/w of the clip position, while D3D's " +
+		"SV_Position.w in a pixel shader is the clip w itself, so reading it un-inverted gives the wrong value " +
+		"(Tint inverts it the same way in its HLSL writer's shader_io raise pass). Rust (back/hlsl/conv.rs) maps " +
+		"Position straight to SV_Position and leaves w un-inverted"
 )
 
 // rustDeviations is the complete list of known differences from the vendored
@@ -243,8 +248,8 @@ var rustDeviations = []rustDeviation{
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed", "0892b384"),
 		Fingerprint: "d609cf205b92964217e9b83c69c71091f3ce0c1fad2ee57730fc7d015b5e5932"},
 	{Shader: "interface", File: "wgsl-interface.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
-		Reason:      notPorted("96b7872f", "a53ffffe"),
-		Fingerprint: "2e5af9196b9127bb1483338536bd38f47d27f5c5ba988b3236f18b36889b0dc3"},
+		Reason:      notPorted("96b7872f", "a53ffffe") + "; " + reasonHLSLFragmentPositionW,
+		Fingerprint: "84106ab2e403e34f19b78e21a4d76db948451bce1e48922c9acd88953424045e"},
 	{Shader: "overrides-atomicCompareExchangeWeak", File: "wgsl-overrides-atomicCompareExchangeWeak.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "f483af7caf2f9f3c2df44d835e3d6cb29ef25f58beac51d988bc26cd301e389c"},
@@ -378,8 +383,8 @@ var rustDeviations = []rustDeviation{
 		Reason:        "the msl package has no task/mesh stages; " + notPorted("b5bd5aed"),
 		ErrorContains: "unsupported shader stage"},
 	{Shader: "mesh-shader", File: "wgsl-mesh-shader.hlsl", Kind: deviationBug, Card: "BUG-HLSL-BUILTIN-SEMANTIC-001",
-		Reason:      "mesh outputs: triangle_indices and cull_primitive get SV_Position (BuiltInToSemantic fallback); " + notPorted("a53ffffe"),
-		Fingerprint: "fe3824f47fbf116ba16fc85f6e92d3aefe8472bf56f42bdf5c4c10f66269afb0"},
+		Reason:      "mesh outputs: triangle_indices and cull_primitive get SV_Position (BuiltInToSemantic fallback); " + notPorted("a53ffffe") + "; " + reasonHLSLFragmentPositionW,
+		Fingerprint: "fd08c06a412b6ae39ba4f002f1aa791e9bb2f374e0814819e7f3ccf848243367"},
 	{Shader: "mesh-shader-empty", File: "wgsl-mesh-shader-empty.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      "SPIR-V mesh shaders: no MeshShadingEXT, the module has Linkage and no entry point interface; " + notPorted("6bca1014"),
 		Fingerprint: "2a0ed1ef7296eb7d2dc9a7431349476d0d9b27f308a2aff328a9b5685761b4b0"},
@@ -431,6 +436,30 @@ var rustDeviations = []rustDeviation{
 	{Shader: "workgroup-uniform-load-atomic", File: "wgsl-workgroup-uniform-load-atomic.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      "zero-init through SV_GroupThreadID; " + notPorted("96b7872f"),
 		Fingerprint: "469371c141e9d3aa1f05d07116676322349456259b673300b3ef80ffe215c915"},
+
+	// HLSL: the fragment position input's w is read as 1/w, which is what
+	// WGSL defines; Rust leaves it un-inverted. See reasonHLSLFragmentPositionW.
+	{Shader: "9105-primitive-index-ordering", File: "wgsl-9105-primitive-index-ordering.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "af7242d5acddcf3d4acb6f284113304968a2f71459182f42c7597021185a7668"},
+	{Shader: "interpolate", File: "wgsl-interpolate.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "450d34be2ef3bdd6f1c7cd1e9396baa2d4491a239251513d5ee0ef4843706b3b"},
+	{Shader: "interpolate_compat", File: "wgsl-interpolate_compat.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "a39ebb14ad080077c5383f48c0bcf7b6e7644554954d10b348c19cdd9649296a"},
+	{Shader: "shadow", File: "wgsl-shadow.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "77a99e5961e9939dc553069e29776af0523627c800036f381cb0692447663ba0"},
+	{Shader: "skybox", File: "wgsl-skybox.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "2a5c0ca92181374ac3ef513fd61e78feb512ce3b94676441d7ea7c5e0fb402d6"},
+	{Shader: "standard", File: "wgsl-standard.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "8a6dba4a48be82939c82a01ce73a73cca09f456439a9c5ea1bcd6da91a6744fc"},
+	{Shader: "unconsumed_vertex_outputs_frag", File: "wgsl-unconsumed_vertex_outputs_frag.hlsl", Kind: deviationIntentional, Card: "P1-HLSL-037",
+		Reason:      reasonHLSLFragmentPositionW,
+		Fingerprint: "da49e70707f944a61e9a88fe029f79f84a108d291e4e7dca4fe3f279c24cceb7"},
 }
 
 // unsupportedShader records a corpus shader we cannot lower yet. None of its

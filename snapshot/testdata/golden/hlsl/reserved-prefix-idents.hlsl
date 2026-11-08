@@ -50,7 +50,7 @@ VertexOutput_vs_main vs_main(float2 gl_in : LOC0)
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
 {
-    gl_VertexOut gl_v = { fragmentinput_fs_main.gl_pos_1, fragmentinput_fs_main.gl_uv_1 };
+    gl_VertexOut gl_v = { float4(fragmentinput_fs_main.gl_pos_1.xyz, 1.0 / fragmentinput_fs_main.gl_pos_1.w), fragmentinput_fs_main.gl_uv_1 };
     int _e2 = gl_counter;
     gl_counter = asint(asuint(_e2) + asuint(int(1)));
     int _e6 = gl_counter;
