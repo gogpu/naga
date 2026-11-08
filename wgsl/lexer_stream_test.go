@@ -15,6 +15,16 @@ func nestedParensSource(n int) string {
 	return "fn f() { let x = " + strings.Repeat("(", n) + "; }"
 }
 
+// maxEarlyErrorAlloc caps what a parse refused at the expression depth limit
+// may allocate, whatever the input size. It is an absolute bound, not a ratio:
+// runtime.MemStats.TotalAlloc is process-wide and cumulative, and a few KB of
+// background allocation inside the measured window flipped a 1.5x ratio on CI
+// while both numbers stayed under 14 KB (P2-TEST-016, 2026-11-08). The
+// regression this guards against is whole-input tokenizing, about 40x the
+// source: 40 MB for 1 MB of input, so the cap sits an order of magnitude above
+// the noise and two below the regression.
+const maxEarlyErrorAlloc = 1 << 20
+
 // TestEarlyErrorCostIndependentOfInputSize guards the streaming lexer
 // (ADR-011): the allocated bytes of a parse refused by the expression depth
 // limit must not grow with the input. Before the streaming lexer the whole
@@ -22,8 +32,7 @@ func nestedParensSource(n int) string {
 // the allocated bytes scaled with the input.
 func TestEarlyErrorCostIndependentOfInputSize(t *testing.T) {
 	sizes := []int{1 << 20, 2 << 20}
-	allocs := make([]uint64, len(sizes))
-	for i, n := range sizes {
+	for _, n := range sizes {
 		src := nestedParensSource(n)
 
 		runtime.GC()
@@ -42,14 +51,12 @@ func TestEarlyErrorCostIndependentOfInputSize(t *testing.T) {
 			t.Fatalf("Parse of %d bytes: got %q, want the recursion-limit refusal", len(src), err)
 		}
 
-		allocs[i] = after.TotalAlloc - before.TotalAlloc
-		t.Logf("%d bytes of input: %d bytes allocated", len(src), allocs[i])
-	}
-
-	ratio := float64(allocs[1]) / float64(allocs[0])
-	if ratio > 1.5 {
-		t.Fatalf("allocated bytes grew %.2fx when the input doubled (%d -> %d); the lexer still tokenizes the whole input",
-			ratio, allocs[0], allocs[1])
+		allocs := after.TotalAlloc - before.TotalAlloc
+		t.Logf("%d bytes of input: %d bytes allocated", len(src), allocs)
+		if allocs > maxEarlyErrorAlloc {
+			t.Fatalf("Parse of %d bytes allocated %d bytes (cap %d): the lexer still tokenizes the whole input",
+				len(src), allocs, maxEarlyErrorAlloc)
+		}
 	}
 }
 
