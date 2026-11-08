@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.21.4** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.21.5** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
