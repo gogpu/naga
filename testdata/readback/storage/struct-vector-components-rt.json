@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "a whole storage struct of three vec2<u32>, six components in one element access, is loaded, changed and stored back: [11, 22, 33, 14, 25, 36] (P0-DXIL-050 / P1-DXIL-072: the >4-component element was read with rawBufferLoad and refused below shader model 6.2)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "words": [1, 2, 3, 4, 5, 6], "expect": [[11, 22, 33, 14, 25, 36]]},
+    {"binding": 1, "kind": "storage-read", "words": [10, 20, 30]}
+  ]
+}
