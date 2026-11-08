@@ -54,19 +54,6 @@ func (l *Lexer) Next() Token {
 	}
 }
 
-// Tokenize collects every token, EOF included. Tests and lexer benchmarks use
-// it; wgsl.Parse streams through Next instead.
-func (l *Lexer) Tokenize() []Token {
-	var tokens []Token
-	for {
-		tok := l.Next()
-		tokens = append(tokens, tok)
-		if tok.Kind == TokenEOF {
-			return tokens
-		}
-	}
-}
-
 func (l *Lexer) scanToken() {
 	r := l.advance()
 

@@ -254,8 +254,9 @@ func BenchmarkLexOperators(b *testing.B) {
 // Parser benchmarks
 // ---------------------------------------------------------------------------
 
-// BenchmarkParse benchmarks parsing throughput (tokens to AST) for shaders
-// of different sizes.
+// BenchmarkParse benchmarks parsing throughput for shaders of different sizes.
+// With the streaming lexer (ADR-011) a parse includes tokenization, so this is
+// the whole front end, not tokens-to-AST alone.
 func BenchmarkParse(b *testing.B) {
 	for _, bc := range benchShaders {
 		b.Run(bc.name, func(b *testing.B) {
@@ -354,27 +355,6 @@ fn main() -> @builtin(position) vec4<f32> {
 			b.Fatalf("parse failed: %v", pErr)
 		}
 		runtime.KeepAlive(module)
-	}
-}
-
-// BenchmarkLexAndParse benchmarks the combined lex+parse pipeline
-// to measure total frontend throughput.
-func BenchmarkLexAndParse(b *testing.B) {
-	for _, bc := range benchShaders {
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.SetBytes(int64(len(bc.source)))
-			b.ResetTimer()
-
-			for i := 0; i < b.N; i++ {
-				p := parser.NewParser(parser.NewLexer(bc.source))
-				module, pErr := p.Parse()
-				if pErr != nil {
-					b.Fatalf("parse failed: %v", pErr)
-				}
-				runtime.KeepAlive(module)
-			}
-		})
 	}
 }
 

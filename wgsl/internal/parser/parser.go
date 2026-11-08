@@ -2171,7 +2171,7 @@ func (p *Parser) templateArgType() (Type, *ParseError) {
 
 func (p *Parser) advance() Token {
 	if p.cur.Kind == TokenEOF {
-		// Match the slice-cursor behaviour: advancing at EOF returns the last
+		// Match the slice-cursor behavior: advancing at EOF returns the last
 		// consumed token and does not move.
 		return p.prev
 	}

@@ -1,6 +1,7 @@
 package wgsl
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -28,10 +29,18 @@ func TestEarlyErrorCostIndependentOfInputSize(t *testing.T) {
 		runtime.GC()
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		if _, _, err := Parse(src, ParseOptions{}); err == nil {
+		_, _, err := Parse(src, ParseOptions{})
+		runtime.ReadMemStats(&after)
+		if err == nil {
 			t.Fatalf("Parse of %d bytes of nested parentheses: expected an error", len(src))
 		}
-		runtime.ReadMemStats(&after)
+		var parseErr *ParseError
+		if !errors.As(err, &parseErr) {
+			t.Fatalf("Parse of %d bytes: got %T, want *ParseError", len(src), err)
+		}
+		if !refusedByRecursionLimit(parseErr) {
+			t.Fatalf("Parse of %d bytes: got %q, want the recursion-limit refusal", len(src), err)
+		}
 
 		allocs[i] = after.TotalAlloc - before.TotalAlloc
 		t.Logf("%d bytes of input: %d bytes allocated", len(src), allocs[i])
@@ -42,6 +51,20 @@ func TestEarlyErrorCostIndependentOfInputSize(t *testing.T) {
 		t.Fatalf("allocated bytes grew %.2fx when the input doubled (%d -> %d); the lexer still tokenizes the whole input",
 			ratio, allocs[0], allocs[1])
 	}
+}
+
+// refusedByRecursionLimit reports whether the parser refused the source at the
+// expression depth limit, not earlier.
+func refusedByRecursionLimit(e *ParseError) bool {
+	if strings.Contains(e.Message, "recursion limit") {
+		return true
+	}
+	for _, note := range e.Notes {
+		if strings.Contains(note, "recursion limit") {
+			return true
+		}
+	}
+	return false
 }
 
 // BenchmarkParseEarlyError measures a parse rejected by the expression depth
