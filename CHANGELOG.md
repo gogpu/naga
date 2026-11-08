@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGSL: an integer division or remainder by a const-expression zero, and a const-expression shift amount
+  at or above the bit width, were accepted** (P1-WGSL-101). WGSL §arithmetic-expr makes both
+  shader-creation errors. The check lives in the WGSL lowerer, which knows the evaluation stage of every
+  expression: a `let` is a run-time expression even when bound to a constant, and an override-expression is
+  a pipeline-creation error at most, so both stay valid. Rust naga checks the same two rules in its
+  validator, where a let bound to a constant looks like the constant and valid shaders are rejected; our
+  check follows the spec for those cases. The messages are Rust's ("Division by zero", "Shift amount
+  exceeds the bit width of Scalar(Scalar { kind: Uint, width: 4 })") and the note cites the spec section.
+  Covers binary expressions, compound assignments and swizzle assignments.
 - **WGSL: a function-scope `var` outside the function address space was accepted** (P2-WGSL-112). WGSL
   §var-decls: "Variables in the private, storage, uniform, workgroup, and handle address spaces must only be
   declared in module scope." A `var<workgroup>` inside a function body was lowered to a function variable, a
