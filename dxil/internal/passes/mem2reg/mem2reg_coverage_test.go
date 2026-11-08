@@ -552,12 +552,15 @@ func TestPromoteBlocksRecursesIntoNestedControlFlow(t *testing.T) {
 	}
 }
 
-// TestIsBoolLocalDisqualifiesPhiCandidate verifies that bool-typed locals
-// are excluded from Phase B (WARP runs a phi i1 chain wrong; see
-// selectStructuredCandidates).
+// TestBoolLocalMergesThroughI32Phi verifies that a bool-typed local stored
+// on both arms of an if is promoted, and that its phi is i32: each incoming
+// is a zero-extension emitted at the end of the arm that produces it, and
+// the load becomes the comparison with zero. A `phi i1` at these merges is
+// what WARP runs wrong (P2-DXIL-107); DXC's frontend widens a bool local to
+// i32 the same way.
 //
-// Covers: isBoolLocal, selectStructuredCandidates bool exclusion.
-func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
+// Covers: isBoolLocal, widenForMerge, appendMergePhi, rewriteLoadsInRange.
+func TestBoolLocalMergesThroughI32Phi(t *testing.T) {
 	mod := &ir.Module{}
 	boolTH := scalarTypeHandle(mod, ir.ScalarBool, 1)
 
@@ -566,6 +569,8 @@ func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
 	}
 
 	condH := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
+	trueH := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
+	falseH := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(false)})
 	lvH := appendExpr(fn, ir.ExprLocalVariable{Variable: 0})
 	loadH := appendExpr(fn, ir.ExprLoad{Pointer: lvH})
 
@@ -573,8 +578,8 @@ func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: condH, End: condH + 1}}},
 		{Kind: ir.StmtIf{
 			Condition: condH,
-			Accept:    ir.Block{{Kind: ir.StmtStore{Pointer: lvH, Value: condH}}},
-			Reject:    ir.Block{{Kind: ir.StmtStore{Pointer: lvH, Value: condH}}},
+			Accept:    ir.Block{{Kind: ir.StmtStore{Pointer: lvH, Value: trueH}}},
+			Reject:    ir.Block{{Kind: ir.StmtStore{Pointer: lvH, Value: falseH}}},
 		}},
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: loadH, End: loadH + 1}}},
 	}
@@ -583,9 +588,42 @@ func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// Bool variables should remain as alloca (ExprLoad, not ssa.Alias).
-	if _, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias); isAlias {
-		t.Fatal("bool local should NOT be promoted to phi (DXC rejects i1 phi)")
+	as, isAs := fn.Expressions[loadH].Kind.(ir.ExprAs)
+	if !isAs || as.Kind != ir.ScalarBool {
+		t.Fatalf("load of a promoted bool local = %T, want the ExprAs comparison with zero", fn.Expressions[loadH].Kind)
+	}
+	phi, isPhi := fn.Expressions[as.Expr].Kind.(ssa.Phi)
+	if !isPhi {
+		t.Fatalf("the compared value = %T, want the ssa.Phi of the merge", fn.Expressions[as.Expr].Kind)
+	}
+	if len(phi.Incoming) != 2 {
+		t.Fatalf("phi has %d incomings, want 2", len(phi.Incoming))
+	}
+	for _, in := range phi.Incoming {
+		widen, ok := fn.Expressions[in.Value].Kind.(ir.ExprAs)
+		if !ok || widen.Kind != ir.ScalarUint || widen.Convert == nil || *widen.Convert != 4 {
+			t.Errorf("phi incoming %d = %#v, want a zero-extension to a 4-byte integer", in.PredKey, fn.Expressions[in.Value].Kind)
+		}
+	}
+
+	// Each zero-extension is emitted in the arm that produces its operand,
+	// at the arm's end: that is the block whose edge the phi incoming flows
+	// along. Emitting it at the merge instead puts a cast before the phi.
+	st, ok := fn.Body[1].Kind.(ir.StmtIf)
+	if !ok {
+		t.Fatalf("body statement 1 = %T, want the StmtIf", fn.Body[1].Kind)
+	}
+	for name, arm := range map[string]ir.Block{"accept": st.Accept, "reject": st.Reject} {
+		if len(arm) == 0 {
+			t.Fatalf("%s arm is empty", name)
+		}
+		emit, ok := arm[len(arm)-1].Kind.(ir.StmtEmit)
+		if !ok || emit.Range.End-emit.Range.Start != 1 {
+			t.Fatalf("%s arm ends with %#v, want the single-handle emit of the zero-extension", name, arm[len(arm)-1].Kind)
+		}
+		if _, ok := fn.Expressions[emit.Range.Start].Kind.(ir.ExprAs); !ok {
+			t.Errorf("%s arm ends with handle %d = %T, want an ExprAs", name, emit.Range.Start, fn.Expressions[emit.Range.Start].Kind)
+		}
 	}
 }
 

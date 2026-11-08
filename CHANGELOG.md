@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **DXIL: a bool local merged across branches was `phi i1`, or `alloca i1`, and both run wrong on WARP**
+  (P2-DXIL-107, P2-DXIL-092). The short-circuit local of an `||`/`&&` chain meets at two if merges. Promoted to
+  `phi i1` (v0.21.3) it made WARP, the D3D12 software adapter that GPU-less CI runners use, run neither arm's
+  stores; kept in an `alloca i1` it ran right there, but D3D12's GPU-based validation dropped the stores, on the
+  dispatch-indirect validation shader of gogpu/wgpu. The mem2reg pass now promotes bool locals as i32, the shape
+  DXC's frontend gives them: each phi incoming is zero-extended at the end of the branch that produces it, and
+  every load is the comparison with zero. The `||` chain emits `phi i32` with `zext i1 ... to i32` incomings and
+  `icmp ne` at the use, and no `alloca i1`. Verified by running the shader on WARP and on an NVIDIA GPU with and
+  without GPU-based validation: all four pass, where before the fix WARP failed without GPU-based validation on
+  the `phi i1` shape and with it on the alloca shape. New readback case `flow/short-circuit-or-rt`.
+  IDxcValidator corpus 238/267 entry points and DXC golden `diff=0` 113 are unchanged; line parity against DXC
+  rises from 15442 to 15448 of 26521.
+
 ## [0.21.6] - 2026-11-08
 
 A patch with the WGSL lexer's memory fix, the fragment position.w correction on D3D, and the DXIL and HLSL fixes
