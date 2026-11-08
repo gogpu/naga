@@ -695,6 +695,9 @@ func emitEntryModule(irModule *ir.Module, opts *Options) (*emittedEntry, error) 
 	if err := prepareEntryPoint(irModule, ep, *opts); err != nil {
 		return nil, err
 	}
+	if err := checkWorkgroupVariableBytes(irModule, ep); err != nil {
+		return nil, err
+	}
 	if err := checkFunctionVariableBytes(irModule, ep); err != nil {
 		return nil, err
 	}
