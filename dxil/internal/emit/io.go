@@ -1519,21 +1519,26 @@ func isArgRead(fn *ir.Function, argIdx int) bool {
 	if !ok {
 		return false
 	}
-	// Check only expressions within live StmtEmit ranges in the
-	// (possibly DCE-swept) body. Walking ALL expressions would
-	// catch dead ones whose emit ranges were removed by the IR-level
-	// DCE pass, causing the emitter to emit threadId/groupId calls
-	// whose results are never consumed.
-	emitted := collectEmittedExprs(fn.Body)
-	for h := range emitted {
+	// Check only expressions that the emitter will actually visit: those in
+	// a StmtEmit range and those reachable through a statement operand.
+	// A statement operand is itself a root even outside any emit range: a
+	// store's pointer carries its whole index chain (a run-time index is
+	// never in an emit range), and a reference through that chain is a read
+	// of the argument. The argument's own handle in the live set is a read
+	// too: the emitter looks its value up when the expression is emitted or
+	// is a statement operand (a returned argument). Walking ALL expressions
+	// would catch dead ones whose emit ranges were removed by the IR-level
+	// DCE pass, causing the emitter to emit threadId/groupId calls whose
+	// results are never consumed.
+	for h := range computeLiveExprs(fn) {
 		if h == argHandle {
-			continue
+			return true
 		}
 		if expressionReferences(fn.Expressions[h].Kind, argHandle) {
 			return true
 		}
 	}
-	return statementsReference(fn.Body, argHandle)
+	return false
 }
 
 // collectEmittedExprs gathers every expression handle that falls within
