@@ -18,3 +18,12 @@ func TestZeroInitializeWorkgroupMemoryModeReachesCodegen(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoteToHelperInvocationReachesCodegen(t *testing.T) {
+	for _, want := range []bool{false, true} {
+		got := toCodegenOptions(Options{DemoteToHelperInvocation: want}).DemoteToHelperInvocation
+		if got != want {
+			t.Errorf("DemoteToHelperInvocation %v reaches codegen as %v", want, got)
+		}
+	}
+}

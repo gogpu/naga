@@ -98,6 +98,11 @@ type Options struct {
 	// range two f32 push constants hold, min then max, at byte offset
 	// ClampFragDepth.Offset (see the spirv package).
 	ClampFragDepth *backend.ClampFragDepth
+
+	// DemoteToHelperInvocation writes WGSL discard as
+	// OpDemoteToHelperInvocation instead of OpKill; see
+	// spirv.Options.DemoteToHelperInvocation.
+	DemoteToHelperInvocation bool
 }
 
 // BindingInfo is where a resource binding goes in SPIR-V; see
@@ -150,6 +155,7 @@ const (
 	CapabilityStorageInputOutput16               Capability = 4436 // 16-bit input/output
 	CapabilityMultiView                          Capability = 4439 // MultiView extension
 	CapabilityFragmentBarycentricKHR             Capability = 5284 // Fragment barycentric
+	CapabilityDemoteToHelperInvocation           Capability = 5379 // OpDemoteToHelperInvocation (core in SPIR-V 1.6, SPV_EXT_demote_to_helper_invocation below it)
 	CapabilityDrawParameters                     Capability = 4427 // DrawIndex, BaseVertex, BaseInstance
 	CapabilityShaderNonUniform                   Capability = 5301 // NonUniform decorations
 	CapabilityAtomicFloat32AddEXT                Capability = 6033 // Float32 atomic add extension
@@ -519,11 +525,12 @@ const (
 
 // Control flow opcodes
 const (
-	OpSelectionMerge    OpCode = 247 // Selection merge point
-	OpLoopMerge         OpCode = 246 // Loop merge point
-	OpBranchConditional OpCode = 250 // Conditional branch
-	OpSwitch            OpCode = 251 // Switch statement
-	OpKill              OpCode = 252 // Fragment discard
+	OpSelectionMerge           OpCode = 247  // Selection merge point
+	OpLoopMerge                OpCode = 246  // Loop merge point
+	OpBranchConditional        OpCode = 250  // Conditional branch
+	OpSwitch                   OpCode = 251  // Switch statement
+	OpKill                     OpCode = 252  // Fragment discard
+	OpDemoteToHelperInvocation OpCode = 5380 // Discard keeps the invocation as a helper (core in SPIR-V 1.6)
 )
 
 // Derivative opcodes
