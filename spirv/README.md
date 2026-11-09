@@ -4,8 +4,8 @@ This package provides a low-level SPIR-V binary writer for constructing SPIR-V m
 
 ## Status
 
-✅ **Implemented** - Binary writer foundation complete
-🔄 **Next Step** - IR to SPIR-V translation
+The package provides the IR-to-SPIR-V compiler (`Compile`, with `Options`, `Capability` and
+`CapabilitySet`) and the low-level binary writer (`ModuleBuilder`) described below.
 
 ## Features
 
@@ -146,10 +146,10 @@ See `example_test.go` for complete examples:
 
 ```bash
 # Run tests
-GOROOT="/c/Program Files/Go" go test ./spirv/...
+go test ./spirv/...
 
 # Run examples
-GOROOT="/c/Program Files/Go" go test -v -run Example ./spirv/...
+go test -v -run Example ./spirv/...
 ```
 
 ## Implementation Notes
@@ -173,31 +173,11 @@ GOROOT="/c/Program Files/Go" go test -v -run Example ./spirv/...
 - Word-aligned (4 bytes)
 - Sections written in SPIR-V specification order
 
-## Next Steps
+## Relationship to the compiler
 
-The next phase of implementation will add:
-
-1. **IR to SPIR-V Translation** (`spirv/backend.go`)
-   - Convert naga IR types to SPIR-V types
-   - Convert naga IR expressions to SPIR-V instructions
-   - Convert naga IR statements to SPIR-V control flow
-   - Map naga IR address spaces to SPIR-V storage classes
-
-2. **Type Deduplication**
-   - Cache created types to avoid duplicates
-   - Efficient type lookup
-
-3. **Expression Emission**
-   - Arithmetic operations
-   - Logical operations
-   - Load/store operations
-   - Function calls
-
-4. **Control Flow**
-   - If/else blocks
-   - Loops
-   - Switch statements
-   - Structured control flow
+The IR-to-SPIR-V translation this file once listed as upcoming now lives in
+`spirv/internal/codegen` and is exposed as `Compile`; the `ModuleBuilder` API described above remains
+the low-level way to assemble a module instruction by instruction.
 
 ## References
 
