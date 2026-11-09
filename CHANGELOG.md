@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.9] - 2026-11-09
+
+### Added
+
+- **`spirv.Capability` names for the capabilities wgpu builds locally**: `CapabilityStorageImageWriteWithoutFormat`
+  (56), `CapabilityDrawParameters` (4427), `CapabilityRayQueryKHR` (4472), `CapabilityDotProductInputAll` (6016)
+  and `CapabilityDotProductInput4x8Bit` (6017). A test pins the five numbers to the SPIR-V specification.
+- **`spirv.CapabilitySet`**, with `NewCapabilitySet` and `Has`; `spirv.Options.AllowedCapabilities` takes it. A
+  plain `map[spirv.Capability]struct{}` value remains assignable, so existing callers do not change.
+
+### Fixed
+
+- **`spirv.Options.AllowedCapabilities` documented an error the code never made**: a capability outside the set
+  was said to be an error. The set gates only operations that have a fallback (the packed dot-product polyfill);
+  capabilities the module needs for its types, builtins and memory are declared whether or not the set lists
+  them, as Rust naga's `capabilities_used` does — the set is not a rejection list.
+- **`cmd/spvdis` and the snapshot test diagnostics printed wrong capability names**: from 26 the names were one
+  low, and the 44xx/50xx/60xx entries were off by whole ranges (4437 for `StorageBuffer16BitAccess`, 5009 for
+  `StencilExportEXT`, 6423 for `DotProductInputAll`). Every pair now matches `spirv.h`, and `RayQueryKHR`,
+  `Int64ImageEXT`, `FragmentBarycentricKHR`, `DemoteToHelperInvocation`, `AtomicFloat32AddEXT` and the
+  dot-product `6016`–`6019` are named. The SPIR-V golden dumps were regenerated: only the capability names
+  changed, the binaries are identical.
+- **Readback corpus: `vars/workgroup-split-rt` is a known failure for the `metal` backend on the Apple
+  Paravirtual adapter.** The device's compiler loses a dynamic component store into a threadgroup `vec4`, so the
+  case reads 0 where it expects the written values. The shader has its `workgroupBarrier()`; WGSL makes an index
+  store write only its component's memory locations (the component-race rule is scoped to swizzle view writes);
+  our MSL matches Rust naga and Tint. The entry carries P1-MSL-106 and is not a skip: a passing run is reported
+  as an unexpected pass, so an Apple fix or a workaround is noticed.
+- **`spirv/README.md`** still described the IR-to-SPIR-V translation as upcoming and carried a machine-specific
+  GOROOT in its test snippet; both corrected.
+
 ## [0.21.8] - 2026-11-09
 
 ### Fixed
