@@ -5,7 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability SampledBuffer
+               OpCapability SampledCubeArray
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_15 "fragment" %_13

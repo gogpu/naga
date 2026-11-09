@@ -5,7 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability ImageQuery
+               OpCapability StorageImageExtendedFormats
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_17 "csLoad"

@@ -5,7 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability StoragePushConstant16
+               OpCapability MultiView
          OpExtension %_1599492179 %_1599227979 %_1953265005 %_1701410409 %_119
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450

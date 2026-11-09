@@ -5,13 +5,13 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability GroupNonUniformVote
-               OpCapability GroupNonUniformShuffle
-               OpCapability GroupNonUniformArithmetic
+               OpCapability GroupNonUniform
                OpCapability GroupNonUniformBallot
+               OpCapability GroupNonUniformVote
+               OpCapability GroupNonUniformArithmetic
+               OpCapability GroupNonUniformShuffle
                OpCapability GroupNonUniformShuffleRelative
-               OpCapability GroupNonUniformClustered
-               OpCapability 68
+               OpCapability GroupNonUniformQuad
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_12 "main" %_7 %_8 %_9 %_10

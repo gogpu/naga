@@ -6,7 +6,7 @@
 
                OpCapability Shader
                OpCapability Int64
-               OpCapability InputAttachmentArrayDynamicIndexing
+               OpCapability Int64ImageEXT
                OpCapability Int64Atomics
          OpExtension %_1599492179 %_1599363141 %_1684105331 %_1767862885 %_1701273965 %_1953392991 %_13366
          %_1 = OpExtInstImport "GLSL.std.450"

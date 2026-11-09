@@ -5,8 +5,8 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability DerivativeControl
-               OpCapability 5301
+               OpCapability ImageQuery
+               OpCapability ShaderNonUniform
          OpExtension %_1599492179 %_1599363141 %_1668506980 %_1953524082 %_1767862895 %_2019910766 %_6778473
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
