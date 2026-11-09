@@ -35,6 +35,26 @@ var (
 // specification can be converted.
 type Capability uint32
 
+// CapabilitySet is a set of capabilities. Its nil value is an empty set, which
+// is not the same as a nil Options.AllowedCapabilities: that one allows every
+// capability.
+type CapabilitySet map[Capability]struct{}
+
+// NewCapabilitySet returns a set holding every capability in caps.
+func NewCapabilitySet(caps ...Capability) CapabilitySet {
+	set := make(CapabilitySet, len(caps))
+	for _, c := range caps {
+		set[c] = struct{}{}
+	}
+	return set
+}
+
+// Has reports whether the set holds c.
+func (s CapabilitySet) Has(c Capability) bool {
+	_, ok := s[c]
+	return ok
+}
+
 // Common capabilities.
 const (
 	CapabilityMatrix                             Capability = 0
@@ -56,14 +76,19 @@ const (
 	CapabilityStorageImageExtendedFormats        Capability = 49
 	CapabilityImageQuery                         Capability = 50
 	CapabilityDerivativeControl                  Capability = 51
+	CapabilityStorageImageWriteWithoutFormat     Capability = 56
+	CapabilityDrawParameters                     Capability = 4427
 	CapabilityStorageBuffer16BitAccess           Capability = 4433
 	CapabilityUniformAndStorageBuffer16BitAccess Capability = 4434
 	CapabilityStorageInputOutput16               Capability = 4436
 	CapabilityMultiView                          Capability = 4439
+	CapabilityRayQueryKHR                        Capability = 4472
 	CapabilityFragmentBarycentricKHR             Capability = 5284
 	CapabilityDemoteToHelperInvocation           Capability = 5379
 	CapabilityShaderNonUniform                   Capability = 5301
 	CapabilityAtomicFloat32AddEXT                Capability = 6033
+	CapabilityDotProductInputAll                 Capability = 6016
+	CapabilityDotProductInput4x8Bit              Capability = 6017
 	CapabilityDotProductInput4x8BitPacked        Capability = 6018
 	CapabilityDotProduct                         Capability = 6019
 	CapabilityGroupNonUniform                    Capability = 61
@@ -161,10 +186,17 @@ type Options struct {
 	// wrapping backend.ErrEntryPointNotFound.
 	EntryPoint *backend.EntryPointSelector
 
-	// AllowedCapabilities is the set of capabilities the module may use
-	// (Rust naga's capabilities): one it needs outside the set is an error.
-	// nil allows every capability.
-	AllowedCapabilities map[Capability]struct{}
+	// AllowedCapabilities is the set of capabilities the module may use, as
+	// Rust naga's Options::capabilities. It is consulted only where an
+	// operation has a fallback: the packed dot product (dot4I8Packed,
+	// dot4U8Packed) uses its native opcodes only when both DotProduct and
+	// DotProductInput4x8BitPacked are in the set, and falls back to emulation
+	// otherwise. A capability the module needs for its types, builtins or
+	// memory is declared whether or not the set lists it (f16, i64,
+	// DrawParameters, RayQueryKHR, …), as Rust naga's capabilities_used table
+	// does; the set is not a rejection list. nil allows every capability; an
+	// empty, non-nil set allows none of the fallback operations.
+	AllowedCapabilities CapabilitySet
 
 	// SkipRayQueryInitTracking leaves out the state variable every ray query
 	// gets to prevent misuse: by default rayQueryInitialize checks its ray
