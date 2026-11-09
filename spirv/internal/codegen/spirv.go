@@ -66,10 +66,11 @@ type Options struct {
 	// EntryPoint selects the one entry point to write; nil writes all.
 	EntryPoint *backend.EntryPointSelector
 
-	// AllowedCapabilities limits which capabilities may be used. When nil,
-	// all capabilities are available (the default). When non-nil, only
-	// capabilities present in the set may be used; others trigger polyfills.
-	// This matches Rust naga's Options::capabilities field.
+	// AllowedCapabilities gates the operations that have a fallback. When nil,
+	// all capabilities are available (the default). When non-nil, an
+	// operation whose capabilities are not all in the set uses its polyfill;
+	// capabilities the backend adds unconditionally are not filtered, as Rust
+	// naga's capabilities_used table. Matches Rust naga's Options::capabilities.
 	AllowedCapabilities map[Capability]struct{}
 
 	// RayQueryInitTracking enables initialization tracking for ray queries.
