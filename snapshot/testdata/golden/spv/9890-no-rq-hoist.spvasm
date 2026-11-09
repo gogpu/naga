@@ -5,7 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability 4472
+               OpCapability RayQueryKHR
          OpExtension %_1599492179 %_1599227979 %_1601790322 %_1919251825 %_121
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450

@@ -5,10 +5,10 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability SampledCubeArray
                OpCapability Image1D
-               OpCapability SampledBuffer
-               OpCapability DerivativeControl
+               OpCapability Sampled1D
+               OpCapability SampledCubeArray
+               OpCapability ImageQuery
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_105 "main" %_70

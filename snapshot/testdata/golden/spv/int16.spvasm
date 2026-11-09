@@ -6,13 +6,13 @@
 
                OpCapability Shader
                OpCapability Int16
-               OpCapability 4433
-               OpCapability 4434
-               OpCapability 4436
-               OpCapability GroupNonUniformVote
+               OpCapability StorageBuffer16BitAccess
+               OpCapability UniformAndStorageBuffer16BitAccess
+               OpCapability StorageInputOutput16
+               OpCapability GroupNonUniform
+               OpCapability GroupNonUniformArithmetic
                OpCapability GroupNonUniformBallot
                OpCapability GroupNonUniformShuffle
-               OpCapability GroupNonUniformShuffleRelative
          OpExtension %_1599492179 %_1599227979 %_1768044081 %_1953718132 %_1734439535 %_101
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450

@@ -6,9 +6,9 @@
 
                OpCapability Shader
                OpCapability Float16
-               OpCapability 4433
-               OpCapability 4434
-               OpCapability 4436
+               OpCapability StorageBuffer16BitAccess
+               OpCapability UniformAndStorageBuffer16BitAccess
+               OpCapability StorageInputOutput16
          OpExtension %_1599492179 %_1599227979 %_1768044081 %_1953718132 %_1734439535 %_101
          OpExtension %_1599492179 %_1599227979 %_1919906931 %_1600481121 %_1717990754 %_1935635045 %_1634889588 %_1667196263 %_1936941420 %_0
          %_1 = OpExtInstImport "GLSL.std.450"

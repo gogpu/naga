@@ -5,7 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
-               OpCapability ImageRect
+               OpCapability SampleRateShading
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_49 "vertex" %_18 %_19 %_20 %_22 %_24
