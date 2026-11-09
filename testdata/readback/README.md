@@ -141,7 +141,9 @@ and the readback run on that branch (through go.work) shows the case passing.
 `go list -m -f {{.Dir}} github.com/gogpu/naga` + `/testdata/readback` (under go.work the local naga tree,
 otherwise the version wgpu pins; `testdata/` ships in the module zip). An empty `Dir` falls back to
 `go mod download -json github.com/gogpu/naga@<pinned>`. There is no directory environment variable (LEAD-013).
-A naga version without this directory makes the harness skip with a message, never fail.
+A naga version without this directory fails the test, it does not skip (wgpu v0.34.12 and later; an earlier
+harness skipped with a message, which could pass for "tested"): wgpu pins a naga that ships this corpus, so an
+empty result means the discovery above broke or the corpus moved.
 
 ## Adding a case
 
