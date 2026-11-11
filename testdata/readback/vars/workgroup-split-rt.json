@@ -6,9 +6,5 @@
   "bindings": [
     {"binding": 0, "kind": "storage-rw", "len": 17, "fill": "0xDEADBEEF",
      "expect": [[22, 103, 7, 12, 18, 102, 14, 34, 14, 101, 21, 12, 10, 100, 0, 34, "fill"]]}
-  ],
-  "knownFailures": [
-    {"backend": "metal", "adapter": "Paravirtual", "card": "P1-MSL-106",
-     "reason": "a dynamic component store into a threadgroup vec4 reads back as 0 (the store is lost by the device's compiler; our MSL matches Rust naga and Tint)"}
   ]
 }
