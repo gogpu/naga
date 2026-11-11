@@ -125,37 +125,45 @@ fn main(@builtin(local_invocation_index) i: u32, @builtin(local_invocation_id) j
 	}
 }
 
-// TestMSLNonThreadgroupVectorDynamicStoreUnchanged covers the address spaces
-// the workaround must leave alone: a private vector, a function-local one and a
-// storage buffer one (the case globals.wgsl exercises) keep the plain subscript
-// store.
+// TestMSLNonThreadgroupVectorDynamicStoreUnchanged covers the shapes the
+// workaround must leave alone outside the workgroup address space: private,
+// function-local and storage vectors keep the plain subscript store, and a
+// matrix column in those spaces (a ValuePointerType with a size) keeps the
+// plain column store.
 func TestMSLNonThreadgroupVectorDynamicStoreUnchanged(t *testing.T) {
 	const src = `
 @group(0) @binding(0) var<storage, read_write> sv: vec4<u32>;
+@group(0) @binding(1) var<storage, read_write> sm: mat2x2<f32>;
 
 var<private> pv: vec4<u32>;
+var<private> pm: mat2x2<f32>;
 
 @compute @workgroup_size(1)
-fn main(@builtin(local_invocation_index) i: u32) {
+fn main(@builtin(local_invocation_index) i: u32, @builtin(local_invocation_id) j: vec3<u32>) {
     pv[i] = 1u;
     var lv: vec4<u32>;
     lv[i] = 2u;
     sv[i] = 3u;
+    pm[i][j.x] = 4.0;
+    var lm: mat2x2<f32>;
+    lm[i][j.x] = 5.0;
+    sm[i][j.x] = 6.0;
 }
 `
 	msl := compileWGSL(t, src)
 
-	privateStore := mslLineContaining(t, msl, "= 1u;")
-	if strings.Contains(privateStore, "*)&") {
-		t.Errorf("private vector store was rewritten as a pointer cast: %q", privateStore)
-	}
-	localStore := mslLineContaining(t, msl, "= 2u;")
-	if strings.Contains(localStore, "*)&") {
-		t.Errorf("function-local vector store was rewritten as a pointer cast: %q", localStore)
-	}
-	storageStore := mslLineContaining(t, msl, "= 3u;")
-	if strings.Contains(storageStore, "*)&") {
-		t.Errorf("storage vector store was rewritten as a pointer cast: %q", storageStore)
+	for _, tt := range []struct{ marker, what string }{
+		{"= 1u;", "private vector"},
+		{"= 2u;", "function-local vector"},
+		{"= 3u;", "storage vector"},
+		{"= 4.0;", "private matrix column"},
+		{"= 5.0;", "function-local matrix column"},
+		{"= 6.0;", "storage matrix column"},
+	} {
+		line := mslLineContaining(t, msl, tt.marker)
+		if strings.Contains(line, "*)&") {
+			t.Errorf("%s store was rewritten as a pointer cast: %q", tt.what, line)
+		}
 	}
 }
 
@@ -179,9 +187,9 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	}
 }
 
-// TestMSLPointerValueVectorStoreUnchanged covers the pointer-value shape: the
-// base resolves to a ValuePointerType whose space is not workgroup (and whose
-// size is nil), so the workaround must not fire.
+// TestMSLPointerValueVectorStoreUnchanged covers a store through a let-bound
+// pointer: the resolved base is a private PointerType to a vector, so the
+// workaround must not fire.
 func TestMSLPointerValueVectorStoreUnchanged(t *testing.T) {
 	const src = `
 var<private> pv: vec4<u32>;
