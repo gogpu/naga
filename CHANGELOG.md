@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The SPIR-V capability table is regenerated from vendored headers and diffed in CI** (P2-SPV-020).
+  `internal/spvnames` now carries the headers its table was generated from — `spirv.h` and
+  `spirv.core.grammar.json` of SPIRV-Headers `vulkan-sdk-1.4.341.0` with the upstream LICENSE, a PROVENANCE.md
+  and a manifest under `testdata/upstream/` — and `TestTableMatchesVendoredHeaders` regenerates `table.go` from
+  that copy and fails on any difference, on every OS and for contributors. The generation and the
+  grammar-vs-`spirv.h` cross-check moved into `internal/spvnames/gen`, so the test runs exactly the code
+  `go generate ./internal/spvnames` runs; the generated header now names the headers revision it came from.
+
 - **DXIL: `clip_distances` arrays of five to eight distances write their second signature element** (P1-DXIL-082).
   D3D carries at most four clip distances per `SV_ClipDistance` element, so an `array<f32, N>` with N > 4 now
   splits into `SV_ClipDistance0` (four channels) and `SV_ClipDistance1` (the rest) in the whole pipeline: the OSG1

@@ -12,8 +12,11 @@
 // The table covers every capability of the SPIR-V headers; gen.go generates it
 // from the SPIR-V grammar and checks it against spirv.h. Aliases are the
 // further names the specification gives a capability, so a name either form
-// resolves.
+// resolves. TestTableMatchesVendoredHeaders regenerates the table from the
+// vendored headers and fails when table.go drifts from them.
 package spvnames
+
+//go:generate go run gen.go -header ../../testdata/upstream/github.com/KhronosGroup/SPIRV-Headers/spirv.h -grammar ../../testdata/upstream/github.com/KhronosGroup/SPIRV-Headers/spirv.core.grammar.json -out table.go
 
 // capability is one entry of the SPIR-V capability table: the capability's
 // number, its canonical name in the specification, and the alias names the

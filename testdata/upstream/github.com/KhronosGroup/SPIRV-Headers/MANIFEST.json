@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "vendored",
+  "source": {
+    "repository": "https://github.com/KhronosGroup/SPIRV-Headers",
+    "commit": "04f10f650d514df88b76d25e83db360142c7b174",
+    "commitDate": "2026-01-21"
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613",
+      "gitBlob": "a63e9c620ee123267192113ab0be3814782ba909"
+    },
+    {
+      "path": "spirv.core.grammar.json",
+      "sha256": "508e6677e27b0b58eac8395aa49a90ac1766a8d392c247a0aba7b03f4fdd85b9",
+      "gitBlob": "21451e28898cec892512972af1aaf9f1efa8a174"
+    },
+    {
+      "path": "spirv.h",
+      "sha256": "a3e041124815be3e6411dc9cfe04153a499b37ff83e630af8f7f98766db183a7",
+      "gitBlob": "2fbcfe0f78f9063341f9452f32f6e5cc07c4a4a5"
+    }
+  ]
+}
