@@ -183,7 +183,11 @@ func goldenSPIRV(module *ir.Module, shader string) (string, error) {
 	// operations need 1.3), which the backend refuses to raise, takes the
 	// one its Rust parameters give.
 	if vErr := (*backend.VersionError)(nil); errors.As(err, &vErr) && vErr.Space == backend.VersionSPIRV {
-		opts.Version = readRustSPVConfig(shader).Version
+		rustOpts, rErr := readRustSPVConfig(shader)
+		if rErr != nil {
+			return "", rErr
+		}
+		opts.Version = rustOpts.Version
 		binary, err = spirvBinary(module, opts)
 	}
 	if err != nil {

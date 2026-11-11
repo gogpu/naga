@@ -207,7 +207,10 @@ func prepareForBackend(source, shader string) (*ir.Module, error) {
 // ourSPIRVDisassembly compiles SPIR-V with the shader's Rust options and
 // disassembles it.
 func ourSPIRVDisassembly(module *ir.Module, shader string, o rustOutput, disassembler string) (string, error) {
-	opts := readRustSPVConfig(shader)
+	opts, err := readRustSPVConfig(shader)
+	if err != nil {
+		return "", err
+	}
 	if o.entryPoint != "" {
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: o.stage, Name: o.entryPoint}
 	}

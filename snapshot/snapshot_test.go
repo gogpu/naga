@@ -26,6 +26,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/internal/spvnames"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
@@ -60,7 +61,25 @@ func compileToIR(t *testing.T, name, source string) *ir.Module {
 }
 
 // readRustSPVConfig reads a Rust TOML config file and returns SPIR-V options.
-func readRustSPVConfig(shaderName string) spirv.Options {
+// A shader without a TOML file uses Rust's defaults. An unknown capability
+// name is an error naming the file: a name dropped instead would compile the
+// shader with every capability allowed rather than with the set Rust's
+// parameters gave.
+func readRustSPVConfig(shaderName string) (spirv.Options, error) {
+	tomlPath := rustParamsPath(shaderName)
+	data, err := os.ReadFile(tomlPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return parseRustSPVConfig("", "")
+	}
+	if err != nil {
+		return spirv.Options{}, fmt.Errorf("%s: %w", tomlPath, err)
+	}
+	return parseRustSPVConfig(string(data), tomlPath)
+}
+
+// parseRustSPVConfig parses the content of the Rust TOML config at tomlPath
+// into SPIR-V options; tomlPath is empty when the shader has no TOML file.
+func parseRustSPVConfig(content, tomlPath string) (spirv.Options, error) {
 	// Rust's test defaults (naga-test SpirvOutParameters), also without a
 	// TOML file: SPIR-V 1.1, native f16 inputs and outputs, Unchecked,
 	// fake_missing_bindings.
@@ -68,13 +87,6 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 	opts.BoundsCheckPolicies = uncheckedPolicies()
 	opts.FakeMissingBindings = true
 
-	tomlPath := rustParamsPath(shaderName)
-	data, err := os.ReadFile(tomlPath)
-	if err != nil {
-		return opts
-	}
-
-	content := string(data)
 	lines := strings.Split(content, "\n")
 
 	inSPVSection := false
@@ -150,16 +162,9 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 		if strings.HasPrefix(trimmed, "capabilities") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
-				val := strings.TrimSpace(parts[1])
-				val = strings.TrimPrefix(val, "[")
-				val = strings.TrimSuffix(val, "]")
-				caps := make(map[spirv.Capability]struct{})
-				for _, item := range strings.Split(val, ",") {
-					name := strings.TrimSpace(item)
-					name = strings.Trim(name, "\"")
-					if cap, ok := spvCapabilityByName(name); ok {
-						caps[cap] = struct{}{}
-					}
+				caps, err := spvCapabilitiesFromList(parts[1])
+				if err != nil {
+					return opts, fmt.Errorf("%s: %w", tomlPath, err)
 				}
 				if len(caps) > 0 {
 					opts.AllowedCapabilities = caps
@@ -184,7 +189,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 		}
 	}
 
-	return opts
+	return opts, nil
 }
 
 // readSPVPipelineConstants reads pipeline_constants from a Rust TOML config.
@@ -198,53 +203,38 @@ func readSPVPipelineConstants(shaderName string) naga.PipelineConstants {
 	return naga.PipelineConstants(parsePipelineConstants(string(data)))
 }
 
-// spvCapabilityByName maps SPIR-V capability names (as used in Rust TOML configs)
-// to our Capability constants.
-func spvCapabilityByName(name string) (spirv.Capability, bool) {
-	m := map[string]spirv.Capability{
-		"Matrix":                             spirv.CapabilityMatrix,
-		"Shader":                             spirv.CapabilityShader,
-		"Float16":                            spirv.CapabilityFloat16,
-		"Float64":                            spirv.CapabilityFloat64,
-		"Int64":                              spirv.CapabilityInt64,
-		"Int16":                              spirv.CapabilityInt16,
-		"Int8":                               spirv.CapabilityInt8,
-		"Linkage":                            spirv.CapabilityLinkage,
-		"ClipDistance":                       spirv.CapabilityClipDistance,
-		"ImageCubeArray":                     spirv.CapabilityImageCubeArray,
-		"SampleRateShading":                  spirv.CapabilitySampleRateShading,
-		"Sampled1D":                          spirv.CapabilitySampled1D,
-		"Image1D":                            spirv.CapabilityImage1D,
-		"SampledCubeArray":                   spirv.CapabilitySampledCubeArray,
-		"StorageImageExtendedFormats":        spirv.CapabilityStorageImageExtendedFormats,
-		"ImageQuery":                         spirv.CapabilityImageQuery,
-		"DerivativeControl":                  spirv.CapabilityDerivativeControl,
-		"StorageBuffer16BitAccess":           spirv.CapabilityStorageBuffer16BitAccess,
-		"UniformAndStorageBuffer16BitAccess": spirv.CapabilityUniformAndStorageBuffer16BitAccess,
-		"StorageInputOutput16":               spirv.CapabilityStorageInputOutput16,
-		"MultiView":                          spirv.CapabilityMultiView,
-		"FragmentBarycentricKHR":             spirv.CapabilityFragmentBarycentricKHR,
-		"ShaderNonUniform":                   spirv.CapabilityShaderNonUniform,
-		"AtomicFloat32AddEXT":                spirv.CapabilityAtomicFloat32AddEXT,
-		"DotProductInput4x8BitPacked":        spirv.CapabilityDotProductInput4x8BitPacked,
-		"DotProduct":                         spirv.CapabilityDotProduct,
-		"GroupNonUniform":                    spirv.CapabilityGroupNonUniform,
-		"GroupNonUniformVote":                spirv.CapabilityGroupNonUniformVote,
-		"GroupNonUniformArithmetic":          spirv.CapabilityGroupNonUniformArithmetic,
-		"GroupNonUniformBallot":              spirv.CapabilityGroupNonUniformBallot,
-		"GroupNonUniformShuffle":             spirv.CapabilityGroupNonUniformShuffle,
-		"GroupNonUniformShuffleRelative":     spirv.CapabilityGroupNonUniformShuffleRel,
-		"GroupNonUniformQuad":                spirv.CapabilityGroupNonUniformQuad,
-		"Geometry":                           spirv.CapabilityGeometry,
-		"SubgroupBallotKHR":                  spirv.CapabilitySubgroupBallotKHR,
-		"StorageImageWriteWithoutFormat":     spirv.CapabilityStorageImageWriteWithoutFormat,
-		"DrawParameters":                     spirv.CapabilityDrawParameters,
-		"RayQueryKHR":                        spirv.CapabilityRayQueryKHR,
-		"DotProductInputAll":                 spirv.CapabilityDotProductInputAll,
-		"DotProductInput4x8Bit":              spirv.CapabilityDotProductInput4x8Bit,
+// spvCapabilitiesFromList parses the capabilities parameter of a Rust TOML
+// config (["A", "B"]) into a capability set. An unknown name is an error: a
+// name dropped instead would allow every capability, so the shader would
+// compile with a wider set than Rust's parameters gave it.
+func spvCapabilitiesFromList(list string) (spirv.CapabilitySet, error) {
+	list = strings.TrimSpace(list)
+	list = strings.TrimPrefix(list, "[")
+	list = strings.TrimSuffix(list, "]")
+	caps := make(spirv.CapabilitySet)
+	for _, item := range strings.Split(list, ",") {
+		name := strings.Trim(strings.TrimSpace(item), "\"")
+		if name == "" {
+			continue
+		}
+		capability, err := spvCapabilityByName(name)
+		if err != nil {
+			return nil, err
+		}
+		caps[capability] = struct{}{}
 	}
-	cap, ok := m[name]
-	return cap, ok
+	return caps, nil
+}
+
+// spvCapabilityByName maps a SPIR-V capability name from a Rust TOML config
+// (naga's spv::Capability) to our Capability. An unknown name is an error, not
+// a silent drop.
+func spvCapabilityByName(name string) (spirv.Capability, error) {
+	value, ok := spvnames.CapabilityByName(name)
+	if !ok {
+		return 0, fmt.Errorf("unknown SPIR-V capability %q", name)
+	}
+	return spirv.Capability(value), nil
 }
 
 // backendBoundsCheckPolicies converts the shader's [bounds_check_policies] to
@@ -1864,7 +1854,7 @@ func disassembleSPIRV(data []byte) string {
 func disasmInstruction(sb *strings.Builder, name string, opcode uint16, ops []uint32, data []byte, offset int) int {
 	switch opcode {
 	case 17: // OpCapability
-		fmt.Fprintf(sb, "               %s %s", name, spvLookup(spvCapabilities, ops[0]))
+		fmt.Fprintf(sb, "               %s %s", name, spvCapabilityName(ops[0]))
 		return 1
 
 	case 11: // OpExtInstImport
@@ -2282,44 +2272,13 @@ var spvOpcodeNames = map[uint16]string{
 	4456: "OpSDotKHR", 4457: "OpUDotKHR",
 }
 
-// Capability numbers and names from the SPIR-V specification (spirv.h); a
-// wrong number here misnames capabilities in test failure output.
-var spvCapabilities = map[uint32]string{
-	0: "Matrix", 1: "Shader", 2: "Geometry", 3: "Tessellation",
-	4: "Addresses", 5: "Linkage", 6: "Kernel", 7: "Vector16",
-	8: "Float16Buffer", 9: "Float16", 10: "Float64", 11: "Int64",
-	12: "Int64Atomics", 13: "ImageBasic", 14: "ImageReadWrite", 15: "ImageMipmap",
-	17: "Pipes", 18: "Groups", 19: "DeviceEnqueue", 20: "LiteralSampler",
-	21: "AtomicStorage", 22: "Int16", 23: "TessellationPointSize",
-	24: "GeometryPointSize", 25: "ImageGatherExtended", 27: "StorageImageMultisample",
-	28: "UniformBufferArrayDynamicIndexing", 29: "SampledImageArrayDynamicIndexing",
-	30: "StorageBufferArrayDynamicIndexing", 31: "StorageImageArrayDynamicIndexing",
-	32: "ClipDistance", 33: "CullDistance", 34: "ImageCubeArray",
-	35: "SampleRateShading", 36: "ImageRect", 37: "SampledRect",
-	38: "GenericPointer", 39: "Int8", 40: "InputAttachment",
-	41: "SparseResidency", 42: "MinLod", 43: "Sampled1D", 44: "Image1D",
-	45: "SampledCubeArray", 46: "SampledBuffer", 47: "ImageBuffer",
-	48: "ImageMSArray", 49: "StorageImageExtendedFormats",
-	50: "ImageQuery", 51: "DerivativeControl", 52: "InterpolationFunction",
-	53: "TransformFeedback", 54: "GeometryStreams", 55: "StorageImageReadWithoutFormat",
-	56: "StorageImageWriteWithoutFormat", 57: "MultiViewport",
-	58: "SubgroupDispatch", 59: "NamedBarrier", 60: "PipeStorage",
-	61: "GroupNonUniform", 62: "GroupNonUniformVote", 63: "GroupNonUniformArithmetic",
-	64: "GroupNonUniformBallot", 65: "GroupNonUniformShuffle",
-	66: "GroupNonUniformShuffleRelative", 67: "GroupNonUniformClustered",
-	68: "GroupNonUniformQuad", 69: "ShaderLayer", 70: "ShaderViewportIndex",
-	4423: "SubgroupBallotKHR", 4427: "DrawParameters", 4433: "StorageBuffer16BitAccess",
-	4434: "UniformAndStorageBuffer16BitAccess", 4435: "StoragePushConstant16",
-	4436: "StorageInputOutput16", 4437: "DeviceGroup", 4439: "MultiView",
-	4441: "VariablePointersStorageBuffer", 4442: "VariablePointers",
-	4447: "SampleMaskPostDepthCoverage", 4472: "RayQueryKHR",
-	5013: "StencilExportEXT", 5016: "Int64ImageEXT",
-	5284: "FragmentBarycentricKHR", 5301: "ShaderNonUniform",
-	5302: "RuntimeDescriptorArray", 5303: "InputAttachmentArrayDynamicIndexing",
-	5304: "UniformTexelBufferArrayDynamicIndexing", 5305: "StorageTexelBufferArrayDynamicIndexing",
-	5306: "UniformBufferArrayNonUniformIndexing", 5379: "DemoteToHelperInvocation",
-	6016: "DotProductInputAll", 6017: "DotProductInput4x8Bit",
-	6018: "DotProductInput4x8BitPacked", 6019: "DotProduct", 6033: "AtomicFloat32AddEXT",
+// spvCapabilityName returns the name of a capability, or its number when the
+// SPIR-V specification has no such capability.
+func spvCapabilityName(v uint32) string {
+	if name, ok := spvnames.CapabilityName(v); ok {
+		return name
+	}
+	return fmt.Sprintf("%d", v)
 }
 
 var spvStorageClasses = map[uint32]string{

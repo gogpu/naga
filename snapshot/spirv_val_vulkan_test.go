@@ -91,7 +91,10 @@ func compileSPIRVAt(name, source string, version spirv.Version) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	rust := readRustSPVConfig(name)
+	rust, err := readRustSPVConfig(name)
+	if err != nil {
+		return nil, err
+	}
 	opts := spirv.Options{Version: version, BindingMap: rust.BindingMap, FakeMissingBindings: rust.FakeMissingBindings}
 	return spirvBinary(module, opts)
 }
