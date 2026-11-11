@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the component store through a scalar pointer, `((threadgroup uint*)&c)[i] = v;`, for a workgroup vector and for
   a workgroup matrix column, keeping the chain's bounds-check rendering. Loads, static component stores,
   swizzle-assignment writes and every other address space are unchanged; no golden changes. The readback case's
-  `knownFailures` entry is dropped: it passes on the Paravirtual device and on ten local adapters.
+  `knownFailures` entry is dropped: it passes on the Paravirtual device and on all ten local backend-adapter
+  pairs (five adapters).
 - **MSL: `workgroupUniformLoad` of an atomic copied the atomic object** (BUG-MSL-WGULOAD-ATOMIC-001). `uint x = wg;`
   copies an atomic, which MSL forbids; Rust naga loads through it with
   `metal::atomic_load_explicit(&ptr, metal::memory_order_relaxed)`, and the statement now goes through the same load
