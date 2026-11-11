@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped silently, which left `AllowedCapabilities` unset and compiled that shader with every capability allowed, so
   the corpus proved nothing about it. The error names the `.toml` file and the name; `MeshShadingEXT` (5283) and
   `RayTracingKHR` (4479) now resolve to the capabilities Rust uses.
+- **MSL: a run-time component store into a workgroup vector was lost on the Apple Paravirtual Metal device**
+  (P1-MSL-106). The readback case `vars/workgroup-split-rt` read the vector as 0 in every lane there, while the
+  shader's `workgroupBarrier()` was present, WGSL makes an index store touch only that component's memory
+  locations, and our MSL matched Rust naga and Tint — the device's compiler loses the store. The writer now emits
+  the component store through a scalar pointer, `((threadgroup uint*)&c)[i] = v;`, for a workgroup vector and for
+  a workgroup matrix column, keeping the chain's bounds-check rendering. Loads, static component stores,
+  swizzle-assignment writes and every other address space are unchanged; no golden changes. The readback case's
+  `knownFailures` entry is dropped: it passes on the Paravirtual device and on ten local adapters.
 
 ## [0.21.9] - 2026-11-09
 
