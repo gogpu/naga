@@ -1149,8 +1149,15 @@ func (w *Writer) writeLocalVariable(local ir.ExprLocalVariable) error {
 // Matches Rust naga's put_load: determines bounds check policy from address space,
 // then applies Restrict (index clamping) or ReadZeroSkipWrite (ternary) as needed.
 func (w *Writer) writeLoad(load ir.ExprLoad) error {
+	return w.writeLoadPointer(load.Pointer)
+}
+
+// writeLoadPointer writes a load from a pointer expression, applying the
+// bounds-check policy of that pointer's address space.
+// Matches Rust naga's put_load(pointer, .., is_scoped=true).
+func (w *Writer) writeLoadPointer(pointer ir.ExpressionHandle) error {
 	// Determine the bounds check policy for this access chain.
-	policy := w.chooseBoundsCheckPolicy(load.Pointer)
+	policy := w.chooseBoundsCheckPolicy(pointer)
 
 	// Set the policy for the access chain traversal.
 	prevPolicy, prevHas := w.currentAccessPolicy, w.hasAccessPolicy
@@ -1159,7 +1166,7 @@ func (w *Writer) writeLoad(load ir.ExprLoad) error {
 
 	// ReadZeroSkipWrite: wrap in ternary if pointer chain has array access.
 	if policy == backend.BoundsCheckReadZeroSkipWrite {
-		check, ok, err := w.buildRZSWBoundsCheck(load.Pointer)
+		check, ok, err := w.buildRZSWBoundsCheck(pointer)
 		if err != nil {
 			return err
 		}
@@ -1168,17 +1175,17 @@ func (w *Writer) writeLoad(load ir.ExprLoad) error {
 			w.currentAccessPolicy = backend.BoundsCheckUnchecked // inner access is unchecked
 			prevRZSW := w.insideRZSW
 			w.insideRZSW = true
-			if err := w.writeUncheckedLoad(load.Pointer); err != nil {
-				w.insideRZSW = prevRZSW
+			err := w.writeUncheckedLoad(pointer)
+			w.insideRZSW = prevRZSW
+			if err != nil {
 				return err
 			}
-			w.insideRZSW = prevRZSW
 			w.write(" : DefaultConstructible()")
 			return nil
 		}
 	}
 
-	return w.writeUncheckedLoad(load.Pointer)
+	return w.writeUncheckedLoad(pointer)
 }
 
 // writeUncheckedLoad writes a load without bounds checking.
