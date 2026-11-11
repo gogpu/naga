@@ -193,7 +193,8 @@ const locationSemantic = d3d.LocationSemantic
 func (w *Writer) getSemanticFromBinding(binding ir.Binding, idx int) string {
 	switch b := binding.(type) {
 	case ir.BuiltinBinding:
-		return BuiltInToSemantic(b.Builtin)
+		semantic, _ := BuiltInToSemantic(b.Builtin)
+		return semantic
 	case ir.LocationBinding:
 		return fmt.Sprintf("%s%d", locationSemantic, b.Location)
 	default:
@@ -214,7 +215,11 @@ func (w *Writer) writeSemantic(binding *ir.Binding, stage *shaderStageIO) {
 	}
 	switch b := (*binding).(type) {
 	case ir.BuiltinBinding:
-		fmt.Fprintf(&w.Out, " : %s", BuiltInToSemantic(b.Builtin))
+		// A virtual mesh-shader built-in has no semantic at all; Rust
+		// writes the field bare (to_hlsl_str's Ok(None)).
+		if semantic, supported := BuiltInToSemantic(b.Builtin); supported && semantic != "" {
+			fmt.Fprintf(&w.Out, " : %s", semantic)
+		}
 	case ir.LocationBinding:
 		if b.BlendSrc != nil && *b.BlendSrc == 1 {
 			fmt.Fprintf(&w.Out, " : SV_Target1")

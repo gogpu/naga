@@ -12,8 +12,8 @@ struct VertexOutput {
 };
 
 struct PrimitiveOutput {
-    uint3 indices_ : SV_Position;
-    bool cull : SV_Position;
+    uint3 indices_;
+    bool cull : SV_CullPrimitive;
     float4 colorMask : LOC1 : primitive;
 };
 
@@ -22,10 +22,10 @@ struct PrimitiveInput {
 };
 
 struct MeshOutput {
-    VertexOutput vertices_[3] : SV_Position;
-    PrimitiveOutput primitives_[1] : SV_Position;
-    uint vertex_count : SV_Position;
-    uint primitive_count : SV_Position;
+    VertexOutput vertices_[3];
+    PrimitiveOutput primitives_[1];
+    uint vertex_count;
+    uint primitive_count;
 };
 
 TaskPayload taskPayload;
@@ -50,7 +50,7 @@ void helper_writer(bool value)
     return;
 }
 
-uint3 ts_main() : SV_Position
+uint3 ts_main()
 {
     workgroupData = 1.0;
     taskPayload.colorMask = float4(1.0, 1.0, 0.0, 1.0);
@@ -60,7 +60,7 @@ uint3 ts_main() : SV_Position
     return uint3(1u, 1u, 1u);
 }
 
-uint3 ts_divergent(uint3 thread_id : SV_GroupThreadID) : SV_Position
+uint3 ts_divergent(uint3 thread_id : SV_GroupThreadID)
 {
     if ((thread_id.x == 0u)) {
         taskPayload.colorMask = float4(1.0, 1.0, 0.0, 1.0);

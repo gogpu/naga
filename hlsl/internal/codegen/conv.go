@@ -100,56 +100,67 @@ func ScalarCast(k ir.ScalarKind) string {
 	}
 }
 
-// BuiltInToSemantic returns the HLSL semantic for a built-in value.
+// BuiltInToSemantic returns the HLSL semantic for a built-in value and
+// whether HLSL can express it at all: Rust naga's BuiltIn::to_hlsl_str
+// (back/hlsl/conv.rs). supported is false for the built-ins Rust refuses
+// with an error. semantic is empty for the ones Rust maps to None, the
+// "virtual" mesh-shader built-ins HLSL has no semantic for.
 // Ref: https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-semantics
-func BuiltInToSemantic(b ir.BuiltinValue) string {
+func BuiltInToSemantic(b ir.BuiltinValue) (semantic string, supported bool) {
 	switch b {
 	// Vertex shader
 	case ir.BuiltinPosition:
-		return semanticSVPosition
+		return semanticSVPosition, true
 	case ir.BuiltinVertexIndex:
-		return "SV_VertexID"
+		return "SV_VertexID", true
 	case ir.BuiltinInstanceIndex:
-		return "SV_InstanceID"
+		return "SV_InstanceID", true
 	case ir.BuiltinClipDistances:
-		return "SV_ClipDistance"
+		return "SV_ClipDistance", true
 	// Fragment shader
 	case ir.BuiltinFrontFacing:
-		return "SV_IsFrontFace"
+		return "SV_IsFrontFace", true
 	case ir.BuiltinFragDepth:
-		return "SV_Depth"
+		return "SV_Depth", true
 	case ir.BuiltinSampleIndex:
-		return "SV_SampleIndex"
+		return "SV_SampleIndex", true
 	case ir.BuiltinSampleMask:
-		return "SV_Coverage"
+		return "SV_Coverage", true
 	// Compute shader
 	case ir.BuiltinGlobalInvocationID:
-		return "SV_DispatchThreadID"
+		return "SV_DispatchThreadID", true
 	case ir.BuiltinLocalInvocationID:
-		return "SV_GroupThreadID"
+		return "SV_GroupThreadID", true
 	case ir.BuiltinLocalInvocationIndex:
-		return "SV_GroupIndex"
+		return "SV_GroupIndex", true
 	case ir.BuiltinWorkGroupID:
-		return "SV_GroupID"
+		return "SV_GroupID", true
 	case ir.BuiltinNumWorkGroups:
 		// NumWorkGroups requires a helper constant buffer
-		return "SV_GroupID" // Placeholder - will be replaced
+		return "SV_GroupID", true // Placeholder - will be replaced
 	case ir.BuiltinViewIndex:
-		return "SV_ViewID"
+		return "SV_ViewID", true
 	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:
-		return "SV_Barycentrics"
+		return "SV_Barycentrics", true
 	case ir.BuiltinPrimitiveIndex:
-		return "SV_PrimitiveID"
-	case ir.BuiltinMeshTaskSize, ir.BuiltinCullPrimitive, ir.BuiltinPointIndex, ir.BuiltinLineIndices,
+		return "SV_PrimitiveID", true
+	// Wave intrinsics are emitted as functions, never as a semantic.
+	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID, ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID:
+		return "", true
+	case ir.BuiltinCullPrimitive:
+		return "SV_CullPrimitive", true
+	case ir.BuiltinMeshTaskSize, ir.BuiltinPointIndex, ir.BuiltinLineIndices,
 		ir.BuiltinTriangleIndices, ir.BuiltinVertexCount, ir.BuiltinVertices, ir.BuiltinPrimitiveCount,
 		ir.BuiltinPrimitives:
-		// Known wrong for mesh outputs (BUG-HLSL-BUILTIN-SEMANTIC-001, a
-		// recorded deviation): Rust writes them apart.
-		return semanticSVPosition
+		// Virtual mesh-shader built-ins: HLSL has no semantic for them
+		// (Rust to_hlsl_str's Ok(None)). Their values reach HLSL through the
+		// mesh entry point's indices/vertices/primitives parameters.
+		return "", true
 	default:
-		// No semantic (draw_index among them, as in Rust naga):
-		// checkBuiltins refuses the entry point; it was SV_Position.
-		return ""
+		// HLSL cannot express the built-in at all (point_size, draw_index:
+		// Rust to_hlsl_str's Unsupported builtin error); checkBuiltins
+		// refuses the entry point.
+		return "", false
 	}
 }
 
