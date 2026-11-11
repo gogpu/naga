@@ -115,11 +115,8 @@ type Writer struct {
 	usedFeatures        FeatureFlags
 	requiredShaderModel ShaderModel
 
-	// Helper function flags
-	needsModHelper          bool
-	needsDivHelper          bool
-	needsAbsHelper          bool
-	needsStorageLoadHelpers map[string]bool // scalar type names needing LoadedStorageValueFrom
+	// Scalar type names needing LoadedStorageValueFrom.
+	needsStorageLoadHelpers map[string]bool
 
 	// Struct constructor tracking
 	structConstructors        map[ir.TypeHandle]struct{}
@@ -363,11 +360,7 @@ func (w *Writer) writeModule() error {
 	w.scanForStructConstructors()
 	w.scanStorageTextureHelpers()
 
-	// 4b. Write special helper functions (naga_mod, naga_div, etc.)
-	// Note: storage load helpers are written per-function, not here
-	w.writeSpecialHelperFunctions()
-
-	// 4b2. Write special functions (predeclared type helpers + RayDescFromRayDesc_)
+	// 4b. Write special functions (predeclared type helpers + RayDescFromRayDesc_)
 	// Matches Rust naga's write_special_functions called at module level.
 	w.writeModuleLevelSpecialFunctions()
 
@@ -820,43 +813,6 @@ func (w *Writer) writeDynamicBufferOffsets() {
 		fmt.Fprintf(&w.Out, "ConstantBuffer<__dynamic_buffer_offsetsTy%d> __dynamic_buffer_offsets%d: register(b%d, space%d);\n",
 			group, group, bt.Register, bt.Space)
 		w.Out.WriteByte('\n')
-	}
-}
-
-// writeSpecialHelperFunctions writes naga_mod, naga_div, naga_abs polyfills.
-// Storage load helpers are written per-function to match Rust naga ordering.
-func (w *Writer) writeSpecialHelperFunctions() {
-	if w.needsModHelper {
-		w.WriteLine("// Safe modulo helper (truncated division semantics)")
-		w.WriteLine("int %s(int a, int b) {", NagaModFunction)
-		w.PushIndent()
-		w.WriteLine("return a - b * (a / b);")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-		w.helperFunctions = append(w.helperFunctions, NagaModFunction)
-	}
-
-	if w.needsDivHelper {
-		w.WriteLine("// Safe division helper (handles zero divisor)")
-		w.WriteLine("int %s(int a, int b) {", NagaDivFunction)
-		w.PushIndent()
-		w.WriteLine("return b != 0 ? a / b : 0;")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-		w.helperFunctions = append(w.helperFunctions, NagaDivFunction)
-	}
-
-	if w.needsAbsHelper {
-		w.WriteLine("// Safe abs helper (handles INT_MIN)")
-		w.WriteLine("int %s(int v) {", NagaAbsFunction)
-		w.PushIndent()
-		w.WriteLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
-		w.helperFunctions = append(w.helperFunctions, NagaAbsFunction)
 	}
 }
 

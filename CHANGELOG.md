@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HLSL: the safe `naga_div` guard is the only implementation, and a test pins it** (P1-HLSL-038). The writer
+  already selected the safe divisor for run-time integer division — `lhs / (((lhs == MIN) & (rhs == -1)) | (rhs == 0) ? 1 : rhs)`,
+  which gives the WGSL results (`e1 / 0 == e1`, `INT_MIN / -1 == INT_MIN`) exactly as Rust naga's HLSL writer does.
+  The unsafe form, `b != 0 ? a / b : 0`, survived in an uncalled copy in `functions.go` and a flag-gated block that
+  nothing set; both are removed with the tests that pinned that text, so a future re-wiring cannot reintroduce the
+  wrong value. `TestE2E_IntegerDivisionGuard` asserts the emitted guard for both scalar kinds and fails on the old
+  form. The readback case `integers/div-guard-rt` runs the guarded cases on a GPU: i32 `5 / 0`, `-5 / 0`,
+  `INT_MIN / -1` and u32 `5 / 0`.
 - **HLSL: 2-row matrices in uniform buffers take Rust naga's wrapped layout** (BUG-UNIFORM-MAT2-001). A `matCx2`
   in a `cbuffer` is a struct of column vectors (`__mat4x2_f32`), and the writer now uses Rust's names and access
   shapes: a constant column is member access (`u_am[0]._0`), a run-time column goes through

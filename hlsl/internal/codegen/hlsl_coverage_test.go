@@ -371,9 +371,9 @@ fn combined(x: f32, y: f32, z: f32) -> f32 {
 }
 
 // =============================================================================
-// Helper function generation — covers writeModHelper, writeDivHelper,
-// writeAbsHelper, writeNegHelper, writeModfHelper, writeFrexpHelper,
-// writeF2I32Helper, writeF2U32Helper
+// Helper function generation — exercises the wrapped helper scanners
+// (writeWrappedBinaryOps, writeWrappedUnaryOps, writeWrappedCastFunctions,
+// writeWrappedMathHelpers)
 // =============================================================================
 
 func TestCov_HelperFunctionGeneration(t *testing.T) {

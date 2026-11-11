@@ -726,108 +726,6 @@ func toLowerFirst(s string) string {
 	return string(b)
 }
 
-// writeModHelper writes the safe modulo helper function.
-func (w *Writer) writeModHelper() {
-	w.WriteLine("// Safe modulo helper (truncated division semantics)")
-	w.WriteLine("int %s(int a, int b) {", NagaModFunction)
-	w.PushIndent()
-	w.WriteLine("return a - b * (a / b);")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-
-	// Overload for uint
-	w.WriteLine("uint %s(uint a, uint b) {", NagaModFunction)
-	w.PushIndent()
-	w.WriteLine("return a - b * (a / b);")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeDivHelper writes the safe division helper function.
-func (w *Writer) writeDivHelper() {
-	w.WriteLine("// Safe division helper (handles zero divisor)")
-	w.WriteLine("int %s(int a, int b) {", NagaDivFunction)
-	w.PushIndent()
-	w.WriteLine("return b != 0 ? a / b : 0;")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-
-	// Overload for uint
-	w.WriteLine("uint %s(uint a, uint b) {", NagaDivFunction)
-	w.PushIndent()
-	w.WriteLine("return b != 0u ? a / b : 0u;")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeAbsHelper writes the safe abs helper function.
-func (w *Writer) writeAbsHelper() {
-	w.WriteLine("// Safe abs helper (handles INT_MIN)")
-	w.WriteLine("int %s(int v) {", NagaAbsFunction)
-	w.PushIndent()
-	w.WriteLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeNegHelper writes the safe negation helper function.
-func (w *Writer) writeNegHelper() {
-	w.WriteLine("// Safe negation helper (handles INT_MIN)")
-	w.WriteLine("int %s(int v) {", NagaNegFunction)
-	w.PushIndent()
-	w.WriteLine("return v == -2147483648 ? 2147483647 : -v;")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeModfHelper writes the modf wrapper to return result struct like WGSL.
-func (w *Writer) writeModfHelper() {
-	w.WriteLine("// modf wrapper returning struct like WGSL")
-	w.WriteLine("struct _naga_modf_result_f32 {")
-	w.PushIndent()
-	w.WriteLine("float fract;")
-	w.WriteLine("float whole;")
-	w.PopIndent()
-	w.WriteLine("};")
-	w.WriteLine("")
-
-	w.WriteLine("_naga_modf_result_f32 %s(float x) {", NagaModfFunction)
-	w.PushIndent()
-	w.WriteLine("_naga_modf_result_f32 result;")
-	w.WriteLine("result.fract = modf(x, result.whole);")
-	w.WriteLine("return result;")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeFrexpHelper writes the frexp wrapper to return result struct like WGSL.
-func (w *Writer) writeFrexpHelper() {
-	w.WriteLine("// frexp wrapper returning struct like WGSL")
-	w.WriteLine("struct _naga_frexp_result_f32 {")
-	w.PushIndent()
-	w.WriteLine("float fract;")
-	w.WriteLine("int exp;")
-	w.PopIndent()
-	w.WriteLine("};")
-	w.WriteLine("")
-
-	w.WriteLine("_naga_frexp_result_f32 %s(float x) {", NagaFrexpFunction)
-	w.PushIndent()
-	w.WriteLine("_naga_frexp_result_f32 result;")
-	w.WriteLine("result.fract = frexp(x, result.exp);")
-	w.WriteLine("return result;")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
 // writeExtractBitsOverload writes a single naga_extractBits overload for a type.
 // Matches Rust naga's write_wrapped_math_functions for ExtractBits.
 func (w *Writer) writeExtractBitsOverload(typeName string, scalarWidth uint8) {
@@ -872,28 +770,6 @@ func (w *Writer) writeInsertBitsOverload(typeName string, scalarWidth uint8) {
 	fmt.Fprintf(&w.Out, "    uint mask = ((%du >> (%du - c)) << o);\n", scalarMax, scalarBits)
 	fmt.Fprintf(&w.Out, "    return (c == 0 ? e : ((e & ~mask) | ((newbits << o) & mask)));\n")
 	fmt.Fprintf(&w.Out, "}\n")
-}
-
-// writeF2I32Helper writes the float-to-i32 conversion helper with clamping.
-func (w *Writer) writeF2I32Helper() {
-	w.WriteLine("// Float to i32 conversion with clamping (handles NaN, inf)")
-	w.WriteLine("int %s(float v) {", NagaF2I32Function)
-	w.PushIndent()
-	w.WriteLine("return int(clamp(v, -2147483648.0, 2147483647.0));")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
-}
-
-// writeF2U32Helper writes the float-to-u32 conversion helper with clamping.
-func (w *Writer) writeF2U32Helper() {
-	w.WriteLine("// Float to u32 conversion with clamping (handles NaN, inf)")
-	w.WriteLine("uint %s(float v) {", NagaF2U32Function)
-	w.PushIndent()
-	w.WriteLine("return uint(clamp(v, 0.0, 4294967295.0));")
-	w.PopIndent()
-	w.WriteLine("}")
-	w.WriteLine("")
 }
 
 // =============================================================================

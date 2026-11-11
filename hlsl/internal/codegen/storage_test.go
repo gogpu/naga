@@ -1126,49 +1126,6 @@ func TestIndentStr(t *testing.T) {
 }
 
 // =============================================================================
-// TestNagaDivMod — verify naga_div/naga_mod helper generation
-// =============================================================================
-
-func TestNagaDivMod(t *testing.T) {
-	module := &ir.Module{}
-
-	t.Run("div_helper", func(t *testing.T) {
-		w := newTestWriter(module, nil, nil)
-		w.needsDivHelper = true
-		w.writeSpecialHelperFunctions()
-		got := output(w)
-		if !strings.Contains(got, "naga_div") {
-			t.Error("expected naga_div helper in output")
-		}
-		if !strings.Contains(got, "b != 0 ? a / b : 0") {
-			t.Error("expected safe division logic")
-		}
-	})
-
-	t.Run("mod_helper", func(t *testing.T) {
-		w := newTestWriter(module, nil, nil)
-		w.needsModHelper = true
-		w.writeSpecialHelperFunctions()
-		got := output(w)
-		if !strings.Contains(got, "naga_mod") {
-			t.Error("expected naga_mod helper in output")
-		}
-		if !strings.Contains(got, "a - b * (a / b)") {
-			t.Error("expected truncated mod logic")
-		}
-	})
-
-	t.Run("no_helpers_when_not_needed", func(t *testing.T) {
-		w := newTestWriter(module, nil, nil)
-		w.writeSpecialHelperFunctions()
-		got := output(w)
-		if got != "" {
-			t.Errorf("expected empty output when no helpers needed, got %q", got)
-		}
-	})
-}
-
-// =============================================================================
 // TestWriteStorageLoadMatrix
 // =============================================================================
 
