@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HLSL: 2-row matrices in uniform buffers take Rust naga's wrapped layout** (BUG-UNIFORM-MAT2-001). A `matCx2`
+  in a `cbuffer` is a struct of column vectors (`__mat4x2_f32`), and the writer now uses Rust's names and access
+  shapes: a constant column is member access (`u_am[0]._0`), a run-time column goes through
+  `__get_col_of_mat4x2_f32(u_am[i], idx)`. Before, an element of a uniform array was indexed as `u_am[0][0]`, which
+  HLSL rejects — DXC: "type 'const __mat2x2' does not provide a subscript operator" — so such shaders did not
+  compile at all. The wrapper now covers `matCx2<f16>` too (`__mat4x2_f16`, `half2` columns) instead of declaring
+  it `row_major`, and a store of a struct's f16 matrix member into a storage buffer writes its columns instead of
+  dropping them. The `access`, `mat_cx2` and `mat_cx2_f16` HLSL goldens are byte-identical to Rust's.
 - **HLSL: the mesh-shader built-ins no longer borrow `SV_Position`** (BUG-HLSL-BUILTIN-SEMANTIC-001). An unmapped
   built-in used to get `SV_Position`, so `triangle_indices`, `vertices`, `primitives`, `vertex_count`,
   `primitive_count`, `point_index`, `line_indices` and `mesh_task_size` produced fields with a semantic HLSL does

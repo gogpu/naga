@@ -977,6 +977,17 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 					// TempColumnAccess: _valueN.member_column (depth = level, NOT level+1)
 					fmt.Fprintf(&w.Out, ", asuint(_value%d.%s_%d));\n", sv.depth, memberName, uint8(i))
 					w.tempAccessChain = chain
+				} else if vecSize >= 2 {
+					// 16-bit components store as one packed value, as Rust naga
+					// writes them: Store(addr, half2) without asuint.
+					fmt.Fprintf(&w.Out, "%s%s.Store(", innerIndent, varName)
+					chain := w.tempAccessChain
+					w.tempAccessChain = nil
+					if err := w.writeStorageAddress(chain); err != nil {
+						return err
+					}
+					fmt.Fprintf(&w.Out, ", _value%d.%s_%d);\n", sv.depth, memberName, uint8(i))
+					w.tempAccessChain = chain
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 			}

@@ -1449,10 +1449,10 @@ func TestWriteLoadExpression_Simple(t *testing.T) {
 }
 
 // =============================================================================
-// getGlobalUniformMatrix (expressions.go) — 45.5% coverage
+// getInnerMatrixOfGlobalUniform (expressions.go)
 // =============================================================================
 
-func TestGetGlobalUniformMatrix(t *testing.T) {
+func TestGetInnerMatrixOfGlobalUniform(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			// [0] mat4x4<f32>
@@ -1472,7 +1472,7 @@ func TestGetGlobalUniformMatrix(t *testing.T) {
 	setCurrentFunction(t, w, fn)
 
 	// Direct uniform matrix reference
-	m := w.getGlobalUniformMatrix(0)
+	m := w.getInnerMatrixOfGlobalUniform(0, true)
 	if m == nil {
 		t.Fatal("expected matrix info for uniform global")
 	}
@@ -1481,20 +1481,20 @@ func TestGetGlobalUniformMatrix(t *testing.T) {
 	}
 
 	// Out of range
-	m = w.getGlobalUniformMatrix(99)
+	m = w.getInnerMatrixOfGlobalUniform(99, true)
 	if m != nil {
 		t.Error("expected nil for out-of-range expression")
 	}
 
 	// No current function
 	w.currentFunction = nil
-	m = w.getGlobalUniformMatrix(0)
+	m = w.getInnerMatrixOfGlobalUniform(0, true)
 	if m != nil {
 		t.Error("expected nil when no current function")
 	}
 }
 
-func TestGetGlobalUniformMatrix_NotUniform(t *testing.T) {
+func TestGetInnerMatrixOfGlobalUniform_NotUniform(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
@@ -1512,7 +1512,7 @@ func TestGetGlobalUniformMatrix_NotUniform(t *testing.T) {
 	}
 	setCurrentFunction(t, w, fn)
 
-	m := w.getGlobalUniformMatrix(0)
+	m := w.getInnerMatrixOfGlobalUniform(0, true)
 	if m != nil {
 		t.Error("expected nil for non-uniform space")
 	}
