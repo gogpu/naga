@@ -1247,6 +1247,35 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 		return nil
 	}
 
+	// P1-MSL-106: the Apple Paravirtual Metal device loses a run-time component
+	// store into a threadgroup vector written as `v[i] = x`. The corpus case
+	// testdata/readback/vars/workgroup-split-rt.wgsl reads the vector as 0 in
+	// every lane there, while the barrier is present and WGSL makes an index
+	// store touch only that component's memory locations (index.bs:4350-4358,
+	// 4390-4412, 11597-11603); Rust naga and Tint emit the same plain form, so
+	// the device compiler is at fault. Write the component through a scalar
+	// pointer instead, which the device's compiler handles.
+	if access, scalar, ok := w.threadgroupVectorComponentStore(store.Pointer); ok {
+		w.WriteIndent()
+		w.write("((%s %s*)&", addressSpaceName(ir.SpaceWorkGroup), scalarTypeName(scalar))
+		// One error check: the three writes below fail only on a writer error,
+		// which no valid module produces, so the branches stay together.
+		err := w.writeExpression(access.Base)
+		if err == nil {
+			w.write(")[")
+			err = w.writeAccessIndex_restricted(access.Base, access.Index)
+		}
+		if err == nil {
+			w.write("] = ")
+			err = w.writeOperandOutsideRZSW(store.Value)
+		}
+		if err != nil {
+			return err
+		}
+		w.write(";\n")
+		return nil
+	}
+
 	w.WriteIndent()
 	if w.shouldDerefPointer(store.Pointer) {
 		w.write("*")
@@ -1260,6 +1289,39 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 	}
 	w.write(";\n")
 	return nil
+}
+
+// threadgroupVectorComponentStore reports the run-time component store when
+// pointer addresses one component of a vector in the workgroup address space,
+// and the component's scalar type. access is the ExprAccess to render, scalar
+// the component type. The pointer resolves either to a workgroup vector
+// (PointerType to a VectorType) or to a matrix column (a ValuePointerType with
+// a size). A static component (ExprAccessIndex), a non-pointer base and every
+// other address space report false. See P1-MSL-106.
+func (w *Writer) threadgroupVectorComponentStore(pointer ir.ExpressionHandle) (ir.ExprAccess, ir.ScalarType, bool) {
+	if w.currentFunction == nil || int(pointer) >= len(w.currentFunction.Expressions) {
+		return ir.ExprAccess{}, ir.ScalarType{}, false
+	}
+	access, ok := w.currentFunction.Expressions[pointer].Kind.(ir.ExprAccess)
+	if !ok {
+		return ir.ExprAccess{}, ir.ScalarType{}, false
+	}
+	switch t := w.getExpressionType(access.Base).(type) {
+	case ir.PointerType:
+		if t.Space != ir.SpaceWorkGroup {
+			return ir.ExprAccess{}, ir.ScalarType{}, false
+		}
+		vec, ok := w.module.Types[t.Base].Inner.(ir.VectorType)
+		if !ok {
+			return ir.ExprAccess{}, ir.ScalarType{}, false
+		}
+		return access, vec.Scalar, true
+	case ir.ValuePointerType:
+		if t.Space == ir.SpaceWorkGroup && t.Size != nil {
+			return access, t.Scalar, true
+		}
+	}
+	return ir.ExprAccess{}, ir.ScalarType{}, false
 }
 
 // writeOperandOutsideRZSW writes an operand of a store or an atomic whose
