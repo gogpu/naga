@@ -1073,10 +1073,13 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 	// Matches Rust naga pattern:
 	//   const auto _tmp = <expr>;
 	//   return OutputStruct { _tmp.member1, _tmp.member2 };
+	// The name comes from the namer, so a second return in the same function
+	// gets _tmp_1 instead of a redefinition (upstream 0892b384, #9684).
 	outputStructName := w.getOutputStructName()
+	tmpName := w.namer.call("_tmp")
 
 	w.WriteIndent()
-	w.write("const auto _tmp = ")
+	w.write("const auto %s = ", tmpName)
 	if err := w.writeExpression(value); err != nil {
 		return false, err
 	}
@@ -1102,13 +1105,13 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 				if j != 0 {
 					w.write(", ")
 				}
-				w.write("_tmp.%s.inner[%d]", memberName, j)
+				w.write("%s.%s.inner[%d]", tmpName, memberName, j)
 			}
 			w.write("}")
 			continue
 		}
 		if err := w.writeOutputMember(member.Binding, func() error {
-			w.write("_tmp.%s", memberName)
+			w.write("%s.%s", tmpName, memberName)
 			return nil
 		}); err != nil {
 			return false, err

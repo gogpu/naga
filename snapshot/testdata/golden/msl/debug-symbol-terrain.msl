@@ -386,8 +386,8 @@ fragment gen_terrain_fragmentOutput gen_terrain_fragment(
     float _e77 = vert_component;
     uint ivert_component = as_type<uint>(_e77);
     uint _e79 = index;
-    const auto _tmp = GenFragmentOutput {ivert_component, _e79};
-    return gen_terrain_fragmentOutput { _tmp.vert_component, _tmp.index };
+    const auto _tmp_1 = GenFragmentOutput {ivert_component, _e79};
+    return gen_terrain_fragmentOutput { _tmp_1.vert_component, _tmp_1.index };
 }
 
 
@@ -408,8 +408,8 @@ vertex vs_mainOutput vs_main(
     metal::float4x4 _e3 = camera.view_proj;
     metal::float4 clip_position = _e3 * metal::float4(vertex_.position, 1.0);
     metal::float3 normal = vertex_.normal;
-    const auto _tmp = VertexOutput {clip_position, normal, vertex_.position};
-    return vs_mainOutput { _tmp.clip_position, _tmp.normal, _tmp.world_pos };
+    const auto _tmp_2 = VertexOutput {clip_position, normal, vertex_.position};
+    return vs_mainOutput { _tmp_2.clip_position, _tmp_2.normal, _tmp_2.world_pos };
 }
 
 
