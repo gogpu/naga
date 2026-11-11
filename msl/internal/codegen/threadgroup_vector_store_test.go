@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -226,5 +227,32 @@ func TestThreadgroupVectorComponentStoreGuards(t *testing.T) {
 	}}}
 	if _, _, ok := unresolved.threadgroupVectorComponentStore(0); ok {
 		t.Error("an expression without a resolved type matched")
+	}
+}
+
+// TestThreadgroupVectorComponentStoreTypeOutOfRange covers the defensive read
+// of the workgroup vector type: the resolved chain names a type handle that
+// the writer's module does not hold (an inconsistent writer, unreachable
+// through Compile — the typifier rejects such a module first), and the
+// detector must report false instead of panicking on the arena read.
+func TestThreadgroupVectorComponentStoreTypeOutOfRange(t *testing.T) {
+	typed := &ir.Module{
+		Types: []ir.Type{{Inner: ir.VectorType{
+			Size:   ir.Vec4,
+			Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		}}},
+		GlobalVariables: []ir.GlobalVariable{{Space: ir.SpaceWorkGroup, Type: 0}},
+	}
+	fn := &ir.Function{Expressions: []ir.Expression{
+		{Kind: ir.ExprGlobalVariable{Variable: 0}},
+		{Kind: ir.ExprAccess{Base: 0, Index: 1}},
+	}}
+	types, err := typifier.Function(typed, fn)
+	if err != nil {
+		t.Fatalf("typifier.Function: %v", err)
+	}
+	w := &Writer{module: &ir.Module{}, currentFunction: fn, types: types}
+	if _, _, ok := w.threadgroupVectorComponentStore(1); ok {
+		t.Error("a workgroup pointer past the type arena matched")
 	}
 }
