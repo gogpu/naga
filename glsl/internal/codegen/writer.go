@@ -3057,7 +3057,14 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 	case ir.BuiltinSampleIndex:
 		return "gl_SampleID"
 	case ir.BuiltinSampleMask:
-		return "gl_SampleMaskIn[0]"
+		// An output is written to gl_SampleMask; the input reads
+		// gl_SampleMaskIn (Rust naga conv.rs: SampleMask under
+		// options.output). Both GLSL built-ins are int arrays while WGSL's
+		// sample_mask is u32, so the value is converted at the use site.
+		if isOutput {
+			return "gl_SampleMask[0]"
+		}
+		return "uint(gl_SampleMaskIn[0])"
 	case ir.BuiltinLocalInvocationID:
 		return "gl_LocalInvocationID"
 	case ir.BuiltinLocalInvocationIndex:

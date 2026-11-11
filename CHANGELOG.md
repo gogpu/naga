@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   get no semantic at all, and `point_size`/`draw_index` stay a loud compile error. The mesh-shader HLSL output still
   differs from Rust where the mesh entry-point writer is not ported (upstream a53ffffe); those deviation entries now
   belong to PARITY-UPSTREAM-001.
+- **GLSL: a `sample_mask` output is written to `gl_SampleMask`, not `gl_SampleMaskIn`** (P1-GLSL-006). The writer
+  named the input variable for both directions, so the assignment went to the input built-in — glslangValidator:
+  "'gl_SampleMaskIn' : required extension not requested". Both GLSL built-ins are `int` arrays while WGSL's
+  `sample_mask` is `u32`, so the generated code converts at the use site (`uint(gl_SampleMaskIn[0])` on the read,
+  `gl_SampleMask[0] = int(...)` on the write); without them a GLSL 4.30 fragment shader with these built-ins does
+  not compile either.
 
 ## [0.21.10] - 2026-11-11
 

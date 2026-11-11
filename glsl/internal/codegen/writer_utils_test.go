@@ -30,7 +30,8 @@ func TestGlslBuiltIn(t *testing.T) {
 		{"front_facing", ir.BuiltinFrontFacing, false, "gl_FrontFacing"},
 		{"frag_depth", ir.BuiltinFragDepth, true, "gl_FragDepth"},
 		{"sample_index", ir.BuiltinSampleIndex, false, "gl_SampleID"},
-		{"sample_mask", ir.BuiltinSampleMask, false, "gl_SampleMaskIn[0]"},
+		{"sample_mask", ir.BuiltinSampleMask, false, "uint(gl_SampleMaskIn[0])"},
+		{"sample_mask_output", ir.BuiltinSampleMask, true, "gl_SampleMask[0]"},
 		{"local_invocation_id", ir.BuiltinLocalInvocationID, false, "gl_LocalInvocationID"},
 		{"local_invocation_index", ir.BuiltinLocalInvocationIndex, false, "gl_LocalInvocationIndex"},
 		{"global_invocation_id", ir.BuiltinGlobalInvocationID, false, "gl_GlobalInvocationID"},
@@ -56,6 +57,37 @@ func TestGlslBuiltIn(t *testing.T) {
 					tt.builtin, tt.isOutput, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCompile_SampleMaskOutput covers P1-GLSL-006: a @builtin(sample_mask)
+// output is written to gl_SampleMask[0]; gl_SampleMaskIn is the input, and
+// assigning to it does not compile (glslangValidator: "'gl_SampleMaskIn' :
+// required extension not requested").
+func TestCompile_SampleMaskOutput(t *testing.T) {
+	src := `
+struct FragmentOutput {
+    @builtin(sample_mask) mask: u32,
+    @location(0) color: vec4<f32>,
+}
+
+@fragment
+fn fs_main(@builtin(sample_mask) in_mask: u32) -> FragmentOutput {
+    return FragmentOutput(in_mask, vec4(1.0));
+}
+`
+	out, _, err := compileWGSLHelper(src, Options{LangVersion: Version430})
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if !strings.Contains(out, "gl_SampleMask[0] = int(") {
+		t.Errorf("the sample_mask output is not written to gl_SampleMask[0] with an int conversion:\n%s", out)
+	}
+	if strings.Contains(out, "gl_SampleMaskIn[0] =") {
+		t.Errorf("the sample_mask output is written to the input variable gl_SampleMaskIn:\n%s", out)
+	}
+	if !strings.Contains(out, "uint(gl_SampleMaskIn[0])") {
+		t.Errorf("the sample_mask input is not read through a uint conversion:\n%s", out)
 	}
 }
 
