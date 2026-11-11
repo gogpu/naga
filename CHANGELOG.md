@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sample_mask` is `u32`, so the generated code converts at the use site (`uint(gl_SampleMaskIn[0])` on the read,
   `gl_SampleMask[0] = int(...)` on the write); without them a GLSL 4.30 fragment shader with these built-ins does
   not compile either.
+- **GLSL: integer division and remainder select a safe divisor** (P1-GLSL-009). GLSL leaves `x / 0`,
+  `INT_MIN / -1` and their remainders undefined, while WGSL defines them: `x / 0 == x`, `INT_MIN / -1 == INT_MIN`,
+  and the remainder is 0 in both cases. The writer now emits typed `naga_div` / `naga_mod` overloads for exactly
+  the operand types a shader uses (scalars and vectors, signed and unsigned), as Rust naga's HLSL and MSL writers
+  do; Rust's GLSL writer emits a bare `/`. The helpers are emitted only when the module needs them.
 
 ## [0.21.10] - 2026-11-11
 

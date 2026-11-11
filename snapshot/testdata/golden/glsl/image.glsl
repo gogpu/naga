@@ -17,13 +17,22 @@ uniform usampler1D _group_0_binding_7_cs;
 
 layout(r32ui) writeonly uniform uimage1D _group_0_binding_2_cs;
 
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     uvec3 local_id = gl_LocalInvocationID;
     uvec2 dim = uvec2(imageSize(_group_0_binding_1_cs).xy);
     ivec2 _e5 = ivec2((dim * local_id.xy));
     ivec2 _e8 = ivec2(10, 20);
-    ivec2 itc = (_e5 - _e8 * (_e5 / _e8));
+    ivec2 itc = naga_mod(_e5, _e8);
     uvec4 value1_ = texelFetch(_group_0_binding_0_cs, itc, int(local_id.z));
     uvec4 value1_2_ = texelFetch(_group_0_binding_0_cs, itc, int(uint(local_id.z)));
     uvec4 value2_ = texelFetch(_group_0_binding_3_cs, itc, int(local_id.z));
@@ -57,13 +66,22 @@ layout(rgba8ui) readonly uniform uimage2D _group_0_binding_1_cs;
 
 layout(r32ui) writeonly uniform uimage1D _group_0_binding_2_cs;
 
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     uvec3 local_id_1 = gl_LocalInvocationID;
     uvec2 dim = uvec2(imageSize(_group_0_binding_1_cs).xy);
     ivec2 _e5 = ivec2((dim * local_id_1.xy));
     ivec2 _e8 = ivec2(10, 20);
-    ivec2 itc = (_e5 - _e8 * (_e5 / _e8));
+    ivec2 itc = naga_mod(_e5, _e8);
     float val = texelFetch(_group_0_binding_4_cs, itc, int(local_id_1.z)).x;
     imageStore(_group_0_binding_2_cs, itc.x, uvec4(uint(val)));
     return;
@@ -86,6 +104,15 @@ uniform samplerCubeArray _group_0_binding_6_vs;
 uniform sampler3D _group_0_binding_7_vs;
 
 uniform sampler2DMS _group_0_binding_8_vs;
+
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
 
 
 void main() {
@@ -126,6 +153,15 @@ uniform sampler3D _group_0_binding_7_vs;
 
 uniform sampler2DMS _group_0_binding_8_vs;
 
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     uint num_levels_2d = uint(textureQueryLevels(_group_0_binding_1_vs));
@@ -156,6 +192,15 @@ uniform sampler2DArray _group_0_binding_4_fs;
 uniform samplerCubeArray _group_0_binding_6_fs;
 
 layout(location = 0) out vec4 _fs2p_location0;
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     vec4 a = vec4(0.0);
@@ -247,6 +292,15 @@ uniform sampler2DArrayShadow _group_1_binding_3_fs;
 uniform samplerCubeShadow _group_1_binding_4_fs;
 
 layout(location = 0) out float _fs2p_location0;
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     float a_1 = 0.0;
@@ -294,6 +348,15 @@ uniform isampler2D _group_0_binding_3_fs;
 uniform sampler2DShadow _group_1_binding_2_fs;
 
 layout(location = 0) out vec4 _fs2p_location0;
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     vec2 tc = vec2(0.5);
@@ -315,6 +378,15 @@ void main() {
 uniform sampler2D _group_1_binding_2_fs;
 
 layout(location = 0) out vec4 _fs2p_location0;
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 void main() {
     vec2 tc = vec2(0.5);

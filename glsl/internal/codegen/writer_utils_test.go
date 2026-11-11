@@ -829,3 +829,86 @@ func TestIsUnsignedExpr(t *testing.T) {
 		}
 	})
 }
+
+// TestCompile_IntegerDivModGuard covers P1-GLSL-009: integer / and % are
+// routed through naga_div / naga_mod, which select a safe divisor where GLSL
+// leaves the result undefined (a zero divisor, or INT_MIN with -1). Rust's
+// GLSL writer emits a bare `/` there.
+func TestCompile_IntegerDivModGuard(t *testing.T) {
+	src := `
+@group(0) @binding(0) var<storage, read> a: array<u32>;
+@group(0) @binding(1) var<storage, read> b: array<i32>;
+@group(0) @binding(2) var<storage, read_write> out: array<i32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let i = a[0];
+    let x = b[1];
+    let y = b[2];
+    out[0] = x / y;
+    out[1] = x % y;
+    out[2] = i32(i / 3u);
+    out[3] = i32(i % 3u);
+}
+`
+	out, _, err := compileWGSLHelper(src, Options{LangVersion: Version430})
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// Signed: the guard also covers INT_MIN / -1, whose quotient is INT_MIN
+	// and whose remainder is 0.
+	for _, want := range []string{
+		"int naga_div(int lhs, int rhs) {",
+		"int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;",
+		"int naga_mod(int lhs, int rhs) {",
+		"return lhs - (lhs / divisor) * divisor;",
+		// Unsigned: only the zero divisor is undefined.
+		"uint naga_div(uint lhs, uint rhs) {",
+		"uint divisor = (rhs == 0u) ? 1u : rhs;",
+		"uint naga_mod(uint lhs, uint rhs) {",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "naga_div(") || !strings.Contains(out, "naga_mod(") {
+		t.Errorf("integer division and remainder do not call the helpers:\n%s", out)
+	}
+}
+
+// TestCompile_IntegerDivModGuardVector covers the vector shapes: the helper
+// takes the operand types as they are written (GLSL has no implicit vector
+// broadcast into a function parameter) and applies the scalar guard per
+// component.
+func TestCompile_IntegerDivModGuardVector(t *testing.T) {
+	src := `
+@group(0) @binding(0) var<storage, read_write> out: array<vec2<i32>>;
+@group(0) @binding(1) var<storage, read> d: array<i32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let v = vec2<i32>(4, 6);
+    let k = d[0];
+    out[0] = v / k;
+    out[1] = v % k;
+}
+`
+	out, _, err := compileWGSLHelper(src, Options{LangVersion: Version430})
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	for _, want := range []string{
+		// The scalar overload the vector body calls, then the vector one.
+		// The WGSL frontend splats a scalar operand into a vector, so the
+		// call is naga_div(v, ivec2(k)).
+		"int naga_div(int lhs, int rhs) {",
+		"ivec2 naga_div(ivec2 lhs, ivec2 rhs) {",
+		"return ivec2(naga_div(lhs.x, rhs.x), naga_div(lhs.y, rhs.y));",
+		"ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {",
+		"return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

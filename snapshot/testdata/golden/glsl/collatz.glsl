@@ -7,6 +7,16 @@ layout(std430) buffer PrimeIndices_block_0Compute {
     uint data[];
 } _group_0_binding_0_cs;
 
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
 
 uint collatz_iterations(uint n_base) {
     uint n = 0u;
@@ -20,9 +30,9 @@ uint collatz_iterations(uint n_base) {
         }
         {
             uint _e7 = n;
-            if (((_e7 - 2u * (_e7 / 2u)) == 0u)) {
+            if ((naga_mod(_e7, 2u) == 0u)) {
                 uint _e12 = n;
-                n = (_e12 / 2u);
+                n = naga_div(_e12, 2u);
             } else {
                 uint _e16 = n;
                 n = ((3u * _e16) + 1u);

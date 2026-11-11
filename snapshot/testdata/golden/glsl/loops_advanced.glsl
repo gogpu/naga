@@ -2,6 +2,11 @@
 #extension GL_ARB_compute_shader : require
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
+int naga_div(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs / divisor;
+}
+
 
 int nested_loops() {
     int total = 0;
@@ -102,7 +107,7 @@ int while_loop() {
         }
         {
             int _e5 = n;
-            n = (_e5 / 2);
+            n = naga_div(_e5, 2);
         }
     }
     int _e8 = n;

@@ -87,6 +87,9 @@ const (
 		"SV_Position.w in a pixel shader is the clip w itself, so reading it un-inverted gives the wrong value " +
 		"(Tint inverts it the same way in its HLSL writer's shader_io raise pass). Rust (back/hlsl/conv.rs) maps " +
 		"Position straight to SV_Position and leaves w un-inverted"
+	reasonGLSLIntDivGuard = "integer division and remainder go through naga_div / naga_mod, which select a safe " +
+		"divisor where GLSL leaves them undefined (a zero divisor, or INT_MIN with -1): WGSL defines x / 0 == x, " +
+		"INT_MIN / -1 == INT_MIN, and a zero remainder for both. Rust's GLSL writer emits a bare `/`"
 )
 
 // rustDeviations is the complete list of known differences from the vendored
@@ -238,6 +241,24 @@ var rustDeviations = []rustDeviation{
 	{Shader: "image", File: "wgsl-image.hlsl", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("4c1ea47e"),
 		Fingerprint: "c19c6964927501d578ff313a597cdccf644c87da5700826e1f5750beb1daa583"},
+	{Shader: "image", File: "wgsl-image.main.Compute.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "1c6de43971a2b7d593e5bda209ace7d0469922f99a9867cb116b5b734f187260"},
+	{Shader: "image", File: "wgsl-image.queries.Vertex.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "635225620c349293cde1f6cc5ebe87b980d2e1c07f2617a89d5e94ac935994e4"},
+	{Shader: "image", File: "wgsl-image.levels_queries.Vertex.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "03a7aa17e5d7f183bea9c900c9522db49ccfe4b5d913099a722a8e3280306d56"},
+	{Shader: "image", File: "wgsl-image.texture_sample.Fragment.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "b52d4e602d89da3bd9d28fde82188d6f919ade765e0a0d046efea938bb9b176f"},
+	{Shader: "image", File: "wgsl-image.texture_sample_comparison.Fragment.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "2ec2d80213d0f7ad6b7834ee4082d8800fa9d7ae91314a4dc2a84b058d55651d"},
+	{Shader: "image", File: "wgsl-image.gather.Fragment.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "66cc72442d4ad7fa9f99c3d35d7b1462d029d37c9b24ba917e0e513367a68fac"},
 	{Shader: "interface", File: "wgsl-interface.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "d0149fe19612e8845538bb3a900783dd025136c1b6644e79df4e7a3c6a9e7230"},
@@ -247,6 +268,9 @@ var rustDeviations = []rustDeviation{
 	{Shader: "overrides-atomicCompareExchangeWeak", File: "wgsl-overrides-atomicCompareExchangeWeak.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "f483af7caf2f9f3c2df44d835e3d6cb29ef25f58beac51d988bc26cd301e389c"},
+	{Shader: "operators", File: "wgsl-operators.main.Compute.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "8c95464ea5042cec91d04e8f003791785e56127c712c787333d1f4eccadaedb6"},
 	{Shader: "overrides-ray-query", File: "wgsl-overrides-ray-query.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("f6d9a1db", "a03be8d2"),
 		Fingerprint: "203cb193872a4dd209b7426eebe8d733d494f0b619e8ee12f449ff4a03fef6d8"},
@@ -283,6 +307,12 @@ var rustDeviations = []rustDeviation{
 	{Shader: "skybox", File: "wgsl-skybox.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("de9f9f4d"),
 		Fingerprint: "795c7cd20304501fecb72cfa2f361f721a1c45b96d1e287e2379cfc2bf9c3356"},
+	{Shader: "skybox", File: "wgsl-skybox.vs_main.Vertex.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "3a81925019e0bbfb9cd3d43d0ff3f1d238b1f2936bd05da95a1d243bfd63d9ba"},
+	{Shader: "skybox", File: "wgsl-skybox.fs_main.Fragment.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLIntDivGuard,
+		Fingerprint: "6742eaf546dba0919b4bf6ffd2426b01ed227cc0ba2fe310f72a6c4cda9191b7"},
 	{Shader: "int16", File: "wgsl-int16.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      reasonInt16SpecClamp + "; " + reasonMSLThreadgroup + "; " + notPorted("b5bd5aed", "b9c09622"),
 		Fingerprint: "f7443a6b9b8ed7c0f9a30383012e2fcf5d1f4ad5e54b6effda30bf10e7816ce6"},

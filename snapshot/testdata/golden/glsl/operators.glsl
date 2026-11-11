@@ -13,6 +13,54 @@ const bool short_circuit_2_invalid_rhs = false;
 const bool short_circuit_3_ = true;
 const bool short_circuit_4_ = true;
 
+int naga_mod(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec4 naga_mod(ivec4 lhs, ivec4 rhs) {
+    return ivec4(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y), naga_mod(lhs.z, rhs.z), naga_mod(lhs.w, rhs.w));
+}
+
+int naga_div(int lhs, int rhs) {
+    int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;
+    return lhs / divisor;
+}
+
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+ivec2 naga_div(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_div(lhs.x, rhs.x), naga_div(lhs.y, rhs.y));
+}
+
+uvec3 naga_div(uvec3 lhs, uvec3 rhs) {
+    return uvec3(naga_div(lhs.x, rhs.x), naga_div(lhs.y, rhs.y), naga_div(lhs.z, rhs.z));
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
+ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {
+    return ivec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
+uvec3 naga_mod(uvec3 lhs, uvec3 rhs) {
+    return uvec3(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y), naga_mod(lhs.z, rhs.z));
+}
+
+uvec2 naga_div(uvec2 lhs, uvec2 rhs) {
+    return uvec2(naga_div(lhs.x, rhs.x), naga_div(lhs.y, rhs.y));
+}
+
+uvec2 naga_mod(uvec2 lhs, uvec2 rhs) {
+    return uvec2(naga_mod(lhs.x, rhs.x), naga_mod(lhs.y, rhs.y));
+}
+
 
 vec4 builtins() {
     int s1_ = (true ? 1 : 0);
@@ -30,7 +78,7 @@ vec4 splat(float m, int n) {
     vec2 a_2 = (((vec2(2.0) + vec2(m)) - vec2(4.0)) / vec2(8.0));
     ivec4 _e12 = ivec4(n);
     ivec4 _e14 = ivec4(2);
-    ivec4 b = (_e12 - _e14 * (_e12 / _e14));
+    ivec4 b = naga_mod(_e12, _e14);
     return (a_2.xyxy + vec4(b));
 }
 
@@ -156,21 +204,21 @@ void arithmetic() {
     ivec2 mul3_ = (ivec2(2) * ivec2(1));
     uvec3 mul4_ = (uvec3(2u) * uvec3(1u));
     vec4 mul5_ = (vec4(2.0) * vec4(1.0));
-    int div0_ = (2 / 1);
-    uint div1_ = (2u / 1u);
+    int div0_ = naga_div(2, 1);
+    uint div1_ = naga_div(2u, 1u);
     float div2_ = (2.0 / 1.0);
-    ivec2 div3_ = (ivec2(2) / ivec2(1));
-    uvec3 div4_ = (uvec3(2u) / uvec3(1u));
+    ivec2 div3_ = naga_div(ivec2(2), ivec2(1));
+    uvec3 div4_ = naga_div(uvec3(2u), uvec3(1u));
     vec4 div5_ = (vec4(2.0) / vec4(1.0));
-    int rem0_ = (2 - 1 * (2 / 1));
-    uint rem1_ = (2u - 1u * (2u / 1u));
+    int rem0_ = naga_mod(2, 1);
+    uint rem1_ = naga_mod(2u, 1u);
     float rem2_ = (2.0 - 1.0 * trunc(2.0 / 1.0));
     ivec2 _e62 = ivec2(2);
     ivec2 _e63 = ivec2(1);
-    ivec2 rem3_ = (_e62 - _e63 * (_e62 / _e63));
+    ivec2 rem3_ = naga_mod(_e62, _e63);
     uvec3 _e65 = uvec3(2u);
     uvec3 _e66 = uvec3(1u);
-    uvec3 rem4_ = (_e65 - _e66 * (_e65 / _e66));
+    uvec3 rem4_ = naga_mod(_e65, _e66);
     vec4 rem5_ = (vec4(2.0) - vec4(1.0) * trunc(vec4(2.0) / vec4(1.0)));
     {
         ivec2 add0_1 = (ivec2(2) + ivec2(1));
@@ -191,24 +239,24 @@ void arithmetic() {
         uvec2 mul3_1 = (2u * uvec2(1u));
         vec2 mul4_1 = (vec2(2.0) * 1.0);
         vec2 mul5_1 = (2.0 * vec2(1.0));
-        ivec2 div0_1 = (ivec2(2) / ivec2(1));
-        ivec2 div1_1 = (ivec2(2) / ivec2(1));
-        uvec2 div2_1 = (uvec2(2u) / uvec2(1u));
-        uvec2 div3_1 = (uvec2(2u) / uvec2(1u));
+        ivec2 div0_1 = naga_div(ivec2(2), ivec2(1));
+        ivec2 div1_1 = naga_div(ivec2(2), ivec2(1));
+        uvec2 div2_1 = naga_div(uvec2(2u), uvec2(1u));
+        uvec2 div3_1 = naga_div(uvec2(2u), uvec2(1u));
         vec2 div4_1 = (vec2(2.0) / vec2(1.0));
         vec2 div5_1 = (vec2(2.0) / vec2(1.0));
         ivec2 _e137 = ivec2(2);
         ivec2 _e138 = ivec2(1);
-        ivec2 rem0_1 = (_e137 - _e138 * (_e137 / _e138));
+        ivec2 rem0_1 = naga_mod(_e137, _e138);
         ivec2 _e140 = ivec2(1);
         ivec2 _e141 = ivec2(2);
-        ivec2 rem1_1 = (_e141 - _e140 * (_e141 / _e140));
+        ivec2 rem1_1 = naga_mod(_e141, _e140);
         uvec2 _e143 = uvec2(2u);
         uvec2 _e144 = uvec2(1u);
-        uvec2 rem2_1 = (_e143 - _e144 * (_e143 / _e144));
+        uvec2 rem2_1 = naga_mod(_e143, _e144);
         uvec2 _e146 = uvec2(1u);
         uvec2 _e147 = uvec2(2u);
-        uvec2 rem3_1 = (_e147 - _e146 * (_e147 / _e146));
+        uvec2 rem3_1 = naga_mod(_e147, _e146);
         vec2 rem4_1 = (vec2(2.0) - vec2(1.0) * trunc(vec2(2.0) / vec2(1.0)));
         vec2 rem5_1 = (vec2(2.0) - vec2(1.0) * trunc(vec2(2.0) / vec2(1.0)));
     }
@@ -305,9 +353,9 @@ void assignment() {
     a_1 = (_e9 * _e10);
     int _e12 = a_1;
     int _e13 = a_1;
-    a_1 = (_e12 / _e13);
+    a_1 = naga_div(_e12, _e13);
     int _e15 = a_1;
-    a_1 = (_e15 - 1 * (_e15 / 1));
+    a_1 = naga_mod(_e15, 1);
     int _e17 = a_1;
     a_1 = (_e17 & 0);
     int _e19 = a_1;
