@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/gogpu/naga/internal/spvnames"
 )
 
 var opcodeNames = map[uint16]string{
@@ -75,46 +77,6 @@ var opcodeNames = map[uint16]string{
 	248: "OpLabel", 249: "OpBranch", 250: "OpBranchConditional",
 	251: "OpSwitch", 252: "OpKill", 253: "OpReturn", 254: "OpReturnValue",
 	255: "OpUnreachable", 256: "OpLifetimeStart", 257: "OpLifetimeStop",
-}
-
-// Capability numbers and names from the SPIR-V specification (spirv.h); a
-// wrong number here prints a wrong capability name in the disassembly.
-var capabilities = map[uint32]string{
-	0: "Matrix", 1: "Shader", 2: "Geometry", 3: "Tessellation",
-	4: "Addresses", 5: "Linkage", 6: "Kernel", 7: "Vector16",
-	8: "Float16Buffer", 9: "Float16", 10: "Float64", 11: "Int64",
-	12: "Int64Atomics", 13: "ImageBasic", 14: "ImageReadWrite", 15: "ImageMipmap",
-	17: "Pipes", 18: "Groups", 19: "DeviceEnqueue", 20: "LiteralSampler",
-	21: "AtomicStorage", 22: "Int16", 23: "TessellationPointSize",
-	24: "GeometryPointSize", 25: "ImageGatherExtended", 27: "StorageImageMultisample",
-	28: "UniformBufferArrayDynamicIndexing", 29: "SampledImageArrayDynamicIndexing",
-	30: "StorageBufferArrayDynamicIndexing", 31: "StorageImageArrayDynamicIndexing",
-	32: "ClipDistance", 33: "CullDistance", 34: "ImageCubeArray",
-	35: "SampleRateShading", 36: "ImageRect", 37: "SampledRect",
-	38: "GenericPointer", 39: "Int8", 40: "InputAttachment",
-	41: "SparseResidency", 42: "MinLod", 43: "Sampled1D", 44: "Image1D",
-	45: "SampledCubeArray", 46: "SampledBuffer", 47: "ImageBuffer",
-	48: "ImageMSArray", 49: "StorageImageExtendedFormats",
-	50: "ImageQuery", 51: "DerivativeControl", 52: "InterpolationFunction",
-	53: "TransformFeedback", 54: "GeometryStreams", 55: "StorageImageReadWithoutFormat",
-	56: "StorageImageWriteWithoutFormat", 57: "MultiViewport",
-	58: "SubgroupDispatch", 59: "NamedBarrier", 60: "PipeStorage",
-	61: "GroupNonUniform", 62: "GroupNonUniformVote", 63: "GroupNonUniformArithmetic",
-	64: "GroupNonUniformBallot", 65: "GroupNonUniformShuffle",
-	66: "GroupNonUniformShuffleRelative", 67: "GroupNonUniformClustered",
-	68: "GroupNonUniformQuad", 69: "ShaderLayer", 70: "ShaderViewportIndex",
-	4423: "SubgroupBallotKHR", 4427: "DrawParameters", 4433: "StorageBuffer16BitAccess",
-	4434: "UniformAndStorageBuffer16BitAccess", 4435: "StoragePushConstant16",
-	4436: "StorageInputOutput16", 4437: "DeviceGroup", 4439: "MultiView",
-	4441: "VariablePointersStorageBuffer", 4442: "VariablePointers",
-	4447: "SampleMaskPostDepthCoverage", 4472: "RayQueryKHR",
-	5013: "StencilExportEXT", 5016: "Int64ImageEXT",
-	5284: "FragmentBarycentricKHR", 5301: "ShaderNonUniform",
-	5302: "RuntimeDescriptorArray", 5303: "InputAttachmentArrayDynamicIndexing",
-	5304: "UniformTexelBufferArrayDynamicIndexing", 5305: "StorageTexelBufferArrayDynamicIndexing",
-	5306: "UniformBufferArrayNonUniformIndexing", 5379: "DemoteToHelperInvocation",
-	6016: "DotProductInputAll", 6017: "DotProductInput4x8Bit",
-	6018: "DotProductInput4x8BitPacked", 6019: "DotProduct", 6033: "AtomicFloat32AddEXT",
 }
 
 var storageClasses = map[uint32]string{
@@ -267,11 +229,20 @@ func lookup(m map[uint32]string, v uint32) string {
 	return fmt.Sprintf("%d", v)
 }
 
+// capabilityName returns the name of a capability, or its number when the
+// specification has no such capability.
+func capabilityName(v uint32) string {
+	if name, ok := spvnames.CapabilityName(v); ok {
+		return name
+	}
+	return fmt.Sprintf("%d", v)
+}
+
 //nolint:gocognit,gocyclo,cyclop,funlen,maintidx // dev tool: switch cases for SPIR-V opcodes
 func printInstruction(name string, opcode uint16, ops []uint32, data []byte, offset int) {
 	switch opcode {
 	case 17: // OpCapability
-		fmt.Printf("               %s %s\n", name, lookup(capabilities, ops[0]))
+		fmt.Printf("               %s %s\n", name, capabilityName(ops[0]))
 
 	case 11: // OpExtInstImport
 		str, _ := readString(data, offset+8, len(ops)-1)

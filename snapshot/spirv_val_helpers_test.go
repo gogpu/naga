@@ -33,7 +33,10 @@ func spirvBinary(module *ir.Module, opts spirv.Options) ([]byte, error) {
 // wgpu passes it, and Restrict needs that size.
 func generateSPIRVBinary(name string, module *ir.Module) ([]byte, error) {
 	opts := spirv.DefaultOptions()
-	rust := readRustSPVConfig(name)
+	rust, err := readRustSPVConfig(name)
+	if err != nil {
+		return nil, err
+	}
 	opts.BindingMap, opts.FakeMissingBindings = rust.BindingMap, rust.FakeMissingBindings
 	spvBytes, err := spirvBinary(module, opts)
 	// A shader that needs a newer version than the default (subgroup

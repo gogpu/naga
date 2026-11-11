@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`cmd/spvdis` and the snapshot diagnostics now share one complete capability-name table** (P2-SPV-019). The names
+  lived in two copies, in `cmd/spvdis` and in the snapshot tests, and the duplication is what let them drift; a
+  single `internal/spvnames` table now serves both — 280 capabilities with 50 aliases, generated from the SPIR-V
+  grammar and checked name by name against `spirv.h` of the same headers package. `spvdis` names every capability of
+  the specification instead of printing a number for the ones the old 96-entry tables lacked.
+- **A capability name in a Rust test parameter that the table does not know is an error** (P2-SPV-019). It was
+  dropped silently, which left `AllowedCapabilities` unset and compiled that shader with every capability allowed, so
+  the corpus proved nothing about it. The error names the `.toml` file and the name; `MeshShadingEXT` (5283) and
+  `RayTracingKHR` (4479) now resolve to the capabilities Rust uses.
+
 ## [0.21.9] - 2026-11-09
 
 ### Added
