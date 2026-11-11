@@ -1769,13 +1769,10 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 	w.WriteIndent()
 	w.write("%s %s = ", typeName, varName)
 
-	// Use writeLoad pattern: write the pointer's access chain directly.
-	policy := w.chooseBoundsCheckPolicy(load.Pointer)
-	prevPolicy, prevHas := w.currentAccessPolicy, w.hasAccessPolicy
-	w.currentAccessPolicy, w.hasAccessPolicy = policy, true
-	err := w.writeExpression(load.Pointer)
-	w.currentAccessPolicy, w.hasAccessPolicy = prevPolicy, prevHas
-	if err != nil {
+	// Load through the pointer. Rust naga calls put_load here, whose atomic
+	// branch emits metal::atomic_load_explicit for an atomic pointee: the
+	// atomic object itself cannot be copied.
+	if err := w.writeLoadPointer(load.Pointer); err != nil {
 		return err
 	}
 	w.write(";\n")
