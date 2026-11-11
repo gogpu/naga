@@ -3,6 +3,9 @@
 snapshot/testdata/rust/** -text
 snapshot/testdata/rust-derived/** -text
 testdata/upstream/** -text
+# The capability table is compared byte for byte with go/format output
+# (internal/spvnames TestTableMatchesVendoredHeaders): keep LF on every OS.
+internal/spvnames/table.go -text
 # Rust naga outputs compared byte for byte (glsl TestOverrideOutputMatchesRust).
 glsl/testdata/overrides/** -text
 # GLSL goldens compared byte for byte (glsl TestDepthTextureDeclarations and
