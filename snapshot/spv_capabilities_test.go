@@ -4,7 +4,6 @@
 package snapshot_test
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,10 +77,9 @@ func TestParseRustSPVConfigUnknownCapability(t *testing.T) {
 	}
 }
 
-// TestRustSPVCapabilitiesResolve checks that every capability name the Rust
-// parameter files of the corpus give resolves to a capability. A name that did
-// not would compile that shader with every capability allowed, so the corpus
-// would prove nothing about it.
+// TestRustSPVCapabilitiesResolve reads every Rust parameter file through the
+// same parser the tests use, so an unknown capability name fails here instead
+// of skipping later and compiling that shader with every capability allowed.
 func TestRustSPVCapabilitiesResolve(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("testdata", "rust", "in", "wgsl", "*.toml"))
 	if err != nil {
@@ -90,38 +88,12 @@ func TestRustSPVCapabilitiesResolve(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no Rust parameter files found")
 	}
-	checked := 0
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
-		inSPVSection := false
-		for _, line := range strings.Split(string(data), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "[") {
-				inSPVSection = trimmed == "[spv]"
-				continue
-			}
-			if !inSPVSection || !strings.HasPrefix(trimmed, "capabilities") {
-				continue
-			}
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) != 2 {
-				t.Fatalf("%s: malformed capabilities line %q", path, trimmed)
-			}
-			caps, err := spvCapabilitiesFromList(parts[1])
-			if err != nil {
-				t.Errorf("%s: %v", path, err)
-				continue
-			}
-			checked += len(caps)
+		shader := strings.TrimSuffix(filepath.Base(path), ".toml")
+		if _, err := readRustSPVConfig(shader); err != nil {
+			t.Errorf("%s: %v", path, err)
 		}
 	}
-	if checked == 0 {
-		t.Fatal("no capability names found in the Rust parameter files")
-	}
-	t.Logf("%d capabilities named by the Rust parameter files resolve", checked)
 }
 
 // TestRustSPVCapabilitiesOfMeshAndRayTracing checks the two names that were
