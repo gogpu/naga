@@ -188,7 +188,7 @@ type Writer struct {
 	// MatCx2 decomposition tracking.
 	// Matrices with rows=2 in uniform buffers need to be decomposed into structs.
 	// See Rust naga back/hlsl/help.rs WrappedMatCx2.
-	wrappedMatCx2 map[uint8]struct{} // columns -> written
+	wrappedMatCx2 map[matCx2Key]struct{} // written typedefs
 
 	// Per-struct matCx2 access helper tracking.
 	// Key: {typeHandle, memberIndex} -> written.
@@ -294,7 +294,7 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 		registerBindings:            make(map[string]string),
 		namedExpressions:            make(map[ir.ExpressionHandle]string),
 		requiredShaderModel:         options.ShaderModel,
-		wrappedMatCx2:               make(map[uint8]struct{}),
+		wrappedMatCx2:               make(map[matCx2Key]struct{}),
 		wrappedStructMatrixAccess:   make(map[wrappedStructMatrixAccessKey]struct{}),
 		wrappedImageQueries:         make(map[wrappedImageQueryKey]struct{}),
 		externalTextureGlobals:      make(map[ir.GlobalVariableHandle]ExternalTextureBindTarget),
@@ -751,7 +751,7 @@ func (w *Writer) writeSingleStructConstructor(h ir.TypeHandle) {
 			if arr.Size.Constant != nil {
 				size = fmt.Sprintf("[%d]", *arr.Size.Constant)
 			}
-			w.WriteLine("ret.%s = (__mat%dx2%s)arg%d;", memberName, m.columns, size, i)
+			w.WriteLine("ret.%s = (%s%s)arg%d;", memberName, matCx2TypeName(m), size, i)
 		} else {
 			w.WriteLine("ret.%s = arg%d;", memberName, i)
 		}

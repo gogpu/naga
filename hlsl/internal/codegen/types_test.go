@@ -838,27 +838,52 @@ func TestGetInnerMatrixData(t *testing.T) {
 func TestWriteMatCx2TypedefAndFunctions(t *testing.T) {
 	w := &Writer{
 		module:        &ir.Module{},
-		wrappedMatCx2: make(map[uint8]struct{}),
+		wrappedMatCx2: make(map[matCx2Key]struct{}),
 	}
 
-	w.writeMatCx2TypedefAndFunctions(3)
+	w.writeMatCx2TypedefAndFunctions(&matrixTypeInfo{columns: 3, rows: 2, width: 4})
 	output := w.Out.String()
 
-	// Check typedef
-	if !strings.Contains(output, "typedef struct { float2 _0; float2 _1; float2 _2; } __mat3x2;") {
-		t.Error("missing __mat3x2 typedef")
+	// Check typedef: the scalar width is part of the name, as in Rust naga.
+	if !strings.Contains(output, "typedef struct { float2 _0; float2 _1; float2 _2; } __mat3x2_f32;") {
+		t.Error("missing __mat3x2_f32 typedef")
 	}
 	// Check getter
-	if !strings.Contains(output, "float2 __get_col_of_mat3x2(__mat3x2 mat, uint idx)") {
-		t.Error("missing __get_col_of_mat3x2")
+	if !strings.Contains(output, "float2 __get_col_of_mat3x2_f32(__mat3x2_f32 mat, uint idx)") {
+		t.Error("missing __get_col_of_mat3x2_f32")
 	}
 	// Check column setter
-	if !strings.Contains(output, "void __set_col_of_mat3x2(__mat3x2 mat, uint idx, float2 value)") {
-		t.Error("missing __set_col_of_mat3x2")
+	if !strings.Contains(output, "void __set_col_of_mat3x2_f32(__mat3x2_f32 mat, uint idx, float2 value)") {
+		t.Error("missing __set_col_of_mat3x2_f32")
 	}
 	// Check element setter
-	if !strings.Contains(output, "void __set_el_of_mat3x2(__mat3x2 mat, uint idx, uint vec_idx, float value)") {
-		t.Error("missing __set_el_of_mat3x2")
+	if !strings.Contains(output, "void __set_el_of_mat3x2_f32(__mat3x2_f32 mat, uint idx, uint vec_idx, float value)") {
+		t.Error("missing __set_el_of_mat3x2_f32")
+	}
+}
+
+// TestWriteMatCx2TypedefAndFunctionsF16 pins the f16 wrapper: half2 columns
+// and the _f16 suffix (Rust naga wraps every float width).
+func TestWriteMatCx2TypedefAndFunctionsF16(t *testing.T) {
+	w := &Writer{
+		module:        &ir.Module{},
+		wrappedMatCx2: make(map[matCx2Key]struct{}),
+	}
+
+	w.writeMatCx2TypedefAndFunctions(&matrixTypeInfo{columns: 4, rows: 2, width: 2})
+	output := w.Out.String()
+
+	if !strings.Contains(output, "typedef struct { half2 _0; half2 _1; half2 _2; half2 _3; } __mat4x2_f16;") {
+		t.Error("missing __mat4x2_f16 typedef")
+	}
+	if !strings.Contains(output, "half2 __get_col_of_mat4x2_f16(__mat4x2_f16 mat, uint idx)") {
+		t.Error("missing __get_col_of_mat4x2_f16")
+	}
+	if !strings.Contains(output, "void __set_col_of_mat4x2_f16(__mat4x2_f16 mat, uint idx, half2 value)") {
+		t.Error("missing __set_col_of_mat4x2_f16")
+	}
+	if !strings.Contains(output, "void __set_el_of_mat4x2_f16(__mat4x2_f16 mat, uint idx, uint vec_idx, half value)") {
+		t.Error("missing __set_el_of_mat4x2_f16")
 	}
 }
 
@@ -925,6 +950,30 @@ func TestIsMatCx2Type(t *testing.T) {
 	}
 	if w.isMatCx2Type(2) {
 		t.Error("scalar should NOT be matCx2")
+	}
+}
+
+// TestIsMatCx2Widths pins the float widths the wrapper accepts: Rust naga
+// wraps every float matCx2, f16 and f64 included.
+func TestIsMatCx2Widths(t *testing.T) {
+	tests := []struct {
+		name string
+		m    *matrixTypeInfo
+		want bool
+	}{
+		{"nil", nil, false},
+		{"f16", &matrixTypeInfo{columns: 2, rows: 2, width: 2}, true},
+		{"f32", &matrixTypeInfo{columns: 2, rows: 2, width: 4}, true},
+		{"f64", &matrixTypeInfo{columns: 2, rows: 2, width: 8}, true},
+		{"three rows", &matrixTypeInfo{columns: 3, rows: 3, width: 4}, false},
+		{"unknown width", &matrixTypeInfo{columns: 2, rows: 2, width: 3}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.m.isMatCx2(); got != tt.want {
+				t.Errorf("isMatCx2() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

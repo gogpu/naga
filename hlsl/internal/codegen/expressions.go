@@ -587,14 +587,14 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 	// Dynamic column access on matCx2 inside array-of-matCx2 struct members
 	// or on a global uniform matCx2:
 	// use __get_col_of_matCx2(base, index) instead of base[index].
-	// Matches Rust naga: get_inner_matrix_of_struct_array_member || get_global_uniform_matrix.
+	// Matches Rust naga: get_inner_matrix_of_struct_array_member || get_inner_matrix_of_global_uniform.
 	{
-		m := w.getInnerMatrixOfStructArrayMember(e.Base)
+		m := w.getInnerMatrixOfStructArrayMember(e.Base, true)
 		if m == nil || !m.isMatCx2() {
-			m = w.getGlobalUniformMatrix(e.Base)
+			m = w.getInnerMatrixOfGlobalUniform(e.Base, true)
 		}
 		if m != nil && m.isMatCx2() {
-			fmt.Fprintf(&w.Out, "__get_col_of_mat%dx2(", m.columns)
+			fmt.Fprintf(&w.Out, "__get_col_of_mat%dx2_f%d(", m.columns, m.width*8)
 			if err := w.writeExpression(e.Base); err != nil {
 				return fmt.Errorf("matCx2 dynamic col base: %w", err)
 			}
@@ -952,11 +952,11 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 	case ir.MatrixType:
 		// Matrix column access. For matCx2 in struct array members or global uniform,
 		// use ._N notation matching the __matCx2 decomposed struct layout.
-		// Matches Rust: get_inner_matrix_of_struct_array_member || get_global_uniform_matrix.
+		// Matches Rust: get_inner_matrix_of_struct_array_member || get_inner_matrix_of_global_uniform.
 		if inner.Rows == 2 {
-			m := w.getInnerMatrixOfStructArrayMember(e.Base)
+			m := w.getInnerMatrixOfStructArrayMember(e.Base, true)
 			if m == nil || !m.isMatCx2() {
-				m = w.getGlobalUniformMatrix(e.Base)
+				m = w.getInnerMatrixOfGlobalUniform(e.Base, true)
 			}
 			if m != nil && m.isMatCx2() {
 				if err := w.writeExpression(e.Base); err != nil {
@@ -1133,9 +1133,9 @@ func (w *Writer) writeLoadExpression(e ir.ExprLoad) error {
 	// Check if this load needs a matCx2-to-matrix cast.
 	// Applies to: global uniform matCx2 and struct member array-of-matCx2.
 	// Matches Rust naga: get_inner_matrix_of_struct_array_member || get_inner_matrix_of_global_uniform.
-	m := w.getInnerMatrixOfStructArrayMember(e.Pointer)
+	m := w.getInnerMatrixOfStructArrayMember(e.Pointer, false)
 	if m == nil || !m.isMatCx2() {
-		m = w.getInnerMatrixOfGlobalUniform(e.Pointer)
+		m = w.getInnerMatrixOfGlobalUniform(e.Pointer, false)
 	}
 	if m != nil && m.isMatCx2() {
 		// Determine the pointer's resolved type to know if it's array or matrix
@@ -1172,8 +1172,10 @@ func (w *Writer) writeLoadExpression(e ir.ExprLoad) error {
 
 // getInnerMatrixOfGlobalUniform walks an access chain to determine if it
 // ultimately references a uniform global variable containing a matCx2.
-// Matches Rust naga get_inner_matrix_of_global_uniform.
-func (w *Writer) getInnerMatrixOfGlobalUniform(handle ir.ExpressionHandle) *matrixTypeInfo {
+// Matches Rust naga get_inner_matrix_of_global_uniform: direct returns only the
+// matrix type the chain itself resolves to (an array access is not a matrix
+// column); without, it also accepts a chain that ends at the array.
+func (w *Writer) getInnerMatrixOfGlobalUniform(handle ir.ExpressionHandle, direct bool) *matrixTypeInfo {
 	if w.currentFunction == nil {
 		return nil
 	}
@@ -1200,18 +1202,18 @@ func (w *Writer) getInnerMatrixOfGlobalUniform(handle ir.ExpressionHandle) *matr
 			}
 		}
 
-		switch resolved.(type) {
+		switch inner := resolved.(type) {
 		case ir.MatrixType:
-			mat := resolved.(ir.MatrixType)
 			matData = &matrixTypeInfo{
-				columns: mat.Columns,
-				rows:    mat.Rows,
-				width:   mat.Scalar.Width,
+				columns: inner.Columns,
+				rows:    inner.Rows,
+				width:   inner.Scalar.Width,
 			}
 		case ir.ArrayType:
-			arr := resolved.(ir.ArrayType)
-			ab := arr.Base
-			arrayBase = &ab
+			if !direct {
+				ab := inner.Base
+				arrayBase = &ab
+			}
 		default:
 			return nil
 		}
@@ -1240,51 +1242,9 @@ func (w *Writer) getInnerMatrixOfGlobalUniform(handle ir.ExpressionHandle) *matr
 	}
 }
 
-// getGlobalUniformMatrix checks if the given expression is a direct reference to a
-// global uniform variable of matrix type. Returns the matrix info if so.
-// Matches Rust naga's get_global_uniform_matrix.
-func (w *Writer) getGlobalUniformMatrix(handle ir.ExpressionHandle) *matrixTypeInfo {
-	if w.currentFunction == nil {
-		return nil
-	}
-	if int(handle) >= len(w.currentFunction.Expressions) {
-		return nil
-	}
-	expr := w.currentFunction.Expressions[handle]
-	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
-	if !ok {
-		return nil
-	}
-	if int(gv.Variable) >= len(w.module.GlobalVariables) {
-		return nil
-	}
-	global := &w.module.GlobalVariables[gv.Variable]
-	if global.Space != ir.SpaceUniform {
-		return nil
-	}
-	// Resolve the type (dereference pointer if needed)
-	resolved := w.getExpressionTypeInner(handle)
-	if resolved == nil {
-		return nil
-	}
-	if ptr, ok := resolved.(ir.PointerType); ok {
-		if int(ptr.Base) < len(w.module.Types) {
-			resolved = w.module.Types[ptr.Base].Inner
-		}
-	}
-	if mat, ok := resolved.(ir.MatrixType); ok {
-		return &matrixTypeInfo{
-			columns: mat.Columns,
-			rows:    mat.Rows,
-			width:   mat.Scalar.Width,
-		}
-	}
-	return nil
-}
-
 // writeMatrixValueType writes the HLSL value type for a matrix (e.g., "float3x2").
 func (w *Writer) writeMatrixValueType(m *matrixTypeInfo) {
-	fmt.Fprintf(&w.Out, "float%dx%d", m.columns, m.rows)
+	fmt.Fprintf(&w.Out, "%s%dx%d", matCx2ScalarName(m), m.columns, m.rows)
 }
 
 // =============================================================================

@@ -1017,7 +1017,7 @@ func (w *Writer) writeMatCx2StoreCastIfNeeded(pointer ir.ExpressionHandle) strin
 	if w.currentFunction == nil {
 		return ""
 	}
-	m := w.getInnerMatrixOfStructArrayMember(pointer)
+	m := w.getInnerMatrixOfStructArrayMember(pointer, false)
 	if m == nil || !m.isMatCx2() {
 		return ""
 	}
@@ -1034,31 +1034,34 @@ func (w *Writer) writeMatCx2StoreCastIfNeeded(pointer ir.ExpressionHandle) strin
 		}
 	}
 
-	cols := uint8(m.columns)
 	if arr, ok := resolved.(ir.ArrayType); ok {
-		// Array-of-matCx2: cast to __matCx2[size]
+		// Array-of-matCx2: cast to __matCx2_f{bits}[size]
 		size := ""
 		if arr.Size.Constant != nil {
 			size = fmt.Sprintf("[%d]", *arr.Size.Constant)
 		}
-		cast := fmt.Sprintf("(__mat%dx2%s)", cols, size)
+		cast := fmt.Sprintf("(%s%s)", matCx2TypeName(m), size)
 		w.Out.WriteString(cast)
 		return ""
 	}
-	// Direct matCx2 member: cast to __matCx2
-	cast := fmt.Sprintf("(__mat%dx2)", cols)
+	// Direct matCx2 member: cast to __matCx2_f{bits}
+	cast := fmt.Sprintf("(%s)", matCx2TypeName(m))
 	w.Out.WriteString(cast)
 	return ""
 }
 
 // getInnerMatrixOfStructArrayMember walks an access chain to find if the target
 // is a struct member that is matCx2 or array-of-matCx2.
-// Matches Rust naga get_inner_matrix_of_struct_array_member.
-func (w *Writer) getInnerMatrixOfStructArrayMember(handle ir.ExpressionHandle) *matrixTypeInfo {
+// Matches Rust naga get_inner_matrix_of_struct_array_member: direct returns the
+// matrix type the chain itself resolves to (the column-access form, where a
+// chain that stops at an array is not a matrix); without, it returns the
+// element matrix of the last array before the struct (the store-cast form).
+func (w *Writer) getInnerMatrixOfStructArrayMember(handle ir.ExpressionHandle, direct bool) *matrixTypeInfo {
 	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
 		return nil
 	}
 
+	var matData *matrixTypeInfo
 	var arrayBase *ir.TypeHandle
 	current := handle
 	for {
@@ -1077,15 +1080,21 @@ func (w *Writer) getInnerMatrixOfStructArrayMember(handle ir.ExpressionHandle) *
 			}
 		}
 
-		switch resolved.(type) {
+		switch inner := resolved.(type) {
 		case ir.MatrixType:
-			// Found matrix in chain
+			matData = &matrixTypeInfo{
+				columns: inner.Columns,
+				rows:    inner.Rows,
+				width:   inner.Scalar.Width,
+			}
 		case ir.ArrayType:
-			arr := resolved.(ir.ArrayType)
-			ab := arr.Base
+			ab := inner.Base
 			arrayBase = &ab
 		case ir.StructType:
 			if arrayBase != nil {
+				if direct {
+					return matData
+				}
 				return getInnerMatrixData(w.module, *arrayBase)
 			}
 			return nil
@@ -1139,7 +1148,7 @@ func (w *Writer) writeArrayMatCx2DynamicStoreIfNeeded(s ir.StmtStore) (bool, err
 		}
 		parentExpr := w.currentFunction.Expressions[parentBase].Kind
 		if acc, ok := parentExpr.(ir.ExprAccess); ok {
-			if m := w.getInnerMatrixOfStructArrayMember(acc.Base); m != nil && m.isMatCx2() {
+			if m := w.getInnerMatrixOfStructArrayMember(acc.Base, true); m != nil && m.isMatCx2() {
 				baseInner := w.getExpressionTypeInner(acc.Base)
 				if baseInner != nil {
 					if ptr, ok := baseInner.(ir.PointerType); ok {
@@ -1179,7 +1188,7 @@ func (w *Writer) writeArrayMatCx2DynamicStoreIfNeeded(s ir.StmtStore) (bool, err
 	}
 
 	// Check if this Access is on a matCx2 within array-of-matCx2
-	m := w.getInnerMatrixOfStructArrayMember(acc.Base)
+	m := w.getInnerMatrixOfStructArrayMember(acc.Base, true)
 	if m == nil || !m.isMatCx2() {
 		return false, nil
 	}
@@ -1197,12 +1206,12 @@ func (w *Writer) writeArrayMatCx2DynamicStoreIfNeeded(s ir.StmtStore) (bool, err
 		return false, nil
 	}
 
-	cols := uint8(m.columns)
+	cols, width := uint8(m.columns), m.width*8
 	w.WriteIndent()
 
 	if scalarInfo != nil {
-		// __set_el_of_matCx2(base, col_idx, scalar_idx, value)
-		fmt.Fprintf(&w.Out, "__set_el_of_mat%dx2(", cols)
+		// __set_el_of_matCx2_f{bits}(base, col_idx, scalar_idx, value)
+		fmt.Fprintf(&w.Out, "__set_el_of_mat%dx2_f%d(", cols, width)
 		if err := w.writeExpression(acc.Base); err != nil {
 			return true, err
 		}
@@ -1226,8 +1235,8 @@ func (w *Writer) writeArrayMatCx2DynamicStoreIfNeeded(s ir.StmtStore) (bool, err
 		return true, nil
 	}
 
-	// __set_col_of_matCx2(base, col_idx, value)
-	fmt.Fprintf(&w.Out, "__set_col_of_mat%dx2(", cols)
+	// __set_col_of_matCx2_f{bits}(base, col_idx, value)
+	fmt.Fprintf(&w.Out, "__set_col_of_mat%dx2_f%d(", cols, width)
 	if err := w.writeExpression(acc.Base); err != nil {
 		return true, err
 	}

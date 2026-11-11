@@ -148,10 +148,10 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 				fmt.Fprintf(&w.Out, "%s %s_%d", vecTypeName, memberName, i)
 			}
 		} else if member.Binding == nil && w.isArrayOfMatCx2Type(member.Type) {
-			// Array of matCx2: use __matNx2 typedef with array suffix.
+			// Array of matCx2: use __matCx2_f{bits} typedef with array suffix.
 			// Matches Rust naga: write_global_type + write_array_size for Array{base: matCx2}.
 			m := getInnerMatrixData(w.module, member.Type)
-			fmt.Fprintf(&w.Out, "__mat%dx2 %s", m.columns, memberName)
+			fmt.Fprintf(&w.Out, "%s %s", matCx2TypeName(m), memberName)
 			w.writeArraySizes(member.Type)
 		} else {
 			if member.Binding == nil && (isMatrixType(w.module, member.Type) || containsMatrix(w.module, member.Type)) {
@@ -691,9 +691,9 @@ func (w *Writer) writeCBufferDeclaration(name, _ string, typeHandle ir.TypeHandl
 	// Matches Rust naga write_global_type in writer.rs.
 	matData := getInnerMatrixData(w.module, typeHandle)
 	if matData.isMatCx2() {
-		// Use __matCx2 type, with possible array suffix
+		// Use the wrapped type, with possible array suffix
 		_, arraySuffix := w.getTypeNameWithArraySuffix(typeHandle)
-		fmt.Fprintf(&w.Out, "__mat%dx2 %s%s", uint8(matData.columns), name, arraySuffix)
+		fmt.Fprintf(&w.Out, "%s %s%s", matCx2TypeName(matData), name, arraySuffix)
 	} else {
 		// For arrays, use the base type name and add array suffix separately
 		// to avoid duplicate array sizes (e.g., "Light[10] u_lights[10]")
@@ -1317,34 +1317,61 @@ func getInnerMatrixData(module *ir.Module, handle ir.TypeHandle) *matrixTypeInfo
 	}
 }
 
-// isMatCx2 returns true if the matrix has rows=2 and width=4 (float).
-// These matrices need decomposition in HLSL uniform buffers.
+// isMatCx2 returns true if the matrix has two rows (matCx2), the shape HLSL
+// has no native uniform-buffer layout for: Rust naga wraps every float width
+// this way, f32 and f16 alike.
 func (m *matrixTypeInfo) isMatCx2() bool {
-	return m != nil && m.rows == ir.Vec2 && m.width == 4
+	if m == nil || m.rows != ir.Vec2 {
+		return false
+	}
+	switch m.width {
+	case 2, 4, 8:
+		return true
+	default:
+		return false
+	}
 }
 
-// writeMatCx2TypedefAndFunctions writes the __matCx2 typedef and helper functions.
+// matCx2TypeName returns the wrapped matCx2 type name Rust naga writes:
+// __mat{C}x2_f{bits}, e.g. __mat4x2_f32 or __mat4x2_f16.
+func matCx2TypeName(m *matrixTypeInfo) string {
+	return fmt.Sprintf("__mat%dx2_f%d", m.columns, m.width*8)
+}
+
+// matCx2ScalarName returns the HLSL scalar type of a wrapped matCx2: half,
+// float or double, as Rust naga's Scalar::to_hlsl_str.
+func matCx2ScalarName(m *matrixTypeInfo) string {
+	return scalarTypeHLSL(ir.ScalarType{Kind: ir.ScalarFloat, Width: m.width})
+}
+
+// writeMatCx2TypedefAndFunctions writes the __matCx2_f{bits} typedef and its
+// column helpers.
 // Matches Rust naga help.rs write_mat_cx2_typedef_and_functions.
-func (w *Writer) writeMatCx2TypedefAndFunctions(columns uint8) {
-	// typedef struct { float2 _0; float2 _1; ... } __matCx2;
+func (w *Writer) writeMatCx2TypedefAndFunctions(m *matrixTypeInfo) {
+	columns := uint8(m.columns)
+	bitWidth := m.width * 8
+	scalar := matCx2ScalarName(m)
+	typeName := matCx2TypeName(m)
+
+	// typedef struct { half2 _0; half2 _1; ... } __matCx2_f16;
 	w.Out.WriteString("typedef struct { ")
 	for i := uint8(0); i < columns; i++ {
-		fmt.Fprintf(&w.Out, "float2 _%d; ", i)
+		fmt.Fprintf(&w.Out, "%s2 _%d; ", scalar, i)
 	}
-	fmt.Fprintf(&w.Out, "} __mat%dx2;\n", columns)
+	fmt.Fprintf(&w.Out, "} %s;\n", typeName)
 
-	// __get_col_of_matCx2
-	fmt.Fprintf(&w.Out, "float2 __get_col_of_mat%dx2(__mat%dx2 mat, uint idx) {\n", columns, columns)
+	// __get_col_of_matCx2_f{bits}
+	fmt.Fprintf(&w.Out, "%s2 __get_col_of_mat%dx2_f%d(%s mat, uint idx) {\n", scalar, columns, bitWidth, typeName)
 	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
 		fmt.Fprintf(&w.Out, "    case %d: { return mat._%d; }\n", i, i)
 	}
-	w.Out.WriteString("    default: { return (float2)0; }\n")
+	fmt.Fprintf(&w.Out, "    default: { return (%s2)0; }\n", scalar)
 	w.Out.WriteString("    }\n")
 	w.Out.WriteString("}\n")
 
-	// __set_col_of_matCx2
-	fmt.Fprintf(&w.Out, "void __set_col_of_mat%dx2(__mat%dx2 mat, uint idx, float2 value) {\n", columns, columns)
+	// __set_col_of_matCx2_f{bits}
+	fmt.Fprintf(&w.Out, "void __set_col_of_mat%dx2_f%d(%s mat, uint idx, %s2 value) {\n", columns, bitWidth, typeName, scalar)
 	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
 		fmt.Fprintf(&w.Out, "    case %d: { mat._%d = value; break; }\n", i, i)
@@ -1352,8 +1379,8 @@ func (w *Writer) writeMatCx2TypedefAndFunctions(columns uint8) {
 	w.Out.WriteString("    }\n")
 	w.Out.WriteString("}\n")
 
-	// __set_el_of_matCx2
-	fmt.Fprintf(&w.Out, "void __set_el_of_mat%dx2(__mat%dx2 mat, uint idx, uint vec_idx, float value) {\n", columns, columns)
+	// __set_el_of_matCx2_f{bits}
+	fmt.Fprintf(&w.Out, "void __set_el_of_mat%dx2_f%d(%s mat, uint idx, uint vec_idx, %s value) {\n", columns, bitWidth, typeName, scalar)
 	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
 		fmt.Fprintf(&w.Out, "    case %d: { mat._%d[vec_idx] = value; break; }\n", i, i)
@@ -1362,6 +1389,13 @@ func (w *Writer) writeMatCx2TypedefAndFunctions(columns uint8) {
 	w.Out.WriteString("}\n")
 
 	w.Out.WriteString("\n")
+}
+
+// matCx2Key identifies one wrapped matCx2 type: its column count and scalar
+// byte width (2, 4 or 8).
+type matCx2Key struct {
+	columns ir.VectorSize
+	width   uint8
 }
 
 // writeAllMatCx2TypedefsAndFunctions scans global variables and struct members
@@ -1373,10 +1407,10 @@ func (w *Writer) writeAllMatCx2TypedefsAndFunctions() {
 		global := &w.module.GlobalVariables[handle]
 		if global.Space == ir.SpaceUniform {
 			if m := getInnerMatrixData(w.module, global.Type); m.isMatCx2() {
-				cols := uint8(m.columns)
-				if _, written := w.wrappedMatCx2[cols]; !written {
-					w.wrappedMatCx2[cols] = struct{}{}
-					w.writeMatCx2TypedefAndFunctions(cols)
+				key := matCx2Key{columns: m.columns, width: m.width}
+				if _, written := w.wrappedMatCx2[key]; !written {
+					w.wrappedMatCx2[key] = struct{}{}
+					w.writeMatCx2TypedefAndFunctions(m)
 				}
 			}
 		}
@@ -1388,10 +1422,10 @@ func (w *Writer) writeAllMatCx2TypedefsAndFunctions() {
 			for _, member := range st.Members {
 				if _, ok := w.module.Types[member.Type].Inner.(ir.ArrayType); ok {
 					if m := getInnerMatrixData(w.module, member.Type); m.isMatCx2() {
-						cols := uint8(m.columns)
-						if _, written := w.wrappedMatCx2[cols]; !written {
-							w.wrappedMatCx2[cols] = struct{}{}
-							w.writeMatCx2TypedefAndFunctions(cols)
+						key := matCx2Key{columns: m.columns, width: m.width}
+						if _, written := w.wrappedMatCx2[key]; !written {
+							w.wrappedMatCx2[key] = struct{}{}
+							w.writeMatCx2TypedefAndFunctions(m)
 						}
 					}
 				}

@@ -1702,3 +1702,74 @@ enable draw_index;
 		t.Errorf("Compile error = %q, want the unsupported-builtin refusal", err)
 	}
 }
+
+// TestCompile_MatCx2UniformArray covers BUG-UNIFORM-MAT2-001: a matCx2 in a
+// uniform buffer is a __matCx2_f32 struct of columns, so indexing an array
+// element with [] does not compile (DXC: "type 'const __mat2x2' does not
+// provide a subscript operator"). A constant column is member access, a
+// run-time column goes through the helper (Rust naga Access/AccessIndex).
+func TestCompile_MatCx2UniformArray(t *testing.T) {
+	src := `
+struct P {
+    m: mat4x2<f32>,
+    am: array<mat4x2<f32>, 2>,
+}
+@group(0) @binding(0) var<uniform> u: P;
+@group(0) @binding(1) var<uniform> u_am: array<mat4x2<f32>, 4>;
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let i = u32(pos.x);
+    let md = u.m[i];
+    let ad = u.am[i][i];
+    let gc = u_am[1][0];
+    let gd = u_am[i][i];
+    return vec4(md.x, ad, gc.x, gd.y);
+}
+`
+	code := compileWGSLToHLSL(t, src, nil)
+
+	mustContain(t, code, []string{
+		"typedef struct { float2 _0; float2 _1; float2 _2; float2 _3; } __mat4x2_f32;",
+		"__get_col_of_mat4x2_f32",
+		"__mat4x2_f32 u_am[4];",
+		"u_am[1]._0",
+		"__get_col_of_mat4x2_f32(u_am[",
+	})
+	mustNotContain(t, code, []string{
+		"__mat4x2 ",
+		"u_am[1][0]",
+		"u_am[1][_e",
+	})
+}
+
+// TestCompile_MatCx2F16 covers the f16 half of BUG-UNIFORM-MAT2-001: a
+// matCx2<f16> in a uniform buffer takes the same __matCx2_f16 wrapper as the
+// f32 case; before, it was declared row_major, which packs the columns where
+// WGSL does not expect them.
+func TestCompile_MatCx2F16(t *testing.T) {
+	src := `
+enable f16;
+@group(0) @binding(0) var<uniform> h: mat4x2<f16>;
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let i = u32(pos.x);
+    let c = h[1];
+    let d = h[i];
+    return vec4(f32(c.x + d.y));
+}
+`
+	code := compileWGSLToHLSL(t, src, nil)
+
+	mustContain(t, code, []string{
+		"typedef struct { half2 _0; half2 _1; half2 _2; half2 _3; } __mat4x2_f16;",
+		"half2 __get_col_of_mat4x2_f16(__mat4x2_f16 mat, uint idx)",
+		"__mat4x2_f16 h;",
+		"h._1",
+		"__get_col_of_mat4x2_f16(h, ",
+	})
+	mustNotContain(t, code, []string{
+		"row_major half4x2",
+	})
+}

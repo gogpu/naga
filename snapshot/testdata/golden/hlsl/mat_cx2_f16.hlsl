@@ -1,3 +1,30 @@
+typedef struct { half2 _0; half2 _1; half2 _2; half2 _3; } __mat4x2_f16;
+half2 __get_col_of_mat4x2_f16(__mat4x2_f16 mat, uint idx) {
+    switch(idx) {
+    case 0: { return mat._0; }
+    case 1: { return mat._1; }
+    case 2: { return mat._2; }
+    case 3: { return mat._3; }
+    default: { return (half2)0; }
+    }
+}
+void __set_col_of_mat4x2_f16(__mat4x2_f16 mat, uint idx, half2 value) {
+    switch(idx) {
+    case 0: { mat._0 = value; break; }
+    case 1: { mat._1 = value; break; }
+    case 2: { mat._2 = value; break; }
+    case 3: { mat._3 = value; break; }
+    }
+}
+void __set_el_of_mat4x2_f16(__mat4x2_f16 mat, uint idx, uint vec_idx, half value) {
+    switch(idx) {
+    case 0: { mat._0[vec_idx] = value; break; }
+    case 1: { mat._1[vec_idx] = value; break; }
+    case 2: { mat._2[vec_idx] = value; break; }
+    case 3: { mat._3[vec_idx] = value; break; }
+    }
+}
+
 struct StructWithMat {
     half2 m_0; half2 m_1; half2 m_2; half2 m_3;
 };
@@ -7,11 +34,11 @@ struct StructWithArrayOfStructOfMat {
 };
 
 RWByteAddressBuffer s_m : register(u0);
-cbuffer u_m : register(b1) { row_major half4x2 u_m; }
+cbuffer u_m : register(b1) { __mat4x2_f16 u_m; }
 RWByteAddressBuffer s_sm : register(u0, space1);
 cbuffer u_sm : register(b1, space1) { StructWithMat u_sm; }
 RWByteAddressBuffer s_am : register(u0, space2);
-cbuffer u_am : register(b1, space2) { row_major half4x2 u_am[4]; }
+cbuffer u_am : register(b1, space2) { __mat4x2_f16 u_am[4]; }
 RWByteAddressBuffer s_sasm : register(u0, space3);
 cbuffer u_sasm : register(b1, space3) { StructWithArrayOfStructOfMat u_sasm; }
 
@@ -33,18 +60,18 @@ void access_m()
     int _e29 = idx;
     int _e31 = idx;
     half l_s_e_vv = s_m.Load<half>(_e31*2+_e29*4);
-    half4x2 l_u_m = u_m;
-    half2 l_u_c_c = u_m[0];
+    half4x2 l_u_m = ((half4x2)u_m);
+    half2 l_u_c_c = u_m._0;
     int _e40 = idx;
-    half2 l_u_c_v = u_m[_e40];
-    half l_u_e_cc = u_m[0].x;
+    half2 l_u_c_v = __get_col_of_mat4x2_f16(u_m, _e40);
+    half l_u_e_cc = u_m._0.x;
     int _e49 = idx;
-    half l_u_e_cv = u_m[0][_e49];
+    half l_u_e_cv = u_m._0[_e49];
     int _e53 = idx;
-    half l_u_e_vc = u_m[_e53].x;
+    half l_u_e_vc = __get_col_of_mat4x2_f16(u_m, _e53).x;
     int _e58 = idx;
     int _e60 = idx;
-    half l_u_e_vv = u_m[_e58][_e60];
+    half l_u_e_vv = __get_col_of_mat4x2_f16(u_m, _e58)[_e60];
     {
         half4x2 _value2 = l_u_m;
         s_m.Store(0, _value2[0]);
@@ -139,6 +166,10 @@ void access_sm()
     {
         StructWithMat _value2 = l_u_s;
         {
+            s_sm.Store(0+0, _value2.m_0);
+            s_sm.Store(0+4, _value2.m_1);
+            s_sm.Store(0+8, _value2.m_2);
+            s_sm.Store(0+12, _value2.m_3);
         }
     }
     {
@@ -206,38 +237,38 @@ void access_am()
     int _e81 = idx_2;
     int _e83 = idx_2;
     half l_s_e_vvv = s_am.Load<half>(_e83*2+_e81*4+_e79*16);
-    half4x2 l_u_a[4] = u_am;
-    half4x2 l_u_m_c = u_am[0];
+    half4x2 l_u_a[4] = ((half4x2[4])u_am);
+    half4x2 l_u_m_c = ((half4x2)u_am[0]);
     int _e92 = idx_2;
-    half4x2 l_u_m_v = u_am[_e92];
-    half2 l_u_c_cc = u_am[0][0];
+    half4x2 l_u_m_v = ((half4x2)u_am[_e92]);
+    half2 l_u_c_cc = u_am[0]._0;
     int _e101 = idx_2;
-    half2 l_u_c_cv = u_am[0][_e101];
+    half2 l_u_c_cv = __get_col_of_mat4x2_f16(u_am[0], _e101);
     int _e105 = idx_2;
-    half2 l_u_c_vc = u_am[_e105][0];
+    half2 l_u_c_vc = u_am[_e105]._0;
     int _e110 = idx_2;
     int _e112 = idx_2;
-    half2 l_u_c_vv = u_am[_e110][_e112];
-    half l_u_e_ccc = u_am[0][0].x;
+    half2 l_u_c_vv = __get_col_of_mat4x2_f16(u_am[_e110], _e112);
+    half l_u_e_ccc = u_am[0]._0.x;
     int _e123 = idx_2;
-    half l_u_e_ccv = u_am[0][0][_e123];
+    half l_u_e_ccv = u_am[0]._0[_e123];
     int _e128 = idx_2;
-    half l_u_e_cvc = u_am[0][_e128].x;
+    half l_u_e_cvc = __get_col_of_mat4x2_f16(u_am[0], _e128).x;
     int _e134 = idx_2;
     int _e136 = idx_2;
-    half l_u_e_cvv = u_am[0][_e134][_e136];
+    half l_u_e_cvv = __get_col_of_mat4x2_f16(u_am[0], _e134)[_e136];
     int _e140 = idx_2;
-    half l_u_e_vcc = u_am[_e140][0].x;
+    half l_u_e_vcc = u_am[_e140]._0.x;
     int _e146 = idx_2;
     int _e149 = idx_2;
-    half l_u_e_vcv = u_am[_e146][0][_e149];
+    half l_u_e_vcv = u_am[_e146]._0[_e149];
     int _e153 = idx_2;
     int _e155 = idx_2;
-    half l_u_e_vvc = u_am[_e153][_e155].x;
+    half l_u_e_vvc = __get_col_of_mat4x2_f16(u_am[_e153], _e155).x;
     int _e160 = idx_2;
     int _e162 = idx_2;
     int _e164 = idx_2;
-    half l_u_e_vvv = u_am[_e160][_e162][_e164];
+    half l_u_e_vvv = __get_col_of_mat4x2_f16(u_am[_e160], _e162)[_e164];
     {
         half4x2 _value2[4] = l_u_a;
         {
@@ -406,21 +437,37 @@ void access_sasm()
             {
                 StructWithMat _value4 = _value3[0];
                 {
+                    s_sasm.Store(0+0+0+0, _value4.m_0);
+                    s_sasm.Store(0+0+0+4, _value4.m_1);
+                    s_sasm.Store(0+0+0+8, _value4.m_2);
+                    s_sasm.Store(0+0+0+12, _value4.m_3);
                 }
             }
             {
                 StructWithMat _value4 = _value3[1];
                 {
+                    s_sasm.Store(0+16+0+0, _value4.m_0);
+                    s_sasm.Store(0+16+0+4, _value4.m_1);
+                    s_sasm.Store(0+16+0+8, _value4.m_2);
+                    s_sasm.Store(0+16+0+12, _value4.m_3);
                 }
             }
             {
                 StructWithMat _value4 = _value3[2];
                 {
+                    s_sasm.Store(0+32+0+0, _value4.m_0);
+                    s_sasm.Store(0+32+0+4, _value4.m_1);
+                    s_sasm.Store(0+32+0+8, _value4.m_2);
+                    s_sasm.Store(0+32+0+12, _value4.m_3);
                 }
             }
             {
                 StructWithMat _value4 = _value3[3];
                 {
+                    s_sasm.Store(0+48+0+0, _value4.m_0);
+                    s_sasm.Store(0+48+0+4, _value4.m_1);
+                    s_sasm.Store(0+48+0+8, _value4.m_2);
+                    s_sasm.Store(0+48+0+12, _value4.m_3);
                 }
             }
         }
@@ -430,21 +477,37 @@ void access_sasm()
         {
             StructWithMat _value3 = _value2[0];
             {
+                s_sasm.Store(0+0+0+0, _value3.m_0);
+                s_sasm.Store(0+0+0+4, _value3.m_1);
+                s_sasm.Store(0+0+0+8, _value3.m_2);
+                s_sasm.Store(0+0+0+12, _value3.m_3);
             }
         }
         {
             StructWithMat _value3 = _value2[1];
             {
+                s_sasm.Store(0+16+0+0, _value3.m_0);
+                s_sasm.Store(0+16+0+4, _value3.m_1);
+                s_sasm.Store(0+16+0+8, _value3.m_2);
+                s_sasm.Store(0+16+0+12, _value3.m_3);
             }
         }
         {
             StructWithMat _value3 = _value2[2];
             {
+                s_sasm.Store(0+32+0+0, _value3.m_0);
+                s_sasm.Store(0+32+0+4, _value3.m_1);
+                s_sasm.Store(0+32+0+8, _value3.m_2);
+                s_sasm.Store(0+32+0+12, _value3.m_3);
             }
         }
         {
             StructWithMat _value3 = _value2[3];
             {
+                s_sasm.Store(0+48+0+0, _value3.m_0);
+                s_sasm.Store(0+48+0+4, _value3.m_1);
+                s_sasm.Store(0+48+0+8, _value3.m_2);
+                s_sasm.Store(0+48+0+12, _value3.m_3);
             }
         }
     }
