@@ -34,8 +34,9 @@ import (
 // is refused by checkSupported until the emitter sets ForceEarlyDepthStencil
 // (P2-DXIL-100).
 //
-// CLIP_DISTANCES is listed for arrays of 1 to 4; checkSupported refuses 5 to
-// 8, which need a second SV_ClipDistance signature element (P1-DXIL-082).
+// CLIP_DISTANCES is listed for arrays of 1 to 8: four distances per
+// SV_ClipDistance signature element, the second one for 5 to 8;
+// checkSupported refuses more, which D3D cannot express.
 //
 // The capabilities package valid has no bit for (IMMEDIATES, TEXTURE_EXTERNAL and the other
 // core or ungated capabilities) are not listed (ADR-010 N10).
@@ -87,12 +88,16 @@ func checkSupported(irModule *ir.Module, ep *ir.EntryPoint) error {
 // signature element holds: one row of four components.
 const maxClipDistancesPerElement = 4
 
-// checkClipDistances refuses a clip_distances output of more than four
-// elements. WGSL allows up to 8; D3D then needs a second SV_ClipDistance
-// signature element (rows 0 and 1, as DXC emits for float4 + float4), which
-// the emitter does not write yet (P1-DXIL-082). Without the refusal the
-// container fails IDxcValidator with "Not all elements of output
-// SV_ClipDistance were written".
+// maxClipDistances is the most clip distances D3D can carry: two
+// SV_ClipDistance signature elements. WGSL caps clip_distances at the same
+// number, so a valid shader never exceeds it; the check keeps a shader that
+// slipped past the frontend from producing a container D3D rejects.
+const maxClipDistances = 2 * maxClipDistancesPerElement
+
+// checkClipDistances refuses a clip_distances output of more than eight
+// elements. Distances 5 to 8 go to SV_ClipDistance1, which the emitter
+// writes as a second signature element (P1-DXIL-082); a ninth has no
+// element left.
 func checkClipDistances(irModule *ir.Module, ep *ir.EntryPoint) error {
 	res := ep.Function.Result
 	if res == nil {
@@ -106,11 +111,11 @@ func checkClipDistances(irModule *ir.Module, ep *ir.EntryPoint) error {
 			return nil
 		}
 		arr, ok := irModule.Types[ty].Inner.(ir.ArrayType)
-		if !ok || arr.Size.Constant == nil || *arr.Size.Constant <= maxClipDistancesPerElement {
+		if !ok || arr.Size.Constant == nil || *arr.Size.Constant <= maxClipDistances {
 			return nil
 		}
 		return unsupported.Errorf("dxil: entry point %q: @builtin(clip_distances) array<f32, %d> is not supported (up to %d)",
-			ep.Name, *arr.Size.Constant, maxClipDistancesPerElement)
+			ep.Name, *arr.Size.Constant, maxClipDistances)
 	}
 	if err := check(res.Binding, res.Type); err != nil {
 		return err

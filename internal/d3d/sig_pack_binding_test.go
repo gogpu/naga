@@ -101,6 +101,38 @@ func TestSigElementInfoForBinding_ClipDistance(t *testing.T) {
 	}
 }
 
+// TestSigElementInfoForBinding_ClipDistanceSplit verifies that a
+// clip_distances array of five to eight reserves two register rows: the
+// second SV_ClipDistance element needs its own row (P1-DXIL-082).
+func TestSigElementInfoForBinding_ClipDistanceSplit(t *testing.T) {
+	five := uint32(5)
+	mod := buildModule(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &five}},
+	)
+	info := SigElementInfoForBinding(mod, ir.BuiltinBinding{Builtin: ir.BuiltinClipDistances}, 1, ir.StageVertex, true, nil)
+	if info.Kind != SigPackBuiltinScalarArray {
+		t.Fatalf("Kind = %v, want SigPackBuiltinScalarArray", info.Kind)
+	}
+	if info.ColCount != 4 {
+		t.Errorf("ColCount = %d, want 4 (the first element fills its row)", info.ColCount)
+	}
+	if info.Rows != 2 {
+		t.Errorf("Rows = %d, want 2 (a second SV_ClipDistance element)", info.Rows)
+	}
+
+	elements, ok := ClipDistanceElementsFor(mod, ir.BuiltinBinding{Builtin: ir.BuiltinClipDistances}, 1)
+	if !ok || len(elements) != 2 {
+		t.Fatalf("ClipDistanceElementsFor = %v, %v, want two elements", elements, ok)
+	}
+	if elements[0].SemanticIndex != 0 || elements[0].Cols != 4 {
+		t.Errorf("elements[0] = %+v, want SV_ClipDistance0 of 4 columns", elements[0])
+	}
+	if elements[1].SemanticIndex != 1 || elements[1].Cols != 1 {
+		t.Errorf("elements[1] = %+v, want SV_ClipDistance1 of 1 column", elements[1])
+	}
+}
+
 // TestSigElementInfoForBinding_LocationFragTarget verifies that fragment
 // shader @location outputs map to SV_Target with Register = SemanticIndex.
 func TestSigElementInfoForBinding_LocationFragTarget(t *testing.T) {

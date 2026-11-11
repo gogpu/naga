@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: `clip_distances` arrays of five to eight distances write their second signature element** (P1-DXIL-082).
+  D3D carries at most four clip distances per `SV_ClipDistance` element, so an `array<f32, N>` with N > 4 now
+  splits into `SV_ClipDistance0` (four channels) and `SV_ClipDistance1` (the rest) in the whole pipeline: the OSG1
+  signature, PSV0, the entry-point metadata, `dx.viewIdState` and the `storeOutput` calls. The layout is DXC's own
+  two-output form (`float4 c0 : SV_ClipDistance0; float c1 : SV_ClipDistance1`), checked against a `dxc -dumpbin`
+  of that shader; every N from 1 to 8 passes IDxcValidator for both the constructor and the local-variable return.
+  A ninth distance is refused as unsupported — WGSL caps `clip_distances` at eight and D3D has two elements.
 - **HLSL: the safe `naga_div` guard is the only implementation, and a test pins it** (P1-HLSL-038). The writer
   already selected the safe divisor for run-time integer division — `lhs / (((lhs == MIN) & (rhs == -1)) | (rhs == 0) ? 1 : rhs)`,
   which gives the WGSL results (`e1 / 0 == e1`, `INT_MIN / -1 == INT_MIN`) exactly as Rust naga's HLSL writer does.

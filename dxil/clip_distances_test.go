@@ -36,9 +36,11 @@ struct VOut {
 
 // Every element of a clip_distances array is written (P1-DXIL-082). Only
 // element 0 was stored for N >= 2, and IDxcValidator rejected the shader:
-// "Not all elements of output SV_ClipDistance were written".
+// "Not all elements of output SV_ClipDistance were written". N = 5..8
+// continues in a second signature element, SV_ClipDistance1, as D3D
+// requires: at most four distances per element.
 func TestClipDistancesEveryElementWritten(t *testing.T) {
-	for _, n := range []int{1, 2, 3, 4} {
+	for _, n := range []int{1, 2, 3, 4, 5, 6, 7, 8} {
 		for _, compose := range []bool{false, true} {
 			t.Run(fmt.Sprintf("n=%d compose=%v", n, compose), func(t *testing.T) {
 				blob, _, err := Compile(lowerSource(t, clipDistancesSource(n, compose)), DefaultOptions())
@@ -53,13 +55,12 @@ func TestClipDistancesEveryElementWritten(t *testing.T) {
 	}
 }
 
-// A clip_distances array of 5 to 8 needs a second SV_ClipDistance signature
-// element, which the emitter does not write yet (P1-DXIL-082): Compile
-// refuses it with an unsupported error naming the size, instead of returning
-// a container IDxcValidator rejects ("Not all elements of output
-// SV_ClipDistance were written").
-func TestClipDistancesOverFourRefused(t *testing.T) {
-	for _, n := range []int{5, 6, 7, 8} {
+// A clip_distances array of more than eight needs a third SV_ClipDistance
+// signature element, which D3D does not have: Compile refuses it with an
+// unsupported error naming the size. WGSL itself caps clip_distances at
+// eight, so a valid shader never reaches this.
+func TestClipDistancesOverEightRefused(t *testing.T) {
+	for _, n := range []int{9, 10} {
 		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
 			_, _, err := Compile(lowerSource(t, clipDistancesSource(n, false)), DefaultOptions())
 			if !errors.Is(err, backend.ErrUnsupported) {

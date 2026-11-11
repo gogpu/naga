@@ -906,6 +906,31 @@ func (e *Emitter) emitOutputStore(outputID int, comp int, valueID int, ol overlo
 		[]int{opcodeVal, outputIDVal, rowVal, colVal, valueID})
 }
 
+// outputStoreSlot maps a flattened component index of an output member to
+// the signature element offset and the column within that element. A
+// clip-distance array of five to eight distances continues in
+// SV_ClipDistance1 (offset 1, column comp-4), as DXC stores a second
+// SV_ClipDistance output; every other output is one element with column
+// comp. elements is the split from d3d.ClipDistanceElementsFor, empty or
+// single-element for everything else.
+func outputStoreSlot(elements []d3d.ClipDistanceElement, comp int) (elem, col int) {
+	if len(elements) > 1 && comp >= int(elements[0].Cols) {
+		return 1, comp - int(elements[0].Cols)
+	}
+	return 0, comp
+}
+
+// signatureElementCount returns how many signature elements an output
+// member produces: one, or two for a clip-distance array of five to eight
+// distances. The sigID counter must advance by it so later members keep
+// matching their OSG1 element.
+func signatureElementCount(elements []d3d.ClipDistanceElement) int {
+	if len(elements) == 0 {
+		return 1
+	}
+	return len(elements)
+}
+
 // findArgExprHandle finds the ExpressionHandle for a FunctionArgument with the given index.
 func (e *Emitter) findArgExprHandle(fn *ir.Function, argIdx int) ir.ExpressionHandle {
 	for exprIdx := range fn.Expressions {

@@ -2778,6 +2778,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 		info.startCol = int64(pe.StartCol)
 		outputs = append(outputs, info)
 		*id++
+		outputs = appendClipDistanceContinuation(outputs, id, e.ir, binding, th, info, pe.Register)
 	}
 
 	stage := ep.Stage
@@ -2826,6 +2827,26 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 		}
 	}
 	return inputs, outputs
+}
+
+// appendClipDistanceContinuation appends the SV_ClipDistance1 element of a
+// clip-distance output with its own register row (P1-DXIL-082): distances
+// 4..7 go there, while info describes SV_ClipDistance0. id is advanced so
+// the next member keeps matching its OSG1 element.
+func appendClipDistanceContinuation(outputs []dxilSigInfo, id *int, irMod *ir.Module, binding ir.Binding, th ir.TypeHandle, info dxilSigInfo, register uint32) []dxilSigInfo {
+	elements, ok := d3d.ClipDistanceElementsFor(irMod, binding, th)
+	if !ok || len(elements) < 2 {
+		return outputs
+	}
+	cont := info
+	cont.id = int64(*id)
+	cont.semIndex = int64(elements[1].SemanticIndex)
+	cont.cols = int64(elements[1].Cols)
+	cont.numChannels = cont.cols
+	cont.startRow = int64(register) + 1
+	cont.startCol = 0
+	*id++
+	return append(outputs, cont)
 }
 
 // collectFlatArgBindings flattens a function's arg list (and any struct-typed
