@@ -1026,6 +1026,26 @@ func (w *Writer) isMatrixType(handle ir.ExpressionHandle) bool {
 	return ok
 }
 
+// writeBitcastOperand writes the operand of a bitcast, converting a packed vec3
+// to the regular vector first. An MSL packed vec3 type is 12 bytes where the
+// regular vector is 16, so as_type cannot reinterpret the packed value directly.
+// Matches Rust naga put_bitcasted_expression (get_packed_vec_kind branch).
+func (w *Writer) writeBitcastOperand(handle ir.ExpressionHandle) error {
+	if !w.isPackedVec3Access(handle) {
+		return w.writeExpression(handle)
+	}
+	scalarName := "float"
+	if vec, ok := w.getExpressionType(handle).(ir.VectorType); ok {
+		scalarName = scalarTypeName(vec.Scalar)
+	}
+	w.write("%s%s3(", Namespace, scalarName)
+	err := w.writeExpression(handle)
+	if err == nil {
+		w.write(")")
+	}
+	return err
+}
+
 // writeWrappedBinaryOperand writes a binary operand, wrapping packed vec3 in a
 // cast to regular vec3 if wrapPackedVec3 is true. Also adds parens if needed.
 // Matches Rust naga put_wrapped_expression_for_packed_vec3_access.
@@ -1648,13 +1668,13 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 			}
 			bitcast(signedType, resultUnsignedType)
 			bitcast(unsignedType, unsignedType)
-			if err := w.writeExpression(binary.Left); err != nil {
+			if err := w.writeBitcastOperand(binary.Left); err != nil {
 				return err
 			}
 			closeBitcast()
 			w.write(" %s ", op)
 			bitcast(rightUnsignedType, rightUnsignedType)
-			if err := w.writeExpression(binary.Right); err != nil {
+			if err := w.writeBitcastOperand(binary.Right); err != nil {
 				return err
 			}
 			closeBitcast()
