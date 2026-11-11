@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **HLSL: the mesh-shader built-ins no longer borrow `SV_Position`** (BUG-HLSL-BUILTIN-SEMANTIC-001). An unmapped
+  built-in used to get `SV_Position`, so `triangle_indices`, `vertices`, `primitives`, `vertex_count`,
+  `primitive_count`, `point_index`, `line_indices` and `mesh_task_size` produced fields with a semantic HLSL does
+  not define for them. `BuiltInToSemantic` now returns both the semantic and whether HLSL can express the built-in,
+  as Rust naga's `BuiltIn::to_hlsl_str` does: `cull_primitive` gets `SV_CullPrimitive`, the virtual mesh built-ins
+  get no semantic at all, and `point_size`/`draw_index` stay a loud compile error. The mesh-shader HLSL output still
+  differs from Rust where the mesh entry-point writer is not ported (upstream a53ffffe); those deviation entries now
+  belong to PARITY-UPSTREAM-001.
+
 ## [0.21.10] - 2026-11-11
 
 ### Fixed

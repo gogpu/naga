@@ -3,15 +3,15 @@ struct VertexOutput {
 };
 
 struct PrimitiveOutput {
-    uint3 indices_ : SV_Position;
+    uint3 indices_;
     uint index : SV_PrimitiveID;
 };
 
 struct MeshOutput {
-    VertexOutput vertices_[3] : SV_Position;
-    PrimitiveOutput primitives_[1] : SV_Position;
-    uint vertex_count : SV_Position;
-    uint primitive_count : SV_Position;
+    VertexOutput vertices_[3];
+    PrimitiveOutput primitives_[1];
+    uint vertex_count;
+    uint primitive_count;
 };
 
 groupshared MeshOutput mesh_output;

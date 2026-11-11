@@ -124,37 +124,75 @@ func TestScalarCast(t *testing.T) {
 	}
 }
 
+// TestBuiltInToSemantic pins every built-in's HLSL decision against Rust
+// naga's BuiltIn::to_hlsl_str (back/hlsl/conv.rs): a semantic, no semantic
+// (Rust's Ok(None)), or unsupported (Rust's Err). The table must cover the
+// whole BuiltinValue range, so a new built-in cannot slip through unmapped.
 func TestBuiltInToSemantic(t *testing.T) {
 	tests := []struct {
-		name     string
-		builtin  ir.BuiltinValue
-		expected string
+		name      string
+		builtin   ir.BuiltinValue
+		semantic  string
+		supported bool
 	}{
 		// Vertex shader
-		{"position", ir.BuiltinPosition, "SV_Position"},
-		{"vertex_index", ir.BuiltinVertexIndex, "SV_VertexID"},
-		{"instance_index", ir.BuiltinInstanceIndex, "SV_InstanceID"},
+		{"position", ir.BuiltinPosition, "SV_Position", true},
+		{"vertex_index", ir.BuiltinVertexIndex, "SV_VertexID", true},
+		{"instance_index", ir.BuiltinInstanceIndex, "SV_InstanceID", true},
+		{"clip_distances", ir.BuiltinClipDistances, "SV_ClipDistance", true},
 		// Fragment shader
-		{"front_facing", ir.BuiltinFrontFacing, "SV_IsFrontFace"},
-		{"frag_depth", ir.BuiltinFragDepth, "SV_Depth"},
-		{"sample_index", ir.BuiltinSampleIndex, "SV_SampleIndex"},
-		{"sample_mask", ir.BuiltinSampleMask, "SV_Coverage"},
-		{"primitive_index", ir.BuiltinPrimitiveIndex, "SV_PrimitiveID"},
+		{"front_facing", ir.BuiltinFrontFacing, "SV_IsFrontFace", true},
+		{"frag_depth", ir.BuiltinFragDepth, "SV_Depth", true},
+		{"sample_index", ir.BuiltinSampleIndex, "SV_SampleIndex", true},
+		{"sample_mask", ir.BuiltinSampleMask, "SV_Coverage", true},
+		{"primitive_index", ir.BuiltinPrimitiveIndex, "SV_PrimitiveID", true},
+		{"barycentric", ir.BuiltinBarycentric, "SV_Barycentrics", true},
+		{"barycentric_no_perspective", ir.BuiltinBarycentricNoPerspective, "SV_Barycentrics", true},
+		{"view_index", ir.BuiltinViewIndex, "SV_ViewID", true},
 		// Compute shader
-		{"global_invocation_id", ir.BuiltinGlobalInvocationID, "SV_DispatchThreadID"},
-		{"local_invocation_id", ir.BuiltinLocalInvocationID, "SV_GroupThreadID"},
-		{"local_invocation_index", ir.BuiltinLocalInvocationIndex, "SV_GroupIndex"},
-		{"workgroup_id", ir.BuiltinWorkGroupID, "SV_GroupID"},
-		{"num_workgroups", ir.BuiltinNumWorkGroups, "SV_GroupID"}, // Placeholder
+		{"global_invocation_id", ir.BuiltinGlobalInvocationID, "SV_DispatchThreadID", true},
+		{"local_invocation_id", ir.BuiltinLocalInvocationID, "SV_GroupThreadID", true},
+		{"local_invocation_index", ir.BuiltinLocalInvocationIndex, "SV_GroupIndex", true},
+		{"workgroup_id", ir.BuiltinWorkGroupID, "SV_GroupID", true},
+		{"num_workgroups", ir.BuiltinNumWorkGroups, "SV_GroupID", true}, // Placeholder
+		// Wave intrinsics: handled as functions, never a semantic.
+		{"subgroup_size", ir.BuiltinSubgroupSize, "", true},
+		{"subgroup_invocation_id", ir.BuiltinSubgroupInvocationID, "", true},
+		{"num_subgroups", ir.BuiltinNumSubgroups, "", true},
+		{"subgroup_id", ir.BuiltinSubgroupID, "", true},
+		// Mesh shading: cull_primitive is a real HLSL semantic; the rest are
+		// "virtual" built-ins HLSL does not recognize (Rust's Ok(None)) and
+		// must get no semantic at all.
+		{"cull_primitive", ir.BuiltinCullPrimitive, "SV_CullPrimitive", true},
+		{"mesh_task_size", ir.BuiltinMeshTaskSize, "", true},
+		{"point_index", ir.BuiltinPointIndex, "", true},
+		{"line_indices", ir.BuiltinLineIndices, "", true},
+		{"triangle_indices", ir.BuiltinTriangleIndices, "", true},
+		{"vertex_count", ir.BuiltinVertexCount, "", true},
+		{"vertices", ir.BuiltinVertices, "", true},
+		{"primitive_count", ir.BuiltinPrimitiveCount, "", true},
+		{"primitives", ir.BuiltinPrimitives, "", true},
+		// No HLSL parameter or field expresses these (Rust's Unsupported
+		// builtin error): the entry point is refused, never SV_Position.
+		{"point_size", ir.BuiltinPointSize, "", false},
+		{"draw_index", ir.BuiltinDrawIndex, "", false},
 	}
 
+	covered := make(map[ir.BuiltinValue]bool, len(tests))
 	for _, tt := range tests {
+		covered[tt.builtin] = true
 		t.Run(tt.name, func(t *testing.T) {
-			got := BuiltInToSemantic(tt.builtin)
-			if got != tt.expected {
-				t.Errorf("BuiltInToSemantic(%v) = %q, want %q", tt.builtin, got, tt.expected)
+			got, supported := BuiltInToSemantic(tt.builtin)
+			if got != tt.semantic || supported != tt.supported {
+				t.Errorf("BuiltInToSemantic(%v) = (%q, %v), want (%q, %v)",
+					tt.builtin, got, supported, tt.semantic, tt.supported)
 			}
 		})
+	}
+	for b := ir.BuiltinPosition; b <= ir.BuiltinBarycentricNoPerspective; b++ {
+		if !covered[b] {
+			t.Errorf("built-in %d is missing from the table: decide its HLSL semantic, none, or unsupported", b)
+		}
 	}
 }
 
@@ -453,7 +491,7 @@ func BenchmarkBuiltInToSemantic(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, bi := range builtins {
-			_ = BuiltInToSemantic(bi)
+			_, _ = BuiltInToSemantic(bi)
 		}
 	}
 }

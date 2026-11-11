@@ -1614,3 +1614,91 @@ struct VertexOut {
 		t.Errorf("the vertex outputs are not just the position, which is all the fragment stage reads:\n%s", output)
 	}
 }
+
+// TestCompile_MeshBuiltinSemantics covers BUG-HLSL-BUILTIN-SEMANTIC-001: the
+// virtual mesh-shader built-ins (triangle_indices, vertices, primitives,
+// vertex_count, primitive_count) get no HLSL semantic, as Rust naga's
+// to_hlsl_str returns None for them, and cull_primitive gets SV_CullPrimitive.
+// The old fallback wrote SV_Position for every one of them.
+func TestCompile_MeshBuiltinSemantics(t *testing.T) {
+	src := `
+enable wgpu_mesh_shader;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+}
+struct PrimitiveOutput {
+    @builtin(triangle_indices) indices: vec3<u32>,
+    @builtin(cull_primitive) cull: bool,
+}
+struct MeshOutput {
+    @builtin(vertices) vertices: array<VertexOutput, 3>,
+    @builtin(primitives) primitives: array<PrimitiveOutput, 1>,
+    @builtin(vertex_count) vertex_count: u32,
+    @builtin(primitive_count) primitive_count: u32,
+}
+
+var<workgroup> mesh_output: MeshOutput;
+
+@mesh(mesh_output)
+@workgroup_size(1)
+fn ms_main() {
+    mesh_output.vertex_count = 3;
+    mesh_output.primitive_count = 1;
+    mesh_output.vertices[0].position = vec4(0., 1., 0., 1.);
+    mesh_output.vertices[1].position = vec4(-1., -1., 0., 1.);
+    mesh_output.vertices[2].position = vec4(1., -1., 0., 1.);
+    mesh_output.primitives[0].indices = vec3<u32>(0, 1, 2);
+    mesh_output.primitives[0].cull = false;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4(1.);
+}
+`
+	opts := DefaultOptions()
+	opts.FakeMissingBindings = true
+	opts.ShaderModel = ShaderModel6_5
+	code := compileWGSLToHLSL(t, src, opts)
+
+	mustContain(t, code, []string{
+		"uint3 indices_;",
+		"bool cull : SV_CullPrimitive;",
+		"VertexOutput vertices_[3];",
+		"PrimitiveOutput primitives_[1];",
+		"uint vertex_count;",
+		"uint primitive_count;",
+	})
+	mustNotContain(t, code, []string{
+		"indices_ : SV_Position",
+		"cull : SV_Position",
+		"vertices_[3] : SV_Position",
+		"primitives_[1] : SV_Position",
+		"vertex_count : SV_Position",
+		"primitive_count : SV_Position",
+	})
+}
+
+// TestCompile_UnsupportedBuiltinRefused pins the other half of
+// BuiltInToSemantic's contract: a built-in HLSL cannot express stays a loud
+// error (Rust to_hlsl_str's Unsupported builtin), not a field without a
+// semantic.
+func TestCompile_UnsupportedBuiltinRefused(t *testing.T) {
+	src := `
+enable draw_index;
+@vertex fn vs_main(@builtin(draw_index) index: u32) -> @builtin(position) vec4<f32> {
+    return vec4(f32(index));
+}
+`
+	module := parseWGSL(t, src)
+	opts := DefaultOptions()
+	opts.FakeMissingBindings = true
+	_, _, err := Compile(module, opts)
+	if err == nil {
+		t.Fatal("Compile accepted @builtin(draw_index); want ErrUnsupportedFeature")
+	}
+	if !strings.Contains(err.Error(), "has no HLSL semantic") {
+		t.Errorf("Compile error = %q, want the unsupported-builtin refusal", err)
+	}
+}
