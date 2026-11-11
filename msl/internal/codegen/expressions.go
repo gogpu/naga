@@ -3609,11 +3609,10 @@ func (w *Writer) packedVec3Scalar(handle ir.ExpressionHandle) *ir.ScalarType {
 	case ir.PointerType:
 		structTypeHandle = bt.Base
 	case ir.StructType:
-		th := w.getExpressionTypeHandle(access.Base)
-		if th == nil {
-			return nil
-		}
-		structTypeHandle = *th
+		// getExpressionType returns a StructType only through a type handle
+		// (a struct-typed value such as a function argument), so the handle
+		// names it.
+		structTypeHandle = *w.getExpressionTypeHandle(access.Base)
 	default:
 		return nil
 	}
