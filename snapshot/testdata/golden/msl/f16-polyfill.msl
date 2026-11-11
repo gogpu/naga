@@ -104,8 +104,8 @@ fragment test_structOutput test_struct(
     output_1.vec4_f16_ = input.vec4_f16_ + metal::half4(1.0h);
     output_1.vec4_f32_ = input.vec4_f32_ + metal::float4(1.0);
     F16IO _e40 = output_1;
-    const auto _tmp = _e40;
-    return test_structOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+    const auto _tmp_1 = _e40;
+    return test_structOutput { _tmp_1.scalar_f16_, _tmp_1.scalar_f32_, _tmp_1.vec2_f16_, _tmp_1.vec2_f32_, _tmp_1.vec3_f16_, _tmp_1.vec3_f32_, _tmp_1.vec4_f16_, _tmp_1.vec4_f32_ };
 }
 
 
@@ -153,8 +153,8 @@ fragment test_copy_inputOutput test_copy_input(
     metal::float4 _e45 = input_1.vec4_f32_;
     output_2.vec4_f32_ = _e45 + metal::float4(1.0);
     F16IO _e49 = output_2;
-    const auto _tmp = _e49;
-    return test_copy_inputOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+    const auto _tmp_2 = _e49;
+    return test_copy_inputOutput { _tmp_2.scalar_f16_, _tmp_2.scalar_f32_, _tmp_2.vec2_f16_, _tmp_2.vec2_f32_, _tmp_2.vec3_f16_, _tmp_2.vec3_f32_, _tmp_2.vec4_f16_, _tmp_2.vec4_f32_ };
 }
 
 
@@ -211,6 +211,6 @@ fragment test_component_accessOutput test_component_access(
     output_3.vec2_f16_.x = input_3.vec2_f16_.y;
     output_3.vec2_f16_.y = input_3.vec2_f16_.x;
     F16IO _e10 = output_3;
-    const auto _tmp = _e10;
-    return test_component_accessOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+    const auto _tmp_3 = _e10;
+    return test_component_accessOutput { _tmp_3.scalar_f16_, _tmp_3.scalar_f32_, _tmp_3.vec2_f16_, _tmp_3.vec2_f32_, _tmp_3.vec3_f16_, _tmp_3.vec3_f32_, _tmp_3.vec4_f16_, _tmp_3.vec4_f32_ };
 }
