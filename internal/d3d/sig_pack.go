@@ -252,6 +252,82 @@ func (p *sigPacker) packLocation(idx int, e SigElementInfo) PackedElement {
 	return pe
 }
 
+// MaxClipDistances is the most clip distances D3D can carry: two
+// SV_ClipDistance signature elements of four channels each. WGSL caps
+// clip_distances at the same number.
+const MaxClipDistances = 8
+
+// ClipDistanceElement is one SV_ClipDistance signature element produced by
+// @builtin(clip_distances) array<f32, N>.
+type ClipDistanceElement struct {
+	SemanticIndex uint32 // 0 for SV_ClipDistance0, 1 for SV_ClipDistance1
+	Cols          uint8  // distances carried by this element, 1..4
+}
+
+// ClipDistanceElements splits n clip distances into the signature elements
+// D3D requires: at most four distances per element, as DXC emits for a
+// vertex shader declaring SV_ClipDistance0 as float4 and SV_ClipDistance1
+// as the remaining floats. Every signature producer uses this split so the
+// signature, PSV0, the entry point metadata and the stores agree.
+func ClipDistanceElements(n uint32) []ClipDistanceElement {
+	if n > MaxClipDistances {
+		// Compile refuses such a shader before emission (checkClipDistances);
+		// clamping keeps the slice well formed for any other caller.
+		n = MaxClipDistances
+	}
+	if n <= 4 {
+		return []ClipDistanceElement{{SemanticIndex: 0, Cols: uint8(n)}}
+	}
+	return []ClipDistanceElement{
+		{SemanticIndex: 0, Cols: 4},
+		{SemanticIndex: 1, Cols: uint8(n - 4)},
+	}
+}
+
+// ClipDistanceElementsFor reports the signature element split of a
+// clip-distance binding: ok is false when the binding is not
+// @builtin(clip_distances) or its type is not a constant array.
+func ClipDistanceElementsFor(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle) (elements []ClipDistanceElement, ok bool) {
+	bb, isBuiltin := binding.(ir.BuiltinBinding)
+	if !isBuiltin || bb.Builtin != ir.BuiltinClipDistances {
+		return nil, false
+	}
+	if irMod == nil || int(typeHandle) >= len(irMod.Types) {
+		return nil, false
+	}
+	arr, isArray := irMod.Types[typeHandle].Inner.(ir.ArrayType)
+	if !isArray || arr.Size.Constant == nil {
+		return nil, false
+	}
+	return ClipDistanceElements(*arr.Size.Constant), true
+}
+
+// clipDistanceInfo is the packing class of @builtin(clip_distances): one
+// row with a column per distance, as the signature element and the entry
+// point metadata declare it (a `float2 c : SV_ClipDistance0` in HLSL
+// terms), and one row per four distances — N = 5..8 continues in
+// SV_ClipDistance1, which needs its own register row (P1-DXIL-082). The
+// packer reserves the row here; the producers expand the element into the
+// split from ClipDistanceElements. rows is the componentDimensions row
+// count, capped at four, used when the type is not a constant array.
+func clipDistanceInfo(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, rows uint8) SigElementInfo {
+	if elements, ok := ClipDistanceElementsFor(irMod, binding, typeHandle); ok {
+		return SigElementInfo{
+			Kind:     SigPackBuiltinScalarArray,
+			ColCount: elements[0].Cols,
+			Rows:     uint8(len(elements)), //nolint:gosec // at most two elements
+		}
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	return SigElementInfo{
+		Kind:     SigPackBuiltinScalarArray,
+		ColCount: min(rows, 4),
+		Rows:     1,
+	}
+}
+
 // SigElementInfoForBinding builds a SigElementInfo from a naga binding plus
 // its IR type. Mirrors the bind-to-semantic mapping used by
 // dxil/internal/emit/emitter.go makeSigInfo and dxil/dxil.go
@@ -289,19 +365,7 @@ func SigElementInfoForBinding(
 				Rows:     1,
 			}
 		case ir.BuiltinClipDistances:
-			// One row with a column per element, as the signature element
-			// and the entry point metadata declare it (a `float2 c :
-			// SV_ClipDistance0` in HLSL terms). Counted as one row per
-			// element, PSV0 had more output vectors than the module for
-			// N >= 2 (P1-DXIL-082).
-			if rows < 1 {
-				rows = 1
-			}
-			return SigElementInfo{
-				Kind:     SigPackBuiltinScalarArray,
-				ColCount: min(rows, 4),
-				Rows:     1,
-			}
+			return clipDistanceInfo(irMod, binding, typeHandle, rows)
 		case ir.BuiltinFragDepth, ir.BuiltinSampleMask:
 			// PS outputs SV_Depth / SV_Coverage are system-managed (not
 			// allocated). On PS input SV_SampleMask never appears (mapped

@@ -937,15 +937,15 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 			// SigPackOther / no-binding placeholder — skip.
 			continue
 		}
-		elem, ok := buildSigElementFromPacked(irMod, b, types[i], pe, false, isFragment)
+		elems, ok := buildSigElementsFromPacked(irMod, b, types[i], pe, false, isFragment)
 		if !ok {
 			continue
 		}
 		// Override RWMask (AlwaysReadsMask) with actual usage from IR analysis.
 		if i < len(flatArgMapping) {
-			elem.RWMask = resolveInputRWMask(usedMasks, flatArgMapping[i], elem.Mask, pe.StartCol)
+			elems[0].RWMask = resolveInputRWMask(usedMasks, flatArgMapping[i], elems[0].Mask, pe.StartCol)
 		}
-		inputs = append(inputs, elem)
+		inputs = append(inputs, elems...)
 	}
 	// inputs stay in module order: EncodeSignature names them in that order
 	// and sorts the records itself.
@@ -989,11 +989,11 @@ func buildOutputSigElements(
 			continue
 		}
 		member := st.Members[pm.OrigIdx]
-		elem, ok := buildSigElementFromPacked(irMod, *member.Binding, member.Type, pm.PackedElement, true, isFragment)
+		elems, ok := buildSigElementsFromPacked(irMod, *member.Binding, member.Type, pm.PackedElement, true, isFragment)
 		if !ok {
 			continue
 		}
-		out = append(out, elem)
+		out = append(out, elems...)
 	}
 	// Module order; EncodeSignature sorts the records by register.
 	return out
@@ -1139,21 +1139,23 @@ func packBindingsForSignature(
 	return d3d.PackSignatureElements(infos, !isOutput)
 }
 
-// buildSigElementFromPacked builds one container.SignatureElement using a
-// pre-computed packed (Register, StartCol). Returns ok=false if the binding
-// is not actually represented in the signature (e.g. SV_ViewID).
-func buildSigElementFromPacked(
+// buildSigElementsFromPacked builds the container.SignatureElements of one
+// packed binding using its pre-computed (Register, StartCol). A binding may
+// produce more than one element: @builtin(clip_distances) with five to
+// eight distances continues in SV_ClipDistance1. Returns ok=false if the
+// binding is not actually represented in the signature (e.g. SV_ViewID).
+func buildSigElementsFromPacked(
 	irMod *ir.Module,
 	binding ir.Binding,
 	typeHandle ir.TypeHandle,
 	pe d3d.PackedElement,
 	isOutput, isFragment bool,
-) (container.SignatureElement, bool) {
+) ([]container.SignatureElement, bool) {
 	elems := bindingToSignatureElements(irMod, binding, typeHandle, pe.Register, pe.StartCol, isOutput, isFragment)
 	if len(elems) == 0 {
-		return container.SignatureElement{}, false
+		return nil, false
 	}
-	return elems[0], true
+	return elems, true
 }
 
 // bindingToSignatureElements converts a naga binding to signature elements.
@@ -1254,7 +1256,36 @@ func bindingToSignatureElements(irMod *ir.Module, binding ir.Binding, typeHandle
 		RWMask:        rwMask,
 	}
 
+	if cont, ok := clipDistanceContinuation(irMod, binding, typeHandle, elem, register); ok {
+		return []container.SignatureElement{elem, cont}
+	}
+
 	return []container.SignatureElement{elem}
+}
+
+// clipDistanceContinuation returns the SV_ClipDistance1 element that
+// carries distances 4..7 of a clip_distances array, one register row below
+// SV_ClipDistance0, as DXC writes a second SV_ClipDistance output
+// (P1-DXIL-082). first is the SV_ClipDistance0 element the packer
+// allocated at register. The first element fills all four lanes, so the
+// continuation's Mask names the lanes its own distances occupy.
+func clipDistanceContinuation(
+	irMod *ir.Module,
+	binding ir.Binding,
+	typeHandle ir.TypeHandle,
+	first container.SignatureElement,
+	register uint32,
+) (container.SignatureElement, bool) {
+	elements, ok := d3d.ClipDistanceElementsFor(irMod, binding, typeHandle)
+	if !ok || len(elements) < 2 {
+		return container.SignatureElement{}, false
+	}
+	cont := first
+	cont.SemanticIndex = elements[1].SemanticIndex
+	cont.Register = register + 1
+	cont.Mask = uint8((1 << elements[1].Cols) - 1)
+	cont.RWMask = (^cont.Mask) & 0x0F
+	return cont, true
 }
 
 // isSystemManagedSV reports whether a container SystemValueKind is one of
@@ -1565,6 +1596,23 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 		return off
 	}
 
+	// semIdxOffset deduplicates semantic index entries: DXC shares a single
+	// SemanticIndexesOffset between every element whose index list is equal
+	// (most commonly, all-zero for SigElement with numRows=1). Our prior
+	// append-every-time form produced len(semIndices) == numElements and let
+	// the validator's byte-equality check on PSV0 disagree with DXC's
+	// canonical shape even though the per-element semantics matched.
+	semIdxOffset := func(index uint32) uint32 {
+		for scan := 0; scan+1 <= len(semIndices); scan++ {
+			if semIndices[scan] == index {
+				return uint32(scan)
+			}
+		}
+		off := uint32(len(semIndices)) //nolint:gosec // index bounded by total binding count
+		semIndices = append(semIndices, index)
+		return off
+	}
+
 	// addElement builds the PSV element using a pre-packed (Register, StartCol)
 	// from the packer. The row counter is also tracked so SigInput/Output
 	// Vectors covers the highest used row + element rows. System-managed
@@ -1585,27 +1633,7 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 		if sem.Name != "" && sem.Kind == 0 {
 			nameOff = appendName(sem.Name)
 		}
-		// Deduplicate semantic index entries: DXC shares a single
-		// SemanticIndexesOffset between every element whose index
-		// list is equal (most commonly, all-zero for SigElement with
-		// numRows=1). Our prior append-every-time form produced
-		// len(semIndices) == numElements and let the validator's
-		// byte-equality check on PSV0 disagree with DXC's canonical
-		// shape even though the per-element semantics matched.
-		semIdxOff := uint32(0)
-		foundDup := false
-		for scan := 0; scan+1 <= len(semIndices); scan++ {
-			if semIndices[scan] == sem.Index {
-				semIdxOff = uint32(scan)
-				foundDup = true
-				break
-			}
-		}
-		if !foundDup {
-			semIdxOff = uint32(len(semIndices)) //nolint:gosec // index bounded by total binding count
-			semIndices = append(semIndices, sem.Index)
-		}
-		elem := makePSVSignatureElement(irMod, typeHandle, sem, nameOff, semIdxOff, uint8(pe.Register), pe.StartCol) //nolint:gosec // packed row fits uint8
+		elem := makePSVSignatureElement(irMod, typeHandle, sem, nameOff, semIdxOffset(sem.Index), uint8(pe.Register), pe.StartCol) //nolint:gosec // packed row fits uint8
 		// System-managed pixel outputs do NOT consume an output register
 		// row — they are written via dedicated dx.op calls (storeDepth /
 		// storeCoverage / storeStencilRef) and the PSV0 SigOutputVectors
@@ -1648,13 +1676,35 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 		}
 	}
 
+	// addClipDistanceContinuation appends the second PSV element of a
+	// clip-distance output: SV_ClipDistance1 carries distances 4..7 in its
+	// own register row, which the packer reserved with pe.Rows = 2
+	// (P1-DXIL-082). The first element always fills all four lanes, so the
+	// continuation starts at column 0.
+	addClipDistanceContinuation := func(binding ir.Binding, typeHandle ir.TypeHandle, pe d3d.PackedElement) {
+		elements, ok := d3d.ClipDistanceElementsFor(irMod, binding, typeHandle)
+		if !ok || len(elements) < 2 {
+			return
+		}
+		sem, ok := psvSemanticForBinding(binding, ep.Stage, true)
+		if !ok {
+			return
+		}
+		sem.Index = elements[1].SemanticIndex
+		cont := makePSVSignatureElement(irMod, typeHandle, sem, 0, semIdxOffset(sem.Index), uint8(pe.Register)+1, 0) //nolint:gosec // packed row fits uint8
+		cont.ColsAndStart = elements[1].Cols | (1 << 6)                                                              // one row, startCol 0, allocated
+		psvOutputs = append(psvOutputs, cont)
+	}
+
 	// Walk result (outputs).
 	if ep.Function.Result != nil {
 		res := ep.Function.Result
 		if res.Binding != nil {
-			elem, ok := addElement(*res.Binding, res.Type, true, d3d.ResultElement(*res.Binding, stage), &outputRow)
+			pe := d3d.ResultElement(*res.Binding, stage)
+			elem, ok := addElement(*res.Binding, res.Type, true, pe, &outputRow)
 			if ok {
 				psvOutputs = append(psvOutputs, elem)
+				addClipDistanceContinuation(*res.Binding, res.Type, pe)
 			}
 		} else if int(res.Type) < len(irMod.Types) {
 			if st, ok := irMod.Types[res.Type].Inner.(ir.StructType); ok {
@@ -1669,6 +1719,7 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 						continue
 					}
 					psvOutputs = append(psvOutputs, elem)
+					addClipDistanceContinuation(*m.Binding, m.Type, pm.PackedElement)
 				}
 			}
 		}

@@ -1513,12 +1513,14 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 			continue
 		}
 		ol := overloadForScalar(scalar)
+		elements, _ := d3d.ClipDistanceElementsFor(e.ir, *member.Binding, member.Type)
 		baseComp := memberCompOffsets[idx]
 		for comp := 0; comp < numComps; comp++ {
 			valueID := e.getComponentID(*ret.Value, baseComp+comp)
-			e.emitOutputStore(sigID, comp, valueID, ol)
+			elem, col := outputStoreSlot(elements, comp)
+			e.emitOutputStore(sigID+elem, col, valueID, ol)
 		}
-		sigID++
+		sigID += signatureElementCount(elements)
 	}
 
 	return nil
