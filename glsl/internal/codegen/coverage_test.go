@@ -2256,38 +2256,40 @@ func TestCoverage_ContinueEncountered(t *testing.T) {
 // =============================================================================
 
 func TestCoverage_WriteHelperFunctionsDirect(t *testing.T) {
-	tests := []struct {
-		name    string
-		mod     bool
-		div     bool
-		wantMod bool
-		wantDiv bool
-	}{
-		{"mod_only", true, false, true, false},
-		{"div_only", false, true, false, true},
-		{"both", true, true, true, true},
-		{"neither", false, false, false, false},
+	// A module without integer division emits no helpers.
+	w := newTestWriter()
+	w.writeHelperFunctions()
+	if out := w.Out.String(); out != "" {
+		t.Errorf("expected no helpers for a module without integer division, got:\n%s", out)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := newTestWriter()
-			w.needsModHelper = tt.mod
-			w.needsDivHelper = tt.div
-			w.writeHelperFunctions()
-			output := w.Out.String()
+	// One signed division, one unsigned remainder, and one vector division
+	// (which pulls in its scalar companion). Registering a pair twice must
+	// not duplicate the helper.
+	signedDiv := intDivOverload{op: ir.BinaryDivide,
+		left: glslIntOperand{kind: ir.ScalarSint}, right: glslIntOperand{kind: ir.ScalarSint}, result: glslIntOperand{kind: ir.ScalarSint}}
+	w.registerIntDivOverload(signedDiv)
+	w.registerIntDivOverload(signedDiv)
+	w.registerIntDivOverload(intDivOverload{op: ir.BinaryModulo,
+		left: glslIntOperand{kind: ir.ScalarUint}, right: glslIntOperand{kind: ir.ScalarUint}, result: glslIntOperand{kind: ir.ScalarUint}})
+	w.registerIntDivOverload(intDivOverload{op: ir.BinaryDivide,
+		left: glslIntOperand{kind: ir.ScalarUint, size: 3}, right: glslIntOperand{kind: ir.ScalarUint, size: 3}, result: glslIntOperand{kind: ir.ScalarUint, size: 3}})
+	w.writeHelperFunctions()
+	out := w.Out.String()
 
-			if tt.wantMod {
-				if !strings.Contains(output, "_naga_mod") {
-					t.Errorf("expected _naga_mod helper in output")
-				}
-			}
-			if tt.wantDiv {
-				if !strings.Contains(output, "_naga_div") {
-					t.Errorf("expected _naga_div helper in output")
-				}
-			}
-		})
+	for _, want := range []string{
+		"int naga_div(int lhs, int rhs) {",
+		"uint naga_mod(uint lhs, uint rhs) {",
+		"uint naga_div(uint lhs, uint rhs) {", // companion of the vector overload
+		"uvec3 naga_div(uvec3 lhs, uvec3 rhs) {",
+		"return uvec3(naga_div(lhs.x, rhs.x), naga_div(lhs.y, rhs.y), naga_div(lhs.z, rhs.z));",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "int naga_div(int lhs, int rhs) {"); n != 1 {
+		t.Errorf("the scalar division helper is emitted %d times, want once:\n%s", n, out)
 	}
 }
 

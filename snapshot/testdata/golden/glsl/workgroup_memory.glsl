@@ -10,6 +10,11 @@ shared float shared_data[256];
 
 layout(std430) buffer type_3_block_0Compute { float _group_0_binding_1_cs[]; };
 
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
 
 void main() {
     if (gl_LocalInvocationID == uvec3(0u)) {
@@ -33,7 +38,7 @@ void main() {
     barrier();
     if ((lid == 0u)) {
         float _e30 = shared_data[0];
-        _group_0_binding_1_cs[(gid.x / 256u)] = _e30;
+        _group_0_binding_1_cs[naga_div(gid.x, 256u)] = _e30;
         return;
     } else {
         return;

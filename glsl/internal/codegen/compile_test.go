@@ -1751,10 +1751,12 @@ fn main() {
 	if strings.Contains(output, "%") {
 		t.Errorf("integer %% must not be written as %%:\n%s", output)
 	}
-	glslMustContain(t, output, "(a - b * (a / b))")
-	glslMustContain(t, output, "ivec2 _e12 = ivec2(a, -(a));")
-	glslMustContain(t, output, "(_e12 - _e13 * (_e12 / _e13))")
-	glslMustContain(t, output, "(_e18 - 3u * (_e18 / 3u))")
+	glslMustContain(t, output, "int naga_mod(int lhs, int rhs) {")
+	glslMustContain(t, output, "ivec2 naga_mod(ivec2 lhs, ivec2 rhs) {")
+	glslMustContain(t, output, "uint naga_mod(uint lhs, uint rhs) {")
+	glslMustContain(t, output, "naga_mod(a, b)")
+	glslMustContain(t, output, "naga_mod(_e12, _e13)")
+	glslMustContain(t, output, "naga_mod(_e18, 3u)")
 }
 
 // =============================================================================

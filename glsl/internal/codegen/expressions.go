@@ -685,13 +685,20 @@ func (w *Writer) writeBinary(b ir.ExprBinary) (string, error) {
 	case ir.BinaryMultiply:
 		return fmt.Sprintf("(%s * %s)", left, right), nil
 	case ir.BinaryDivide:
+		if w.isIntegerBinaryExpr(b) {
+			// GLSL leaves a zero divisor and INT_MIN / -1 undefined; the
+			// helper selects a safe divisor (see writeHelperFunctions).
+			return fmt.Sprintf("naga_div(%s, %s)", left, right), nil
+		}
 		return fmt.Sprintf("(%s / %s)", left, right), nil
 	case ir.BinaryModulo:
 		if w.isFloatBinaryExpr(b) {
 			return fmt.Sprintf("(%s - %s * trunc(%s / %s))", left, right, left, right), nil
 		}
-		// GLSL leaves % undefined when an operand is negative. Integer
-		// division truncates, so this is WGSL's remainder.
+		if w.isIntegerBinaryExpr(b) {
+			return fmt.Sprintf("naga_mod(%s, %s)", left, right), nil
+		}
+		// Non-integer, non-float operands cannot reach a modulo.
 		return fmt.Sprintf("(%s - %s * (%s / %s))", left, right, left, right), nil
 	case ir.BinaryEqual:
 		if w.isVectorBinaryExpr(b) {
@@ -1995,6 +2002,28 @@ func (w *Writer) isVectorBinaryExpr(b ir.ExprBinary) bool {
 	}
 	_, isVec := inner.(ir.VectorType)
 	return isVec
+}
+
+// isIntegerBinaryExpr reports whether the left operand of b is a signed or
+// unsigned integer scalar or vector.
+func (w *Writer) isIntegerBinaryExpr(b ir.ExprBinary) bool {
+	if !w.hasExprType(b.Left) {
+		return false
+	}
+	res := w.exprType(b.Left)
+	var inner ir.TypeInner
+	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
+		inner = w.module.Types[*res.Handle].Inner
+	} else if res.Value != nil {
+		inner = res.Value
+	}
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint
+	case ir.VectorType:
+		return t.Scalar.Kind == ir.ScalarSint || t.Scalar.Kind == ir.ScalarUint
+	}
+	return false
 }
 
 // isFloatBinaryExpr checks if a binary expression operates on float types.

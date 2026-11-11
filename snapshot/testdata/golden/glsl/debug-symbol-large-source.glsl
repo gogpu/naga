@@ -52,6 +52,16 @@ layout(std430) buffer IndexBuffer_block_2Compute {
     uint data[];
 } _group_0_binding_2_cs;
 
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
 
 vec3 permute3_(vec3 x) {
     return ((((x * 34.0) + vec3(1.0)) * x) - vec3(289.0) * trunc((((x * 34.0) + vec3(1.0)) * x) / vec3(289.0)));
@@ -161,7 +171,7 @@ Vertex terrain_vertex(vec2 p_2, vec2 min_max_height_1) {
 }
 
 vec2 index_to_p(uint vert_index, uvec2 chunk_size, ivec2 chunk_corner) {
-    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float((vert_index / (chunk_size.x + 1u)))) + vec2(chunk_corner));
+    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + vec2(chunk_corner));
 }
 
 vec3 color23_(vec2 p_3) {
@@ -187,7 +197,7 @@ void main() {
         return;
     }
     uint _e35 = _group_0_binding_0_cs.chunk_size.x;
-    uint v00_ = (vert_index_1 + (gid.x / _e35));
+    uint v00_ = (vert_index_1 + naga_div(gid.x, _e35));
     uint v10_ = (v00_ + 1u);
     uint _e43 = _group_0_binding_0_cs.chunk_size.x;
     uint v01_ = ((v00_ + _e43) + 1u);
@@ -246,6 +256,16 @@ layout(std140) uniform GenData_block_0Vertex { GenData _group_0_binding_0_vs; };
 
 flat out uint _vs2fs_location0;
 smooth out vec2 _vs2fs_location1;
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
 
 vec3 permute3_(vec3 x) {
     return ((((x * 34.0) + vec3(1.0)) * x) - vec3(289.0) * trunc((((x * 34.0) + vec3(1.0)) * x) / vec3(289.0)));
@@ -355,7 +375,7 @@ Vertex terrain_vertex(vec2 p_2, vec2 min_max_height_1) {
 }
 
 vec2 index_to_p(uint vert_index, uvec2 chunk_size, ivec2 chunk_corner) {
-    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float((vert_index / (chunk_size.x + 1u)))) + vec2(chunk_corner));
+    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + vec2(chunk_corner));
 }
 
 vec3 color23_(vec2 p_3) {
@@ -367,10 +387,10 @@ vec3 color23_(vec2 p_3) {
 
 void main() {
     uint vindex = uint(gl_VertexID);
-    uint _e4 = ((vindex + 2u) / 3u);
-    float u = float((_e4 - 2u * (_e4 / 2u)));
-    uint _e11 = ((vindex + 1u) / 3u);
-    float v_2 = float((_e11 - 2u * (_e11 / 2u)));
+    uint _e4 = naga_div((vindex + 2u), 3u);
+    float u = float(naga_mod(_e4, 2u));
+    uint _e11 = naga_div((vindex + 1u), 3u);
+    float v_2 = float(naga_mod(_e11, 2u));
     vec2 uv = vec2(u, v_2);
     vec4 position = vec4((vec2(-1.0) + (uv * 2.0)), 0.0, 1.0);
     uint _e27 = _group_0_binding_0_vs.texture_size;
@@ -432,6 +452,16 @@ flat in uint _vs2fs_location0;
 smooth in vec2 _vs2fs_location1;
 layout(location = 0) out uint _fs2p_location0;
 layout(location = 1) out uint _fs2p_location1;
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
 
 vec3 permute3_(vec3 x) {
     return ((((x * 34.0) + vec3(1.0)) * x) - vec3(289.0) * trunc((((x * 34.0) + vec3(1.0)) * x) / vec3(289.0)));
@@ -541,7 +571,7 @@ Vertex terrain_vertex(vec2 p_2, vec2 min_max_height_1) {
 }
 
 vec2 index_to_p(uint vert_index, uvec2 chunk_size, ivec2 chunk_corner) {
-    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float((vert_index / (chunk_size.x + 1u)))) + vec2(chunk_corner));
+    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + vec2(chunk_corner));
 }
 
 vec3 color23_(vec2 p_3) {
@@ -561,7 +591,7 @@ void main() {
     uint _e23 = _group_0_binding_0_fs.start_index;
     uint i_2 = (uint(((in_.uv.x * float(_e5)) + (in_.uv.y * float((_e12 * _e15))))) + _e23);
     uint vert_index_1 = uint(floor((float(i_2) / 6.0)));
-    uint comp_index = (i_2 - 6u * (i_2 / 6u));
+    uint comp_index = naga_mod(i_2, 6u);
     uvec2 _e34 = _group_0_binding_0_fs.chunk_size;
     ivec2 _e37 = _group_0_binding_0_fs.chunk_corner;
     vec2 _e38 = index_to_p(vert_index_1, _e34, _e37);
@@ -597,7 +627,7 @@ void main() {
         }
     }
     uint _e60 = _group_0_binding_0_fs.chunk_size.x;
-    uint v00_ = (vert_index_1 + (vert_index_1 / _e60));
+    uint v00_ = (vert_index_1 + naga_div(vert_index_1, _e60));
     uint v10_ = (v00_ + 1u);
     uint _e68 = _group_0_binding_0_fs.chunk_size.x;
     uint v01_ = ((v00_ + _e68) + 1u);
@@ -682,6 +712,16 @@ layout(location = 0) in vec3 _p2vs_location0;
 layout(location = 1) in vec3 _p2vs_location1;
 smooth out vec3 _vs2fs_location0;
 smooth out vec3 _vs2fs_location1;
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
 
 vec3 permute3_(vec3 x) {
     return ((((x * 34.0) + vec3(1.0)) * x) - vec3(289.0) * trunc((((x * 34.0) + vec3(1.0)) * x) / vec3(289.0)));
@@ -791,7 +831,7 @@ Vertex terrain_vertex(vec2 p_2, vec2 min_max_height_1) {
 }
 
 vec2 index_to_p(uint vert_index, uvec2 chunk_size, ivec2 chunk_corner) {
-    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float((vert_index / (chunk_size.x + 1u)))) + vec2(chunk_corner));
+    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + vec2(chunk_corner));
 }
 
 vec3 color23_(vec2 p_3) {
@@ -866,6 +906,16 @@ uniform sampler2D _group_2_binding_2_fs;
 smooth in vec3 _vs2fs_location0;
 smooth in vec3 _vs2fs_location1;
 layout(location = 0) out vec4 _fs2p_location0;
+uint naga_div(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs / divisor;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    uint divisor = (rhs == 0u) ? 1u : rhs;
+    return lhs - (lhs / divisor) * divisor;
+}
+
 
 vec3 permute3_(vec3 x) {
     return ((((x * 34.0) + vec3(1.0)) * x) - vec3(289.0) * trunc((((x * 34.0) + vec3(1.0)) * x) / vec3(289.0)));
@@ -975,7 +1025,7 @@ Vertex terrain_vertex(vec2 p_2, vec2 min_max_height_1) {
 }
 
 vec2 index_to_p(uint vert_index, uvec2 chunk_size, ivec2 chunk_corner) {
-    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float((vert_index / (chunk_size.x + 1u)))) + vec2(chunk_corner));
+    return (vec2((float(vert_index) - float((chunk_size.x + 1u)) * trunc(float(vert_index) / float((chunk_size.x + 1u)))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + vec2(chunk_corner));
 }
 
 vec3 color23_(vec2 p_3) {

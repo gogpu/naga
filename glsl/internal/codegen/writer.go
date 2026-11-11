@@ -120,9 +120,10 @@ type Writer struct {
 	extensions      []string
 	requiredVersion Version
 
-	// Helper function flags
-	needsModHelper bool
-	needsDivHelper bool
+	// Integer division and remainder helpers (naga_div / naga_mod), collected
+	// from the whole module before any function body is written.
+	intDivOverloads []intDivOverload
+	intDivSeen      map[intDivOverload]struct{}
 
 	// Block ID counter for unique interface block names (matches Rust naga's IdGenerator)
 	blockIDCounter uint32
@@ -2116,27 +2117,183 @@ func (w *Writer) isSintScalarOrVector(res ir.TypeResolution) bool {
 	return false
 }
 
-// writeHelperFunctions writes any needed polyfill functions.
+// writeHelperFunctions writes the naga_div / naga_mod polyfills the module
+// needs. GLSL leaves integer x / 0, INT_MIN / -1 and their remainders
+// undefined, while WGSL defines them: x / 0 == x, INT_MIN / -1 == INT_MIN,
+// and the remainder in both cases is 0. The generated helpers select a safe
+// divisor, as Rust naga's HLSL and MSL writers do; its GLSL writer has no
+// guard at all.
 func (w *Writer) writeHelperFunctions() {
-	if w.needsModHelper {
-		w.WriteLine("// Safe modulo helper (truncated division semantics)")
-		w.WriteLine("int _naga_mod(int a, int b) {")
-		w.PushIndent()
-		w.WriteLine("return a - b * (a / b);")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
+	w.collectIntDivHelpers()
+	for _, o := range w.intDivOverloads {
+		w.writeIntDivHelper(o)
 	}
+}
 
-	if w.needsDivHelper {
-		w.WriteLine("// Safe division helper (handles zero divisor)")
-		w.WriteLine("int _naga_div(int a, int b) {")
-		w.PushIndent()
-		w.WriteLine("return b != 0 ? a / b : 0;")
-		w.PopIndent()
-		w.WriteLine("}")
-		w.WriteLine("")
+// glslIntOperand is the GLSL type of an integer division operand or result:
+// the scalar kind and 0 for a scalar, or the vector size.
+type glslIntOperand struct {
+	kind ir.ScalarKind
+	size ir.VectorSize
+}
+
+// glslIntTypeName returns the GLSL type name for an operand: int/uint or
+// ivecN/uvecN.
+func glslIntTypeName(o glslIntOperand) string {
+	if o.size == 0 {
+		if o.kind == ir.ScalarUint {
+			return glslTypeUint
+		}
+		return glslTypeInt
 	}
+	if o.kind == ir.ScalarUint {
+		return fmt.Sprintf("uvec%d", o.size)
+	}
+	return fmt.Sprintf("ivec%d", o.size)
+}
+
+// intDivOverload identifies one naga_div / naga_mod overload: the operation
+// and the GLSL operand types. The result type is the wider operand shape.
+// Rust naga's HLSL writer keys its helpers the same way (WrappedBinaryOp).
+type intDivOverload struct {
+	op     ir.BinaryOperator // BinaryDivide or BinaryModulo
+	left   glslIntOperand
+	right  glslIntOperand
+	result glslIntOperand
+}
+
+// collectIntDivHelpers scans every function and entry point for integer
+// division and remainder, registering the overloads their polyfills need.
+func (w *Writer) collectIntDivHelpers() {
+	scan := func(fn *ir.Function) {
+		for i := range fn.Expressions {
+			bin, ok := fn.Expressions[i].Kind.(ir.ExprBinary)
+			if !ok {
+				continue
+			}
+			if o, ok := w.intBinaryOverload(fn, bin); ok {
+				w.registerIntDivOverload(o)
+			}
+		}
+	}
+	for i := range w.module.Functions {
+		scan(&w.module.Functions[i])
+	}
+	for i := range w.module.EntryPoints {
+		scan(&w.module.EntryPoints[i].Function)
+	}
+}
+
+// intBinaryOverload returns the polyfill overload for an integer binary
+// division or remainder expression.
+func (w *Writer) intBinaryOverload(fn *ir.Function, b ir.ExprBinary) (intDivOverload, bool) {
+	if b.Op != ir.BinaryDivide && b.Op != ir.BinaryModulo {
+		return intDivOverload{}, false
+	}
+	left, ok := w.fnIntOperandType(fn, b.Left)
+	if !ok {
+		return intDivOverload{}, false
+	}
+	right, ok := w.fnIntOperandType(fn, b.Right)
+	if !ok {
+		return intDivOverload{}, false
+	}
+	result := left
+	if result.size == 0 {
+		result = right
+	}
+	return intDivOverload{op: b.Op, left: left, right: right, result: result}, true
+}
+
+// fnIntOperandType resolves the integer scalar or vector type of an
+// expression in fn.
+func (w *Writer) fnIntOperandType(fn *ir.Function, h ir.ExpressionHandle) (glslIntOperand, bool) {
+	res := w.fnExprType(fn, h)
+	var inner ir.TypeInner
+	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
+		inner = w.module.Types[*res.Handle].Inner
+	} else if res.Value != nil {
+		inner = res.Value
+	}
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		if t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint {
+			return glslIntOperand{kind: t.Kind}, true
+		}
+	case ir.VectorType:
+		if t.Scalar.Kind == ir.ScalarSint || t.Scalar.Kind == ir.ScalarUint {
+			return glslIntOperand{kind: t.Scalar.Kind, size: t.Size}, true
+		}
+	}
+	return glslIntOperand{}, false
+}
+
+// registerIntDivOverload records one overload in first-use order. A
+// vector-shaped overload also needs the scalar one its body calls.
+func (w *Writer) registerIntDivOverload(o intDivOverload) {
+	if o.left.size != 0 || o.right.size != 0 {
+		w.registerIntDivOverload(intDivOverload{
+			op:     o.op,
+			left:   glslIntOperand{kind: o.left.kind},
+			right:  glslIntOperand{kind: o.right.kind},
+			result: glslIntOperand{kind: o.result.kind},
+		})
+	}
+	if w.intDivSeen == nil {
+		w.intDivSeen = make(map[intDivOverload]struct{})
+	}
+	if _, seen := w.intDivSeen[o]; seen {
+		return
+	}
+	w.intDivSeen[o] = struct{}{}
+	w.intDivOverloads = append(w.intDivOverloads, o)
+}
+
+// writeIntDivHelper writes one naga_div or naga_mod overload. Signed values
+// use a divisor of 1 where GLSL is undefined (a zero divisor, or INT_MIN with
+// -1), so the quotient is the dividend and the remainder is 0; unsigned
+// values only need the zero-divisor case. Vector shapes apply the scalar
+// helper component by component.
+func (w *Writer) writeIntDivHelper(o intDivOverload) {
+	name := "naga_div"
+	if o.op == ir.BinaryModulo {
+		name = "naga_mod"
+	}
+	resultName := glslIntTypeName(o.result)
+	leftName := glslIntTypeName(o.left)
+	rightName := glslIntTypeName(o.right)
+
+	w.WriteLine("%s %s(%s lhs, %s rhs) {", resultName, name, leftName, rightName)
+	w.PushIndent()
+	if o.left.size == 0 && o.right.size == 0 {
+		if o.result.kind == ir.ScalarUint {
+			w.WriteLine("uint divisor = (rhs == 0u) ? 1u : rhs;")
+		} else {
+			// -2147483647 - 1: the literal 2147483648 alone is unsigned in GLSL.
+			w.WriteLine("int divisor = (((lhs == -2147483647 - 1) && (rhs == -1)) || (rhs == 0)) ? 1 : rhs;")
+		}
+		if o.op == ir.BinaryDivide {
+			w.WriteLine("return lhs / divisor;")
+		} else {
+			w.WriteLine("return lhs - (lhs / divisor) * divisor;")
+		}
+	} else {
+		components := make([]string, 0, o.result.size)
+		for i := 0; i < int(o.result.size); i++ {
+			l, r := "lhs", "rhs"
+			if o.left.size != 0 {
+				l = fmt.Sprintf("lhs.%c", "xyzw"[i])
+			}
+			if o.right.size != 0 {
+				r = fmt.Sprintf("rhs.%c", "xyzw"[i])
+			}
+			components = append(components, fmt.Sprintf("%s(%s, %s)", name, l, r))
+		}
+		w.WriteLine("return %s(%s);", resultName, strings.Join(components, ", "))
+	}
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeFunctions writes regular function definitions.
