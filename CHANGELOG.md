@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.10] - 2026-11-11
 
 ### Fixed
 
@@ -3862,7 +3862,11 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.6...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.10...HEAD
+[0.21.10]: https://github.com/gogpu/naga/compare/v0.21.9...v0.21.10
+[0.21.9]: https://github.com/gogpu/naga/compare/v0.21.8...v0.21.9
+[0.21.8]: https://github.com/gogpu/naga/compare/v0.21.7...v0.21.8
+[0.21.7]: https://github.com/gogpu/naga/compare/v0.21.6...v0.21.7
 [0.21.6]: https://github.com/gogpu/naga/compare/v0.21.5...v0.21.6
 [0.21.5]: https://github.com/gogpu/naga/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/gogpu/naga/compare/v0.21.3...v0.21.4
