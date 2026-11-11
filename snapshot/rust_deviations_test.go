@@ -443,7 +443,11 @@ var rustDeviations = []rustDeviation{
 		Reason:      "workgroup zero-initialization tests the shader's LocalInvocationId input where Rust adds a LocalInvocationIndex input (counts-level SPIR-V: one decoration and one entry point interface variable fewer); " + notPorted("96b7872f"),
 		Fingerprint: "66059db3a1bc8fcad16a27f2c2c907acb5d0682ce9cc8e32fe5a305ca4ba5a26"},
 	{Shader: "workgroup-uniform-load-atomic", File: "wgsl-workgroup-uniform-load-atomic.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
-		Reason:      "the array type is named type_2 instead of type_4 (type arena order); zero-init through local_invocation_id; " + reasonMSLThreadgroup + "; " + notPorted("96b7872f"),
+		Reason: "the array type is named type_2 instead of type_4 (type arena order); zero-init through local_invocation_id; " +
+			reasonMSLThreadgroup + "; " + notPorted("96b7872f") +
+			"; under ReadZeroSkipWrite the workgroupUniformLoad result's out-of-bounds fallback is the generic " +
+			"DefaultConstructible(), where an ordinary load can name the type's oob local (writeLoadPointer vs " +
+			"writeRZSWFallback); no corpus run loads this shader with that policy",
 		Fingerprint: "068153d1100ba062e095acd4c1e6056ad32613a7f938f0c63007f2ead6515c6d"},
 	{Shader: "workgroup-uniform-load-atomic", File: "wgsl-workgroup-uniform-load-atomic.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      "zero-init through SV_GroupThreadID; " + notPorted("96b7872f"),

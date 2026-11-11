@@ -1031,14 +1031,11 @@ func (w *Writer) isMatrixType(handle ir.ExpressionHandle) bool {
 // regular vector is 16, so as_type cannot reinterpret the packed value directly.
 // Matches Rust naga put_bitcasted_expression (get_packed_vec_kind branch).
 func (w *Writer) writeBitcastOperand(handle ir.ExpressionHandle) error {
-	if !w.isPackedVec3Access(handle) {
+	scalar := w.packedVec3Scalar(handle)
+	if scalar == nil {
 		return w.writeExpression(handle)
 	}
-	scalarName := "float"
-	if vec, ok := w.getExpressionType(handle).(ir.VectorType); ok {
-		scalarName = scalarTypeName(vec.Scalar)
-	}
-	w.write("%s%s3(", Namespace, scalarName)
+	w.write("%s%s3(", Namespace, scalarTypeName(*scalar))
 	err := w.writeExpression(handle)
 	if err == nil {
 		w.write(")")
@@ -1050,15 +1047,14 @@ func (w *Writer) writeBitcastOperand(handle ir.ExpressionHandle) error {
 // cast to regular vec3 if wrapPackedVec3 is true. Also adds parens if needed.
 // Matches Rust naga put_wrapped_expression_for_packed_vec3_access.
 func (w *Writer) writeWrappedBinaryOperand(handle ir.ExpressionHandle, wrapPackedVec3 bool) error {
-	needsPacked := wrapPackedVec3 && w.isPackedVec3Access(handle)
-	if needsPacked {
-		// Get the scalar type of the packed vec3
-		t := w.getExpressionType(handle)
-		scalarName := "float"
-		if vec, ok := t.(ir.VectorType); ok {
-			scalarName = scalarTypeName(vec.Scalar)
+	packed := false
+	// The packed member's scalar decides the cast, as Rust's
+	// get_packed_vec_kind does; an access that packs always has one.
+	if wrapPackedVec3 {
+		if scalar := w.packedVec3Scalar(handle); scalar != nil {
+			w.write("%s%s3(", Namespace, scalarTypeName(*scalar))
+			packed = true
 		}
-		w.write("%s%s3(", Namespace, scalarName)
 	}
 
 	if w.needsParens(handle) {
@@ -1073,7 +1069,7 @@ func (w *Writer) writeWrappedBinaryOperand(handle ir.ExpressionHandle, wrapPacke
 		}
 	}
 
-	if needsPacked {
+	if packed {
 		w.write(")")
 	}
 	return nil
@@ -3581,21 +3577,30 @@ func (w *Writer) shouldDerefPointer(handle ir.ExpressionHandle) bool {
 // that is a packed vec3 (packed_float3, packed_int3, etc.). MSL packed vec3 types don't
 // support swizzle syntax (.x, .y, .z), so bracket notation ([0], [1], [2]) must be used.
 func (w *Writer) isPackedVec3Access(handle ir.ExpressionHandle) bool {
+	return w.packedVec3Scalar(handle) != nil
+}
+
+// packedVec3Scalar returns the scalar of the packed vec3 struct member that
+// handle accesses, or nil when the access is not one. Mirrors Rust naga's
+// get_packed_vec_kind: the scalar comes from shouldPackMember, the same
+// predicate that decides the packing, never from the expression's resolved
+// type — a missing resolution must not turn a cast into a silent float3.
+func (w *Writer) packedVec3Scalar(handle ir.ExpressionHandle) *ir.ScalarType {
 	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return false
+		return nil
 	}
 	expr := &w.currentFunction.Expressions[handle]
 
 	// Check if this is an AccessIndex into a struct member
 	access, ok := expr.Kind.(ir.ExprAccessIndex)
 	if !ok {
-		return false
+		return nil
 	}
 
 	// Get the struct type of the base
 	baseType := w.getExpressionType(access.Base)
 	if baseType == nil {
-		return false
+		return nil
 	}
 
 	// Unwrap pointer type if needed
@@ -3604,24 +3609,23 @@ func (w *Writer) isPackedVec3Access(handle ir.ExpressionHandle) bool {
 	case ir.PointerType:
 		structTypeHandle = bt.Base
 	case ir.StructType:
-		th := w.getExpressionTypeHandle(access.Base)
-		if th == nil {
-			return false
-		}
-		structTypeHandle = *th
+		// getExpressionType returns a StructType only through a type handle
+		// (a struct-typed value such as a function argument), so the handle
+		// names it.
+		structTypeHandle = *w.getExpressionTypeHandle(access.Base)
 	default:
-		return false
+		return nil
 	}
 
 	if int(structTypeHandle) >= len(w.module.Types) {
-		return false
+		return nil
 	}
 	st, ok := w.module.Types[structTypeHandle].Inner.(ir.StructType)
 	if !ok {
-		return false
+		return nil
 	}
 
-	return w.shouldPackMember(st, int(access.Index)) != nil
+	return w.shouldPackMember(st, int(access.Index))
 }
 
 // getPointerAddressSpace walks the access chain to find the originating address space.

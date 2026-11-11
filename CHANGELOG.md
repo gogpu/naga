@@ -16,7 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that copy and fails on any difference, on every OS and for contributors. The generation and the
   grammar-vs-`spirv.h` cross-check moved into `internal/spvnames/gen`, so the test runs exactly the code
   `go generate ./internal/spvnames` runs; the generated header now names the headers revision it came from.
-
+- **MSL: the packed-vec3 cast scalar comes from the member that packs, and a malformed pointer cannot panic the
+  component-store detector** (P2-MSL-107, LOW-3/LOW-4 of the v0.21.10 review). `writeBitcastOperand` and
+  `writeWrappedBinaryOperand` fell back to `metal::float3(...)` when the operand's resolved type was not a vector;
+  the scalar now comes from `shouldPackMember`, the predicate that decides the packing, as Rust's
+  `get_packed_vec_kind` does. No valid IR changed, so no golden moved. `threadgroupVectorComponentStore` reads the
+  workgroup vector type only after checking the handle against the type arena, like its neighbour guards, with a
+  test that reaches the branch. The `workgroup-uniform-load-atomic.metal` deviation note now names the
+  ReadZeroSkipWrite fallback difference (`DefaultConstructible()` instead of the type's oob local), which no corpus
+  run exercises.
 - **DXIL: `clip_distances` arrays of five to eight distances write their second signature element** (P1-DXIL-082).
   D3D carries at most four clip distances per `SV_ClipDistance` element, so an `array<f32, N>` with N > 4 now
   splits into `SV_ClipDistance0` (four channels) and `SV_ClipDistance1` (the rest) in the whole pipeline: the OSG1
