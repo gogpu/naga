@@ -116,6 +116,13 @@ func isFragDepth(b *ir.Binding) bool {
 // clamped to the range of the frag_depth clamp when it is frag_depth and
 // the entry point clamps it.
 func (w *Writer) outputValue(b *ir.Binding, value string) string {
+	// gl_SampleMask is an int array; WGSL's sample_mask is u32, and glslang
+	// accepts neither direction without an explicit conversion.
+	if b != nil {
+		if bb, ok := (*b).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinSampleMask {
+			return fmt.Sprintf("int(%s)", value)
+		}
+	}
 	if !w.clampFragDepth || !isFragDepth(b) {
 		return value
 	}

@@ -58,12 +58,12 @@ void main() {
     VertexOutput in_ = VertexOutput(gl_FragCoord, _vs2fs_location1);
     bool front_facing = gl_FrontFacing;
     uint sample_index = gl_SampleID;
-    uint sample_mask = gl_SampleMaskIn[0];
+    uint sample_mask = uint(gl_SampleMaskIn[0]);
     uint mask = (sample_mask & (1u << sample_index));
     float color_1 = (front_facing ? 1.0 : 0.0);
     FragmentOutput _tmp_return = FragmentOutput(in_._varying, mask, color_1);
     gl_FragDepth = _tmp_return.depth;
-    gl_SampleMaskIn[0] = _tmp_return.sample_mask;
+    gl_SampleMask[0] = int(_tmp_return.sample_mask);
     _fs2p_location0 = _tmp_return.color;
     return;
 }
