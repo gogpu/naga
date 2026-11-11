@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a workgroup matrix column, keeping the chain's bounds-check rendering. Loads, static component stores,
   swizzle-assignment writes and every other address space are unchanged; no golden changes. The readback case's
   `knownFailures` entry is dropped: it passes on the Paravirtual device and on ten local adapters.
+- **MSL: `workgroupUniformLoad` of an atomic copied the atomic object** (BUG-MSL-WGULOAD-ATOMIC-001). `uint x = wg;`
+  copies an atomic, which MSL forbids; Rust naga loads through it with
+  `metal::atomic_load_explicit(&ptr, metal::memory_order_relaxed)`, and the statement now goes through the same load
+  path, bounds policy included, as an ordinary load.
+- **MSL: a bitcast of a `packed_int3` struct member reinterpreted the packed value** (BUG-MSL-PACKED-BITCAST-001). A
+  packed vec3 is 12 bytes where `metal::uint3` is 16, so `as_type` on the member is a Metal compile error; the
+  operand is unpacked first, as Rust naga does (`as_type<metal::uint3>(metal::int3(in.chunk))`).
+- **MSL: a fragment entry point with two returns declared `const auto _tmp` twice** (BUG-MSL-MULTI-RETURN-001) — a
+  redefinition. The temporary's name now comes from the namer, as in Rust naga (upstream 0892b384), so the second is
+  `_tmp_1`. The MSL deviation ledger drops from 48 to 45 entries across the three fixes.
 
 ## [0.21.9] - 2026-11-09
 
