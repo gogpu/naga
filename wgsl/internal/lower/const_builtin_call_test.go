@@ -40,6 +40,40 @@ func flattenConstGE(t *testing.T, m *ir.Module, h ir.ExpressionHandle) []string 
 			out = append(out, flattenConstGE(t, m, c)...)
 		}
 		return out
+	case ir.ExprSplat:
+		one := flattenConstGE(t, m, e.Value)
+		if len(one) != 1 {
+			t.Fatalf("splat component %d has %d leaves, want 1", e.Value, len(one))
+		}
+		out := make([]string, e.Size)
+		for i := range out {
+			out[i] = one[0]
+		}
+		return out
+	case ir.ExprZeroValue:
+		zero := "0"
+		count := 1
+		if int(e.Type) < len(m.Types) {
+			switch inner := m.Types[e.Type].Inner.(type) {
+			case ir.ScalarType:
+				switch inner.Kind {
+				case ir.ScalarUint:
+					zero = "0u"
+				case ir.ScalarBool:
+					zero = "false"
+				}
+			case ir.VectorType:
+				count = int(inner.Size)
+				if inner.Scalar.Kind == ir.ScalarUint {
+					zero = "0u"
+				}
+			}
+		}
+		out := make([]string, count)
+		for i := range out {
+			out[i] = zero
+		}
+		return out
 	default:
 		t.Fatalf("global expression %d is %T, want an evaluated constant", h, e)
 	}
