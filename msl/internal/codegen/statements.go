@@ -1311,7 +1311,7 @@ func (w *Writer) threadgroupVectorComponentStore(pointer ir.ExpressionHandle) (i
 	}
 	switch t := w.getExpressionType(access.Base).(type) {
 	case ir.PointerType:
-		if t.Space != ir.SpaceWorkGroup {
+		if t.Space != ir.SpaceWorkGroup || int(t.Base) >= len(w.module.Types) {
 			return ir.ExprAccess{}, ir.ScalarType{}, false
 		}
 		vec, ok := w.module.Types[t.Base].Inner.(ir.VectorType)
