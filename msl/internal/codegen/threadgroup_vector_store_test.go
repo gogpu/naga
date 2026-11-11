@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/ir"
 )
 
 // P1-MSL-106: the Apple Paravirtual Metal device loses a run-time component
@@ -155,5 +156,67 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	storageStore := mslLineContaining(t, msl, "= 3u;")
 	if strings.Contains(storageStore, "*)&") {
 		t.Errorf("storage vector store was rewritten as a pointer cast: %q", storageStore)
+	}
+}
+
+// TestMSLThreadgroupArrayDynamicStoreUnchanged covers a workgroup array
+// element: the resolved base is a workgroup pointer to an array, not to a
+// vector, so the workaround must not fire.
+func TestMSLThreadgroupArrayDynamicStoreUnchanged(t *testing.T) {
+	const src = `
+var<workgroup> arr: array<u32, 4>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(local_invocation_index) i: u32) {
+    arr[i] = 4u;
+}
+`
+	msl := compileWGSL(t, src)
+
+	line := mslLineContaining(t, msl, "= 4u;")
+	if strings.Contains(line, "*)&") {
+		t.Errorf("workgroup array store was rewritten as a pointer cast: %q", line)
+	}
+}
+
+// TestMSLPointerValueVectorStoreUnchanged covers the pointer-value shape: the
+// base resolves to a ValuePointerType whose space is not workgroup (and whose
+// size is nil), so the workaround must not fire.
+func TestMSLPointerValueVectorStoreUnchanged(t *testing.T) {
+	const src = `
+var<private> pv: vec4<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(local_invocation_index) i: u32) {
+    let p = &pv;
+    (*p)[i] = 5u;
+}
+`
+	msl := compileWGSL(t, src)
+
+	line := mslLineContaining(t, msl, "= 5u;")
+	if strings.Contains(line, "*)&") {
+		t.Errorf("pointer-value vector store was rewritten as a pointer cast: %q", line)
+	}
+}
+
+// TestThreadgroupVectorComponentStoreGuards covers the defensive branches of
+// the detector with a bare writer: no current function, and a pointer handle
+// outside the expression arena.
+func TestThreadgroupVectorComponentStoreGuards(t *testing.T) {
+	if _, _, ok := (&Writer{}).threadgroupVectorComponentStore(0); ok {
+		t.Error("a writer without a current function matched")
+	}
+	w := &Writer{currentFunction: &ir.Function{}}
+	if _, _, ok := w.threadgroupVectorComponentStore(0); ok {
+		t.Error("an out-of-range pointer matched")
+	}
+	// A base expression with no resolved type must report false instead of
+	// assuming a shape.
+	unresolved := &Writer{currentFunction: &ir.Function{Expressions: []ir.Expression{
+		{Kind: ir.ExprAccess{Base: 0, Index: 1}},
+	}}}
+	if _, _, ok := unresolved.threadgroupVectorComponentStore(0); ok {
+		t.Error("an expression without a resolved type matched")
 	}
 }
