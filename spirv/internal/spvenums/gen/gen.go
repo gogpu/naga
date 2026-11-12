@@ -388,7 +388,11 @@ func writeType(b *strings.Builder, et enumType) {
 	b.WriteString("}\n\n")
 	fmt.Fprintf(b, "// String names the value for diagnostics; an unknown value prints as a\n")
 	fmt.Fprintf(b, "// number.\n")
-	fmt.Fprintf(b, "func (v %s) String() string { return enumString(%sNames, v, %q) }\n", et.Type, lowerFirst(et.Type), et.Type)
+	fmt.Fprintf(b, "func (v %s) String() string { return enumString(%sNames, v, %q) }\n\n", et.Type, lowerFirst(et.Type), et.Type)
+	fmt.Fprintf(b, "// Known reports whether the grammar defines the value (under any of its\n")
+	fmt.Fprintf(b, "// names). A frontend uses it to tell an invalid module from a valid one it\n")
+	fmt.Fprintf(b, "// does not implement.\n")
+	fmt.Fprintf(b, "func (v %s) Known() bool { _, ok := %sNames[v]; return ok }\n", et.Type, lowerFirst(et.Type))
 }
 
 // lowerFirst lowercases the first letter of a type name for its table.
