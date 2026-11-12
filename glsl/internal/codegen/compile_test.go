@@ -1759,6 +1759,47 @@ fn main() {
 	glslMustContain(t, output, "naga_mod(_e18, 3u)")
 }
 
+// Integer division must go through the guard helper: GLSL leaves a zero
+// divisor and INT_MIN / -1 undefined. The helper itself is pinned in
+// TestCoverage_WriteHelperFunctionsDirect; this test pins the call site, so a
+// change back to a bare "/" fails here and not only in the snapshot goldens.
+func TestCompileWGSL_IntegerDivisionUsesGuardHelper(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> d: array<i32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    d[2] = d[0] / d[1];
+}
+`
+	output := wgslToGLSL(t, source, Options{LangVersion: Version430})
+	glslMustContain(t, output, "int naga_div(int lhs, int rhs) {")
+	glslMustContain(t, output, "] = naga_div(")
+}
+
+// A user function named like a writer-declared helper must be renamed, or the
+// module has two naga_div(int, int) bodies and glslang refuses it.
+func TestCompileWGSL_UserFunctionNamedNagaDivIsRenamed(t *testing.T) {
+	source := `
+fn naga_div(a: i32, b: i32) -> i32 {
+    return a / b;
+}
+
+@group(0) @binding(0) var<storage, read_write> d: array<i32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    d[0] = naga_div(7, 3);
+}
+`
+	output := wgslToGLSL(t, source, Options{LangVersion: Version430})
+	glslMustContain(t, output, "int naga_div(int lhs, int rhs) {")
+	glslMustContain(t, output, "naga_div_(")
+	if n := strings.Count(output, "naga_div("); n < 2 {
+		t.Errorf("want the helper declaration and the guarded call, got %d occurrences of naga_div(:\n%s", n, output)
+	}
+}
+
 // =============================================================================
 // Exp2/Log2 Tests
 // =============================================================================
