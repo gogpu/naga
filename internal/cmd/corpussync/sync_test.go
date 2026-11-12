@@ -226,10 +226,9 @@ func TestManifestKeepsExistingSource(t *testing.T) {
 	}
 }
 
-// TestManifestRefusesVendoredTree pins the provenance boundary: a vendored
-// tree is recorded only by sync, so manifest cannot re-bless a hand-edited
-// vendored file while keeping the upstream commit claim. The edit stays
-// visible to the integrity check after the refusal.
+// TestManifestRefusesVendoredTree pins the provenance boundary: a hand-edited
+// vendored file cannot be re-blessed while the upstream commit claim stays the
+// same. The edit stays visible to the integrity check after the refusal.
 func TestManifestRefusesVendoredTree(t *testing.T) {
 	upstream := fakeUpstream(t, upstreamFiles())
 	dir := t.TempDir()
@@ -246,6 +245,51 @@ func TestManifestRefusesVendoredTree(t *testing.T) {
 	problems, verifyErr := testcorpus.Verify(dir)
 	if verifyErr != nil || len(problems) != 1 || problems[0].Path != "in/spv/s.spvasm" {
 		t.Errorf("Verify after the refused rewrite = %v %v, want the hand edit still detected", problems, verifyErr)
+	}
+}
+
+// TestManifestVendoredExtensionAndRefresh: at the recorded commit a file may
+// be added (an extension of the tree) but a changed one is refused; an
+// explicit new commit is a refresh and may rewrite files.
+func TestManifestVendoredExtensionAndRefresh(t *testing.T) {
+	upstream := fakeUpstream(t, upstreamFiles())
+	dir := t.TempDir()
+	if _, err := syncCorpus(upstream, dir); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	writeFiles(t, dir, map[string]string{"extinst.glsl.std.450.grammar.json": "{}\n"})
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "vendored"}, &out); err != nil {
+		t.Fatalf("manifest after adding a file at the recorded commit: %v", err)
+	}
+	m, err := testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Files) != 17 || m.Source.Commit == "" {
+		t.Errorf("manifest = %d files from %q, want the extension recorded", len(m.Files), m.Source.Commit)
+	}
+
+	writeFiles(t, dir, map[string]string{"in/spv/s.spvasm": "; edited by hand\n"})
+	err = run([]string{"manifest", "-dir", dir, "-kind", "vendored"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "in/spv/s.spvasm changed") {
+		t.Fatalf("manifest over an edited vendored file = %v, want the hand edit refused", err)
+	}
+
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "vendored",
+		"-commit", "0123456789abcdef", "-commit-date", "2026-02-02", "-note", "refresh"}, &out); err != nil {
+		t.Fatalf("manifest after a commit refresh: %v", err)
+	}
+	m, err = testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source.Commit != "0123456789abcdef" || m.Source.CommitDate != "2026-02-02" || m.Source.Note != "refresh" {
+		t.Errorf("source = %+v, want the new commit's provenance", m.Source)
+	}
+	if problems, err := testcorpus.Verify(dir); err != nil || len(problems) != 0 {
+		t.Errorf("Verify after the refresh = %v %v, want a tree matching its manifest", problems, err)
 	}
 }
 
@@ -424,7 +468,6 @@ func TestRunRejectsUsageErrors(t *testing.T) {
 		{"sync"},                          // -wgpu and -out required
 		{"manifest", "-dir", t.TempDir()}, // -kind and -repo required
 		{"manifest", "-dir", t.TempDir(), "-kind", "copied", "-repo", "r"},
-		{"manifest", "-dir", t.TempDir(), "-kind", "vendored", "-repo", "r"},
 	}
 	for _, args := range tests {
 		var stdout bytes.Buffer
