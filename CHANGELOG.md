@@ -70,8 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two of them changing the program silently:
   - an integer literal outside its type's range was clamped (`3000000000i` became 2147483647, `@group(4294967297)`
     became 4294967295). It is now refused with Rust naga's message, `numeric literal not representable by target
-    type`, for every suffix and for the values of `@group`, `@binding`, `@location`, `@blend_src` and binding-array
-    sizes. This includes `-2147483648i`: the literal `2147483648i` is not an i32 before the minus applies (the spec
+    type`, for every suffix; an attribute argument past u32 is refused as the next entry describes. This includes `-2147483648i`: the literal `2147483648i` is not an i32 before the minus applies (the spec
     and Rust naga agree). The valid spellings of i32's minimum are `i32(-2147483648)` (an abstract literal
     converted to i32) and `-2147483647i - 1`.
   - an attribute repeated on one declaration (`@group(0) @group(1)`) was accepted with the last value winning; it
@@ -79,6 +78,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     before the attributes are collected, so a source made of repeats no longer amplifies into a large AST.
   - a block comment left open at the end of the source was accepted; it is now `unterminated block comment`, at
     the opening `/*`.
+- **WGSL: attribute arguments are const-expressions, and unknown attributes are errors.**
+  - `@group`, `@binding`, `@location`, `@blend_src`, `@id` and the `binding_array` size are evaluated as Rust
+    naga's `const_u32` does: any const-expression of a concrete integer scalar, so `@group(0u)`, `@binding(0x1)`,
+    `@location(1u)` and `binding_array<T, 4u>` are accepted again. A named constant (`@group(A)`) used to be
+    dropped silently, losing the binding; it now gives its value. A negative, float or non-constant argument is
+    refused with Rust's messages (`must be non-negative (>= 0)`, `must be a const-expression that resolves to a
+    concrete integer scalar`), and a binding-array size of zero or below with `array element count must be positive
+    (> 0)`.
+  - `@id` dropped its parse error, so `@id(70000)`, `@id(0x10)` and `@id(5u)` left the override without a pipeline
+    ID. Hex and suffixed IDs are accepted, and an ID above 65535 is Rust's `pipeline constant ID must be between 0
+    and 65535 inclusive`.
+  - An attribute name the parser does not know was accepted and ignored, and a source of many distinct unknown
+    names (`@a0 @a1 …`, 8.9 MB) allocated about 1 GB. It is now Rust's `unknown attribute` error, at the first
+    one.
+- **SPIR-V frontend: four defects in hostile or unusual input.**
+  - An `OpVectorShuffle` with five or more components panicked `spirv.Parse`. The swizzle keeps the first four
+    components, as Rust naga does; a shuffle whose result type is not a vector is refused.
+  - Every function's expressions start with one per global and constant, as in Rust naga, so a 208 KB module of
+    4,000 constants and 4,000 functions built 16M expressions. The total over all functions is now capped at
+    1,048,576 and a module past it is refused at the function that crosses it.
+  - The default interpolation of an entry point's inputs and outputs was written through the binding the variable
+    and its struct type share: an input used by a fragment entry point and then by a vertex one gave the vertex
+    argument perspective interpolation. The binding is copied first, as in Rust naga.
+  - A vector `OpSMod` converted its operands with the vector's byte size as the scalar width and failed
+    validation. It now uses the scalar width (Rust naga has the same defect).
 - **The SPIR-V capability table is regenerated from vendored headers and diffed in CI** (P2-SPV-020).
   `internal/spvnames` now carries the headers its table was generated from — `spirv.h` and
   `spirv.core.grammar.json` of SPIRV-Headers `vulkan-sdk-1.4.341.0` with the upstream LICENSE, a PROVENANCE.md
