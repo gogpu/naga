@@ -6,6 +6,9 @@ testdata/upstream/** -text
 # The capability table is compared byte for byte with go/format output
 # (internal/spvnames TestTableMatchesVendoredHeaders): keep LF on every OS.
 internal/spvnames/table.go -text
+# The generated enum set is compared the same way
+# (spirv/internal/spvenums TestEnumsMatchVendoredGrammar): keep LF on every OS.
+spirv/internal/spvenums/enums.go -text
 # Rust naga outputs compared byte for byte (glsl TestOverrideOutputMatchesRust).
 glsl/testdata/overrides/** -text
 # GLSL goldens compared byte for byte (glsl TestDepthTextureDeclarations and
