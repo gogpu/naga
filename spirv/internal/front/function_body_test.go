@@ -835,8 +835,8 @@ func TestBodyInstructionMistakes(t *testing.T) {
 		},
 		{
 			name: "unsupported instruction in a body",
-			body: [][]uint32{instWords(spvenums.OpBranchConditional, 24, 101, 101)},
-			want: "unsupported instruction BranchConditional at Function",
+			body: [][]uint32{instWords(spvenums.OpLifetimeStart, 101, 0)},
+			want: "unsupported instruction LifetimeStart at Function",
 		},
 		{
 			name: "is-finite has no relational function",

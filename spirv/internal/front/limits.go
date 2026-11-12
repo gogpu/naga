@@ -24,6 +24,13 @@ const (
 	// 16M expressions). The running total is checked before each function's
 	// arena is filled.
 	maxStorageExpressions = 1 << 20
+
+	// maxNesting caps how deeply structured control flow (selections, loops,
+	// switches) nests. Lowering the body tree recurses once per level, and
+	// every out-of-scope check walks the body's parent chain, so the depth is
+	// refused when a body is created, before either grows. The WGSL frontend
+	// caps brace nesting at 127, so every module it produces fits.
+	maxNesting = 128
 )
 
 // checkModuleSize reports whether a module of n bytes is within

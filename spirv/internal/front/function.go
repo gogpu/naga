@@ -81,6 +81,7 @@ func (p *parser) parseFunction() error {
 		fn:           &fn,
 		blocks:       make(map[uint32]ir.Block),
 		bodyForLabel: make(map[uint32]int),
+		mergers:      make(map[uint32]mergeBlockInformation),
 		bodies:       []body{{parent: 0}},
 	}
 	if err := p.makeExpressionStorage(fs); err != nil {
@@ -152,7 +153,14 @@ parameters:
 	if err := p.appendPhiStores(fs); err != nil {
 		return err
 	}
-	fn.Body = fs.lower()
+	if err := fs.checkLabelsDefined(); err != nil {
+		return err
+	}
+	body, err := fs.lower()
+	if err != nil {
+		return err
+	}
+	fn.Body = body
 
 	handle := ir.FunctionHandle(len(p.module.Functions))
 	p.module.Functions = append(p.module.Functions, fn)
@@ -209,7 +217,12 @@ func (p *parser) appendPhiStores(fs *functionState) error {
 		for _, source := range phi.expressions {
 			lookup, ok := p.lookupExpression[source.id]
 			if !ok {
-				return errInvalidID(uint32(source.id))
+				return errInvalidID(source.id)
+			}
+			// The stores go at the end of the predecessor, so it has to be a
+			// block of this function; Rust naga panics otherwise.
+			if _, ok := fs.blocks[source.blockID]; !ok {
+				return errInvalidPhiPredecessor(source.blockID)
 			}
 			predecessorBody, ok := fs.bodyForLabel[source.blockID]
 			if !ok {
@@ -248,48 +261,6 @@ func (p *parser) appendPhiStores(fs *functionState) error {
 			fs.blocks[source.blockID] = predecessor
 		}
 	}
-	return nil
-}
-
-// nextBlock parses one OpLabel block. Phase 1 supports straight-line blocks:
-// control-flow instructions are reported as unsupported until they are
-// implemented.
-func (p *parser) nextBlock(blockID uint32, fs *functionState) error {
-	var consumer emitter
-	consumer.startWith(fs.fn.Expressions)
-	bodyIdx := 0
-	if idx, ok := fs.bodyForLabel[blockID]; ok {
-		bodyIdx = idx
-	}
-
-	var block ir.Block
-	var terminator *ir.Statement
-	for {
-		inst, err := p.nextInstruction()
-		if err != nil {
-			return err
-		}
-		done, statement, err := p.blockInstruction(inst, fs, &consumer, &block, bodyIdx, blockID)
-		if err != nil {
-			return err
-		}
-		if done {
-			terminator = statement
-			break
-		}
-	}
-
-	if statement, ok := consumer.finish(fs.fn.Expressions); ok {
-		block = append(block, statement)
-	}
-	if terminator != nil {
-		block = append(block, *terminator)
-	}
-	fs.blocks[blockID] = block
-	fs.bodies[bodyIdx].fragments = append(fs.bodies[bodyIdx].fragments, bodyFragment{
-		kind:    fragmentBlock,
-		blockID: blockID,
-	})
 	return nil
 }
 

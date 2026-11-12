@@ -33,9 +33,10 @@ func parseSPVCorpus(t *testing.T, name string) *ir.Module {
 
 // TestSPVCorpusParseValidate is the corpus-wide gate: every module of the
 // derived corpus either parses into IR that validates or is refused with a
-// *ParseError (never a panic, never invalid IR). The modules Phase 1
-// implements must parse and validate, so a regression in the decoder or the
-// wrapper shows here even when a hand-built test misses it.
+// *ParseError (never a panic, never invalid IR). The modules the implemented
+// phases cover must parse and validate, so a regression in the decoder, the
+// control flow or the wrapper shows here even when a hand-built test misses
+// it.
 func TestSPVCorpusParseValidate(t *testing.T) {
 	phaseOne := map[string]bool{
 		"barrier":               true,
@@ -44,6 +45,16 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		"non-semantic-debug":    true,
 		"unnamed-gl-per-vertex": true,
 		"f16-spv":               true,
+		// Phase 1 decodes these as well; they were not pinned before.
+		"dual-source-blending":          true,
+		"inv-hyperbolic-trig-functions": true,
+		"quad-vert":                     true,
+		"spec-constants":                true,
+		"subgroup-barrier":              true,
+		// Phase 2, structured control flow: selections, loops, phis.
+		"8151-barrier-reorder":      true,
+		"per-vertex":                true,
+		"spec-constants-issue-5598": true,
 	}
 	binaries, err := filepath.Glob(filepath.Join(rustDerivedDir, "spv", "*.spv"))
 	if err != nil {
@@ -70,8 +81,9 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 				t.Errorf("%s: error %v (%T), want a *ParseError", name, err, err)
 			}
 			if phaseOne[name] {
-				t.Errorf("%s: Phase 1 must parse it: %v", name, err)
+				t.Errorf("%s: an implemented phase must parse it: %v", name, err)
 			}
+			t.Logf("%s: refused: %v", name, err)
 			continue
 		}
 		if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
@@ -114,6 +126,48 @@ func TestSPVParseBarrier(t *testing.T) {
 	}
 	if control != 3 || memory != 3 {
 		t.Errorf("barriers = %d control, %d memory; want 3 and 3", control, memory)
+	}
+}
+
+// TestSPVParseBarrierReorder: gfx-rs/wgpu#8151. The workgroup load between
+// two barriers must stay between them, after the first selection, as in Rust
+// naga's output (tests/out/wgsl/spv-8151-barrier-reorder.wgsl):
+//
+//	if _e8 { global_2 = 1u; }
+//	workgroupBarrier(); let _e9 = global_2; workgroupBarrier();
+//	global_1.member[_e6.x] = _e9;
+//	if _e8 { global_2 = 2u; }
+//	return;
+func TestSPVParseBarrierReorder(t *testing.T) {
+	module := parseSPVCorpus(t, "8151-barrier-reorder")
+	fn := module.Functions[0]
+	var kinds []string
+	for _, statement := range fn.Body {
+		switch kind := statement.Kind.(type) {
+		case ir.StmtEmit:
+			loads := 0
+			for h := kind.Range.Start; h < kind.Range.End; h++ {
+				if _, ok := fn.Expressions[h].Kind.(ir.ExprLoad); ok {
+					loads++
+				}
+			}
+			kinds = append(kinds, "emit"+strings.Repeat("+load", loads))
+		case ir.StmtIf:
+			kinds = append(kinds, "if")
+		case ir.StmtControlBarrier:
+			kinds = append(kinds, "barrier")
+		case ir.StmtStore:
+			kinds = append(kinds, "store")
+		case ir.StmtReturn:
+			kinds = append(kinds, "return")
+		default:
+			kinds = append(kinds, "other")
+		}
+	}
+	got := strings.Join(kinds, " ")
+	const want = "emit+load if barrier emit+load barrier emit store if return"
+	if got != want {
+		t.Errorf("statements = %s\nwant         %s", got, want)
 	}
 }
 
@@ -180,6 +234,43 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 	}{
 		{"empty-compute", `@compute @workgroup_size(1) fn main() {}`},
 		{"fragment-color", `@fragment fn main() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`},
+		// Structured control flow (Phase 2): our SPIR-V writer's selections,
+		// loops, switches and break-ifs read back into IR that validates.
+		{"if-else", `@fragment fn main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+			var c = vec4<f32>(0.0);
+			if p.x > 1.0 { c.x = 1.0; } else if p.y > 2.0 { c.y = 1.0; } else { return c; }
+			return c;
+		}`},
+		{"for-loop", `@compute @workgroup_size(1) fn main() {
+			var s = 0;
+			for (var i = 0; i < 10; i++) {
+				if i == 3 { continue; }
+				if i == 7 { break; }
+				s += i;
+			}
+		}`},
+		{"loop-break-if", `@compute @workgroup_size(1) fn main() {
+			var i = 0;
+			loop { i += 1; continuing { break if i >= 4; } }
+		}`},
+		{"switch", `@compute @workgroup_size(1) fn main(@builtin(local_invocation_index) x: u32) {
+			var s = 0;
+			switch x {
+				case 0u, 1u: { s = 1; }
+				case 2u: { s = 2; return; }
+				default: { s = 3; }
+			}
+		}`},
+		{"nested", `@compute @workgroup_size(1) fn main() {
+			var s = 0;
+			for (var i = 0; i < 4; i++) {
+				var j = 0;
+				while j < i {
+					switch j { case 1: { s += 1; } default: { s -= 1; } }
+					j++;
+				}
+			}
+		}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			module, _, err := wgsl.Parse(tc.source, wgsl.ParseOptions{})
