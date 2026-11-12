@@ -21,6 +21,9 @@ type bodyModule struct {
 	groups   [][]uint32
 	extInst  bool
 	resultID uint32 // 1 for a void function
+	// raw leaves the function unclosed, so the last body instruction can be
+	// the end of the input.
+	raw bool
 }
 
 // newBodyModule returns the shared preamble.
@@ -44,6 +47,15 @@ func (m *bodyModule) withExtInst() *bodyModule {
 func (m *bodyModule) add(groups ...[]uint32) *bodyModule {
 	m.groups = append(m.groups, groups...)
 	return m
+}
+
+// buildRaw assembles the function with body and closes it without reading
+// past the input: the last instruction may claim more words than it has, so
+// its operands are really missing.
+func (m *bodyModule) buildRaw(body ...[]uint32) []byte {
+	m.raw = true
+	defer func() { m.raw = false }()
+	return m.build(body...)
 }
 
 // build assembles the binary with body inside one function.
@@ -112,6 +124,9 @@ func (m *bodyModule) build(body ...[]uint32) []byte {
 		)
 	}
 	groups = append(groups, body...)
+	if m.raw {
+		return spvWords(groups...)
+	}
 	// A test may end its block itself; the builder then closes the function.
 	if len(body) > 0 {
 		last := body[len(body)-1][0]
