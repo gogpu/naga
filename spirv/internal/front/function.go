@@ -348,7 +348,12 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 		if err != nil {
 			return false, nil, err
 		}
+		// A zero value is a pre-emit expression: it ends the Emit range of the
+		// instructions before it. Rust naga leaves it inside the range, which
+		// its own validator then rejects; the IR here has to validate.
+		flushBeforeStatement(consumer, fs.fn.Expressions, block)
 		p.storeExpression(id, typeID, blockID, appendExpression(fs.fn, ir.ExprZeroValue{Type: ty.handle}))
+		consumer.startWith(fs.fn.Expressions)
 	case spvenums.OpVariable:
 		return false, nil, p.localVariable(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpAccessChain, spvenums.OpInBoundsAccessChain:

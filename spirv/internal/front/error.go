@@ -2,6 +2,7 @@ package front
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/spvenums"
@@ -38,11 +39,18 @@ func errUnknownInstruction(opcode uint16) *Error {
 }
 
 func errInvalidOperandCount(op spvenums.Op, wc uint16) *Error {
-	return &Error{Message: fmt.Sprintf("invalid operand count %d for %s", wc, op)}
+	return &Error{Message: fmt.Sprintf("invalid operand count %d for %s", wc, bareName(op.String(), "Op"))}
+}
+
+// bareName is the name Rust naga's Debug prints for a SPIR-V value: the
+// grammar's enumerant without the kind prefix the generated constant names
+// carry ("TypeVoid", not "OpTypeVoid").
+func bareName(name, kind string) string {
+	return strings.TrimPrefix(name, kind)
 }
 
 func errUnsupportedInstruction(state moduleState, op spvenums.Op) *Error {
-	return &Error{Message: fmt.Sprintf("unsupported instruction %s at %s", op, state)}
+	return &Error{Message: fmt.Sprintf("unsupported instruction %s at %s", bareName(op.String(), "Op"), state)}
 }
 
 func errUnknownCapability(capability uint32) *Error {
@@ -50,7 +58,7 @@ func errUnknownCapability(capability uint32) *Error {
 }
 
 func errUnsupportedCapability(capability spvenums.Capability) *Error {
-	return &Error{Message: fmt.Sprintf("unsupported capability %s", capability)}
+	return &Error{Message: fmt.Sprintf("unsupported capability %s", bareName(capability.String(), "Capability"))}
 }
 
 func errUnsupportedExtension(name string) *Error {
@@ -126,7 +134,7 @@ func errUnsupportedBuiltIn(builtin uint32) *Error {
 }
 
 func errMissingDecoration(decoration spvenums.Decoration) *Error {
-	return &Error{Message: fmt.Sprintf("missing decoration %s", decoration)}
+	return &Error{Message: fmt.Sprintf("missing decoration %s", bareName(decoration.String(), "Decoration"))}
 }
 
 func errInvalidArraySize(id uint32) *Error {
@@ -165,7 +173,7 @@ func errWrongFunctionArgumentType(id uint32) *Error {
 }
 
 func errInvalidParameter(op spvenums.Op) *Error {
-	return &Error{Message: fmt.Sprintf("invalid parameter %s", op)}
+	return &Error{Message: fmt.Sprintf("invalid parameter %s", bareName(op.String(), "Op"))}
 }
 
 func errInvalidAccessType(id uint32) *Error {
@@ -189,11 +197,11 @@ func errUnsupportedExtInst(id uint32) *Error {
 }
 
 func errUnknownBinaryOperator(op spvenums.Op) *Error {
-	return &Error{Message: fmt.Sprintf("unknown binary operator %s", op)}
+	return &Error{Message: fmt.Sprintf("unknown binary operator %s", bareName(op.String(), "Op"))}
 }
 
 func errUnknownRelationalFunction(op spvenums.Op) *Error {
-	return &Error{Message: fmt.Sprintf("unknown relational function %s", op)}
+	return &Error{Message: fmt.Sprintf("unknown relational function %s", bareName(op.String(), "Op"))}
 }
 
 func errInvalidBarrierScope(id uint32) *Error {

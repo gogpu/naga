@@ -20,9 +20,10 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 
 	function := ir.Function{Name: ep.name + "_wrap"}
 	var consumer emitter
-	consumer.startWith(function.Expressions)
 
-	// 1. Copy the inputs from the arguments into their privates.
+	// 1. Copy the inputs from the arguments into their privates. The argument
+	// and the pointer are pre-emit expressions: they stay outside every Emit
+	// range, as Rust naga's wrapper leaves them.
 	for _, variableID := range ep.variableIDs {
 		variable, ok := p.lookupVariable[variableID]
 		if !ok {
@@ -39,6 +40,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		if variable.argument.Type != global.Type {
 			// The only difference is an integer built-in the IR reads as
 			// unsigned and this global declares as signed.
+			consumer.startWith(function.Expressions)
 			width := uint8(4)
 			value = appendExpression(&function, ir.ExprAs{
 				Expr:    argument,
@@ -54,7 +56,6 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 			Pointer: pointer,
 			Value:   value,
 		}})
-		consumer.startWith(function.Expressions)
 
 		argumentCopy := variable.argument
 		if ep.stage == ir.StageFragment && argumentCopy.Binding != nil {

@@ -155,8 +155,8 @@ func TestParseCapability(t *testing.T) {
 			headerWords(),
 			instWords(spvenums.OpCapability, uint32(spvenums.CapabilityLinkage)),
 		)
-		if got := requireError(t, err).Message; got != "unsupported capability CapabilityLinkage" {
-			t.Errorf("message = %q, want %q", got, "unsupported capability CapabilityLinkage")
+		if got := requireError(t, err).Message; got != "unsupported capability Linkage" {
+			t.Errorf("message = %q, want %q", got, "unsupported capability Linkage")
 		}
 	})
 
@@ -171,7 +171,7 @@ func TestParseCapability(t *testing.T) {
 		if len(info.Warnings) != 1 {
 			t.Fatalf("warnings = %d, want 1", len(info.Warnings))
 		}
-		if want := "Unknown capability CapabilityLinkage"; info.Warnings[0].Message != want {
+		if want := "Unknown capability Linkage"; info.Warnings[0].Message != want {
 			t.Errorf("warning = %q, want %q", info.Warnings[0].Message, want)
 		}
 	})
@@ -183,7 +183,7 @@ func TestParseSectionOrder(t *testing.T) {
 		instWords(spvenums.OpMemoryModel, 0, 1),
 		instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
 	)
-	want := "unsupported instruction OpCapability at MemoryModel"
+	want := "unsupported instruction Capability at MemoryModel"
 	if got := requireError(t, err).Message; got != want {
 		t.Errorf("message = %q, want %q", got, want)
 	}
@@ -226,7 +226,7 @@ func TestInstructionDecoding(t *testing.T) {
 			headerWords(),
 			instWords(spvenums.OpNop),
 		)
-		want := "unsupported instruction OpNop at Empty"
+		want := "unsupported instruction Nop at Empty"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
@@ -360,7 +360,7 @@ func TestParseEntryPoint(t *testing.T) {
 			instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelGLCompute), 1}, "main"),
 			instWords(spvenums.OpExecutionMode, 1, uint32(spvenums.ExecutionModeLocalSize)),
 		)
-		want := "invalid operand count 3 for OpExecutionMode"
+		want := "invalid operand count 3 for ExecutionMode"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
@@ -413,7 +413,7 @@ func TestParseNamesAndDecorations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
-		if len(info.Warnings) != 1 || info.Warnings[0].Message != "Unknown decoration DecorationAliased" {
+		if len(info.Warnings) != 1 || info.Warnings[0].Message != "Unknown decoration Aliased" {
 			t.Errorf("warnings = %#v, want the Aliased decoration", info.Warnings)
 		}
 	})

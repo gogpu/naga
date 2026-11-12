@@ -667,7 +667,7 @@ func TestBodyExtInst(t *testing.T) {
 
 	t.Run("wrong operand count", func(t *testing.T) {
 		m := newBodyModule().withExtInst()
-		if got := m.parseError(t, instWords(spvenums.OpExtInst, 5, 200, 40, uint32(spvenums.GlslStd450Pow), 22)).Message; got != "invalid operand count 6 for OpExtInst" {
+		if got := m.parseError(t, instWords(spvenums.OpExtInst, 5, 200, 40, uint32(spvenums.GlslStd450Pow), 22)).Message; got != "invalid operand count 6 for ExtInst" {
 			t.Errorf("message = %q", got)
 		}
 	})
@@ -794,7 +794,7 @@ func TestBodyInstructionMistakes(t *testing.T) {
 		{
 			name: "wrong operand count",
 			body: [][]uint32{instWords(spvenums.OpIAdd, 3, 200, 20)},
-			want: "invalid operand count 4 for OpIAdd",
+			want: "invalid operand count 4 for IAdd",
 		},
 		{
 			name: "struct index must be constant",
@@ -816,12 +816,12 @@ func TestBodyInstructionMistakes(t *testing.T) {
 		{
 			name: "unsupported instruction in a body",
 			body: [][]uint32{instWords(spvenums.OpBranchConditional, 24, 101, 101)},
-			want: "unsupported instruction OpBranchConditional at Function",
+			want: "unsupported instruction BranchConditional at Function",
 		},
 		{
 			name: "is-finite has no relational function",
 			body: [][]uint32{instWords(spvenums.OpIsFinite, 6, 200, 22)},
-			want: "unknown relational function OpIsFinite",
+			want: "unknown relational function IsFinite",
 		},
 		{
 			name: "shuffle index out of range",

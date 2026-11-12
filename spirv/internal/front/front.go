@@ -339,6 +339,34 @@ func (p *parser) nextString(count uint16) (string, uint16, error) {
 	return string(buf), count, nil
 }
 
+// parseModuleExtInst skips a module-level OpExtInst of the non-semantic debug
+// set, whose instructions are ignorable; any other extended instruction there
+// is unsupported, as in Rust naga.
+func (p *parser) parseModuleExtInst(inst instruction) error {
+	if _, err := inst.expectAtLeast(4); err != nil {
+		return err
+	}
+	if _, err := p.next(); err != nil { // result type
+		return err
+	}
+	if _, err := p.next(); err != nil { // result id
+		return err
+	}
+	setID, err := p.next()
+	if err != nil {
+		return err
+	}
+	if !p.hasExtNonSemantic || setID != p.extNonSemanticID {
+		return errUnsupportedInstruction(p.state, inst.op)
+	}
+	for range inst.wc - 4 {
+		if _, err := p.next(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // switchTo enforces SPIR-V's section order: a state before the one reached is
 // an unsupported instruction, as Rust naga's Frontend::switch.
 func (p *parser) switchTo(state moduleState, op spvenums.Op) error {
@@ -443,6 +471,8 @@ func (p *parser) handle(inst instruction) error {
 		return p.parseBoolConstant(inst, false)
 	case spvenums.OpVariable:
 		return p.parseGlobalVariable(inst)
+	case spvenums.OpExtInst:
+		return p.parseModuleExtInst(inst)
 	case spvenums.OpFunction:
 		if err := p.switchTo(stateFunction, inst.op); err != nil {
 			return err
@@ -478,7 +508,7 @@ func (p *parser) parseCapability(inst instruction) error {
 		if !p.options.AllowUnknownCapabilities {
 			return errUnsupportedCapability(capability)
 		}
-		p.warnf("Unknown capability %s", capability)
+		p.warnf("Unknown capability %s", bareName(capability.String(), "Capability"))
 	}
 	return nil
 }

@@ -108,20 +108,20 @@ func TestOperandCountChecks(t *testing.T) {
 		inst []uint32
 		want string
 	}{
-		{"OpTypeVoid", instWords(spvenums.OpTypeVoid, 1, 2), "invalid operand count 3 for OpTypeVoid"},
-		{"OpTypeBool", instWords(spvenums.OpTypeBool, 1, 2), "invalid operand count 3 for OpTypeBool"},
-		{"OpTypeInt", instWords(spvenums.OpTypeInt, 1, 32), "invalid operand count 3 for OpTypeInt"},
-		{"OpTypeFloat", instWords(spvenums.OpTypeFloat, 1, 32, 0), "invalid operand count 4 for OpTypeFloat"},
-		{"OpTypeVector", instWords(spvenums.OpTypeVector, 1, 2), "invalid operand count 3 for OpTypeVector"},
-		{"OpTypeMatrix", instWords(spvenums.OpTypeMatrix, 1, 2), "invalid operand count 3 for OpTypeMatrix"},
-		{"OpTypePointer", instWords(spvenums.OpTypePointer, 1, 2), "invalid operand count 3 for OpTypePointer"},
-		{"OpTypeArray", instWords(spvenums.OpTypeArray, 1, 2), "invalid operand count 3 for OpTypeArray"},
-		{"OpTypeRuntimeArray", instWords(spvenums.OpTypeRuntimeArray, 1, 2, 3), "invalid operand count 4 for OpTypeRuntimeArray"},
-		{"OpTypeImage", instWords(spvenums.OpTypeImage, 1, 2, 3), "invalid operand count 4 for OpTypeImage"},
-		{"OpTypeSampledImage", instWords(spvenums.OpTypeSampledImage, 1, 2, 3), "invalid operand count 4 for OpTypeSampledImage"},
-		{"OpTypeSampler", instWords(spvenums.OpTypeSampler, 1, 2), "invalid operand count 3 for OpTypeSampler"},
-		{"OpConstantNull", instWords(spvenums.OpConstantNull, 1, 2, 3), "invalid operand count 4 for OpConstantNull"},
-		{"OpConstantTrue", instWords(spvenums.OpConstantTrue, 1, 2, 3), "invalid operand count 4 for OpConstantTrue"},
+		{"OpTypeVoid", instWords(spvenums.OpTypeVoid, 1, 2), "invalid operand count 3 for TypeVoid"},
+		{"OpTypeBool", instWords(spvenums.OpTypeBool, 1, 2), "invalid operand count 3 for TypeBool"},
+		{"OpTypeInt", instWords(spvenums.OpTypeInt, 1, 32), "invalid operand count 3 for TypeInt"},
+		{"OpTypeFloat", instWords(spvenums.OpTypeFloat, 1, 32, 0), "invalid operand count 4 for TypeFloat"},
+		{"OpTypeVector", instWords(spvenums.OpTypeVector, 1, 2), "invalid operand count 3 for TypeVector"},
+		{"OpTypeMatrix", instWords(spvenums.OpTypeMatrix, 1, 2), "invalid operand count 3 for TypeMatrix"},
+		{"OpTypePointer", instWords(spvenums.OpTypePointer, 1, 2), "invalid operand count 3 for TypePointer"},
+		{"OpTypeArray", instWords(spvenums.OpTypeArray, 1, 2), "invalid operand count 3 for TypeArray"},
+		{"OpTypeRuntimeArray", instWords(spvenums.OpTypeRuntimeArray, 1, 2, 3), "invalid operand count 4 for TypeRuntimeArray"},
+		{"OpTypeImage", instWords(spvenums.OpTypeImage, 1, 2, 3), "invalid operand count 4 for TypeImage"},
+		{"OpTypeSampledImage", instWords(spvenums.OpTypeSampledImage, 1, 2, 3), "invalid operand count 4 for TypeSampledImage"},
+		{"OpTypeSampler", instWords(spvenums.OpTypeSampler, 1, 2), "invalid operand count 3 for TypeSampler"},
+		{"OpConstantNull", instWords(spvenums.OpConstantNull, 1, 2, 3), "invalid operand count 4 for ConstantNull"},
+		{"OpConstantTrue", instWords(spvenums.OpConstantTrue, 1, 2, 3), "invalid operand count 4 for ConstantTrue"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

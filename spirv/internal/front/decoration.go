@@ -313,7 +313,7 @@ func (p *parser) nextDecoration(inst instruction, baseWords uint16, dec *decorat
 	// An unknown decoration: warn and skip its operands. Block decorations
 	// are demoted to a debug level in Rust naga because they appear
 	// everywhere; the warning is kept here for both.
-	p.warnf("Unknown decoration %s", decoration)
+	p.warnf("Unknown decoration %s", bareName(decoration.String(), "Decoration"))
 	for range inst.wc - (baseWords + 1) {
 		if _, err := p.next(); err != nil {
 			return err

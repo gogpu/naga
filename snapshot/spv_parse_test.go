@@ -1,8 +1,10 @@
 package snapshot_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -27,6 +29,50 @@ func parseSPVCorpus(t *testing.T, name string) *ir.Module {
 		t.Fatalf("Validate(%s): %v", name, err)
 	}
 	return module
+}
+
+// TestSPVCorpusParseValidate is the corpus-wide gate: every module of the
+// derived corpus either parses into IR that validates or is refused with a
+// *ParseError (never a panic, never invalid IR). The modules Phase 1
+// implements must parse and validate, so a regression in the decoder or the
+// wrapper shows here even when a hand-built test misses it.
+func TestSPVCorpusParseValidate(t *testing.T) {
+	phaseOne := map[string]bool{
+		"barrier":               true,
+		"degrees":               true,
+		"empty-global-name":     true,
+		"non-semantic-debug":    true,
+		"unnamed-gl-per-vertex": true,
+		"f16-spv":               true,
+	}
+	binaries, err := filepath.Glob(filepath.Join(rustDerivedDir, "spv", "*.spv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(binaries) == 0 {
+		t.Fatalf("no binaries under %s", filepath.Join(rustDerivedDir, "spv"))
+	}
+	for _, path := range binaries {
+		name := strings.TrimSuffix(filepath.Base(path), ".spv")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		module, _, err := spirv.Parse(data, spirv.ParseOptions{})
+		if err != nil {
+			var parseErr *spirv.ParseError
+			if !errors.As(err, &parseErr) {
+				t.Errorf("%s: error %v (%T), want a *ParseError", name, err, err)
+			}
+			if phaseOne[name] {
+				t.Errorf("%s: Phase 1 must parse it: %v", name, err)
+			}
+			continue
+		}
+		if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+			t.Errorf("%s: parses but does not validate: %v", name, err)
+		}
+	}
 }
 
 // TestSPVParseBarrier: a compute shader whose body is barriers parses into the

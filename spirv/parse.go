@@ -24,12 +24,16 @@ type ParseOptions struct {
 	AllowUnknownCapabilities bool
 
 	// CombinedImageSampler selects the treatment of combined image samplers.
-	// The zero value splits them into an image and a sampler.
+	// The zero value splits them into an image and a sampler. The split
+	// itself lands with the image and sampling support (§12 of the design,
+	// phase 4): until then a module that declares a combined image sampler is
+	// refused with a *ParseError naming it, never read with the wrong shape.
 	CombinedImageSampler frontend.CombinedImageSamplerPolicy
 
 	// SamplerBindings places the sampler of each split combined image
 	// sampler; see frontend.SamplerBindings for the per-module resolution and
-	// the multi-module caveat. Ignored with CombinedImageSamplerReject.
+	// the multi-module caveat. Ignored with CombinedImageSamplerReject, and
+	// inert until the split lands.
 	SamplerBindings frontend.SamplerBindings
 }
 
@@ -42,6 +46,7 @@ type ParseInfo struct {
 
 	// CombinedSamplers lists the splits the parse applied, in source order. A
 	// caller that binds descriptors needs it to know where each sampler went.
+	// Empty until the split lands.
 	CombinedSamplers []frontend.CombinedSampler
 }
 
@@ -52,6 +57,9 @@ type ParseError struct {
 	Message string
 	// Offset is the byte offset of the offending instruction, 0 if none.
 	Offset uint32
+	// Labels and Notes are reserved for diagnostics that point into the
+	// binary; the decoder reports the offset and the message today and fills
+	// neither.
 	Labels []frontend.Label
 	Notes  []string
 }

@@ -132,12 +132,12 @@ func TestParseMetadataWordCounts(t *testing.T) {
 		// memory model.
 		early bool
 	}{
-		{"name without a string", instWords(spvenums.OpName, 3), "invalid operand count 2 for OpName", false},
-		{"member name without a string", instWords(spvenums.OpMemberName, 3, 0), "invalid operand count 3 for OpMemberName", false},
-		{"module processed without a string", instWords(spvenums.OpModuleProcessed), "invalid operand count 1 for OpModuleProcessed", false},
-		{"extension without a name", instWords(spvenums.OpExtension), "invalid operand count 1 for OpExtension", true},
-		{"source extension without a name", instWords(spvenums.OpSourceExtension), "invalid operand count 1 for OpSourceExtension", false},
-		{"ext inst import without a name", instWords(spvenums.OpExtInstImport, 3), "invalid operand count 2 for OpExtInstImport", true},
+		{"name without a string", instWords(spvenums.OpName, 3), "invalid operand count 2 for Name", false},
+		{"member name without a string", instWords(spvenums.OpMemberName, 3, 0), "invalid operand count 3 for MemberName", false},
+		{"module processed without a string", instWords(spvenums.OpModuleProcessed), "invalid operand count 1 for ModuleProcessed", false},
+		{"extension without a name", instWords(spvenums.OpExtension), "invalid operand count 1 for Extension", true},
+		{"source extension without a name", instWords(spvenums.OpSourceExtension), "invalid operand count 1 for SourceExtension", false},
+		{"ext inst import without a name", instWords(spvenums.OpExtInstImport, 3), "invalid operand count 2 for ExtInstImport", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

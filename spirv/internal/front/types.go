@@ -494,7 +494,9 @@ func (p *parser) parseTypeStruct(inst instruction) error {
 		span += layout.Size
 
 		if matrix, ok := p.module.Types[ty.handle].Inner.(ir.MatrixType); ok && dec.hasMatrixStride {
-			expected := uint32(matrix.Rows) * uint32(matrix.Scalar.Width)
+			// Rust naga's Alignment::from(rows): a vec3 row is aligned like a
+			// vec4, so a 3-row matrix has a stride of 4 columns.
+			expected := rowAlignment(matrix.Rows) * uint32(matrix.Scalar.Width)
 			if dec.matrixStride != expected {
 				return errUnsupportedMatrixStride(dec.matrixStride, uint8(matrix.Columns), uint8(matrix.Rows), matrix.Scalar.Width)
 			}
@@ -713,6 +715,19 @@ func scalarOf(inner ir.TypeInner) (ir.ScalarType, bool) {
 func (p *parser) strideOf(base ir.TypeHandle) uint32 {
 	layout := p.layouter.Layout(base)
 	return roundUp(layout.Size, layout.Alignment)
+}
+
+// rowAlignment returns the alignment in components of a matrix's rows, as
+// Rust naga's Alignment::from(VectorSize): a vec2 row aligns to 2, a vec3 or
+// vec4 row to 4.
+func rowAlignment(rows ir.VectorSize) uint32 {
+	switch rows {
+	case ir.Vec2:
+		return 2
+	case ir.Vec3, ir.Vec4:
+		return 4
+	}
+	return 1
 }
 
 // roundUp rounds value up to the next multiple of alignment, which is a power

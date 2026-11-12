@@ -61,7 +61,7 @@ func TestParseFunctionErrors(t *testing.T) {
 			instWords(spvenums.OpReturn),
 			instWords(spvenums.OpFunctionEnd),
 		)
-		want := "invalid parameter OpLabel"
+		want := "invalid parameter Label"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
@@ -78,7 +78,7 @@ func TestParseFunctionErrors(t *testing.T) {
 			instWords(spvenums.OpNop),
 			instWords(spvenums.OpFunctionEnd),
 		)
-		want := "unsupported instruction OpNop at Function"
+		want := "unsupported instruction Nop at Function"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
@@ -114,7 +114,7 @@ func TestParseFunctionErrors(t *testing.T) {
 			instWords(spvenums.OpExtInst, 10, 30, 40, 1),
 			instWords(spvenums.OpFunctionEnd),
 		)
-		want := "unsupported instruction OpExtInst at Function"
+		want := "unsupported instruction ExtInst at Function"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
