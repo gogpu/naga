@@ -83,7 +83,9 @@ func (p *parser) parseFunction() error {
 		bodyForLabel: make(map[uint32]int),
 		bodies:       []body{{parent: 0}},
 	}
-	p.makeExpressionStorage(fs)
+	if err := p.makeExpressionStorage(fs); err != nil {
+		return err
+	}
 
 	// The function's blocks: OpLabel starts one, OpFunctionEnd closes the
 	// function.
@@ -165,7 +167,14 @@ parameters:
 // function's expression arena, so that instructions can refer to them by id
 // from the start, as Rust naga's make_expression_storage. The ids are visited
 // in ascending order, so the arena is reproducible from run to run.
-func (p *parser) makeExpressionStorage(fs *functionState) {
+//
+// The arenas of all functions together are bounded by maxStorageExpressions,
+// checked before this function's arena grows.
+func (p *parser) makeExpressionStorage(fs *functionState) error {
+	p.storageExpressions += len(p.lookupVariable) + len(p.lookupConstant)
+	if p.storageExpressions > maxStorageExpressions {
+		return errTooManyStorageExpressions(p.storageExpressions)
+	}
 	variableIDs := make([]uint32, 0, len(p.lookupVariable))
 	for id := range p.lookupVariable {
 		variableIDs = append(variableIDs, id)
@@ -187,6 +196,7 @@ func (p *parser) makeExpressionStorage(fs *functionState) {
 		handle := appendExpression(fs.fn, constant.kind.expressionKind())
 		p.lookupExpression[id] = lookupExpression{handle: handle, typeID: constant.typeID}
 	}
+	return nil
 }
 
 // appendPhiStores emits the stores that complete every phi: each predecessor

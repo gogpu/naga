@@ -145,6 +145,12 @@ func errArrayTooLarge(count uint32) *Error {
 	return &Error{Message: fmt.Sprintf("array size %d exceeds the limit %d", count, maxArrayElements)}
 }
 
+func errTooManyStorageExpressions(total int) *Error {
+	return &Error{Message: fmt.Sprintf(
+		"the functions need %d expressions for the module's globals and constants, more than the limit %d",
+		total, maxStorageExpressions)}
+}
+
 func errUnsupportedMatrixStride(stride uint32, columns, rows uint8, width uint8) *Error {
 	return &Error{Message: fmt.Sprintf("unsupported matrix stride %d for a %dx%d matrix with scalar width=%d",
 		stride, columns, rows, width)}

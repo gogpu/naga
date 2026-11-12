@@ -105,6 +105,9 @@ type parser struct {
 	// lookupExpression is the table of the function being parsed; it is
 	// cleared when the next function starts.
 	lookupExpression map[uint32]lookupExpression
+	// storageExpressions counts the global and constant expressions every
+	// function parsed so far got, bounded by maxStorageExpressions.
+	storageExpressions int
 
 	// entryPoints holds the OpEntryPoint declarations by function id.
 	entryPoints map[uint32]*entryPointInfo
