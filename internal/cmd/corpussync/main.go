@@ -91,10 +91,9 @@ func formatChanges(r Report) string {
 // leaves src untouched; an invalid one is an error, and so is a tree recorded
 // as another kind.
 //
-// An explicit -commit that differs from the recorded one moves the tree to a
-// new upstream commit. The recorded date and note described the old commit, so
-// they are not inherited: the caller passes both again, which keeps a
-// provenance rewrite from silently claiming the new commit with the old facts.
+// The commit, date and note follow applyCommitMove: an explicit -commit that
+// differs from the recorded one moves the tree to a new upstream commit and
+// inherits none of the old facts about it.
 func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *testcorpus.Source) error {
 	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
 	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
@@ -111,27 +110,38 @@ func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *test
 	}
 	set := make(map[string]bool)
 	fl.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if set["commit"] && src.Commit != prev.Source.Commit {
-		if !set["commit-date"] || !set["note"] || src.CommitDate == "" || src.Note == "" {
-			return fmt.Errorf("the commit changes from %q to %q: pass -commit-date and -note for the new commit; they are not inherited from the old one",
-				prev.Source.Commit, src.Commit)
-		}
-	} else {
-		if !set["commit"] {
-			src.Commit = prev.Source.Commit
-		}
-		if !set["commit-date"] {
-			src.CommitDate = prev.Source.CommitDate
-		}
-		if !set["note"] {
-			src.Note = prev.Source.Note
-		}
+	if err := applyCommitMove(set, &prev.Source, src); err != nil {
+		return err
 	}
 	if !set["repo"] {
 		src.Repository = prev.Source.Repository
 	}
 	if !set["generator"] {
 		src.Generator = prev.Source.Generator
+	}
+	return nil
+}
+
+// applyCommitMove fills the commit, date and note fields from the recorded
+// source, except when -commit explicitly names a different commit: the old
+// date and note described the old commit, so the caller must supply both for
+// the new one and nothing is inherited.
+func applyCommitMove(set map[string]bool, prev *testcorpus.Source, src *testcorpus.Source) error {
+	if set["commit"] && src.Commit != prev.Commit {
+		if !set["commit-date"] || !set["note"] || src.CommitDate == "" || src.Note == "" {
+			return fmt.Errorf("the commit changes from %q to %q: pass -commit-date and -note for the new commit; they are not inherited from the old one",
+				prev.Commit, src.Commit)
+		}
+		return nil
+	}
+	if !set["commit"] {
+		src.Commit = prev.Commit
+	}
+	if !set["commit-date"] {
+		src.CommitDate = prev.CommitDate
+	}
+	if !set["note"] {
+		src.Note = prev.Note
 	}
 	return nil
 }
