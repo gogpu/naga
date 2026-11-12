@@ -50,12 +50,12 @@ func TestBuiltinVaryingStageAndType(t *testing.T) {
 		{
 			name:  "base_instance fragment output",
 			stage: ir.StageFragment, resTy: handle(0), resB: binding(ir.BuiltinBaseInstance),
-			wantErr: "Built-in base_instance is not available at this stage",
+			wantErr: "Built-in BaseInstance is not available at this stage",
 		},
 		{
 			name:  "base_vertex compute input",
 			stage: ir.StageCompute, argTy: handle(0), argB: binding(ir.BuiltinBaseVertex),
-			wantErr: "Built-in base_vertex is not available at this stage",
+			wantErr: "Built-in BaseVertex is not available at this stage",
 		},
 		{
 			name:  "point_coord fragment input",
@@ -65,7 +65,7 @@ func TestBuiltinVaryingStageAndType(t *testing.T) {
 			name:  "point_coord vertex input",
 			stage: ir.StageVertex, argTy: handle(2), argB: binding(ir.BuiltinPointCoord),
 			resTy: handle(4), resB: binding(ir.BuiltinPosition),
-			wantErr: "Built-in point_coord is not available at this stage",
+			wantErr: "Built-in PointCoord is not available at this stage",
 		},
 		{
 			name:  "workgroup_size compute input",
@@ -74,7 +74,7 @@ func TestBuiltinVaryingStageAndType(t *testing.T) {
 		{
 			name:  "workgroup_size wrong type",
 			stage: ir.StageCompute, argTy: handle(2), argB: binding(ir.BuiltinWorkGroupSize),
-			wantErr: "Built-in type for workgroup_size is invalid",
+			wantErr: "Built-in type for WorkGroupSize is invalid. Found Vector { size: Bi, scalar: Scalar { kind: Float, width: 4 } }",
 		},
 		{
 			name:  "cull_distance vertex output",
@@ -83,12 +83,12 @@ func TestBuiltinVaryingStageAndType(t *testing.T) {
 		{
 			name:  "cull_distance signed array",
 			stage: ir.StageVertex, resTy: handle(7), resB: binding(ir.BuiltinCullDistance),
-			wantErr: "Built-in type for cull_distance is invalid",
+			wantErr: "Built-in type for CullDistance is invalid. Found Array { base: [5], size: Constant(2), stride: 4 }",
 		},
 		{
 			name:  "cull_distance fragment output",
 			stage: ir.StageFragment, resTy: handle(6), resB: binding(ir.BuiltinCullDistance),
-			wantErr: "Built-in cull_distance is not available at this stage",
+			wantErr: "Built-in CullDistance is not available at this stage",
 		},
 	}
 

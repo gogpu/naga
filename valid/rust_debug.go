@@ -66,9 +66,41 @@ func vectorSizeDebug(n ir.VectorSize) string {
 	return fmt.Sprintf("VectorSize(%d)", n)
 }
 
+// builtinDebugNames are Rust naga's BuiltIn variant names as its derived Debug
+// prints them, for the built-ins VaryingError messages name.
+var builtinDebugNames = map[ir.BuiltinValue]string{
+	ir.BuiltinBaseInstance:  "BaseInstance",
+	ir.BuiltinBaseVertex:    "BaseVertex",
+	ir.BuiltinCullDistance:  "CullDistance",
+	ir.BuiltinPointCoord:    "PointCoord",
+	ir.BuiltinWorkGroupSize: "WorkGroupSize",
+}
+
+// builtinDebug is b as Rust's Debug prints a BuiltIn.
+func builtinDebug(b ir.BuiltinValue) string {
+	if name, ok := builtinDebugNames[b]; ok {
+		return name
+	}
+	return fmt.Sprintf("BuiltIn(%d)", b)
+}
+
+// arraySizeDebug is size as Rust's Debug prints an ArraySize.
+func arraySizeDebug(size ir.ArraySize) string {
+	switch {
+	case size.Constant != nil:
+		return fmt.Sprintf("Constant(%d)", *size.Constant)
+	case size.Pending != nil:
+		return fmt.Sprintf("Pending([%d])", *size.Pending)
+	default:
+		return "Dynamic"
+	}
+}
+
 // typeInnerDebug is inner as Rust's Debug prints a TypeInner. Scalars,
-// vectors and matrices are printed in full; other types by their variant
-// name only, which no current message needs more of.
+// vectors, matrices, arrays and binding arrays are printed in full; the other
+// types by their variant name with an elided body, the shapes no message
+// exercises. The Go type name in the default is a canary for a variant that
+// needs rendering.
 func typeInnerDebug(inner ir.TypeInner) string {
 	switch t := inner.(type) {
 	case ir.ScalarType:
@@ -79,11 +111,29 @@ func typeInnerDebug(inner ir.TypeInner) string {
 		return fmt.Sprintf("Matrix { columns: %s, rows: %s, scalar: %s }",
 			vectorSizeDebug(t.Columns), vectorSizeDebug(t.Rows), scalarDebug(t.Scalar))
 	case ir.ArrayType:
-		return "Array { .. }"
+		return fmt.Sprintf("Array { base: [%d], size: %s, stride: %d }", t.Base, arraySizeDebug(t.Size), t.Stride)
+	case ir.BindingArrayType:
+		size := "Dynamic"
+		if t.Size != nil {
+			size = fmt.Sprintf("Constant(%d)", *t.Size)
+		}
+		return fmt.Sprintf("BindingArray { base: [%d], size: %s }", t.Base, size)
+	case ir.AtomicType:
+		return "Atomic(" + scalarDebug(t.Scalar) + ")"
+	case ir.PointerType:
+		return fmt.Sprintf("Pointer { base: [%d], space: %s }", t.Base, addressSpaceDebug(t.Space))
 	case ir.StructType:
 		return "Struct { .. }"
-	case ir.PointerType:
-		return "Pointer { .. }"
+	case ir.ValuePointerType:
+		return "ValuePointer { .. }"
+	case ir.SamplerType:
+		return "Sampler { .. }"
+	case ir.ImageType:
+		return "Image { .. }"
+	case ir.AccelerationStructureType:
+		return "AccelerationStructure { .. }"
+	case ir.RayQueryType:
+		return "RayQuery { .. }"
 	}
 	return fmt.Sprintf("%T", inner)
 }
