@@ -126,7 +126,29 @@ func (e ParseError) Error() string {
 func NewParser(lexer *Lexer) *Parser {
 	p := &Parser{lexer: lexer}
 	p.cur = lexer.Next()
+	p.reportLexerError()
 	return p
+}
+
+// reportLexerError records a lexical error that has its own message, and turns
+// the token it produced into EOF so the parser does not report a second,
+// generic error at the same place.
+func (p *Parser) reportLexerError() {
+	lexErr := p.lexer.takeError()
+	if lexErr == nil {
+		return
+	}
+	p.errors = append(p.errors, ParseError{
+		Message: lexErr.Message,
+		Token: Token{
+			Kind:   TokenError,
+			Lexeme: lexErr.Lexeme,
+			Line:   lexErr.Line,
+			Column: lexErr.Column,
+		},
+		Label: lexErr.Label,
+	})
+	p.cur = Token{Kind: TokenEOF, Line: lexErr.Line, Column: lexErr.Column}
 }
 
 // Parse parses the tokens and returns a Module AST.
@@ -197,7 +219,10 @@ func (p *Parser) Parse() (*Module, error) {
 // declaration parses a top-level declaration.
 func (p *Parser) declaration() (Decl, *ParseError) {
 	// Parse attributes first
-	attrs := p.attributes()
+	attrs, err := p.attributes()
+	if err != nil {
+		return nil, err
+	}
 
 	if p.seenDecl && (p.check(TokenEnable) || p.check(TokenDiagnostic)) {
 		// The grammar has every global_directive before the first
@@ -332,8 +357,17 @@ func (p *Parser) checkGlobalAttributeTargets(attrs []Attribute) *ParseError {
 }
 
 // attributes parses a list of attributes (@location(0), @vertex, etc.)
-func (p *Parser) attributes() []Attribute {
+// attributeDiagnostic is the one attribute the WGSL spec allows on a
+// declaration more than once.
+const attributeDiagnostic = "diagnostic"
+
+// attributes parses the attribute list of one declaration. WGSL allows each
+// attribute once per declaration, except @diagnostic: a repeat is Rust naga's
+// RepeatedAttribute. The check runs before the attributes are collected, so a
+// source made of repeats cannot be amplified into an AST.
+func (p *Parser) attributes() ([]Attribute, *ParseError) {
 	var attrs []Attribute
+	seen := make(map[string]bool, 4)
 
 	for p.check(TokenAt) {
 		start := p.peek()
@@ -346,6 +380,15 @@ func (p *Parser) attributes() []Attribute {
 		}
 
 		name := p.advance()
+		// @diagnostic may be applied to a declaration more than once.
+		if seen[name.Lexeme] && name.Lexeme != attributeDiagnostic {
+			return attrs, &ParseError{
+				Message: fmt.Sprintf("repeated attribute: `%s`", name.Lexeme),
+				Token:   name,
+				Label:   "repeated attribute",
+			}
+		}
+		seen[name.Lexeme] = true
 		attr := Attribute{
 			Name: name.Lexeme,
 			Span: Span{
@@ -373,7 +416,7 @@ func (p *Parser) attributes() []Attribute {
 		attrs = append(attrs, attr)
 	}
 
-	return attrs
+	return attrs, nil
 }
 
 // functionDecl parses a function declaration.
@@ -415,7 +458,11 @@ func (p *Parser) functionDecl(attrs []Attribute) (*FunctionDecl, *ParseError) {
 	var returnType Type
 	var returnAttrs []Attribute
 	if p.match(TokenArrow) {
-		returnAttrs = p.attributes()
+		attrs, err := p.attributes()
+		if err != nil {
+			return nil, err
+		}
+		returnAttrs = attrs
 		rt, err := p.typeSpec()
 		if err != nil {
 			return nil, err
@@ -444,7 +491,10 @@ func (p *Parser) functionDecl(attrs []Attribute) (*FunctionDecl, *ParseError) {
 
 // parameter parses a function parameter.
 func (p *Parser) parameter() (*Parameter, *ParseError) {
-	attrs := p.attributes()
+	attrs, err := p.attributes()
+	if err != nil {
+		return nil, err
+	}
 
 	if !p.check(TokenIdent) {
 		return nil, &ParseError{Message: errExpectedParameterName, Token: p.peek()}
@@ -513,7 +563,10 @@ func (p *Parser) structDecl(_ []Attribute) (*StructDecl, *ParseError) {
 
 // structMember parses a struct member.
 func (p *Parser) structMember() (*StructMember, *ParseError) {
-	attrs := p.attributes()
+	attrs, err := p.attributes()
+	if err != nil {
+		return nil, err
+	}
 
 	if !p.check(TokenIdent) {
 		return nil, &ParseError{Message: errExpectedMemberName, Token: p.peek()}
@@ -2198,6 +2251,7 @@ func (p *Parser) advance() Token {
 	}
 	p.prev = p.cur
 	p.cur = p.lexer.Next()
+	p.reportLexerError()
 	return p.prev
 }
 

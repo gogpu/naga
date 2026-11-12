@@ -16,6 +16,26 @@ type Lexer struct {
 	// scanToken produced one (whitespace and comments produce none).
 	token Token
 	has   bool
+	// err is the first lexical error whose message the token stream cannot
+	// carry; the parser reports it once.
+	err *LexerError
+}
+
+// LexerError is a lexical error with the position and text of the token that
+// caused it, for errors whose message is not part of the token stream.
+type LexerError struct {
+	Message string
+	Label   string
+	Lexeme  string
+	Line    int
+	Column  int
+}
+
+// takeError returns the pending lexical error and clears it.
+func (l *Lexer) takeError() *LexerError {
+	err := l.err
+	l.err = nil
+	return err
 }
 
 // NewLexer creates a new lexer for the given source.
@@ -207,6 +227,11 @@ func (l *Lexer) scanToken() {
 }
 
 func (l *Lexer) blockComment() {
+	// The position of the opening `/*`: the start of the token, as addToken
+	// computes it, before any of the comment's newlines.
+	startLine := l.line
+	startColumn := l.column - (l.pos - l.start)
+
 	depth := 1
 	for depth > 0 && !l.isAtEnd() {
 		if l.peek() == '/' && l.peekNext() == '*' {
@@ -224,6 +249,20 @@ func (l *Lexer) blockComment() {
 			}
 			l.advance()
 		}
+	}
+	if depth > 0 {
+		// A block comment must be closed; Rust naga's
+		// UnterminatedBlockComment.
+		if l.err == nil {
+			l.err = &LexerError{
+				Message: "unterminated block comment",
+				Label:   "must be closed with `*/`",
+				Lexeme:  "/*",
+				Line:    startLine,
+				Column:  startColumn,
+			}
+		}
+		l.addToken(TokenError)
 	}
 }
 
