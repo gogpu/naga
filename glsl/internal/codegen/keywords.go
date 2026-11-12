@@ -173,8 +173,11 @@ var glslKeywords = map[string]struct{}{
 	"shadow1D":       {}, "shadow1DLod": {}, "shadow1DProj": {}, "shadow1DProjLod": {},
 	"shadow2D": {}, "shadow2DLod": {}, "shadow2DProj": {}, "shadow2DProjLod": {},
 
-	// Functions and uniforms the writer declares.
+	// Functions and uniforms the writer declares. A user name equal to one of
+	// these would collide with the declaration (two bodies with one signature
+	// in the case of naga_div and naga_mod), so the namer renames it.
 	"naga_modf": {}, "naga_frexp": {}, "naga_vs_first_instance": {},
+	"naga_div": {}, "naga_mod": {},
 	immediatesRangeType: {},
 }
 
