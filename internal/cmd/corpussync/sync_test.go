@@ -271,6 +271,16 @@ func TestManifestVendoredExtensionAndRefresh(t *testing.T) {
 		t.Errorf("manifest = %d files from %q, want the extension recorded", len(m.Files), m.Source.Commit)
 	}
 
+	removed := filepath.Join(dir, "out", "msl", "spv-s.metal")
+	if err := os.Remove(removed); err != nil {
+		t.Fatal(err)
+	}
+	err = run([]string{"manifest", "-dir", dir, "-kind", "vendored"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "out/msl/spv-s.metal is missing") {
+		t.Fatalf("manifest over a deleted vendored file = %v, want the deletion refused", err)
+	}
+	writeFiles(t, dir, map[string]string{"out/msl/spv-s.metal": "// spv msl\n"})
+
 	writeFiles(t, dir, map[string]string{"in/spv/s.spvasm": "; edited by hand\n"})
 	err = run([]string{"manifest", "-dir", dir, "-kind", "vendored"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "in/spv/s.spvasm changed") {
