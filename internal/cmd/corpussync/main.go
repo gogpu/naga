@@ -11,9 +11,10 @@
 // HEAD commit, read from git objects, and writes MANIFEST.json. The checkout
 // must be clean.
 //
-// manifest (re)writes MANIFEST.json for an existing tree from explicit source
-// flags. Use it for derived trees after regenerating them; a vendored tree is
-// written by sync.
+// manifest (re)writes MANIFEST.json for an existing derived tree from explicit
+// source flags. Use it after regenerating a derived tree; a vendored tree is
+// recorded only by sync, which reads its files from the upstream commit, and
+// manifest refuses one so a hand-edited vendored file cannot be re-blessed.
 package main
 
 import (
@@ -87,8 +88,14 @@ func formatChanges(r Report) string {
 // inheritSource fills the source fields a flag did not set from the manifest
 // already recorded in the tree, so a regeneration (usually run with only -dir
 // and -kind) cannot erase the provenance of derived files. A missing manifest
-// leaves src untouched; an invalid one is an error.
-func inheritSource(dir string, fl *flag.FlagSet, src *testcorpus.Source) error {
+// leaves src untouched; an invalid one is an error, and so is a tree recorded
+// as another kind.
+//
+// An explicit -commit that differs from the recorded one moves the tree to a
+// new upstream commit. The recorded date and note described the old commit, so
+// they are not inherited: the caller passes both again, which keeps a
+// provenance rewrite from silently claiming the new commit with the old facts.
+func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *testcorpus.Source) error {
 	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
 	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -99,22 +106,32 @@ func inheritSource(dir string, fl *flag.FlagSet, src *testcorpus.Source) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", manifestPath, err)
 	}
+	if prev.Kind != kind {
+		return fmt.Errorf("%s is recorded as %s, not %s", dir, prev.Kind, kind)
+	}
 	set := make(map[string]bool)
 	fl.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["commit"] && src.Commit != prev.Source.Commit {
+		if !set["commit-date"] || !set["note"] || src.CommitDate == "" || src.Note == "" {
+			return fmt.Errorf("the commit changes from %q to %q: pass -commit-date and -note for the new commit; they are not inherited from the old one",
+				prev.Source.Commit, src.Commit)
+		}
+	} else {
+		if !set["commit"] {
+			src.Commit = prev.Source.Commit
+		}
+		if !set["commit-date"] {
+			src.CommitDate = prev.Source.CommitDate
+		}
+		if !set["note"] {
+			src.Note = prev.Source.Note
+		}
+	}
 	if !set["repo"] {
 		src.Repository = prev.Source.Repository
 	}
-	if !set["commit"] {
-		src.Commit = prev.Source.Commit
-	}
-	if !set["commit-date"] {
-		src.CommitDate = prev.Source.CommitDate
-	}
 	if !set["generator"] {
 		src.Generator = prev.Source.Generator
-	}
-	if !set["note"] {
-		src.Note = prev.Source.Note
 	}
 	return nil
 }
@@ -135,7 +152,14 @@ func runManifest(args []string, stdout io.Writer) error {
 	if *dir == "" || *kind == "" {
 		return errors.New("manifest: -dir and -kind are required")
 	}
-	if err := inheritSource(*dir, fl, &src); err != nil {
+	switch testcorpus.Kind(*kind) {
+	case testcorpus.KindDerived:
+	case testcorpus.KindVendored:
+		return errors.New("manifest: -kind vendored is refused: a vendored tree is recorded only by `corpussync sync`, which reads its files from the upstream commit")
+	default:
+		return fmt.Errorf("manifest: unknown kind %q (want derived)", *kind)
+	}
+	if err := inheritSource(*dir, fl, testcorpus.Kind(*kind), &src); err != nil {
 		return fmt.Errorf("manifest: %w", err)
 	}
 	if src.Repository == "" {
