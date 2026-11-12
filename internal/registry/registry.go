@@ -89,7 +89,7 @@ func (r *TypeRegistry) buildKey(name string, inner ir.TypeInner) {
 	r.keyBuf = r.keyBuf[:0]
 	if name != "" {
 		r.keyBuf = append(r.keyBuf, "named:"...)
-		r.keyBuf = append(r.keyBuf, name...)
+		r.appendStringKey(name)
 		r.keyBuf = append(r.keyBuf, ':')
 	}
 	r.appendTypeKey(inner)
@@ -182,11 +182,13 @@ func (r *TypeRegistry) appendTypeKey(inner ir.TypeInner) {
 		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Span), 10)
 		for _, member := range t.Members {
 			r.keyBuf = append(r.keyBuf, ":m("...)
-			r.keyBuf = append(r.keyBuf, member.Name...)
+			r.appendStringKey(member.Name)
 			r.keyBuf = append(r.keyBuf, ',')
 			r.keyBuf = strconv.AppendInt(r.keyBuf, int64(member.Type), 10)
 			r.keyBuf = append(r.keyBuf, ',')
 			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(member.Offset), 10)
+			r.keyBuf = append(r.keyBuf, ',')
+			r.appendBindingKey(member.Binding)
 			r.keyBuf = append(r.keyBuf, ')')
 		}
 
@@ -253,6 +255,52 @@ func (r *TypeRegistry) appendTypeKey(inner ir.TypeInner) {
 	default:
 		r.keyBuf = append(r.keyBuf, "unknown:"...)
 		r.keyBuf = fmt.Appendf(r.keyBuf, "%T", inner)
+	}
+}
+
+// appendStringKey writes a string as its length, a colon and its bytes, so
+// that a name containing the key's own delimiters cannot make two different
+// types look equal. The strings of a SPIR-V module are untrusted.
+func (r *TypeRegistry) appendStringKey(s string) {
+	r.keyBuf = strconv.AppendInt(r.keyBuf, int64(len(s)), 10)
+	r.keyBuf = append(r.keyBuf, ':')
+	r.keyBuf = append(r.keyBuf, s...)
+}
+
+// appendBindingKey writes the key of a member binding. ir.Type equality
+// includes the binding, so two structs that differ only in where their members
+// bind are different types: the SPIR-V frontend makes exactly that difference
+// between an input and an output block of the same layout.
+func (r *TypeRegistry) appendBindingKey(binding *ir.Binding) {
+	if binding == nil {
+		r.keyBuf = append(r.keyBuf, "none"...)
+		return
+	}
+	switch b := (*binding).(type) {
+	case ir.BuiltinBinding:
+		r.keyBuf = append(r.keyBuf, "builtin:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(b.Builtin), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendBool(r.keyBuf, b.Invariant)
+	case ir.LocationBinding:
+		r.keyBuf = append(r.keyBuf, "location:"...)
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(b.Location), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		if b.Interpolation != nil {
+			r.keyBuf = strconv.AppendInt(r.keyBuf, int64(*b.Interpolation), 10)
+		}
+		r.keyBuf = append(r.keyBuf, ':')
+		if b.Sampling != nil {
+			r.keyBuf = strconv.AppendInt(r.keyBuf, int64(*b.Sampling), 10)
+		}
+		r.keyBuf = append(r.keyBuf, ':')
+		if b.BlendSrc != nil {
+			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(*b.BlendSrc), 10)
+		}
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendBool(r.keyBuf, b.PerPrimitive)
+	default:
+		r.keyBuf = fmt.Appendf(r.keyBuf, "binding:%T", b)
 	}
 }
 

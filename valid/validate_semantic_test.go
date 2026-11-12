@@ -119,12 +119,14 @@ func TestValidateSemantic_ArrayCircularReference(t *testing.T) {
 }
 
 func TestValidateSemantic_StructMembers(t *testing.T) {
-	t.Run("empty member name", func(t *testing.T) {
+	t.Run("unnamed member allowed", func(t *testing.T) {
+		// An empty name is an unnamed member: the SPIR-V frontend produces
+		// them, and each backend names them for itself.
 		module := &ir.Module{
 			Types: []ir.Type{
 				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 				{
-					Name: "bad_struct",
+					Name: "unnamed_member_struct",
 					Inner: ir.StructType{
 						Members: []ir.StructMember{
 							{Name: "", Type: ir.TypeHandle(0)},
@@ -133,7 +135,9 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 				},
 			},
 		}
-		expectErrors(t, module, "has empty name")
+		if errs, err := validateErrs(module, CapAll); err != nil || len(errs) != 0 {
+			t.Errorf("validation errors = %v (%v), want none", errs, err)
+		}
 	})
 
 	t.Run("duplicate member name", func(t *testing.T) {

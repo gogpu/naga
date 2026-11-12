@@ -1799,6 +1799,11 @@ var opNames = map[Op]string{
 // number.
 func (v Op) String() string { return enumString(opNames, v, "Op") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v Op) Known() bool { _, ok := opNames[v]; return ok }
+
 // Capability is a SPIR-V Capability.
 type Capability uint32
 
@@ -2422,6 +2427,11 @@ var capabilityNames = map[Capability]string{
 // number.
 func (v Capability) String() string { return enumString(capabilityNames, v, "Capability") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v Capability) Known() bool { _, ok := capabilityNames[v]; return ok }
+
 // Decoration is a SPIR-V Decoration.
 type Decoration uint32
 
@@ -2781,6 +2791,11 @@ var decorationNames = map[Decoration]string{
 // number.
 func (v Decoration) String() string { return enumString(decorationNames, v, "Decoration") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v Decoration) Known() bool { _, ok := decorationNames[v]; return ok }
+
 // BuiltIn is a SPIR-V BuiltIn.
 type BuiltIn uint32
 
@@ -3072,6 +3087,11 @@ var builtInNames = map[BuiltIn]string{
 // number.
 func (v BuiltIn) String() string { return enumString(builtInNames, v, "BuiltIn") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v BuiltIn) Known() bool { _, ok := builtInNames[v]; return ok }
+
 // ExecutionModel is a SPIR-V ExecutionModel.
 type ExecutionModel uint32
 
@@ -3124,6 +3144,11 @@ var executionModelNames = map[ExecutionModel]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v ExecutionModel) String() string { return enumString(executionModelNames, v, "ExecutionModel") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v ExecutionModel) Known() bool { _, ok := executionModelNames[v]; return ok }
 
 // ExecutionMode is a SPIR-V ExecutionMode.
 type ExecutionMode uint32
@@ -3337,6 +3362,11 @@ var executionModeNames = map[ExecutionMode]string{
 // number.
 func (v ExecutionMode) String() string { return enumString(executionModeNames, v, "ExecutionMode") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v ExecutionMode) Known() bool { _, ok := executionModeNames[v]; return ok }
+
 // StorageClass is a SPIR-V StorageClass.
 type StorageClass uint32
 
@@ -3417,6 +3447,11 @@ var storageClassNames = map[StorageClass]string{
 // number.
 func (v StorageClass) String() string { return enumString(storageClassNames, v, "StorageClass") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v StorageClass) Known() bool { _, ok := storageClassNames[v]; return ok }
+
 // AddressingModel is a SPIR-V AddressingModel.
 type AddressingModel uint32
 
@@ -3441,6 +3476,11 @@ func (v AddressingModel) String() string {
 	return enumString(addressingModelNames, v, "AddressingModel")
 }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v AddressingModel) Known() bool { _, ok := addressingModelNames[v]; return ok }
+
 // MemoryModel is a SPIR-V MemoryModel.
 type MemoryModel uint32
 
@@ -3462,6 +3502,11 @@ var memoryModelNames = map[MemoryModel]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v MemoryModel) String() string { return enumString(memoryModelNames, v, "MemoryModel") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v MemoryModel) Known() bool { _, ok := memoryModelNames[v]; return ok }
 
 // FunctionControl is a SPIR-V FunctionControl.
 type FunctionControl uint32
@@ -3491,6 +3536,11 @@ func (v FunctionControl) String() string {
 	return enumString(functionControlNames, v, "FunctionControl")
 }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v FunctionControl) Known() bool { _, ok := functionControlNames[v]; return ok }
+
 // SelectionControl is a SPIR-V SelectionControl.
 type SelectionControl uint32
 
@@ -3511,6 +3561,11 @@ var selectionControlNames = map[SelectionControl]string{
 func (v SelectionControl) String() string {
 	return enumString(selectionControlNames, v, "SelectionControl")
 }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v SelectionControl) Known() bool { _, ok := selectionControlNames[v]; return ok }
 
 // LoopControl is a SPIR-V LoopControl.
 type LoopControl uint32
@@ -3575,6 +3630,11 @@ var loopControlNames = map[LoopControl]string{
 // number.
 func (v LoopControl) String() string { return enumString(loopControlNames, v, "LoopControl") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v LoopControl) Known() bool { _, ok := loopControlNames[v]; return ok }
+
 // Dim is a SPIR-V Dim.
 type Dim uint32
 
@@ -3603,6 +3663,11 @@ var dimNames = map[Dim]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v Dim) String() string { return enumString(dimNames, v, "Dim") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v Dim) Known() bool { _, ok := dimNames[v]; return ok }
 
 // ImageFormat is a SPIR-V ImageFormat.
 type ImageFormat uint32
@@ -3701,6 +3766,11 @@ var imageFormatNames = map[ImageFormat]string{
 // number.
 func (v ImageFormat) String() string { return enumString(imageFormatNames, v, "ImageFormat") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v ImageFormat) Known() bool { _, ok := imageFormatNames[v]; return ok }
+
 // ImageOperands is a SPIR-V ImageOperands.
 type ImageOperands uint32
 
@@ -3752,6 +3822,11 @@ var imageOperandsNames = map[ImageOperands]string{
 // number.
 func (v ImageOperands) String() string { return enumString(imageOperandsNames, v, "ImageOperands") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v ImageOperands) Known() bool { _, ok := imageOperandsNames[v]; return ok }
+
 // MemoryAccess is a SPIR-V MemoryAccess.
 type MemoryAccess uint32
 
@@ -3785,6 +3860,11 @@ var memoryAccessNames = map[MemoryAccess]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v MemoryAccess) String() string { return enumString(memoryAccessNames, v, "MemoryAccess") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v MemoryAccess) Known() bool { _, ok := memoryAccessNames[v]; return ok }
 
 // MemorySemantics is a SPIR-V MemorySemantics.
 type MemorySemantics uint32
@@ -3835,6 +3915,11 @@ func (v MemorySemantics) String() string {
 	return enumString(memorySemanticsNames, v, "MemorySemantics")
 }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v MemorySemantics) Known() bool { _, ok := memorySemanticsNames[v]; return ok }
+
 // Scope is a SPIR-V Scope.
 type Scope uint32
 
@@ -3862,6 +3947,11 @@ var scopeNames = map[Scope]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v Scope) String() string { return enumString(scopeNames, v, "Scope") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v Scope) Known() bool { _, ok := scopeNames[v]; return ok }
 
 // GroupOperation is a SPIR-V GroupOperation.
 type GroupOperation uint32
@@ -3893,6 +3983,11 @@ var groupOperationNames = map[GroupOperation]string{
 // number.
 func (v GroupOperation) String() string { return enumString(groupOperationNames, v, "GroupOperation") }
 
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v GroupOperation) Known() bool { _, ok := groupOperationNames[v]; return ok }
+
 // PackedVectorFormat is a SPIR-V PackedVectorFormat.
 type PackedVectorFormat uint32
 
@@ -3910,6 +4005,11 @@ var packedVectorFormatNames = map[PackedVectorFormat]string{
 func (v PackedVectorFormat) String() string {
 	return enumString(packedVectorFormatNames, v, "PackedVectorFormat")
 }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v PackedVectorFormat) Known() bool { _, ok := packedVectorFormatNames[v]; return ok }
 
 // RayFlags is a SPIR-V RayFlags.
 type RayFlags uint32
@@ -3948,6 +4048,11 @@ var rayFlagsNames = map[RayFlags]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v RayFlags) String() string { return enumString(rayFlagsNames, v, "RayFlags") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v RayFlags) Known() bool { _, ok := rayFlagsNames[v]; return ok }
 
 // GlslStd450 is a SPIR-V GlslStd450.
 type GlslStd450 uint32
@@ -4123,6 +4228,11 @@ var glslStd450Names = map[GlslStd450]string{
 // String names the value for diagnostics; an unknown value prints as a
 // number.
 func (v GlslStd450) String() string { return enumString(glslStd450Names, v, "GlslStd450") }
+
+// Known reports whether the grammar defines the value (under any of its
+// names). A frontend uses it to tell an invalid module from a valid one it
+// does not implement.
+func (v GlslStd450) Known() bool { _, ok := glslStd450Names[v]; return ok }
 
 // enumString names one value from a generated table.
 func enumString[T ~uint32](names map[T]string, v T, typeName string) string {

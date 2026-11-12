@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/frontend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -67,7 +68,7 @@ func TestParseErrorFormat(t *testing.T) {
 	const source = "const i32min = -0x80000000i;"
 	pe := &ParseError{
 		Message: "numeric literal not representable by target type: `0x80000000i`",
-		Labels:  []Label{{Span: ir.Span{Start: 16, End: 27}, Text: "numeric literal not representable by target type"}},
+		Labels:  []frontend.Label{{Span: ir.Span{Start: 16, End: 27}, Text: "numeric literal not representable by target type"}},
 	}
 	want := "error: numeric literal not representable by target type: `0x80000000i`\n" +
 		"  ┌─ wgsl:1:17\n" +
@@ -84,7 +85,7 @@ func TestParseErrorFormat(t *testing.T) {
 	src := strings.Repeat("\n", 9) + "    let value = sign(input);"
 	pe = &ParseError{
 		Message: "wrong type passed as argument #1 to `sign`",
-		Labels:  []Label{{Span: ir.Span{Start: 21, End: 25}}},
+		Labels:  []frontend.Label{{Span: ir.Span{Start: 21, End: 25}}},
 		Notes:   []string{"`sign` accepts the following types for argument #1:"},
 	}
 	want = "error: wrong type passed as argument #1 to `sign`\n" +

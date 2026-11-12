@@ -459,3 +459,24 @@ func TestTypeRegistry_ComplexNestedTypes(t *testing.T) {
 		t.Errorf("Expected 3 types, got %d", registry.Count())
 	}
 }
+
+// TestTypeRegistry_StructMemberBinding makes the binding part of the key: two
+// structs of the same shape that bind their members differently (the SPIR-V
+// input and output blocks of one layout) are different types.
+func TestTypeRegistry_StructMemberBinding(t *testing.T) {
+	r := NewTypeRegistry()
+	location := ir.Binding(ir.LocationBinding{Location: 0})
+	withBinding := ir.StructMember{Name: "a", Type: 0, Offset: 0, Binding: &location}
+	withoutBinding := ir.StructMember{Name: "a", Type: 0, Offset: 0}
+
+	bound := r.GetOrCreate("", ir.StructType{Members: []ir.StructMember{withBinding}, Span: 4})
+	unbound := r.GetOrCreate("", ir.StructType{Members: []ir.StructMember{withoutBinding}, Span: 4})
+	if bound == unbound {
+		t.Error("structs that differ in a member binding got the same handle")
+	}
+
+	same := r.GetOrCreate("", ir.StructType{Members: []ir.StructMember{withBinding}, Span: 4})
+	if same != bound {
+		t.Error("the same struct registered twice got different handles")
+	}
+}
