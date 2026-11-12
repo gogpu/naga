@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds spirv-val and spirv-dis from a pinned SPIRV-Tools release into "$1/bin".
+# Builds spirv-as, spirv-val and spirv-dis from a pinned SPIRV-Tools release
+# into "$1/bin".
 #
 # The version matches the Vulkan SDK used for development (SDK 1.4.341.1 ships
 # SPIRV-Tools v2026.1), so validation strictness and disassembly are the same
@@ -31,11 +32,14 @@ git -C "$headers" fetch --quiet --depth 1 https://github.com/KhronosGroup/SPIRV-
 git -C "$headers" checkout --quiet FETCH_HEAD
 
 cmake -S "$work/src" -B "$work/build" -DCMAKE_BUILD_TYPE=Release -DSPIRV_SKIP_TESTS=ON -DSPIRV_WERROR=OFF
-cmake --build "$work/build" --config Release --parallel --target spirv-val spirv-dis
+cmake --build "$work/build" --config Release --parallel --target spirv-as spirv-val spirv-dis
 
 mkdir -p "$prefix/bin"
-find "$work/build" -type f \( -name spirv-val -o -name spirv-dis -o -name spirv-val.exe -o -name spirv-dis.exe \) \
+find "$work/build" -type f \( \
+	-name spirv-as -o -name spirv-val -o -name spirv-dis -o \
+	-name spirv-as.exe -o -name spirv-val.exe -o -name spirv-dis.exe \) \
 	-exec cp {} "$prefix/bin/" \;
 
+"$prefix/bin/spirv-as" --version
 "$prefix/bin/spirv-val" --version
 "$prefix/bin/spirv-dis" --version

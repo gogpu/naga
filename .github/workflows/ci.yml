@@ -39,8 +39,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      # spirv-val and spirv-dis validate and compare the SPIR-V output; without
-      # them those tests skip. Pinned to the development Vulkan SDK's version.
+      # spirv-val and spirv-dis validate and compare the SPIR-V output;
+      # spirv-as proves the committed corpus binaries are their vendored
+      # assembly. Without them those tests skip. Pinned to the development
+      # Vulkan SDK's version.
       - name: Cache SPIRV-Tools
         id: spirv-tools-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -61,11 +63,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: go vet ./...
 
-      # A missing spirv-val or spirv-dis fails the tests instead of skipping them.
+      # A missing spirv-as, spirv-val or spirv-dis fails the tests instead of
+      # skipping them.
       - name: Run tests
         shell: bash
         env:
-          NAGA_REQUIRE_TOOLS: spirv-val,spirv-dis
+          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis
         run: go test -v -count=1 -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... ./...
 
       # Race detection uses the toolchain's -race (ThreadSanitizer, needs cgo).
@@ -73,7 +76,7 @@ jobs:
         shell: bash
         env:
           CGO_ENABLED: "1"
-          NAGA_REQUIRE_TOOLS: spirv-val,spirv-dis
+          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis
         run: go test -race -count=1 ./...
 
       - name: Verify coverage file
