@@ -981,9 +981,11 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 			return nil, err
 		}
 
+		// The size is a const-expression, as array's (Rust's
+		// maybe_array_size parses an expression).
 		var size Expr
 		if p.match(TokenComma) {
-			size, err = p.primary()
+			size, err = p.templateArgExpr()
 			if err != nil {
 				return nil, err
 			}

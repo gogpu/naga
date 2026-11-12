@@ -349,6 +349,14 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 // NumberError::NotRepresentable: an integer literal outside its type's range.
 const msgLiteralNotRepresentable = "numeric literal not representable by target type"
 
+// msgPipelineConstantIDValue is Rust naga's message for
+// Error::PipelineConstantIDValue: an @id above the u16 range.
+const msgPipelineConstantIDValue = "pipeline constant ID must be between 0 and 65535 inclusive"
+
+// msgExpectedPositiveArrayLength is Rust naga's message for
+// Error::ExpectedPositiveArrayLength: an array count of zero or below.
+const msgExpectedPositiveArrayLength = "array element count must be positive (> 0)"
+
 // literalNotRepresentable is the error of an integer literal outside its
 // type's range: a shader-creation error.
 func (l *Lowerer) literalNotRepresentable(lit *parser.Literal) error {
@@ -821,31 +829,22 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 	hasGroup := false
 	hasBinding := false
 	for _, attr := range v.Attributes {
-		if attr.Name == "group" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				group, err := strconv.ParseUint(lit.Value, 10, 32)
-				if err != nil {
-					return l.literalNotRepresentable(lit)
-				}
-				if binding == nil {
-					binding = &ir.ResourceBinding{}
-				}
-				binding.Group = uint32(group)
-				hasGroup = true
-			}
+		if (attr.Name != "group" && attr.Name != "binding") || len(attr.Args) == 0 {
+			continue
 		}
-		if attr.Name == "binding" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				bind, err := strconv.ParseUint(lit.Value, 10, 32)
-				if err != nil {
-					return l.literalNotRepresentable(lit)
-				}
-				if binding == nil {
-					binding = &ir.ResourceBinding{}
-				}
-				binding.Binding = uint32(bind)
-				hasBinding = true
-			}
+		value, err := l.attributeU32(attr.Args[0])
+		if err != nil {
+			return err
+		}
+		if binding == nil {
+			binding = &ir.ResourceBinding{}
+		}
+		if attr.Name == "group" {
+			binding.Group = value
+			hasGroup = true
+		} else {
+			binding.Binding = value
+			hasBinding = true
 		}
 	}
 
@@ -909,17 +908,22 @@ func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 		return fmt.Errorf("override %s: %w", o.Name, err)
 	}
 
-	// Parse @id attribute.
+	// The @id argument is const_u32 and must fit a u16 (Rust's
+	// PipelineConstantIDValue).
 	var id *uint16
 	for _, attr := range o.Attributes {
-		if attr.Name == "id" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				if idVal, parseErr := strconv.ParseUint(lit.Value, 10, 16); parseErr == nil {
-					id16 := uint16(idVal)
-					id = &id16
-				}
-			}
+		if attr.Name != "id" || len(attr.Args) == 0 {
+			continue
 		}
+		value, err := l.attributeU32(attr.Args[0])
+		if err != nil {
+			return err
+		}
+		if value > math.MaxUint16 {
+			return parser.NewSourceError(msgPipelineConstantIDValue, attr.Args[0].Pos(), l.source)
+		}
+		id16 := uint16(value)
+		id = &id16
 	}
 
 	l.module.Overrides = append(l.module.Overrides, ir.Override{
@@ -4567,16 +4571,22 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		if err != nil {
 			return 0, err
 		}
+		// The size is an array size, as Rust's maybe_array_size: a
+		// const-expression evaluated like const_u32, positive. The IR's
+		// binding array has no pending size, so an override-expression size
+		// is refused rather than dropped (Rust keeps ArraySize::Pending).
 		var size *uint32
 		if t.Size != nil {
-			if lit, ok := t.Size.(*parser.Literal); ok && lit.Kind == parser.TokenIntLiteral {
-				n, err := strconv.ParseUint(lit.Value, 0, 32)
-				if err != nil {
-					return 0, l.literalNotRepresentable(lit)
-				}
-				s := uint32(n)
-				size = &s
+			n, err := l.constU32(t.Size)
+			switch {
+			case errors.Is(err, errExpectedNonNegative):
+				return 0, parser.NewSourceError(msgExpectedPositiveArrayLength, t.Size.Pos(), l.source)
+			case err != nil:
+				return 0, fmt.Errorf("binding array size: %w", err)
+			case n == 0:
+				return 0, parser.NewSourceError(msgExpectedPositiveArrayLength, t.Size.Pos(), l.source)
 			}
+			size = &n
 		}
 		return l.registerType("", ir.BindingArrayType{Base: base, Size: size}), nil
 	default:
@@ -5293,6 +5303,21 @@ func (l *Lowerer) memberBindings(attrs []parser.Attribute) *ir.Binding {
 	return l.collectBinding(attrs)
 }
 
+// bindingAttributeU32 is attributeU32 for collectBinding, which collects its
+// errors instead of returning them: false when the argument was refused.
+func (l *Lowerer) bindingAttributeU32(e parser.Expr) (uint32, bool) {
+	v, err := l.attributeU32(e)
+	if err == nil {
+		return v, true
+	}
+	var sourceErr *parser.SourceError
+	if !errors.As(err, &sourceErr) {
+		sourceErr = parser.NewSourceError(err.Error(), e.Pos(), l.source)
+	}
+	l.errors.Add(sourceErr)
+	return 0, false
+}
+
 // collectBinding processes a list of attributes and returns the combined binding.
 // For LocationBinding, it accumulates @location, @blend_src, and @interpolate
 // from separate attributes into a single binding.
@@ -5320,17 +5345,14 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 			}
 		case "location":
 			if len(attr.Args) > 0 {
-				if lit, ok := attr.Args[0].(*parser.Literal); ok {
-					loc, err := strconv.ParseUint(lit.Value, 10, 32)
-					if err != nil {
-						l.addError(msgLiteralNotRepresentable, lit.Span)
-						continue
-					}
-					if locBinding == nil {
-						locBinding = &ir.LocationBinding{}
-					}
-					locBinding.Location = uint32(loc)
+				loc, ok := l.bindingAttributeU32(attr.Args[0])
+				if !ok {
+					continue
 				}
+				if locBinding == nil {
+					locBinding = &ir.LocationBinding{}
+				}
+				locBinding.Location = loc
 			}
 		case "blend_src":
 			// Rust naga's BindingParser: blend_src needs
@@ -5339,18 +5361,14 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 				continue
 			}
 			if len(attr.Args) > 0 {
-				if lit, ok := attr.Args[0].(*parser.Literal); ok {
-					idx, err := strconv.ParseUint(lit.Value, 10, 32)
-					if err != nil {
-						l.addError(msgLiteralNotRepresentable, lit.Span)
-						continue
-					}
-					if locBinding == nil {
-						locBinding = &ir.LocationBinding{}
-					}
-					v := uint32(idx)
-					locBinding.BlendSrc = &v
+				idx, ok := l.bindingAttributeU32(attr.Args[0])
+				if !ok {
+					continue
 				}
+				if locBinding == nil {
+					locBinding = &ir.LocationBinding{}
+				}
+				locBinding.BlendSrc = &idx
 			}
 		case "interpolate":
 			interp, sampling := l.parseInterpolateAttr(attr)
