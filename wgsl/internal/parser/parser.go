@@ -356,10 +356,32 @@ func (p *Parser) checkGlobalAttributeTargets(attrs []Attribute) *ParseError {
 	return nil
 }
 
-// attributes parses a list of attributes (@location(0), @vertex, etc.)
 // attributeDiagnostic is the one attribute the WGSL spec allows on a
 // declaration more than once.
 const attributeDiagnostic = "diagnostic"
+
+// knownAttributes are the attribute names Rust naga parses anywhere: the
+// module-scope declaration attributes (Parser::global_decl), the binding
+// attributes of parameters, results and members (BindingParser::parse), the
+// member layout attributes and @diagnostic. Any other name is Rust's
+// UnknownAttribute; whether a known attribute fits its position is checked
+// separately. The spec's @const applies only to built-in functions, which
+// Rust does not accept in a shader either.
+var knownAttributes = map[string]bool{
+	attributeDiagnostic: true,
+	// Module-scope declarations.
+	"binding": true, "group": true, "id": true,
+	"vertex": true, "fragment": true, "compute": true,
+	"task": true, "mesh": true, "payload": true,
+	"ray_generation": true, "any_hit": true, "closest_hit": true, "miss": true, "incoming_payload": true,
+	"workgroup_size": true, "early_depth_test": true, "must_use": true,
+	"coherent": true, "volatile": true,
+	// Bindings of parameters, results and struct members.
+	"location": true, "builtin": true, "interpolate": true, "invariant": true,
+	"blend_src": true, "per_primitive": true,
+	// Struct member layout.
+	"size": true, "align": true,
+}
 
 // attributes parses the attribute list of one declaration. WGSL allows each
 // attribute once per declaration, except @diagnostic: a repeat is Rust naga's
@@ -380,6 +402,13 @@ func (p *Parser) attributes() ([]Attribute, *ParseError) {
 		}
 
 		name := p.advance()
+		if !knownAttributes[name.Lexeme] {
+			return attrs, &ParseError{
+				Message: fmt.Sprintf("unknown attribute: `%s`", name.Lexeme),
+				Token:   name,
+				Label:   "unknown attribute",
+			}
+		}
 		// @diagnostic may be applied to a declaration more than once.
 		if seen[name.Lexeme] && name.Lexeme != attributeDiagnostic {
 			return attrs, &ParseError{
