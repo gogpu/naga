@@ -18,7 +18,7 @@ func headerWords() []uint32 {
 // instWords encodes one instruction: the word count, which includes the word
 // itself, in the high 16 bits and the opcode in the low 16.
 func instWords(op spvenums.Op, operands ...uint32) []uint32 {
-	wc := uint16(len(operands) + 1) //nolint:gosec // test input, small by construction
+	wc := uint16(len(operands) + 1)
 	return append([]uint32{uint32(wc)<<16 | uint32(op)}, operands...)
 }
 
@@ -224,9 +224,9 @@ func TestInstructionDecoding(t *testing.T) {
 	t.Run("unsupported instruction", func(t *testing.T) {
 		_, _, err := parseWords(t, Options{},
 			headerWords(),
-			instWords(spvenums.OpTypeVoid, 7),
+			instWords(spvenums.OpNop),
 		)
-		want := "unsupported instruction OpTypeVoid at Empty"
+		want := "unsupported instruction OpNop at Empty"
 		if got := requireError(t, err).Message; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
@@ -258,12 +258,7 @@ func TestParseExtension(t *testing.T) {
 
 func TestParseExtInstImport(t *testing.T) {
 	t.Run("GLSL.std.450", func(t *testing.T) {
-		p := &parser{
-			data:        spvWords(headerWords(), instWithString(spvenums.OpExtInstImport, []uint32{3}, "GLSL.std.450")),
-			entryPoints: make(map[uint32]*entryPointInfo),
-			decorations: make(map[uint32]*decoration),
-		}
-		p.module = &ir.Module{}
+		p := newParser(spvWords(headerWords(), instWithString(spvenums.OpExtInstImport, []uint32{3}, "GLSL.std.450")), Options{})
 		if _, _, err := p.parse(); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -286,15 +281,10 @@ func TestParseExtInstImport(t *testing.T) {
 
 func TestParseEntryPoint(t *testing.T) {
 	t.Run("compute with LocalSize", func(t *testing.T) {
-		p := &parser{
-			data: spvWords(headerWords(),
-				instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelGLCompute), 1}, "main"),
-				instWords(spvenums.OpExecutionMode, 1, uint32(spvenums.ExecutionModeLocalSize), 64, 1, 1),
-			),
-			entryPoints: make(map[uint32]*entryPointInfo),
-			decorations: make(map[uint32]*decoration),
-		}
-		p.module = &ir.Module{}
+		p := newParser(spvWords(headerWords(),
+			instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelGLCompute), 1}, "main"),
+			instWords(spvenums.OpExecutionMode, 1, uint32(spvenums.ExecutionModeLocalSize), 64, 1, 1),
+		), Options{})
 		if _, _, err := p.parse(); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -308,21 +298,17 @@ func TestParseEntryPoint(t *testing.T) {
 		if ep.workgroup != [3]uint32{64, 1, 1} {
 			t.Errorf("workgroup = %v, want [64 1 1]", ep.workgroup)
 		}
-		if len(p.deferredEntryPoints) != 1 || p.deferredEntryPoints[0] != 1 {
-			t.Errorf("deferred = %v, want [1]", p.deferredEntryPoints)
+		// The wrapper is deferred until the entry point's function is parsed.
+		if len(p.deferredEntryPoints) != 0 {
+			t.Errorf("deferred = %v, want none before the function is parsed", p.deferredEntryPoints)
 		}
 	})
 
 	t.Run("fragment with DepthGreater", func(t *testing.T) {
-		p := &parser{
-			data: spvWords(headerWords(),
-				instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelFragment), 1}, "main"),
-				instWords(spvenums.OpExecutionMode, 1, uint32(spvenums.ExecutionModeDepthGreater)),
-			),
-			entryPoints: make(map[uint32]*entryPointInfo),
-			decorations: make(map[uint32]*decoration),
-		}
-		p.module = &ir.Module{}
+		p := newParser(spvWords(headerWords(),
+			instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelFragment), 1}, "main"),
+			instWords(spvenums.OpExecutionMode, 1, uint32(spvenums.ExecutionModeDepthGreater)),
+		), Options{})
 		if _, _, err := p.parse(); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -383,15 +369,10 @@ func TestParseEntryPoint(t *testing.T) {
 
 func TestParseNamesAndDecorations(t *testing.T) {
 	t.Run("empty global name", func(t *testing.T) {
-		p := &parser{
-			data: spvWords(headerWords(),
-				instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelGLCompute), 1}, "main"),
-				instWithString(spvenums.OpName, []uint32{2}, ""),
-			),
-			entryPoints: make(map[uint32]*entryPointInfo),
-			decorations: make(map[uint32]*decoration),
-		}
-		p.module = &ir.Module{}
+		p := newParser(spvWords(headerWords(),
+			instWithString(spvenums.OpEntryPoint, []uint32{uint32(spvenums.ExecutionModelGLCompute), 1}, "main"),
+			instWithString(spvenums.OpName, []uint32{2}, ""),
+		), Options{})
 		if _, _, err := p.parse(); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -412,14 +393,9 @@ func TestParseNamesAndDecorations(t *testing.T) {
 	})
 
 	t.Run("built-in decoration before the id's definition", func(t *testing.T) {
-		p := &parser{
-			data: spvWords(headerWords(),
-				instWords(spvenums.OpDecorate, 2, uint32(spvenums.DecorationBuiltIn), 0),
-			),
-			entryPoints: make(map[uint32]*entryPointInfo),
-			decorations: make(map[uint32]*decoration),
-		}
-		p.module = &ir.Module{}
+		p := newParser(spvWords(headerWords(),
+			instWords(spvenums.OpDecorate, 2, uint32(spvenums.DecorationBuiltIn), 0),
+		), Options{})
 		if _, _, err := p.parse(); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}

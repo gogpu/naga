@@ -9,6 +9,11 @@ const (
 	// offsets of the public spirv.ParseError are 32-bit, so a larger module
 	// cannot name its instructions.
 	maxModuleBytes int64 = 1<<32 - 1
+
+	// maxArrayElements caps an array's element count: it is read from a
+	// constant before the IR is built, so a huge size never drives an
+	// allocation in the frontend or in a backend that sizes storage from it.
+	maxArrayElements = 1 << 24
 )
 
 // checkModuleSize reports whether a module of n bytes is within

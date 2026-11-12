@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gogpu/naga/frontend"
+	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
@@ -42,14 +43,26 @@ func Parse(data []byte, options Options) (*ir.Module, Info, error) {
 	if len(data)%4 != 0 {
 		return nil, Info{}, errIncompleteData
 	}
-	p := &parser{
-		data:              data,
-		options:           options,
-		entryPoints:       make(map[uint32]*entryPointInfo),
-		decorations:       make(map[uint32]*decoration),
-		memberDecorations: make(map[memberKey]*decoration),
+	return newParser(data, options).parse()
+}
+
+// newParser returns a parser for one module, with its lookup tables ready.
+func newParser(data []byte, options Options) *parser {
+	return &parser{
+		data:                     data,
+		options:                  options,
+		types:                    registry.NewTypeRegistry(),
+		entryPoints:              make(map[uint32]*entryPointInfo),
+		decorations:              make(map[uint32]*decoration),
+		memberDecorations:        make(map[memberKey]*decoration),
+		lookupType:               make(map[uint32]lookupType),
+		lookupStorageBufferTypes: make(map[ir.TypeHandle]ir.StorageAccess),
+		lookupMember:             make(map[lookupMemberKey]lookupMember),
+		lookupFunctionType:       make(map[uint32]lookupFunctionType),
+		lookupConstant:           make(map[uint32]lookupConstant),
+		lookupVariable:           make(map[uint32]lookupVariable),
+		lookupFunction:           make(map[uint32]ir.FunctionHandle),
 	}
-	return p.parse()
 }
 
 // parser holds the state of one module being parsed: the input words, the
@@ -76,6 +89,22 @@ type parser struct {
 	hasExtGLSLID      bool
 	extNonSemanticID  uint32
 	hasExtNonSemantic bool
+
+	// The SPIR-V id to IR handle tables (Rust naga's lookups).
+	types                    *registry.TypeRegistry
+	layouter                 ir.Layouter
+	lookupType               map[uint32]lookupType
+	voidTypeID               uint32
+	hasVoidType              bool
+	lookupStorageBufferTypes map[ir.TypeHandle]ir.StorageAccess
+	lookupMember             map[lookupMemberKey]lookupMember
+	lookupFunctionType       map[uint32]lookupFunctionType
+	lookupConstant           map[uint32]lookupConstant
+	lookupVariable           map[uint32]lookupVariable
+	lookupFunction           map[uint32]ir.FunctionHandle
+	// lookupExpression is the table of the function being parsed; it is
+	// cleared when the next function starts.
+	lookupExpression map[uint32]lookupExpression
 
 	// entryPoints holds the OpEntryPoint declarations by function id.
 	entryPoints map[uint32]*entryPointInfo
@@ -196,6 +225,14 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		}
 		if err := p.handle(inst); err != nil {
 			return nil, Info{}, p.at(err)
+		}
+	}
+
+	// The entry point wrappers are built after every function is parsed, so
+	// that their calls all have a target.
+	for _, functionID := range p.deferredEntryPoints {
+		if err := p.processEntryPoint(functionID); err != nil {
+			return nil, Info{}, err
 		}
 	}
 	return p.module, p.info, nil
@@ -327,7 +364,7 @@ func (p *parser) at(err error) error {
 
 // warn records a diagnostic that does not stop parsing, at the current
 // instruction.
-func (p *parser) warn(format string, args ...any) {
+func (p *parser) warnf(format string, args ...any) {
 	p.info.Warnings = append(p.info.Warnings, frontend.Diagnostic{
 		Message: fmt.Sprintf(format, args...),
 		Span:    ir.Span{Start: uint32(p.instOffset), End: uint32(p.offset)},
@@ -366,6 +403,54 @@ func (p *parser) handle(inst instruction) error {
 		return p.parseDecorate(inst)
 	case spvenums.OpMemberDecorate:
 		return p.parseMemberDecorate(inst)
+	case spvenums.OpTypeVoid:
+		return p.parseTypeVoid(inst)
+	case spvenums.OpTypeBool:
+		return p.parseTypeBool(inst)
+	case spvenums.OpTypeInt:
+		return p.parseTypeInt(inst)
+	case spvenums.OpTypeFloat:
+		return p.parseTypeFloat(inst)
+	case spvenums.OpTypeVector:
+		return p.parseTypeVector(inst)
+	case spvenums.OpTypeMatrix:
+		return p.parseTypeMatrix(inst)
+	case spvenums.OpTypeFunction:
+		return p.parseTypeFunction(inst)
+	case spvenums.OpTypePointer:
+		return p.parseTypePointer(inst)
+	case spvenums.OpTypeArray:
+		return p.parseTypeArray(inst)
+	case spvenums.OpTypeRuntimeArray:
+		return p.parseTypeRuntimeArray(inst)
+	case spvenums.OpTypeStruct:
+		return p.parseTypeStruct(inst)
+	case spvenums.OpTypeImage:
+		return p.parseTypeImage(inst)
+	case spvenums.OpTypeSampledImage:
+		return p.parseTypeSampledImage(inst)
+	case spvenums.OpTypeSampler:
+		return p.parseTypeSampler(inst)
+	case spvenums.OpConstant, spvenums.OpSpecConstant:
+		return p.parseConstant(inst)
+	case spvenums.OpConstantComposite, spvenums.OpSpecConstantComposite:
+		return p.parseCompositeConstant(inst)
+	case spvenums.OpConstantNull, spvenums.OpUndef:
+		return p.parseNullConstant(inst)
+	case spvenums.OpConstantTrue, spvenums.OpSpecConstantTrue:
+		return p.parseBoolConstant(inst, true)
+	case spvenums.OpConstantFalse, spvenums.OpSpecConstantFalse:
+		return p.parseBoolConstant(inst, false)
+	case spvenums.OpVariable:
+		return p.parseGlobalVariable(inst)
+	case spvenums.OpFunction:
+		if err := p.switchTo(stateFunction, inst.op); err != nil {
+			return err
+		}
+		if err := inst.expect(5); err != nil {
+			return err
+		}
+		return p.parseFunction()
 	}
 	return errUnsupportedInstruction(p.state, inst.op)
 }
@@ -393,7 +478,7 @@ func (p *parser) parseCapability(inst instruction) error {
 		if !p.options.AllowUnknownCapabilities {
 			return errUnsupportedCapability(capability)
 		}
-		p.warn("Unknown capability %s", capability)
+		p.warnf("Unknown capability %s", capability)
 	}
 	return nil
 }
@@ -514,9 +599,6 @@ func (p *parser) parseEntryPoint(inst instruction) error {
 			return err
 		}
 		ep.variableIDs = append(ep.variableIDs, variableID)
-	}
-	if _, ok := p.entryPoints[functionID]; !ok {
-		p.deferredEntryPoints = append(p.deferredEntryPoints, functionID)
 	}
 	p.entryPoints[functionID] = ep
 	return nil

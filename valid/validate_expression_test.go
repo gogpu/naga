@@ -270,12 +270,20 @@ func TestValidateNew_InvalidMatrixRows(t *testing.T) {
 	expectValidationErrors(t, m, "matrix rows must be 2, 3, or 4")
 }
 
-func TestValidateNew_StructEmptyMemberName(t *testing.T) {
+// An empty member name is an unnamed member: the SPIR-V frontend produces
+// them, and each backend names them for itself.
+func TestValidateNew_StructUnnamedMemberAllowed(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.StructType{
-		Members: []ir.StructMember{{Name: "", Type: 0}},
+	m.Types = append(m.Types, ir.Type{Name: "unnamed-member", Inner: ir.StructType{
+		Members: []ir.StructMember{
+			{Name: "", Type: 0},
+			{Name: "", Type: 0},
+		},
+		Span: 4,
 	}})
-	expectValidationErrors(t, m, "struct member 0 has empty name")
+	if errs, err := validateErrs(m, CapAll); err != nil || len(errs) != 0 {
+		t.Errorf("validation errors = %v (%v), want none", errs, err)
+	}
 }
 
 func TestValidateNew_StructDuplicateMemberName(t *testing.T) {

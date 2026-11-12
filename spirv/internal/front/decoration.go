@@ -52,6 +52,140 @@ const (
 	decorationVolatile    decorationFlags = 1 << 3
 )
 
+// takeDecoration returns the decoration record of id and removes it: its
+// definition consumes it, as Rust naga's future_decor.remove. An id without
+// one gets an empty record.
+func (p *parser) takeDecoration(id uint32) *decoration {
+	dec, ok := p.decorations[id]
+	if !ok {
+		return &decoration{}
+	}
+	delete(p.decorations, id)
+	return dec
+}
+
+// takeMemberDecoration returns the decoration record of a struct member and
+// removes it.
+func (p *parser) takeMemberDecoration(id, member uint32) *decoration {
+	key := memberKey{typeID: id, member: member}
+	dec, ok := p.memberDecorations[key]
+	if !ok {
+		return &decoration{}
+	}
+	delete(p.memberDecorations, key)
+	return dec
+}
+
+// storageAccess is the StorageAccess the flags describe: both, without
+// NonReadable or NonWritable.
+func (d *decoration) storageAccess() ir.StorageAccess {
+	access := ir.StorageAccessLoad | ir.StorageAccessStore
+	if d.flags&decorationNonReadable != 0 {
+		access &^= ir.StorageAccessLoad
+	}
+	if d.flags&decorationNonWritable != 0 {
+		access &^= ir.StorageAccessStore
+	}
+	return access
+}
+
+// resourceBinding returns the DescriptorSet and Binding decorations, if both
+// are present.
+func (d *decoration) resourceBinding() *ir.ResourceBinding {
+	if d.descSet == nil || d.descIndex == nil {
+		return nil
+	}
+	return &ir.ResourceBinding{Group: *d.descSet, Binding: *d.descIndex}
+}
+
+// ioBinding returns the binding of an input or output variable, as Rust
+// naga's Decoration::io_binding.
+func (d *decoration) ioBinding() (ir.Binding, error) {
+	switch {
+	case d.builtIn != nil && d.location == nil:
+		builtin, err := mapBuiltin(*d.builtIn, d.invariant)
+		if err != nil {
+			return nil, err
+		}
+		return ir.BuiltinBinding{Builtin: builtin, Invariant: d.invariant}, nil
+	case d.builtIn == nil && d.location != nil && d.index != nil:
+		// The dual-source blending index pins the location's interpolation
+		// and sampling: Rust naga leaves both unset here.
+		blendSrc := *d.index
+		return ir.LocationBinding{Location: *d.location, BlendSrc: &blendSrc}, nil
+	case d.builtIn == nil && d.location != nil:
+		return ir.LocationBinding{
+			Location:      *d.location,
+			Interpolation: d.interpolation,
+			Sampling:      d.sampling,
+		}, nil
+	}
+	return nil, errMissingDecoration(spvenums.DecorationLocation)
+}
+
+// mapBuiltin maps a SPIR-V BuiltIn decoration, as Rust naga's map_builtin.
+func mapBuiltin(word uint32, invariant bool) (ir.BuiltinValue, error) {
+	switch spvenums.BuiltIn(word) {
+	case spvenums.BuiltInPosition, spvenums.BuiltInFragCoord:
+		return ir.BuiltinPosition, nil
+	case spvenums.BuiltInViewIndex:
+		return ir.BuiltinViewIndex, nil
+	case spvenums.BuiltInBaseInstance:
+		return ir.BuiltinBaseInstance, nil
+	case spvenums.BuiltInBaseVertex:
+		return ir.BuiltinBaseVertex, nil
+	case spvenums.BuiltInClipDistance:
+		return ir.BuiltinClipDistances, nil
+	case spvenums.BuiltInCullDistance:
+		return ir.BuiltinCullDistance, nil
+	case spvenums.BuiltInInstanceIndex:
+		return ir.BuiltinInstanceIndex, nil
+	case spvenums.BuiltInPointSize:
+		return ir.BuiltinPointSize, nil
+	case spvenums.BuiltInVertexIndex:
+		return ir.BuiltinVertexIndex, nil
+	case spvenums.BuiltInDrawIndex:
+		return ir.BuiltinDrawIndex, nil
+	case spvenums.BuiltInFragDepth:
+		return ir.BuiltinFragDepth, nil
+	case spvenums.BuiltInPointCoord:
+		return ir.BuiltinPointCoord, nil
+	case spvenums.BuiltInFrontFacing:
+		return ir.BuiltinFrontFacing, nil
+	case spvenums.BuiltInPrimitiveId:
+		return ir.BuiltinPrimitiveIndex, nil
+	case spvenums.BuiltInBaryCoordKHR:
+		return ir.BuiltinBarycentric, nil
+	case spvenums.BuiltInBaryCoordNoPerspKHR:
+		return ir.BuiltinBarycentricNoPerspective, nil
+	case spvenums.BuiltInSampleId:
+		return ir.BuiltinSampleIndex, nil
+	case spvenums.BuiltInSampleMask:
+		return ir.BuiltinSampleMask, nil
+	case spvenums.BuiltInGlobalInvocationId:
+		return ir.BuiltinGlobalInvocationID, nil
+	case spvenums.BuiltInLocalInvocationId:
+		return ir.BuiltinLocalInvocationID, nil
+	case spvenums.BuiltInLocalInvocationIndex:
+		return ir.BuiltinLocalInvocationIndex, nil
+	case spvenums.BuiltInWorkgroupId:
+		return ir.BuiltinWorkGroupID, nil
+	case spvenums.BuiltInWorkgroupSize:
+		return ir.BuiltinWorkGroupSize, nil
+	case spvenums.BuiltInNumWorkgroups:
+		return ir.BuiltinNumWorkGroups, nil
+	case spvenums.BuiltInNumSubgroups:
+		return ir.BuiltinNumSubgroups, nil
+	case spvenums.BuiltInSubgroupId:
+		return ir.BuiltinSubgroupID, nil
+	case spvenums.BuiltInSubgroupSize:
+		return ir.BuiltinSubgroupSize, nil
+	case spvenums.BuiltInSubgroupLocalInvocationId:
+		return ir.BuiltinSubgroupInvocationID, nil
+	}
+	return 0, errUnsupportedBuiltIn(word)
+}
+
 // nextDecoration reads the decoration of inst and applies it to dec.
 // baseWords is the number of words before the decoration: the instruction
 // word and the id, plus the member for OpMemberDecorate. An unknown
@@ -128,6 +262,10 @@ func (p *parser) nextDecoration(inst instruction, baseWords uint16, dec *decorat
 	case spvenums.DecorationBufferBlock:
 		dec.storageBuffer = true
 		return noOperand()
+	case spvenums.DecorationBlock:
+		// Ignored: it appears on every buffer and changes nothing in the IR.
+		// Rust naga demotes it to a debug log for the same reason.
+		return noOperand()
 	case spvenums.DecorationInvariant:
 		dec.invariant = true
 		return noOperand()
@@ -175,7 +313,7 @@ func (p *parser) nextDecoration(inst instruction, baseWords uint16, dec *decorat
 	// An unknown decoration: warn and skip its operands. Block decorations
 	// are demoted to a debug level in Rust naga because they appear
 	// everywhere; the warning is kept here for both.
-	p.warn("Unknown decoration %s", decoration)
+	p.warnf("Unknown decoration %s", decoration)
 	for range inst.wc - (baseWords + 1) {
 		if _, err := p.next(); err != nil {
 			return err

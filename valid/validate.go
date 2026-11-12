@@ -379,16 +379,18 @@ func (v *validator) validateType(handle ir.TypeHandle, typ *ir.Type) {
 		}
 
 	case ir.StructType:
-		// Validate struct members
+		// Validate struct members. An empty name is an unnamed member, which
+		// the SPIR-V frontend produces (Rust naga's StructMember::name is
+		// None there) and every backend names for itself; it takes part in no
+		// duplicate check.
 		memberNames := make(map[string]bool)
-		for j, member := range inner.Members {
-			if member.Name == "" {
-				v.addError(fmt.Sprintf("type %d: struct member %d has empty name", handle, j))
+		for _, member := range inner.Members {
+			if member.Name != "" {
+				if memberNames[member.Name] {
+					v.addError(fmt.Sprintf("type %d: duplicate struct member name %q", handle, member.Name))
+				}
+				memberNames[member.Name] = true
 			}
-			if memberNames[member.Name] {
-				v.addError(fmt.Sprintf("type %d: duplicate struct member name %q", handle, member.Name))
-			}
-			memberNames[member.Name] = true
 
 			if !v.isValidTypeHandle(member.Type) {
 				v.addError(fmt.Sprintf("type %d: struct member %q type %d does not exist", handle, member.Name, member.Type))
