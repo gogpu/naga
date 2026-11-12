@@ -59,7 +59,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 
 		argumentCopy := variable.argument
 		if ep.stage == ir.StageFragment && argumentCopy.Binding != nil {
-			applyDefaultInterpolation(argumentCopy.Binding, p.module.Types[argumentCopy.Type].Inner)
+			argumentCopy.Binding = withDefaultInterpolation(argumentCopy.Binding, p.module.Types[argumentCopy.Type].Inner)
 		}
 		function.Arguments = append(function.Arguments, argumentCopy)
 	}
@@ -91,7 +91,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 					continue
 				}
 				if ep.stage == ir.StageVertex {
-					applyDefaultInterpolation(member.Binding, p.module.Types[member.Type].Inner)
+					member.Binding = withDefaultInterpolation(member.Binding, p.module.Types[member.Type].Inner)
 				}
 				layout := p.layouter.Layout(member.Type)
 				nextOffset = roundUp(nextOffset, layout.Alignment)
@@ -109,7 +109,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 
 		binding := result.Binding
 		if binding != nil && ep.stage == ir.StageVertex {
-			applyDefaultInterpolation(binding, p.module.Types[result.Type].Inner)
+			binding = withDefaultInterpolation(binding, p.module.Types[result.Type].Inner)
 		}
 		layout := p.layouter.Layout(result.Type)
 		nextOffset = roundUp(nextOffset, layout.Alignment)
@@ -180,6 +180,16 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		EarlyDepthTest: ep.earlyDepthTest,
 	})
 	return nil
+}
+
+// withDefaultInterpolation returns a copy of binding with the default
+// interpolation applied. The binding a variable or a struct type holds is
+// shared by every entry point that lists it, so it is never written through;
+// Rust naga clones it the same way (front/spv/function.rs, the wrapper).
+func withDefaultInterpolation(binding *ir.Binding, inner ir.TypeInner) *ir.Binding {
+	copied := *binding
+	applyDefaultInterpolation(&copied, inner)
+	return &copied
 }
 
 // applyDefaultInterpolation gives a float location binding the interpolation

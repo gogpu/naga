@@ -217,6 +217,118 @@ func TestWrapperOutputs(t *testing.T) {
 	})
 }
 
+// namedEntryPointOp builds an OpEntryPoint with a name for a function. Entry
+// points are keyed by function, so two entry points need two functions.
+func namedEntryPointOp(model spvenums.ExecutionModel, function uint32, name string, variables ...uint32) []uint32 {
+	words := []uint32{uint32(model), function}
+	words = append(words, stringWords(name)...)
+	words = append(words, variables...)
+	return instWords(spvenums.OpEntryPoint, words...)
+}
+
+// locationInterpolation returns the interpolation of a location binding.
+func locationInterpolation(t *testing.T, binding *ir.Binding) *ir.Interpolation {
+	t.Helper()
+	if binding == nil {
+		t.Fatal("no binding")
+	}
+	location, ok := (*binding).(ir.LocationBinding)
+	if !ok {
+		t.Fatalf("binding = %#v, want a location", *binding)
+	}
+	return location.Interpolation
+}
+
+// TestDefaultInterpolationDoesNotLeak: the default interpolation is applied to
+// a copy of the binding, as Rust naga clones it (front/spv/function.rs, the
+// entry point wrapper). Writing through the shared binding gave a vertex
+// argument the interpolation a fragment wrapper had set, and changed the
+// members of a stored output struct type.
+func TestDefaultInterpolationDoesNotLeak(t *testing.T) {
+	t.Run("input shared by a fragment and a vertex entry point", func(t *testing.T) {
+		module, _, err := parseWords(t, Options{},
+			headerWords(),
+			instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+			instWords(spvenums.OpMemoryModel, 0, 1),
+			namedEntryPointOp(spvenums.ExecutionModelFragment, 1, "fs", 3),
+			namedEntryPointOp(spvenums.ExecutionModelVertex, 5, "vs", 3),
+			instWords(spvenums.OpDecorate, 3, uint32(spvenums.DecorationLocation), 0),
+			instWords(spvenums.OpTypeVoid, 10),
+			instWords(spvenums.OpTypeFunction, 11, 10),
+			instWords(spvenums.OpTypeFloat, 12, 32),
+			instWords(spvenums.OpTypeVector, 13, 12, 4),
+			instWords(spvenums.OpTypePointer, 14, uint32(spvenums.StorageClassInput), 13),
+			instWords(spvenums.OpVariable, 14, 3, uint32(spvenums.StorageClassInput)),
+			voidFunctionBody(),
+			instWords(spvenums.OpLabel, 2),
+			instWords(spvenums.OpReturn),
+			instWords(spvenums.OpFunctionEnd),
+			instWords(spvenums.OpFunction, 10, 5, 0, 11),
+			instWords(spvenums.OpLabel, 6),
+			instWords(spvenums.OpReturn),
+			instWords(spvenums.OpFunctionEnd),
+		)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if len(module.EntryPoints) != 2 {
+			t.Fatalf("entry points = %d, want 2", len(module.EntryPoints))
+		}
+		for _, ep := range module.EntryPoints {
+			if len(ep.Function.Arguments) != 1 {
+				t.Fatalf("%s arguments = %d, want 1", ep.Name, len(ep.Function.Arguments))
+			}
+			interpolation := locationInterpolation(t, ep.Function.Arguments[0].Binding)
+			switch ep.Stage {
+			case ir.StageFragment:
+				if interpolation == nil || *interpolation != ir.InterpolationPerspective {
+					t.Errorf("fragment interpolation = %v, want perspective", interpolation)
+				}
+			case ir.StageVertex:
+				if interpolation != nil {
+					t.Errorf("vertex interpolation = %v, want none", *interpolation)
+				}
+			}
+		}
+	})
+
+	t.Run("output struct type stays unchanged", func(t *testing.T) {
+		module, ep := parseEntryPointModule(t, Options{},
+			headerWords(),
+			instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+			instWords(spvenums.OpMemoryModel, 0, 1),
+			entryPointOp(spvenums.ExecutionModelVertex, 3),
+			instWords(spvenums.OpMemberDecorate, 12, 0, uint32(spvenums.DecorationBuiltIn), uint32(spvenums.BuiltInPosition)),
+			instWords(spvenums.OpMemberDecorate, 12, 1, uint32(spvenums.DecorationLocation), 0),
+			instWords(spvenums.OpTypeVoid, 10),
+			instWords(spvenums.OpTypeFunction, 11, 10),
+			instWords(spvenums.OpTypeFloat, 13, 32),
+			instWords(spvenums.OpTypeVector, 14, 13, 4),
+			instWords(spvenums.OpTypeStruct, 12, 14, 14),
+			instWords(spvenums.OpTypePointer, 15, uint32(spvenums.StorageClassOutput), 12),
+			instWords(spvenums.OpVariable, 15, 3, uint32(spvenums.StorageClassOutput)),
+			voidFunctionBody(),
+			instWords(spvenums.OpLabel, 2),
+			instWords(spvenums.OpReturn),
+			instWords(spvenums.OpFunctionEnd),
+		)
+		stored, ok := module.Types[module.GlobalVariables[0].Type].Inner.(ir.StructType)
+		if !ok || len(stored.Members) != 2 {
+			t.Fatalf("output global type = %#v, want a struct of two members", module.Types[module.GlobalVariables[0].Type].Inner)
+		}
+		if interpolation := locationInterpolation(t, stored.Members[1].Binding); interpolation != nil {
+			t.Errorf("stored struct member interpolation = %v, want none", *interpolation)
+		}
+		result, ok := module.Types[ep.Function.Result.Type].Inner.(ir.StructType)
+		if !ok || len(result.Members) != 2 {
+			t.Fatalf("result type = %#v, want a struct of two members", module.Types[ep.Function.Result.Type].Inner)
+		}
+		if interpolation := locationInterpolation(t, result.Members[1].Binding); interpolation == nil || *interpolation != ir.InterpolationPerspective {
+			t.Errorf("result member interpolation = %v, want perspective", interpolation)
+		}
+	})
+}
+
 func TestWrapperInputs(t *testing.T) {
 	t.Run("fragment location gets default interpolation", func(t *testing.T) {
 		_, ep := parseEntryPointModule(t, Options{},
