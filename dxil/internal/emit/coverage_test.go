@@ -1408,26 +1408,30 @@ func TestStageToShaderKindExtended(t *testing.T) {
 func TestBuiltinToDXILSemantic(t *testing.T) {
 	tests := []struct {
 		builtin ir.BuiltinValue
+		kind    int64
+		name    string
+		ok      bool
 	}{
-		{ir.BuiltinPosition},
-		{ir.BuiltinVertexIndex},
-		{ir.BuiltinInstanceIndex},
-		{ir.BuiltinFrontFacing},
-		{ir.BuiltinFragDepth},
-		{ir.BuiltinSampleIndex},
-		{ir.BuiltinSampleMask},
-		{ir.BuiltinGlobalInvocationID},
-		{ir.BuiltinLocalInvocationID},
-		{ir.BuiltinWorkGroupID},
-		{ir.BuiltinLocalInvocationIndex},
+		{ir.BuiltinPosition, 3, "SV_Position", true},
+		{ir.BuiltinVertexIndex, 1, "SV_VertexID", true},
+		{ir.BuiltinInstanceIndex, 2, "SV_InstanceID", true},
+		{ir.BuiltinFrontFacing, 13, "SV_IsFrontFace", true},
+		{ir.BuiltinFragDepth, 17, "SV_Depth", true},
+		{ir.BuiltinSampleIndex, 12, "SV_SampleIndex", true},
+		{ir.BuiltinSampleMask, 14, "SV_Coverage", true},
+		{ir.BuiltinClipDistances, 6, "SV_ClipDistance", true},
+		{ir.BuiltinCullDistance, 7, "SV_CullDistance", true},
+		{ir.BuiltinPrimitiveIndex, 10, "SV_PrimitiveID", true},
+		// Not signature elements: no arbitrary semantic, ok=false.
+		{ir.BuiltinGlobalInvocationID, 0, "", false},
+		{ir.BuiltinBaseInstance, 0, "", false},
 	}
 	for _, tt := range tests {
-		semIdx, semName := builtinToDXILSemantic(tt.builtin)
-		// Verify it returns non-empty semantic name and valid index.
-		if semName == "" {
-			t.Errorf("builtinToDXILSemantic(%d) returned empty semantic name", tt.builtin)
+		kind, name, ok := builtinToDXILSemantic(tt.builtin)
+		if kind != tt.kind || name != tt.name || ok != tt.ok {
+			t.Errorf("builtinToDXILSemantic(%v) = (%d, %q, %v), want (%d, %q, %v)",
+				tt.builtin, kind, name, ok, tt.kind, tt.name, tt.ok)
 		}
-		_ = semIdx
 	}
 }
 

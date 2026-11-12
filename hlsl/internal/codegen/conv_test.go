@@ -140,6 +140,7 @@ func TestBuiltInToSemantic(t *testing.T) {
 		{"vertex_index", ir.BuiltinVertexIndex, "SV_VertexID", true},
 		{"instance_index", ir.BuiltinInstanceIndex, "SV_InstanceID", true},
 		{"clip_distances", ir.BuiltinClipDistances, "SV_ClipDistance", true},
+		{"cull_distance", ir.BuiltinCullDistance, "SV_CullDistance", true},
 		// Fragment shader
 		{"front_facing", ir.BuiltinFrontFacing, "SV_IsFrontFace", true},
 		{"frag_depth", ir.BuiltinFragDepth, "SV_Depth", true},
@@ -176,6 +177,12 @@ func TestBuiltInToSemantic(t *testing.T) {
 		// builtin error): the entry point is refused, never SV_Position.
 		{"point_size", ir.BuiltinPointSize, "", false},
 		{"draw_index", ir.BuiltinDrawIndex, "", false},
+		// SPIR-V-only built-ins with no HLSL semantic (Rust conv.rs:186-191
+		// refuses them the same way).
+		{"base_instance", ir.BuiltinBaseInstance, "", false},
+		{"base_vertex", ir.BuiltinBaseVertex, "", false},
+		{"point_coord", ir.BuiltinPointCoord, "", false},
+		{"workgroup_size", ir.BuiltinWorkGroupSize, "", false},
 	}
 
 	covered := make(map[ir.BuiltinValue]bool, len(tests))
@@ -189,7 +196,7 @@ func TestBuiltInToSemantic(t *testing.T) {
 			}
 		})
 	}
-	for b := ir.BuiltinPosition; b <= ir.BuiltinBarycentricNoPerspective; b++ {
+	for b := ir.BuiltinPosition; b <= ir.BuiltinWorkGroupSize; b++ {
 		if !covered[b] {
 			t.Errorf("built-in %d is missing from the table: decide its HLSL semantic, none, or unsupported", b)
 		}

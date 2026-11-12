@@ -301,7 +301,7 @@ func checkBuiltins(module *ir.Module, options *Options) error {
 		}
 		if bi, ok := (*b).(ir.BuiltinBinding); ok {
 			if _, supported := BuiltInToSemantic(bi.Builtin); !supported {
-				return NewError(ErrUnsupportedFeature, fmt.Sprintf("entry point %q: built-in %d has no HLSL semantic", ep.Name, bi.Builtin))
+				return NewError(ErrUnsupportedFeature, fmt.Sprintf("entry point %q: built-in %s has no HLSL semantic", ep.Name, bi.Builtin))
 			}
 		}
 		return nil

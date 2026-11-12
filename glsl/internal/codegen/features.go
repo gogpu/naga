@@ -448,6 +448,10 @@ func (w *Writer) checkVaryingBinding(binding *ir.Binding, typeHandle ir.TypeHand
 		if b.Builtin == ir.BuiltinInstanceIndex {
 			w.features.request(FeatureInstanceIndex)
 		}
+		if b.Builtin == ir.BuiltinCullDistance {
+			// Rust naga's features.rs requests CULL_DISTANCE for the built-in.
+			w.features.request(FeatureCullDistance)
+		}
 	}
 }
 

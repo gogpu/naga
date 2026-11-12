@@ -1347,6 +1347,9 @@ func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeH
 		if c := builtinCapability(b.Builtin); c != 0 && !v.has(c) {
 			v.addError(fmt.Sprintf("entry point %q: %s: Capability %s is not supported", ep.Name, where, c.rustDebug()))
 		}
+		if msg := v.builtinVaryingError(ep.Stage, ty, b.Builtin, output); msg != "" {
+			v.addError(fmt.Sprintf("entry point %q: %s: %s", ep.Name, where, msg))
+		}
 		return
 	}
 	loc, ok := (*binding).(ir.LocationBinding)
@@ -1356,6 +1359,61 @@ func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeH
 	if msg := v.locationVaryingError(ep.Stage, ty, loc, output); msg != "" {
 		v.addError(fmt.Sprintf("entry point %q: %s: %s", ep.Name, where, msg))
 	}
+}
+
+// builtinVaryingError returns Rust's VaryingError text for a built-in whose
+// stage, direction or type does not fit (valid/interface.rs
+// VaryingContext::validate_impl), or "" for a built-in this check does not
+// cover. It covers the built-ins the IR gained for the SPIR-V frontend; the
+// rest of Rust's table is card P1-VALID-001.
+func (v *validator) builtinVaryingError(stage ir.ShaderStage, ty ir.TypeHandle, builtin ir.BuiltinValue, output bool) string {
+	if !v.isValidTypeHandle(ty) {
+		return ""
+	}
+	inner := v.module.Types[ty].Inner
+	computeLike := stage == ir.StageCompute || stage == ir.StageTask || stage == ir.StageMesh
+	scalarU32 := func() bool {
+		s, ok := inner.(ir.ScalarType)
+		return ok && s.Kind == ir.ScalarUint && s.Width == 4
+	}
+	isVector := func(size ir.VectorSize, kind ir.ScalarKind, width uint8) bool {
+		vec, ok := inner.(ir.VectorType)
+		return ok && vec.Size == size && vec.Scalar.Kind == kind && vec.Scalar.Width == width
+	}
+	var visible, typeOK bool
+	switch builtin {
+	case ir.BuiltinBaseInstance, ir.BuiltinBaseVertex:
+		// valid/interface.rs:292-295.
+		visible = stage == ir.StageVertex && !output
+		typeOK = scalarU32()
+	case ir.BuiltinCullDistance:
+		// valid/interface.rs:309-321: a vertex or mesh output, an array of f32
+		// with a constant size up to eight.
+		visible = (stage == ir.StageVertex || stage == ir.StageMesh) && output
+		if arr, ok := inner.(ir.ArrayType); ok && int(arr.Base) < len(v.module.Types) {
+			base, baseOK := v.module.Types[arr.Base].Inner.(ir.ScalarType)
+			size := arr.Size.Constant
+			typeOK = baseOK && base.Kind == ir.ScalarFloat && base.Width == 4 &&
+				size != nil && *size > 0 && *size <= 8
+		}
+	case ir.BuiltinPointCoord:
+		// valid/interface.rs:326-333.
+		visible = stage == ir.StageFragment && !output
+		typeOK = isVector(ir.Vec2, ir.ScalarFloat, 4)
+	case ir.BuiltinWorkGroupSize:
+		// valid/interface.rs:394-405, compute_like stages.
+		visible = computeLike && !output
+		typeOK = isVector(ir.Vec3, ir.ScalarUint, 4)
+	default:
+		return ""
+	}
+	if !visible {
+		return fmt.Sprintf("Built-in %s is not available at this stage", builtin)
+	}
+	if !typeOK {
+		return fmt.Sprintf("Built-in type for %s is invalid", builtin)
+	}
+	return ""
 }
 
 // locationVaryingError returns Rust's VaryingError text for a location

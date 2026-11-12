@@ -85,7 +85,7 @@ func BuiltinInterpolation(b ir.BuiltinValue, stage ir.ShaderStage, isOutput bool
 	switch b {
 	case ir.BuiltinPosition, ir.BuiltinBarycentricNoPerspective:
 		return InterpLinearNoperspective
-	case ir.BuiltinClipDistances, ir.BuiltinBarycentric, ir.BuiltinPointSize:
+	case ir.BuiltinClipDistances, ir.BuiltinCullDistance, ir.BuiltinBarycentric, ir.BuiltinPointSize:
 		return InterpLinear
 	default:
 		// The remaining system values a vertex output or pixel input can
@@ -264,14 +264,16 @@ type ClipDistanceElement struct {
 	Cols          uint8  // distances carried by this element, 1..4
 }
 
-// ClipDistanceElements splits n clip distances into the signature elements
-// D3D requires: at most four distances per element, as DXC emits for a
-// vertex shader declaring SV_ClipDistance0 as float4 and SV_ClipDistance1
-// as the remaining floats. Every signature producer uses this split so the
-// signature, PSV0, the entry point metadata and the stores agree.
+// ClipDistanceElements splits n clip or cull distances into the signature
+// elements D3D requires: at most four distances per element, as DXC emits for
+// a vertex shader declaring SV_ClipDistance0 as float4 and SV_ClipDistance1
+// as the remaining floats (cull distances split the same way). Every signature
+// producer uses this split so the signature, PSV0, the entry point metadata
+// and the stores agree.
 func ClipDistanceElements(n uint32) []ClipDistanceElement {
 	if n > MaxClipDistances {
-		// Compile refuses such a shader before emission (checkClipDistances);
+		// Compile refuses such a shader before emission (checkDistanceArrays in
+		// dxil/capabilities.go);
 		// clamping keeps the slice well formed for any other caller.
 		n = MaxClipDistances
 	}
@@ -284,12 +286,14 @@ func ClipDistanceElements(n uint32) []ClipDistanceElement {
 	}
 }
 
-// ClipDistanceElementsFor reports the signature element split of a
-// clip-distance binding: ok is false when the binding is not
-// @builtin(clip_distances) or its type is not a constant array.
+// ClipDistanceElementsFor reports the signature element split of a distance
+// array binding: @builtin(clip_distances) or @builtin(cull_distance). The
+// name keeps the historical "clip" because both built-ins share one D3D
+// layout: up to four distances in element 0, the rest in element 1. ok is
+// false for any other binding or a type that is not a constant array.
 func ClipDistanceElementsFor(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle) (elements []ClipDistanceElement, ok bool) {
 	bb, isBuiltin := binding.(ir.BuiltinBinding)
-	if !isBuiltin || bb.Builtin != ir.BuiltinClipDistances {
+	if !isBuiltin || (bb.Builtin != ir.BuiltinClipDistances && bb.Builtin != ir.BuiltinCullDistance) {
 		return nil, false
 	}
 	if irMod == nil || int(typeHandle) >= len(irMod.Types) {
@@ -302,7 +306,8 @@ func ClipDistanceElementsFor(irMod *ir.Module, binding ir.Binding, typeHandle ir
 	return ClipDistanceElements(*arr.Size.Constant), true
 }
 
-// clipDistanceInfo is the packing class of @builtin(clip_distances): one
+// clipDistanceInfo is the packing class of @builtin(clip_distances) and
+// @builtin(cull_distance): one
 // row with a column per distance, as the signature element and the entry
 // point metadata declare it (a `float2 c : SV_ClipDistance0` in HLSL
 // terms), and one row per four distances — N = 5..8 continues in
@@ -364,7 +369,7 @@ func SigElementInfoForBinding(
 				ColCount: 4,
 				Rows:     1,
 			}
-		case ir.BuiltinClipDistances:
+		case ir.BuiltinClipDistances, ir.BuiltinCullDistance:
 			return clipDistanceInfo(irMod, binding, typeHandle, rows)
 		case ir.BuiltinFragDepth, ir.BuiltinSampleMask:
 			// PS outputs SV_Depth / SV_Coverage are system-managed (not

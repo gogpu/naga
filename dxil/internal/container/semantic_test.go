@@ -20,13 +20,17 @@ func TestMapBuiltinToSemantic(t *testing.T) {
 		{"FragDepth", ir.BuiltinFragDepth, "SV_Depth", SVDepth},
 		{"SampleIndex", ir.BuiltinSampleIndex, "SV_SampleIndex", SVSampleIndex},
 		{"ClipDistance", ir.BuiltinClipDistances, "SV_ClipDistance", SVClipDistance},
+		{"CullDistance", ir.BuiltinCullDistance, "SV_CullDistance", SVCullDistance},
 		{"SampleMask", ir.BuiltinSampleMask, "SV_Coverage", SVCoverage},
 		{"PrimitiveIndex", ir.BuiltinPrimitiveIndex, "SV_PrimitiveID", SVPrimitiveID},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := MapBuiltinToSemantic(tt.builtin)
+			m, ok := MapBuiltinToSemantic(tt.builtin)
+			if !ok {
+				t.Fatalf("MapBuiltinToSemantic(%v) = not mapped, want %q", tt.builtin, tt.wantName)
+			}
 			if m.SemanticName != tt.wantName {
 				t.Errorf("name: got %q, want %q", m.SemanticName, tt.wantName)
 			}
@@ -34,6 +38,20 @@ func TestMapBuiltinToSemantic(t *testing.T) {
 				t.Errorf("system value: got %d, want %d", m.SystemValue, tt.wantSV)
 			}
 		})
+	}
+}
+
+// TestMapBuiltinToSemanticUnmapped pins the default: a built-in without a
+// signature system value, or one the emitter cannot express, is reported as
+// unmapped, never named SV_Unknown.
+func TestMapBuiltinToSemanticUnmapped(t *testing.T) {
+	for _, b := range []ir.BuiltinValue{
+		ir.BuiltinBaseInstance, ir.BuiltinBaseVertex, ir.BuiltinPointCoord, ir.BuiltinWorkGroupSize,
+		ir.BuiltinLocalInvocationID,
+	} {
+		if m, ok := MapBuiltinToSemantic(b); ok {
+			t.Errorf("MapBuiltinToSemantic(%v) = %+v, want not mapped", b, m)
+		}
 	}
 }
 
@@ -92,26 +110,31 @@ func TestMapLocationToOutputSemantic_Vertex(t *testing.T) {
 
 func TestMapBindingToSemantic(t *testing.T) {
 	// Builtin input.
-	m := MapBindingToSemantic(ir.BuiltinBinding{Builtin: ir.BuiltinPosition}, false, false)
-	if m.SemanticName != "SV_Position" {
-		t.Errorf("builtin input: got %q, want %q", m.SemanticName, "SV_Position")
+	m, ok := MapBindingToSemantic(ir.BuiltinBinding{Builtin: ir.BuiltinPosition}, false, false)
+	if !ok || m.SemanticName != "SV_Position" {
+		t.Errorf("builtin input: got %q/%v, want SV_Position/true", m.SemanticName, ok)
 	}
 
 	// Location input.
-	m2 := MapBindingToSemantic(ir.LocationBinding{Location: 3}, false, false)
-	if m2.SemanticName != "LOC" || m2.SemanticIndex != 3 {
-		t.Errorf("location input: got %q/%d, want LOC/3", m2.SemanticName, m2.SemanticIndex)
+	m2, ok := MapBindingToSemantic(ir.LocationBinding{Location: 3}, false, false)
+	if !ok || m2.SemanticName != "LOC" || m2.SemanticIndex != 3 {
+		t.Errorf("location input: got %q/%d/%v, want LOC/3/true", m2.SemanticName, m2.SemanticIndex, ok)
 	}
 
 	// Location output for fragment.
-	m3 := MapBindingToSemantic(ir.LocationBinding{Location: 1}, true, true)
-	if m3.SemanticName != "SV_Target" || m3.SemanticIndex != 1 {
-		t.Errorf("fragment output: got %q/%d, want SV_Target/1", m3.SemanticName, m3.SemanticIndex)
+	m3, ok := MapBindingToSemantic(ir.LocationBinding{Location: 1}, true, true)
+	if !ok || m3.SemanticName != "SV_Target" || m3.SemanticIndex != 1 {
+		t.Errorf("fragment output: got %q/%d/%v, want SV_Target/1/true", m3.SemanticName, m3.SemanticIndex, ok)
 	}
 
 	// Location output for vertex.
-	m4 := MapBindingToSemantic(ir.LocationBinding{Location: 0}, true, false)
-	if m4.SemanticName != "LOC" || m4.SemanticIndex != 0 {
-		t.Errorf("vertex output: got %q/%d, want LOC/0", m4.SemanticName, m4.SemanticIndex)
+	m4, ok := MapBindingToSemantic(ir.LocationBinding{Location: 0}, true, false)
+	if !ok || m4.SemanticName != "LOC" || m4.SemanticIndex != 0 {
+		t.Errorf("vertex output: got %q/%d/%v, want LOC/0/true", m4.SemanticName, m4.SemanticIndex, ok)
+	}
+
+	// A built-in without a signature semantic is reported, not invented.
+	if _, ok := MapBindingToSemantic(ir.BuiltinBinding{Builtin: ir.BuiltinBaseVertex}, false, false); ok {
+		t.Error("builtin input BaseVertex: got mapped, want not mapped")
 	}
 }

@@ -124,13 +124,16 @@ func usesMeshShaders(module *ir.Module) bool {
 // (back/msl/mod.rs), which every argument and result binding of a written
 // entry point, struct members included, goes through.
 func (w *Writer) checkInterfaceVersion(ep *ir.EntryPoint) error {
-	check := func(b *ir.Binding, output bool) error {
+	check := func(b *ir.Binding, ty ir.TypeHandle, output, member bool) error {
 		if b == nil {
 			return nil
 		}
 		switch b := (*b).(type) {
 		case ir.BuiltinBinding:
-			return w.checkBuiltinVersion(b)
+			if err := w.checkBuiltinVersion(b); err != nil {
+				return err
+			}
+			return w.checkBuiltinAttribute(ep, b, ty, output, member)
 		case ir.LocationBinding:
 			// Rust checks blend_src on fragment outputs only.
 			if b.BlendSrc != nil && output && ep.Stage == ir.StageFragment {
@@ -141,11 +144,14 @@ func (w *Writer) checkInterfaceVersion(ep *ir.EntryPoint) error {
 	}
 	walk := func(binding *ir.Binding, ty ir.TypeHandle, output bool) error {
 		if binding != nil {
-			return check(binding, output)
+			return check(binding, ty, output, false)
+		}
+		if int(ty) >= len(w.module.Types) {
+			return nil
 		}
 		if st, ok := w.module.Types[ty].Inner.(ir.StructType); ok {
 			for j := range st.Members {
-				if err := check(st.Members[j].Binding, output); err != nil {
+				if err := check(st.Members[j].Binding, st.Members[j].Type, output, true); err != nil {
 					return err
 				}
 			}
@@ -164,16 +170,17 @@ func (w *Writer) checkInterfaceVersion(ep *ir.EntryPoint) error {
 }
 
 // checkBuiltinVersion is the built-in part of Rust's resolve_local_binding:
-// invariant position 2.1, instance_index 1.2 (instance_id), primitive_index
-// 2.3 (primitive_id), view_index 2.2 (amplification_id) and barycentrics 2.3
-// (barycentric_coord). Rust's base_instance check (1.2) has no WGSL
-// built-in.
+// invariant position 2.1, base_instance and instance_index 1.2 (base_instance,
+// instance_id), primitive_index 2.3 (primitive_id), view_index 2.2
+// (amplification_id) and barycentrics 2.3 (barycentric_coord).
 func (w *Writer) checkBuiltinVersion(b ir.BuiltinBinding) error {
 	switch b.Builtin {
 	case ir.BuiltinPosition:
 		if b.Invariant {
 			return w.requireVersion(Version2_1, "@invariant")
 		}
+	case ir.BuiltinBaseInstance:
+		return w.requireVersion(Version1_2, "@builtin(base_instance)")
 	case ir.BuiltinInstanceIndex:
 		return w.requireVersion(Version1_2, "@builtin(instance_index)")
 	case ir.BuiltinPrimitiveIndex:

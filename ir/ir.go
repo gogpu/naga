@@ -681,7 +681,86 @@ const (
 	// Barycentric { perspective: false }); BuiltinBarycentric is the
 	// perspective-correct one.
 	BuiltinBarycentricNoPerspective
+
+	// The five built-ins below have no WGSL spelling. The SPIR-V frontend
+	// produces them from their SPIR-V BuiltIn decorations; the WGSL frontend
+	// never does. Rust naga has all five in BuiltIn.
+
+	// BuiltinBaseInstance is the base instance of a draw, read by a vertex
+	// shader as u32 (SPIR-V BuiltIn BaseInstance 4425, Rust naga's
+	// BaseInstance).
+	BuiltinBaseInstance
+	// BuiltinBaseVertex is the base vertex of a draw, read by a vertex shader
+	// as u32 (SPIR-V BuiltIn BaseVertex 4424, Rust naga's BaseVertex).
+	BuiltinBaseVertex
+	// BuiltinCullDistance is the cull distance a vertex or mesh shader writes,
+	// a fixed-size array of f32 like BuiltinClipDistances (SPIR-V BuiltIn
+	// CullDistance 4, Rust naga's CullDistance).
+	BuiltinCullDistance
+	// BuiltinPointCoord is the point coordinate read by a fragment shader as
+	// vec2<f32> (SPIR-V BuiltIn PointCoord 16, Rust naga's PointCoord).
+	BuiltinPointCoord
+	// BuiltinWorkGroupSize is the workgroup size read by a compute-like
+	// shader (compute, task or mesh) as vec3<u32> (SPIR-V BuiltIn
+	// WorkgroupSize 25, Rust naga's WorkGroupSize).
+	BuiltinWorkGroupSize
 )
+
+// builtinValueNames are the names BuiltinValue.String returns, indexed by
+// value: the WGSL spelling where WGSL has one, and a stable name for the
+// built-ins WGSL does not expose. The order must match the constants above;
+// TestBuiltinValueNames checks the length, the uniqueness and the spelling.
+var builtinValueNames = [...]string{
+	"position",
+	"vertex_index",
+	"instance_index",
+	"front_facing",
+	"frag_depth",
+	"sample_index",
+	"sample_mask",
+	"local_invocation_id",
+	"local_invocation_index",
+	"global_invocation_id",
+	"workgroup_id",
+	"num_workgroups",
+	"num_subgroups",
+	"subgroup_id",
+	"subgroup_size",
+	"subgroup_invocation_id",
+	"barycentric",
+	"view_index",
+	"primitive_index",
+	"point_size",
+	"mesh_task_size",
+	"cull_primitive",
+	"point_index",
+	"line_indices",
+	"triangle_indices",
+	"vertex_count",
+	"vertices",
+	"primitive_count",
+	"primitives",
+	"clip_distances",
+	"draw_index",
+	"barycentric_no_perspective",
+	"base_instance",
+	"base_vertex",
+	"cull_distance",
+	"point_coord",
+	"workgroup_size",
+}
+
+// String returns the built-in's name for diagnostics (error messages), never
+// a parse format: the WGSL spelling where WGSL has one ("position",
+// "vertex_index"), and a stable name for the built-ins WGSL does not expose
+// ("base_instance", "workgroup_size"). A value outside the enum keeps its
+// number.
+func (v BuiltinValue) String() string {
+	if int(v) < len(builtinValueNames) {
+		return builtinValueNames[v]
+	}
+	return "BuiltinValue(" + strconv.Itoa(int(v)) + ")"
+}
 
 // LocationBinding is a user-defined input or output at a @location: Rust
 // naga's Binding::Location.

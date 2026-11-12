@@ -133,6 +133,34 @@ func TestSigElementInfoForBinding_ClipDistanceSplit(t *testing.T) {
 	}
 }
 
+// TestSigElementInfoForBinding_CullDistanceSplit verifies that a
+// cull_distance array goes through the same split as clip_distances:
+// SV_CullDistance1 needs its own register row (P1-DXIL-082).
+func TestSigElementInfoForBinding_CullDistanceSplit(t *testing.T) {
+	five := uint32(5)
+	mod := buildModule(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &five}},
+	)
+	info := SigElementInfoForBinding(mod, ir.BuiltinBinding{Builtin: ir.BuiltinCullDistance}, 1, ir.StageVertex, true, nil)
+	if info.Kind != SigPackBuiltinScalarArray {
+		t.Fatalf("Kind = %v, want SigPackBuiltinScalarArray", info.Kind)
+	}
+	if info.ColCount != 4 || info.Rows != 2 {
+		t.Errorf("ColCount/Rows = %d/%d, want 4/2 (a second SV_CullDistance element)", info.ColCount, info.Rows)
+	}
+	elements, ok := ClipDistanceElementsFor(mod, ir.BuiltinBinding{Builtin: ir.BuiltinCullDistance}, 1)
+	if !ok || len(elements) != 2 {
+		t.Fatalf("ClipDistanceElementsFor = %v, %v, want two elements", elements, ok)
+	}
+	if elements[0].SemanticIndex != 0 || elements[0].Cols != 4 {
+		t.Errorf("elements[0] = %+v, want SV_CullDistance0 of 4 columns", elements[0])
+	}
+	if elements[1].SemanticIndex != 1 || elements[1].Cols != 1 {
+		t.Errorf("elements[1] = %+v, want SV_CullDistance1 of 1 column", elements[1])
+	}
+}
+
 // TestSigElementInfoForBinding_LocationFragTarget verifies that fragment
 // shader @location outputs map to SV_Target with Register = SemanticIndex.
 func TestSigElementInfoForBinding_LocationFragTarget(t *testing.T) {

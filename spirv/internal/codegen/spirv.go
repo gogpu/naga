@@ -143,6 +143,7 @@ const (
 	CapabilityLinkage                            Capability = 5    // Import/export linkage
 	CapabilityInt64Atomics                       Capability = 12   // 64-bit atomic operations
 	CapabilityClipDistance                       Capability = 32   // ClipDistance builtin
+	CapabilityCullDistance                       Capability = 33   // CullDistance builtin
 	CapabilityImageCubeArray                     Capability = 34   // Cube array storage images
 	CapabilitySampleRateShading                  Capability = 35   // Sample-rate shading
 	CapabilitySampled1D                          Capability = 43   // Sampled 1D images
@@ -302,7 +303,6 @@ const (
 	BuiltInFragDepth            BuiltIn = 22
 	BuiltInHelperInvocation     BuiltIn = 23
 	BuiltInNumWorkgroups        BuiltIn = 24
-	BuiltInWorkgroupSize        BuiltIn = 25
 	BuiltInWorkgroupID          BuiltIn = 26
 	BuiltInLocalInvocationID    BuiltIn = 27
 	BuiltInGlobalInvocationID   BuiltIn = 28
@@ -316,6 +316,8 @@ const (
 	BuiltInViewIndex            BuiltIn = 4440
 	BuiltInBaryCoordKHR         BuiltIn = 5286
 	BuiltInBaryCoordNoPerspKHR  BuiltIn = 5287
+	BuiltInBaseVertex           BuiltIn = 4424
+	BuiltInBaseInstance         BuiltIn = 4425
 	BuiltInDrawIndex            BuiltIn = 4426
 )
 
