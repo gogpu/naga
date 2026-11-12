@@ -13,6 +13,11 @@
       "gitBlob": "a63e9c620ee123267192113ab0be3814782ba909"
     },
     {
+      "path": "extinst.glsl.std.450.grammar.json",
+      "sha256": "5d72e48247569f9b77a17a849db624350abc9d26f7f72b153bbcf15c37238239",
+      "gitBlob": "89338c9d4b26a5d221f5fbb403070ac2e83b496e"
+    },
+    {
       "path": "spirv.core.grammar.json",
       "sha256": "508e6677e27b0b58eac8395aa49a90ac1766a8d392c247a0aba7b03f4fdd85b9",
       "gitBlob": "21451e28898cec892512972af1aaf9f1efa8a174"
