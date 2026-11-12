@@ -1206,15 +1206,15 @@ func (p *parser) signedModulo(fs *functionState, consumer *emitter, block *ir.Bl
 	if err != nil {
 		return err
 	}
-	kind, ok := scalarKind(p.module.Types[resultType.handle].Inner)
+	scalar, ok := scalarOf(p.module.Types[resultType.handle].Inner)
 	if !ok {
 		return errInvalidAsType(resultType.handle)
 	}
-	size, err := p.typeByteSize(resultType.handle)
-	if err != nil {
-		return err
-	}
-	width := uint8(size)
+	kind := scalar.Kind
+	// The convert width is the scalar width. Deviation from Rust naga, which
+	// passes the type's byte size (next_block.rs, the SMod arm): 12 for a
+	// vec3<i32>, an invalid width that fails validation.
+	width := scalar.Width
 	leftCast := appendExpression(fs.fn, ir.ExprAs{Expr: left, Kind: ir.ScalarFloat, Convert: &width})
 	rightCast := appendExpression(fs.fn, ir.ExprAs{Expr: right, Kind: ir.ScalarFloat, Convert: &width})
 	division := appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: leftCast, Right: rightCast})
@@ -1258,15 +1258,6 @@ func (p *parser) floatModulo(fs *functionState, consumer *emitter, block *ir.Blo
 	subtract := appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinarySubtract, Left: left, Right: multiply})
 	p.storeExpression(resultID, resultTypeID, blockID, subtract)
 	return nil
-}
-
-// typeByteSize returns the byte size of the scalar or vector type, as Rust's
-// TypeInner::size gives the width an As conversion needs.
-func (p *parser) typeByteSize(ty ir.TypeHandle) (uint32, error) {
-	if err := p.updateLayouter(); err != nil {
-		return 0, err
-	}
-	return p.layouter.Layout(ty).Size, nil
 }
 
 // relational parses OpAny, OpAll, OpIsNan and OpIsInf.
