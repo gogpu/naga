@@ -39,5 +39,16 @@ for f in ../rust/in/spv/*.spvasm; do
 done
 ```
 
+`--target-env spv1.6` pins the version word in the SPIR-V header. Without it
+spirv-as uses the default of the built tools (SPIR-V 1.3 with SPIRV-Tools
+v2026.1, another version in another build), while upstream's harness assembles
+without a target env at all. The assembly uses no version-dependent construct,
+so the outputs differ only in that header word; naga's frontend reads the
+version but only logs it. An explicit target keeps the committed bytes
+independent of the local assembler's default.
+
 `TestSPVCorpusBinaries` checks that every `.spvasm` has its `.spv` and that
-each starts with the SPIR-V magic; CI needs no assembler.
+each starts with the SPIR-V magic; `TestSPVCorpusAssembly` re-assembles every
+file with spirv-as and compares the bytes exactly. CI installs the assembler
+and requires it through `NAGA_REQUIRE_TOOLS`; locally the byte check skips
+when spirv-as is absent, with the reason.
