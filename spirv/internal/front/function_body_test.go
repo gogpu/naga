@@ -548,6 +548,26 @@ func TestBodyExpressionArms(t *testing.T) {
 			},
 		},
 		{
+			// A shuffle with more components than an IR vector holds: Rust
+			// zips the pattern with the indices and keeps the first four
+			// (next_block.rs, the VectorShuffle arm). Writing every index into
+			// the four-slot pattern panicked here.
+			name: "vector shuffle with more than four components",
+			body: [][]uint32{
+				instWords(spvenums.OpCompositeConstruct, 9, 200, 22, 22, 22, 22),
+				instWords(spvenums.OpVectorShuffle, 9, 201, 200, 200, 0, 1, 2, 3, 0),
+			},
+			check: func(t *testing.T, fn *ir.Function) {
+				if _, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+					swizzle, ok := k.(ir.ExprSwizzle)
+					return ok && swizzle.Size == ir.Vec4 && swizzle.Pattern ==
+						[4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleY, ir.SwizzleZ, ir.SwizzleW}
+				}); !ok {
+					t.Error("no xyzw Swizzle for the five-component shuffle")
+				}
+			},
+		},
+		{
 			name: "bitcast and conversions",
 			body: [][]uint32{
 				instWords(spvenums.OpBitcast, 3, 200, 22),
@@ -830,6 +850,14 @@ func TestBodyInstructionMistakes(t *testing.T) {
 				instWords(spvenums.OpVectorShuffle, 9, 201, 200, 200, 0, 1, 2, 9),
 			},
 			want: "invalid access index %9",
+		},
+		{
+			name: "shuffle result is not a vector",
+			body: [][]uint32{
+				instWords(spvenums.OpCompositeConstruct, 9, 200, 22, 22, 22, 22),
+				instWords(spvenums.OpVectorShuffle, 3, 201, 200, 200, 0, 1, 2, 3, 0, 1, 2),
+			},
+			want: "invalid inner type %3",
 		},
 	}
 	for _, tc := range cases {
