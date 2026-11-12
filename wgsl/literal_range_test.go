@@ -57,6 +57,10 @@ func TestParseKeepsInRangeIntegerLiterals(t *testing.T) {
 		{"u64 max", `const x = 18446744073709551615lu;`},
 		{"abstract", `const x = 9223372036854775807;`},
 		{"hex i32 max", `const x = 0x7fffffffi;`},
+		// The two spellings of i32's minimum that stay valid: an abstract
+		// literal converted to i32, and an expression of i32 literals.
+		{"i32 min through an abstract literal", `const x = i32(-2147483648);`},
+		{"i32 min as an expression", `const x = -2147483647i - 1;`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, _, err := Parse(tc.source, ParseOptions{}); err != nil {

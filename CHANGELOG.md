@@ -43,6 +43,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGSL: out-of-range integer literals, repeated attributes and unterminated block comments are errors**
+  (P1-WGSL-113, P1-WGSL-114, P3-WGSL-115). Three inputs the WGSL spec makes shader-creation errors were accepted,
+  two of them changing the program silently:
+  - an integer literal outside its type's range was clamped (`3000000000i` became 2147483647, `@group(4294967297)`
+    became 4294967295). It is now refused with Rust naga's message, `numeric literal not representable by target
+    type`, for every suffix and for the values of `@group`, `@binding`, `@location`, `@blend_src` and binding-array
+    sizes. This includes `-2147483648i`: the literal `2147483648i` is not an i32 before the minus applies (the spec
+    and Rust naga agree). The valid spellings of i32's minimum are `i32(-2147483648)` (an abstract literal
+    converted to i32) and `-2147483647i - 1`.
+  - an attribute repeated on one declaration (`@group(0) @group(1)`) was accepted with the last value winning; it
+    is now Rust's `repeated attribute` error. `@diagnostic` may still repeat, as the spec allows. The check runs
+    before the attributes are collected, so a source made of repeats no longer amplifies into a large AST.
+  - a block comment left open at the end of the source was accepted; it is now `unterminated block comment`, at
+    the opening `/*`.
 - **The SPIR-V capability table is regenerated from vendored headers and diffed in CI** (P2-SPV-020).
   `internal/spvnames` now carries the headers its table was generated from — `spirv.h` and
   `spirv.core.grammar.json` of SPIRV-Headers `vulkan-sdk-1.4.341.0` with the upstream LICENSE, a PROVENANCE.md
