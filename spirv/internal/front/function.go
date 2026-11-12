@@ -1403,6 +1403,17 @@ func (p *parser) vectorShuffle(inst instruction, fs *functionState, consumer *em
 		indices = append(indices, index)
 	}
 
+	// The result of a shuffle is a vector, which holds at most four
+	// components in the IR. Rust does not look at the result type on the
+	// swizzle path; refusing a non-vector here only rejects invalid SPIR-V.
+	resultType, err := p.typeLookup(resultTypeID)
+	if err != nil {
+		return err
+	}
+	if _, ok := p.module.Types[resultType.handle].Inner.(ir.VectorType); !ok {
+		return errInvalidInnerType(resultTypeID)
+	}
+
 	var expression ir.ExpressionKind
 	if maxComponent < uint32(first.Size) {
 		// Rust naga maps every size beyond three to four.
@@ -1414,7 +1425,9 @@ func (p *parser) vectorShuffle(inst instruction, fs *functionState, consumer *em
 			size = ir.Vec3
 		}
 		pattern := [4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleX, ir.SwizzleX, ir.SwizzleX}
-		for i, index := range indices {
+		// Rust zips the pattern with the indices, so components past the
+		// fourth are dropped (next_block.rs, the VectorShuffle arm).
+		for i, index := range indices[:min(len(indices), len(pattern))] {
 			switch index {
 			case 0:
 				pattern[i] = ir.SwizzleX
@@ -1438,10 +1451,6 @@ func (p *parser) vectorShuffle(inst instruction, fs *functionState, consumer *em
 			default:
 				return errInvalidAccessIndex(index)
 			}
-		}
-		resultType, err := p.typeLookup(resultTypeID)
-		if err != nil {
-			return err
 		}
 		expression = ir.ExprCompose{Type: resultType.handle, Components: components}
 	}
