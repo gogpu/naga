@@ -16,38 +16,118 @@ type lookupExpression struct {
 
 // functionState is the function being parsed: its IR function, the
 // control-flow-free blocks seen so far, and the body tree they assemble into
-// (Rust naga's BlockContext, minus the parts control flow adds).
+// (Rust naga's BlockContext).
 type functionState struct {
-	id           uint32
-	fn           *ir.Function
-	blocks       map[uint32]ir.Block
+	id     uint32
+	fn     *ir.Function
+	blocks map[uint32]ir.Block
+	// bodyForLabel is the body each block label contributes to. A label gets
+	// its entry when it is first branched to, before its block is parsed.
 	bodyForLabel map[uint32]int
-	bodies       []body
+	// mergers says what a branch to a merge block or a continue target
+	// means: the end of the construct that declared it.
+	mergers map[uint32]mergeBlockInformation
+	bodies  []body
 	// phis are the local variables phi nodes and out-of-scope spills write
 	// into, with the values each is written from.
 	phis []phiExpression
 }
 
-// bodyFragmentKind says what one piece of a body is. Control flow adds If,
-// Loop, Switch, Break and Continue fragments.
+// mergeBlockInformation is what a branch to a merge block or a continue
+// target ends (Rust naga's MergeBlockInformation).
+type mergeBlockInformation uint8
+
+const (
+	// mergeLoopMerge: a branch to a loop's merge block is a Break.
+	mergeLoopMerge mergeBlockInformation = iota + 1
+	// mergeLoopContinue: a branch to a loop's continue target is a Continue.
+	mergeLoopContinue
+	// mergeSelectionMerge: a branch to a selection's merge block falls off the
+	// end of the If's accept or reject block.
+	mergeSelectionMerge
+	// mergeSwitchMerge: a branch to a switch's merge block is a Break.
+	mergeSwitchMerge
+)
+
+// bodyFragmentKind says what one piece of a body is.
 type bodyFragmentKind uint8
 
 const (
+	// fragmentBlock is the statements of one SPIR-V block.
 	fragmentBlock bodyFragmentKind = iota
+	// fragmentIf is an If whose arms are the bodies accept and reject.
+	fragmentIf
+	// fragmentLoop is a Loop whose body and continuing are bodies.
+	fragmentLoop
+	// fragmentSwitch is a Switch whose cases and default are bodies.
+	fragmentSwitch
+	// fragmentBreak is a Break statement.
+	fragmentBreak
+	// fragmentContinue is a Continue statement.
+	fragmentContinue
 )
 
-// bodyFragment is one piece of a body.
+// bodyFragment is one piece of a body (Rust naga's BodyFragment). The fields
+// a fragment uses depend on its kind; body indices refer to
+// functionState.bodies.
 type bodyFragment struct {
 	kind    bodyFragmentKind
 	blockID uint32
+
+	// fragmentIf: the condition and the bodies of the two arms.
+	// fragmentSwitch: the selector, in condition.
+	condition ir.ExpressionHandle
+	accept    int
+	reject    int
+
+	// fragmentLoop: the loop body, the continuing body and the optional
+	// break-if condition.
+	loopBody   int
+	continuing int
+	breakIf    *ir.ExpressionHandle
+
+	// fragmentSwitch: the cases in order, and the default body.
+	cases       []switchCaseBody
+	defaultBody int
+}
+
+// switchCaseBody is one case of a switch fragment: its value and its body.
+type switchCaseBody struct {
+	value int32
+	body  int
 }
 
 // body is one block of the final IR and the fragments that build it. Its
 // parent is the body containing the construct it belongs to; the function's
-// top-level body is its own parent.
+// top-level body is its own parent. depth is how deeply the body is nested in
+// the final IR, which bounds the lowering recursion.
 type body struct {
 	parent    int
+	depth     int
 	fragments []bodyFragment
+}
+
+// newBody appends a body nested in parent at the given depth and returns its
+// index. A body deeper than maxNesting is refused before it is created.
+func (fs *functionState) newBody(parent, depth int) (int, error) {
+	if depth > maxNesting {
+		return 0, errNestingTooDeep
+	}
+	fs.bodies = append(fs.bodies, body{parent: parent, depth: depth})
+	return len(fs.bodies) - 1, nil
+}
+
+// merger extends a body with the statement a branch to a merge block or a
+// continue target stands for, as Rust naga's merger in next_block.
+func merger(b *body, info mergeBlockInformation) {
+	switch info {
+	case mergeLoopContinue:
+		b.fragments = append(b.fragments, bodyFragment{kind: fragmentContinue})
+	case mergeLoopMerge, mergeSwitchMerge:
+		b.fragments = append(b.fragments, bodyFragment{kind: fragmentBreak})
+	case mergeSelectionMerge:
+		// Finishing a selection means falling off the end of the If's arm.
+	}
 }
 
 // emitter collects the expressions one statement needs into a single Emit
@@ -150,12 +230,115 @@ func isParent(child, parent int, fs *functionState) bool {
 	}
 }
 
+// controlFlow is what a statement may do where it stands: the abilities the
+// validator grants a block (return outside a continuing block, break inside a
+// loop body or a switch, continue inside a loop body).
+type controlFlow uint8
+
+const (
+	flowReturn controlFlow = 1 << iota
+	flowBreak
+	flowContinue
+)
+
 // lower assembles the body tree into the function's IR block, as Rust naga's
 // BlockContext::lower.
-func (fs *functionState) lower() ir.Block {
+func (fs *functionState) lower() (ir.Block, error) {
+	return fs.lowerImpl(0, flowReturn)
+}
+
+// lowerImpl assembles one body, as Rust naga's lower_impl. Every child body
+// is one level deeper than its parent and newBody caps the depth, so the
+// recursion is bounded by maxNesting.
+//
+// Unlike Rust naga, a Break, Continue or Return the structured input put
+// where the IR cannot express it (a branch to a loop's merge block from
+// outside the loop, a return inside a continuing block) is an error here,
+// not a module the validator rejects later.
+func (fs *functionState) lowerImpl(bodyIdx int, flow controlFlow) (ir.Block, error) {
 	var block ir.Block
-	for _, fragment := range fs.bodies[0].fragments {
-		block = append(block, fs.blocks[fragment.blockID]...)
+	for i := range fs.bodies[bodyIdx].fragments {
+		fragment := &fs.bodies[bodyIdx].fragments[i]
+		switch fragment.kind {
+		case fragmentBlock:
+			statements := fs.blocks[fragment.blockID]
+			if n := len(statements); n > 0 && flow&flowReturn == 0 {
+				if _, ok := statements[n-1].Kind.(ir.StmtReturn); ok {
+					return nil, errInvalidTerminator
+				}
+			}
+			block = append(block, statements...)
+		case fragmentIf:
+			accept, err := fs.lowerImpl(fragment.accept, flow)
+			if err != nil {
+				return nil, err
+			}
+			reject, err := fs.lowerImpl(fragment.reject, flow)
+			if err != nil {
+				return nil, err
+			}
+			block = append(block, ir.Statement{Kind: ir.StmtIf{
+				Condition: fragment.condition,
+				Accept:    accept,
+				Reject:    reject,
+			}})
+		case fragmentLoop:
+			loopBody, err := fs.lowerImpl(fragment.loopBody, flow&flowReturn|flowBreak|flowContinue)
+			if err != nil {
+				return nil, err
+			}
+			continuing, err := fs.lowerImpl(fragment.continuing, 0)
+			if err != nil {
+				return nil, err
+			}
+			block = append(block, ir.Statement{Kind: ir.StmtLoop{
+				Body:       loopBody,
+				Continuing: continuing,
+				BreakIf:    fragment.breakIf,
+			}})
+		case fragmentSwitch:
+			caseFlow := flow&(flowReturn|flowContinue) | flowBreak
+			cases := make([]ir.SwitchCase, 0, len(fragment.cases)+1)
+			for _, c := range fragment.cases {
+				caseBody, err := fs.lowerImpl(c.body, caseFlow)
+				if err != nil {
+					return nil, err
+				}
+				// A case whose body ends in a terminator would make the
+				// fall-through unreachable, as Rust naga notes.
+				cases = append(cases, ir.SwitchCase{
+					Value:       ir.SwitchValueI32(c.value),
+					Body:        caseBody,
+					FallThrough: len(caseBody) == 0 || !isTerminator(caseBody[len(caseBody)-1]),
+				})
+			}
+			defaultBody, err := fs.lowerImpl(fragment.defaultBody, caseFlow)
+			if err != nil {
+				return nil, err
+			}
+			cases = append(cases, ir.SwitchCase{Value: ir.SwitchValueDefault{}, Body: defaultBody})
+			block = append(block, ir.Statement{Kind: ir.StmtSwitch{Selector: fragment.condition, Cases: cases}})
+		case fragmentBreak:
+			if flow&flowBreak == 0 {
+				return nil, errInvalidTerminator
+			}
+			block = append(block, ir.Statement{Kind: ir.StmtBreak{}})
+		case fragmentContinue:
+			if flow&flowContinue == 0 {
+				return nil, errInvalidTerminator
+			}
+			block = append(block, ir.Statement{Kind: ir.StmtContinue{}})
+		}
 	}
-	return block
+	return block, nil
+}
+
+// isTerminator reports whether a statement ends its block, as Rust naga's
+// Statement::is_terminator.
+func isTerminator(statement ir.Statement) bool {
+	switch statement.Kind.(type) {
+	case ir.StmtBreak, ir.StmtContinue, ir.StmtReturn, ir.StmtKill:
+		return true
+	}
+	return false
 }

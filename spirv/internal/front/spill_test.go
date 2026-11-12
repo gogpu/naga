@@ -8,9 +8,9 @@ import (
 
 // The spill and phi machinery (getExprHandle's out-of-scope path and
 // appendPhiStores) only runs once control flow gives a function more than one
-// body, which Phase 1 refuses. It is Phase 2's foundation, ported from Rust
-// naga's get_expr_handle and parse_function, so it is tested here on a
-// synthetic body tree:
+// body. Ported from Rust naga's get_expr_handle and parse_function, it is
+// tested here on a synthetic body tree (control_flow_test.go drives it from
+// real SPIR-V):
 //
 //	body 0 (function top) ── body 1 (block 10) ── body 3 (block 30)
 //	                      └─ body 2 (block 20)
@@ -251,10 +251,20 @@ func TestAppendPhiStoresErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("predecessor that is not a block", func(t *testing.T) {
+		p, fs := spillFixture()
+		defineValue(p, fs, 200, 20)
+		fs.phis = []phiExpression{{expressions: []phiSource{{id: 200, blockID: 88}}}}
+		if err := p.appendPhiStores(fs); err == nil || err.Error() != "phi predecessor %88 is not a block of the function" {
+			t.Errorf("error = %v, want the predecessor refused", err)
+		}
+	})
+
 	t.Run("predecessor outside every body is the top body", func(t *testing.T) {
 		p, fs := spillFixture()
-		// Block 77 has no body (a function's first block): it counts as the
-		// top body, which is not inside body 2 where the value lives.
+		// Block 77 has no body: it counts as the top body, which is not
+		// inside body 2 where the value lives.
+		fs.blocks[77] = nil
 		defineValue(p, fs, 200, 20)
 		fs.phis = []phiExpression{{expressions: []phiSource{{id: 200, blockID: 77}}}}
 		if err := p.appendPhiStores(fs); err != nil {

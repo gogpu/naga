@@ -170,6 +170,44 @@ var (
 	errUnsupportedRowMajorMatrix = &Error{Message: "row-major matrix access is not supported yet"}
 )
 
+// errInvalidTerminator is Rust naga's InvalidTerminator text. Here it is the
+// error for a Break, Continue or Return that structured control flow puts
+// where the IR cannot express it.
+var errInvalidTerminator = &Error{Message: "invalid terminator"}
+
+// The structured control flow errors below have no Rust naga counterpart:
+// Rust naga panics or builds IR its validator rejects on such input. Each is
+// invalid SPIR-V, refused while it is parsed.
+var errNestingTooDeep = &Error{Message: fmt.Sprintf("control flow is nested deeper than %d", maxNesting)}
+
+func errUndefinedLabel(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("undefined label %%%d", id)}
+}
+
+func errDuplicateLabel(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("label %%%d is defined twice", id)}
+}
+
+func errDuplicateMerge(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("merge block %%%d is declared twice", id)}
+}
+
+func errInvalidPhiPredecessor(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("phi predecessor %%%d is not a block of the function", id)}
+}
+
+func errInvalidBranchTarget(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("invalid branch target %%%d", id)}
+}
+
+func errInvalidConditionType(ty ir.TypeHandle) *Error {
+	return &Error{Message: fmt.Sprintf("invalid branch condition type [%d]", ty)}
+}
+
+func errRepeatedSwitchCase(value int32) *Error {
+	return &Error{Message: fmt.Sprintf("switch case %d is repeated", value)}
+}
+
 func errWrongFunctionResultType(id uint32) *Error {
 	return &Error{Message: fmt.Sprintf("wrong function result type %%%d", id)}
 }
