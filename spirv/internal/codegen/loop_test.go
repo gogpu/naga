@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestForLoopCompilation tests that a simple for loop compiles to valid SPIR-V.
@@ -24,12 +26,12 @@ import (
 //
 // Expected SPIR-V structure:
 //
-//	entry:          OpBranch -> header
-//	header:         OpLoopMerge(merge, continue) -> OpBranch -> body
-//	body:           condition check -> OpBranchConditional(true->break_body, false->loop_body)
-//	                break_body: OpBranch -> merge
-//	                loop_body:  ... -> OpBranch -> continue
-//	continue:       i = i + 1 -> OpBranch -> header  (BACK-EDGE)
+//	entry:          spvenums.OpBranch -> header
+//	header:         spvenums.OpLoopMerge(merge, continue) -> spvenums.OpBranch -> body
+//	body:           condition check -> spvenums.OpBranchConditional(true->break_body, false->loop_body)
+//	                break_body: spvenums.OpBranch -> merge
+//	                loop_body:  ... -> spvenums.OpBranch -> continue
+//	continue:       i = i + 1 -> spvenums.OpBranch -> header  (BACK-EDGE)
 //	merge:          (after loop)
 func TestForLoopCompilation(t *testing.T) {
 	const shader = `
@@ -107,8 +109,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	t.Log("=== SPIR-V Disassembly for NestedForLoop shader ===")
 	dumpFunctionBlocks(t, instrs, names)
 
-	// Should have exactly 2 OpLoopMerge instructions (outer + inner loop)
-	loopMergeCount := countOpcode(instrs, OpLoopMerge)
+	// Should have exactly 2 spvenums.OpLoopMerge instructions (outer + inner loop)
+	loopMergeCount := countOpcode(instrs, spvenums.OpLoopMerge)
 	if loopMergeCount != 2 {
 		t.Errorf("Expected 2 OpLoopMerge for nested loops, got %d", loopMergeCount)
 	}
@@ -198,24 +200,24 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // verifyLoopStructure validates the SPIR-V loop control flow structure.
 // It checks:
-// 1. OpLoopMerge exists with valid merge and continue labels
+// 1. spvenums.OpLoopMerge exists with valid merge and continue labels
 // 2. Back-edge: the continue block branches back to the header
-// 3. Break condition: OpBranchConditional exists in the body that can branch to merge
-// 4. All referenced labels exist as OpLabel instructions
+// 3. Break condition: spvenums.OpBranchConditional exists in the body that can branch to merge
+// 4. All referenced labels exist as spvenums.OpLabel instructions
 func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
-	// Collect all labels (OpLabel instruction result IDs)
+	// Collect all labels (spvenums.OpLabel instruction result IDs)
 	labelSet := make(map[uint32]bool)
 	for _, inst := range instrs {
-		if inst.opcode == OpLabel && inst.wordCount >= 2 {
+		if inst.opcode == spvenums.OpLabel && inst.wordCount >= 2 {
 			labelSet[inst.words[1]] = true
 		}
 	}
 
-	// Find OpLoopMerge instructions
+	// Find spvenums.OpLoopMerge instructions
 	type loopInfo struct {
-		headerLabel   uint32 // The label immediately before OpLoopMerge
+		headerLabel   uint32 // The label immediately before spvenums.OpLoopMerge
 		mergeLabel    uint32
 		continueLabel uint32
 	}
@@ -224,10 +226,10 @@ func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint
 	var currentLabel uint32
 
 	for _, inst := range instrs {
-		if inst.opcode == OpLabel && inst.wordCount >= 2 {
+		if inst.opcode == spvenums.OpLabel && inst.wordCount >= 2 {
 			currentLabel = inst.words[1]
 		}
-		if inst.opcode == OpLoopMerge && inst.wordCount >= 4 {
+		if inst.opcode == spvenums.OpLoopMerge && inst.wordCount >= 4 {
 			loops = append(loops, loopInfo{
 				headerLabel:   currentLabel,
 				mergeLabel:    inst.words[1],
@@ -269,20 +271,20 @@ func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint
 }
 
 // verifyBackEdge checks that the continue block (identified by continueLabel) contains
-// an OpBranch back to headerLabel. This is the critical back-edge that makes the loop iterate.
+// an spvenums.OpBranch back to headerLabel. This is the critical back-edge that makes the loop iterate.
 func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, headerLabel uint32) bool {
 	t.Helper()
 
 	inContinueBlock := false
 	for _, inst := range instrs {
-		if inst.opcode == OpLabel && inst.wordCount >= 2 && inst.words[1] == continueLabel {
+		if inst.opcode == spvenums.OpLabel && inst.wordCount >= 2 && inst.words[1] == continueLabel {
 			inContinueBlock = true
 			continue
 		}
 		if inContinueBlock {
 			// Check for terminator instructions
 			switch inst.opcode {
-			case OpBranch:
+			case spvenums.OpBranch:
 				if inst.wordCount >= 2 && inst.words[1] == headerLabel {
 					t.Logf("  Back-edge found: continue block %%%d -> header %%%d (OpBranch)",
 						continueLabel, headerLabel)
@@ -290,8 +292,8 @@ func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, head
 				}
 				// OpBranch to somewhere else means block ended
 				return false
-			case OpBranchConditional:
-				// break_if: OpBranchConditional with one target being header
+			case spvenums.OpBranchConditional:
+				// break_if: spvenums.OpBranchConditional with one target being header
 				if inst.wordCount >= 4 {
 					if inst.words[2] == headerLabel || inst.words[3] == headerLabel {
 						t.Logf("  Back-edge found: continue block %%%d -> header %%%d (OpBranchConditional)",
@@ -300,9 +302,9 @@ func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, head
 					}
 				}
 				return false
-			case OpReturn, OpReturnValue, OpKill, OpUnreachable:
+			case spvenums.OpReturn, spvenums.OpReturnValue, spvenums.OpKill, spvenums.OpUnreachable:
 				return false
-			case OpLabel:
+			case spvenums.OpLabel:
 				// Hit next block without finding terminator
 				return false
 			}
@@ -316,10 +318,10 @@ func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, head
 func verifyBreakPath(t *testing.T, instrs []spirvInstruction, mergeLabel uint32) bool {
 	t.Helper()
 	for _, inst := range instrs {
-		if inst.opcode == OpBranch && inst.wordCount >= 2 && inst.words[1] == mergeLabel {
+		if inst.opcode == spvenums.OpBranch && inst.wordCount >= 2 && inst.words[1] == mergeLabel {
 			return true
 		}
-		if inst.opcode == OpBranchConditional && inst.wordCount >= 4 {
+		if inst.opcode == spvenums.OpBranchConditional && inst.wordCount >= 4 {
 			if inst.words[2] == mergeLabel || inst.words[3] == mergeLabel {
 				return true
 			}
@@ -329,7 +331,7 @@ func verifyBreakPath(t *testing.T, instrs []spirvInstruction, mergeLabel uint32)
 }
 
 // countOpcode counts how many times a given opcode appears in the instruction stream.
-func countOpcode(instrs []spirvInstruction, opcode OpCode) int {
+func countOpcode(instrs []spirvInstruction, opcode spvenums.Op) int {
 	count := 0
 	for _, inst := range instrs {
 		if inst.opcode == opcode {
@@ -472,7 +474,7 @@ func dumpAllBlocksDetailed(t *testing.T, instrs []spirvInstruction, names map[ui
 	blockInstructions := 0
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 			if inst.wordCount >= 5 {
 				funcName := names[inst.words[2]]
@@ -483,7 +485,7 @@ func dumpAllBlocksDetailed(t *testing.T, instrs []spirvInstruction, names map[ui
 			}
 			continue
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 			t.Log("=== FUNCTION END ===")
 			continue
@@ -492,7 +494,7 @@ func dumpAllBlocksDetailed(t *testing.T, instrs []spirvInstruction, names map[ui
 			continue
 		}
 
-		if inst.opcode == OpLabel && inst.wordCount >= 2 {
+		if inst.opcode == spvenums.OpLabel && inst.wordCount >= 2 {
 			if blockLabel != 0 {
 				t.Logf("  (block %%%d had %d instructions)", blockLabel, blockInstructions)
 			}
@@ -523,74 +525,74 @@ func describeInstruction(inst spirvInstruction, names map[uint32]string) string 
 	}
 
 	switch inst.opcode {
-	case OpVariable:
+	case spvenums.OpVariable:
 		if inst.wordCount >= 4 {
 			return fmt.Sprintf("OpVariable %s sc=%d", idStr(inst.words[2]), inst.words[3])
 		}
-	case OpStore:
+	case spvenums.OpStore:
 		if inst.wordCount >= 3 {
 			return fmt.Sprintf("OpStore %s <- %s", idStr(inst.words[1]), idStr(inst.words[2]))
 		}
-	case OpLoad:
+	case spvenums.OpLoad:
 		if inst.wordCount >= 4 {
 			return fmt.Sprintf("%s = OpLoad %s", idStr(inst.words[2]), idStr(inst.words[3]))
 		}
-	case OpBranch:
+	case spvenums.OpBranch:
 		if inst.wordCount >= 2 {
 			return fmt.Sprintf("OpBranch -> %s", idStr(inst.words[1]))
 		}
-	case OpBranchConditional:
+	case spvenums.OpBranchConditional:
 		if inst.wordCount >= 4 {
 			return fmt.Sprintf("OpBranchConditional %s true:%s false:%s",
 				idStr(inst.words[1]), idStr(inst.words[2]), idStr(inst.words[3]))
 		}
-	case OpLoopMerge:
+	case spvenums.OpLoopMerge:
 		if inst.wordCount >= 4 {
 			return fmt.Sprintf("OpLoopMerge merge:%s continue:%s", idStr(inst.words[1]), idStr(inst.words[2]))
 		}
-	case OpSelectionMerge:
+	case spvenums.OpSelectionMerge:
 		if inst.wordCount >= 3 {
 			return fmt.Sprintf("OpSelectionMerge merge:%s", idStr(inst.words[1]))
 		}
-	case OpReturn:
+	case spvenums.OpReturn:
 		return "OpReturn"
-	case OpReturnValue:
+	case spvenums.OpReturnValue:
 		if inst.wordCount >= 2 {
 			return fmt.Sprintf("OpReturnValue %s", idStr(inst.words[1]))
 		}
-	case OpIAdd:
+	case spvenums.OpIAdd:
 		if inst.wordCount >= 5 {
 			return fmt.Sprintf("%s = OpIAdd %s, %s", idStr(inst.words[2]), idStr(inst.words[3]), idStr(inst.words[4]))
 		}
-	case OpFAdd:
+	case spvenums.OpFAdd:
 		if inst.wordCount >= 5 {
 			return fmt.Sprintf("%s = OpFAdd %s, %s", idStr(inst.words[2]), idStr(inst.words[3]), idStr(inst.words[4]))
 		}
-	case OpULessThan:
+	case spvenums.OpULessThan:
 		if inst.wordCount >= 5 {
 			return fmt.Sprintf("%s = OpULessThan %s, %s", idStr(inst.words[2]), idStr(inst.words[3]), idStr(inst.words[4]))
 		}
-	case OpLogicalNot:
+	case spvenums.OpLogicalNot:
 		if inst.wordCount >= 4 {
 			return fmt.Sprintf("%s = OpLogicalNot %s", idStr(inst.words[2]), idStr(inst.words[3]))
 		}
-	case OpAccessChain:
+	case spvenums.OpAccessChain:
 		var indices []string
 		for i := 4; i < inst.wordCount; i++ {
 			indices = append(indices, idStr(inst.words[i]))
 		}
 		return fmt.Sprintf("%s = OpAccessChain %s [%s]",
 			idStr(inst.words[2]), idStr(inst.words[3]), strings.Join(indices, ", "))
-	case OpCompositeExtract:
+	case spvenums.OpCompositeExtract:
 		if inst.wordCount >= 5 {
 			return fmt.Sprintf("%s = OpCompositeExtract %s [%d]",
 				idStr(inst.words[2]), idStr(inst.words[3]), inst.words[4])
 		}
-	case OpUnreachable:
+	case spvenums.OpUnreachable:
 		return "OpUnreachable"
-	case OpKill:
+	case spvenums.OpKill:
 		return "OpKill"
-	case OpFunctionParameter:
+	case spvenums.OpFunctionParameter:
 		if inst.wordCount >= 3 {
 			return fmt.Sprintf("OpFunctionParameter %s", idStr(inst.words[2]))
 		}

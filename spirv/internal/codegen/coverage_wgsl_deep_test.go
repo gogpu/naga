@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // ---------------------------------------------------------------------------
@@ -33,9 +35,9 @@ fn main() {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	expectedOps := []OpCode{
-		OpAtomicIAdd, OpAtomicISub, OpAtomicUMax, OpAtomicUMin,
-		OpAtomicAnd, OpAtomicOr, OpAtomicXor, OpAtomicExchange,
+	expectedOps := []spvenums.Op{
+		spvenums.OpAtomicIAdd, spvenums.OpAtomicISub, spvenums.OpAtomicUMax, spvenums.OpAtomicUMin,
+		spvenums.OpAtomicAnd, spvenums.OpAtomicOr, spvenums.OpAtomicXor, spvenums.OpAtomicExchange,
 	}
 	for _, op := range expectedOps {
 		if !hasOpcodeInInstrs(instrs, op) {
@@ -45,7 +47,7 @@ fn main() {
 }
 
 // TestAtomicI32AllOps exercises emitAtomic with signed i32 atomics for
-// the signed-integer opcode selection path (OpAtomicSMax, OpAtomicSMin).
+// the signed-integer opcode selection path (spvenums.OpAtomicSMax, spvenums.OpAtomicSMin).
 func TestAtomicI32AllOps(t *testing.T) {
 	source := `
 @group(0) @binding(0) var<storage, read_write> val: atomic<i32>;
@@ -62,10 +64,10 @@ fn main() {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMax) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMax) {
 		t.Error("expected OpAtomicSMax for signed i32 atomicMax")
 	}
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMin) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMin) {
 		t.Error("expected OpAtomicSMin for signed i32 atomicMin")
 	}
 }
@@ -87,11 +89,11 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpSelect) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSelect) {
 		t.Error("expected OpSelect for scalar bool + vec4 operands")
 	}
-	// The splat should produce an OpCompositeConstruct for the bool vector
-	if !hasOpcodeInInstrs(instrs, OpCompositeConstruct) {
+	// The splat should produce an spvenums.OpCompositeConstruct for the bool vector
+	if !hasOpcodeInInstrs(instrs, spvenums.OpCompositeConstruct) {
 		t.Error("expected OpCompositeConstruct for bool-to-vector splat")
 	}
 }
@@ -115,7 +117,7 @@ fn main(@location(0) @interpolate(flat) idx: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpAccessChain) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAccessChain) {
 		t.Error("expected OpAccessChain for dynamic array index")
 	}
 }
@@ -145,10 +147,10 @@ fn main(@location(0) @interpolate(flat) u: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpConvertUToF) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpConvertUToF) {
 		t.Error("expected OpConvertUToF")
 	}
-	if !hasOpcodeInInstrs(instrs, OpConvertSToF) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpConvertSToF) {
 		t.Error("expected OpConvertSToF")
 	}
 }
@@ -212,7 +214,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	callCount := countOpcodeInInstrs(instrs, OpFunctionCall)
+	callCount := countOpcodeInInstrs(instrs, spvenums.OpFunctionCall)
 	if callCount < 2 {
 		t.Errorf("expected at least 2 OpFunctionCall, got %d", callCount)
 	}
@@ -286,7 +288,7 @@ fn main(@location(0) @interpolate(flat) idx: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpAccessChain) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAccessChain) {
 		t.Error("expected OpAccessChain for nested struct/array access")
 	}
 }
@@ -382,7 +384,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpFNegate) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpFNegate) {
 		t.Error("expected OpFNegate for unary negation")
 	}
 }
@@ -399,7 +401,7 @@ fn main(@location(0) @interpolate(flat) v: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpNot) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpNot) {
 		t.Error("expected OpNot for bitwise NOT")
 	}
 }
@@ -441,7 +443,7 @@ fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	shuffleCount := countOpcodeInInstrs(instrs, OpVectorShuffle)
+	shuffleCount := countOpcodeInInstrs(instrs, spvenums.OpVectorShuffle)
 	if shuffleCount < 2 {
 		t.Errorf("expected at least 2 OpVectorShuffle for swizzle patterns, got %d", shuffleCount)
 	}

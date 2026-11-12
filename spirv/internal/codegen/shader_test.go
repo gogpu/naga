@@ -9,6 +9,7 @@ import (
 
 	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -552,7 +553,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 	validateSPIRVBinary(t, spirvBytes)
 
 	// Validate structured control flow:
-	// Every OpBranchConditional must be preceded by OpSelectionMerge,
+	// Every spvenums.OpBranchConditional must be preceded by spvenums.OpSelectionMerge,
 	// and all branch target labels must exist in the binary.
 	validateSPIRVControlFlow(t, spirvBytes)
 	validateWithVulkanSDK(t, spirvBytes)
@@ -625,9 +626,9 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // validateSPIRVControlFlow validates the SPIR-V structured control flow rules:
-// 1. Every OpBranchConditional must be preceded by OpSelectionMerge or OpLoopMerge
-// 2. All branch target label IDs must exist as OpLabel instructions
-// 3. No unreachable instructions after terminators (OpReturn, OpReturnValue, OpKill, OpBranch)
+// 1. Every spvenums.OpBranchConditional must be preceded by spvenums.OpSelectionMerge or spvenums.OpLoopMerge
+// 2. All branch target label IDs must exist as spvenums.OpLabel instructions
+// 3. No unreachable instructions after terminators (spvenums.OpReturn, spvenums.OpReturnValue, spvenums.OpKill, spvenums.OpBranch)
 func validateSPIRVControlFlow(t *testing.T, spirvBytes []byte) {
 	t.Helper()
 
@@ -649,45 +650,45 @@ func validateSPIRVControlFlow(t *testing.T, spirvBytes []byte) {
 	branchTargets := make(map[uint32]bool)
 
 	// Track previous instruction opcode for merge validation
-	var prevOpcode OpCode
+	var prevOpcode spvenums.Op
 	hasMerge := false
 
 	offset := 5 // Skip header
 	for offset < len(words) {
 		word := words[offset]
 		wordCount := word >> 16
-		opcode := OpCode(word & 0xFFFF)
+		opcode := spvenums.Op(word & 0xFFFF)
 
 		if wordCount == 0 || offset+int(wordCount) > len(words) {
 			break
 		}
 
 		switch opcode {
-		case OpLabel:
+		case spvenums.OpLabel:
 			if wordCount >= 2 {
 				labelIDs[words[offset+1]] = true
 			}
 
-		case OpSelectionMerge:
+		case spvenums.OpSelectionMerge:
 			hasMerge = true
 			if wordCount >= 2 {
 				branchTargets[words[offset+1]] = true // merge label
 			}
 
-		case OpLoopMerge:
+		case spvenums.OpLoopMerge:
 			hasMerge = true
 			if wordCount >= 3 {
 				branchTargets[words[offset+1]] = true // merge label
 				branchTargets[words[offset+2]] = true // continue label
 			}
 
-		case OpBranch:
+		case spvenums.OpBranch:
 			if wordCount >= 2 {
 				branchTargets[words[offset+1]] = true
 			}
 
-		case OpBranchConditional:
-			// Must be preceded by OpSelectionMerge or OpLoopMerge
+		case spvenums.OpBranchConditional:
+			// Must be preceded by spvenums.OpSelectionMerge or spvenums.OpLoopMerge
 			if !hasMerge {
 				t.Errorf("OpBranchConditional at word %d not preceded by OpSelectionMerge/OpLoopMerge (prev opcode: %d)", offset, prevOpcode)
 			}
@@ -699,7 +700,7 @@ func validateSPIRVControlFlow(t *testing.T, spirvBytes []byte) {
 		}
 
 		// Reset merge flag on non-merge, non-branch instructions
-		if opcode != OpSelectionMerge && opcode != OpLoopMerge && opcode != OpBranchConditional {
+		if opcode != spvenums.OpSelectionMerge && opcode != spvenums.OpLoopMerge && opcode != spvenums.OpBranchConditional {
 			hasMerge = false
 		}
 
@@ -739,8 +740,8 @@ fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	// Verify the binary contains OpSelect (used for bool→float conversion)
-	if !containsOpcode(spirvBytes, OpSelect) {
+	// Verify the binary contains spvenums.OpSelect (used for bool→float conversion)
+	if !containsOpcode(spirvBytes, spvenums.OpSelect) {
 		t.Error("Expected OpSelect in SPIR-V binary for bool→float conversion")
 	}
 
@@ -772,8 +773,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	// Verify the binary contains OpSelect (used for bool→uint conversion)
-	if !containsOpcode(spirvBytes, OpSelect) {
+	// Verify the binary contains spvenums.OpSelect (used for bool→uint conversion)
+	if !containsOpcode(spirvBytes, spvenums.OpSelect) {
 		t.Error("Expected OpSelect in SPIR-V binary for bool→u32 conversion")
 	}
 
@@ -804,7 +805,7 @@ fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	if !containsOpcode(spirvBytes, OpSelect) {
+	if !containsOpcode(spirvBytes, spvenums.OpSelect) {
 		t.Error("Expected OpSelect in SPIR-V binary for bool→i32 conversion")
 	}
 
@@ -833,7 +834,7 @@ fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	if !containsOpcode(spirvBytes, OpSelect) {
+	if !containsOpcode(spirvBytes, spvenums.OpSelect) {
 		t.Error("Expected OpSelect in SPIR-V binary for inline bool→f32 conversion")
 	}
 
@@ -841,7 +842,7 @@ fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
 }
 
 // TestCompileVectorTimesScalar verifies that vec4<f32> * f32 emits
-// OpVectorTimesScalar (143) instead of OpFMul (133).
+// OpVectorTimesScalar (143) instead of spvenums.OpFMul (133).
 func TestCompileVectorTimesScalar(t *testing.T) {
 	source := `
 @fragment
@@ -864,7 +865,7 @@ fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	if !containsOpcode(spirvBytes, OpVectorTimesScalar) {
+	if !containsOpcode(spirvBytes, spvenums.OpVectorTimesScalar) {
 		t.Error("Expected OpVectorTimesScalar (143) in SPIR-V output for vec4<f32> * f32")
 	}
 }
@@ -893,25 +894,25 @@ fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
 
 	validateSPIRVBinary(t, spirvBytes)
 
-	if !containsOpcode(spirvBytes, OpVectorTimesScalar) {
+	if !containsOpcode(spirvBytes, spvenums.OpVectorTimesScalar) {
 		t.Error("Expected OpVectorTimesScalar (143) in SPIR-V output for f32 * vec4<f32>")
 	}
 }
 
 // TestBuiltinPositionFragCoord verifies that @builtin(position) on a fragment
-// shader input is emitted as BuiltIn FragCoord (15), not BuiltIn Position (0).
+// shader input is emitted as spvenums.BuiltIn FragCoord (15), not spvenums.BuiltIn Position (0).
 //
 // In WGSL, @builtin(position) has dual semantics:
-//   - Vertex shader output: SPIR-V BuiltIn Position (0)
-//   - Fragment shader input: SPIR-V BuiltIn FragCoord (15)
+//   - Vertex shader output: SPIR-V spvenums.BuiltIn Position (0)
+//   - Fragment shader input: SPIR-V spvenums.BuiltIn FragCoord (15)
 //
-// Using BuiltIn Position on a fragment shader input causes a Vulkan validation
+// Using spvenums.BuiltIn Position on a fragment shader input causes a Vulkan validation
 // error: "BuiltIn Position to be used only with Vertex, TessellationControl,
 // TessellationEvaluation or Geometry execution models."
 func TestBuiltinPositionFragCoord(t *testing.T) {
 	// Shader with both vertex and fragment entry points sharing VertexOutput
 	// struct that has @builtin(position). The vertex output should emit
-	// BuiltIn Position; the fragment input should emit BuiltIn FragCoord.
+	// BuiltIn Position; the fragment input should emit spvenums.BuiltIn FragCoord.
 	source := `
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -962,36 +963,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 			uint32(spirvBytes[i*4+3])<<24
 	}
 
-	// Collect variable storage classes: varID -> StorageClass
-	varStorageClass := make(map[uint32]StorageClass)
-	// Collect BuiltIn decorations: varID -> BuiltIn value
-	varBuiltIn := make(map[uint32]BuiltIn)
+	// Collect variable storage classes: varID -> spvenums.StorageClass
+	varStorageClass := make(map[uint32]spvenums.StorageClass)
+	// Collect spvenums.BuiltIn decorations: varID -> spvenums.BuiltIn value
+	varBuiltIn := make(map[uint32]spvenums.BuiltIn)
 
 	offset := 5 // Skip header
 	for offset < len(words) {
 		word := words[offset]
 		wordCount := int(word >> 16)
-		opcode := OpCode(word & 0xFFFF)
+		opcode := spvenums.Op(word & 0xFFFF)
 
 		if wordCount == 0 || offset+wordCount > len(words) {
 			break
 		}
 
 		switch opcode {
-		case OpVariable:
+		case spvenums.OpVariable:
 			// OpVariable: wordCount | opcode, resultType, resultID, storageClass [, initializer]
 			if wordCount >= 4 {
 				resultID := words[offset+2]
-				storageClass := StorageClass(words[offset+3])
+				storageClass := spvenums.StorageClass(words[offset+3])
 				varStorageClass[resultID] = storageClass
 			}
-		case OpDecorate:
+		case spvenums.OpDecorate:
 			// OpDecorate: wordCount | opcode, targetID, decoration [, operands...]
 			if wordCount >= 4 {
 				targetID := words[offset+1]
-				decoration := Decoration(words[offset+2])
-				if decoration == DecorationBuiltIn {
-					builtIn := BuiltIn(words[offset+3])
+				decoration := spvenums.Decoration(words[offset+2])
+				if decoration == spvenums.DecorationBuiltIn {
+					builtIn := spvenums.BuiltIn(words[offset+3])
 					varBuiltIn[targetID] = builtIn
 				}
 			}
@@ -1000,7 +1001,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 		offset += wordCount
 	}
 
-	// Now verify: find all variables with BuiltIn Position or FragCoord decorations
+	// Now verify: find all variables with spvenums.BuiltIn Position or FragCoord decorations
 	foundPosition := false
 	foundFragCoord := false
 
@@ -1010,16 +1011,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 			continue
 		}
 		switch builtIn {
-		case BuiltInPosition:
-			if sc != StorageClassOutput {
+		case spvenums.BuiltInPosition:
+			if sc != spvenums.StorageClassOutput {
 				t.Errorf("BuiltIn Position (0) found on variable %d with storage class %d; "+
-					"expected StorageClassOutput (%d)", varID, sc, StorageClassOutput)
+					"expected StorageClassOutput (%d)", varID, sc, spvenums.StorageClassOutput)
 			}
 			foundPosition = true
-		case BuiltInFragCoord:
-			if sc != StorageClassInput {
+		case spvenums.BuiltInFragCoord:
+			if sc != spvenums.StorageClassInput {
 				t.Errorf("BuiltIn FragCoord (15) found on variable %d with storage class %d; "+
-					"expected StorageClassInput (%d)", varID, sc, StorageClassInput)
+					"expected StorageClassInput (%d)", varID, sc, spvenums.StorageClassInput)
 			}
 			foundFragCoord = true
 		}
@@ -1039,7 +1040,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // TestBuiltinPositionFragCoordDirectBinding verifies that @builtin(position) as
 // a direct function result/argument (not in a struct) also correctly maps to
-// BuiltIn Position for vertex output and BuiltIn FragCoord for fragment input.
+// BuiltIn Position for vertex output and spvenums.BuiltIn FragCoord for fragment input.
 func TestBuiltinPositionFragCoordDirectBinding(t *testing.T) {
 	// Fragment shader that takes @builtin(position) directly as a parameter
 	source := `
@@ -1071,33 +1072,33 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 			uint32(spirvBytes[i*4+3])<<24
 	}
 
-	// Collect variable storage classes and BuiltIn decorations
-	varStorageClass := make(map[uint32]StorageClass)
-	varBuiltIn := make(map[uint32]BuiltIn)
+	// Collect variable storage classes and spvenums.BuiltIn decorations
+	varStorageClass := make(map[uint32]spvenums.StorageClass)
+	varBuiltIn := make(map[uint32]spvenums.BuiltIn)
 
 	offset := 5
 	for offset < len(words) {
 		word := words[offset]
 		wordCount := int(word >> 16)
-		opcode := OpCode(word & 0xFFFF)
+		opcode := spvenums.Op(word & 0xFFFF)
 
 		if wordCount == 0 || offset+wordCount > len(words) {
 			break
 		}
 
 		switch opcode {
-		case OpVariable:
+		case spvenums.OpVariable:
 			if wordCount >= 4 {
 				resultID := words[offset+2]
-				storageClass := StorageClass(words[offset+3])
+				storageClass := spvenums.StorageClass(words[offset+3])
 				varStorageClass[resultID] = storageClass
 			}
-		case OpDecorate:
+		case spvenums.OpDecorate:
 			if wordCount >= 4 {
 				targetID := words[offset+1]
-				decoration := Decoration(words[offset+2])
-				if decoration == DecorationBuiltIn {
-					builtIn := BuiltIn(words[offset+3])
+				decoration := spvenums.Decoration(words[offset+2])
+				if decoration == spvenums.DecorationBuiltIn {
+					builtIn := spvenums.BuiltIn(words[offset+3])
 					varBuiltIn[targetID] = builtIn
 				}
 			}
@@ -1112,7 +1113,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 		if !ok {
 			continue
 		}
-		if builtIn == BuiltInPosition && sc == StorageClassInput {
+		if builtIn == spvenums.BuiltInPosition && sc == spvenums.StorageClassInput {
 			t.Errorf("Fragment shader input variable %d has BuiltIn Position (0); "+
 				"should be BuiltIn FragCoord (15)", varID)
 		}
@@ -1125,7 +1126,7 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 		if !ok {
 			continue
 		}
-		if builtIn == BuiltInFragCoord && sc == StorageClassInput {
+		if builtIn == spvenums.BuiltInFragCoord && sc == spvenums.StorageClassInput {
 			foundFragCoord = true
 			break
 		}
@@ -1214,7 +1215,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // containsOpcode scans a SPIR-V binary for a specific opcode.
-func containsOpcode(spirvBytes []byte, target OpCode) bool {
+func containsOpcode(spirvBytes []byte, target spvenums.Op) bool {
 	if len(spirvBytes) < 20 || len(spirvBytes)%4 != 0 {
 		return false
 	}
@@ -1231,7 +1232,7 @@ func containsOpcode(spirvBytes []byte, target OpCode) bool {
 	for offset < len(words) {
 		word := words[offset]
 		wordCount := word >> 16
-		opcode := OpCode(word & 0xFFFF)
+		opcode := spvenums.Op(word & 0xFFFF)
 
 		if wordCount == 0 || offset+int(wordCount) > len(words) {
 			break
@@ -1707,7 +1708,7 @@ func compileWGSL(t *testing.T, source string) []byte {
 
 // TestCompileGogpuPositionedQuadShader tests the gogpu positionedQuadShaderSource.
 // This shader uses vec4*f32, vec3*f32, and if/else with return — patterns that
-// previously caused OpFSub/OpFAdd type mismatches.
+// previously caused spvenums.OpFSub/spvenums.OpFAdd type mismatches.
 func TestCompileGogpuPositionedQuadShader(t *testing.T) {
 	source := `
 struct QuadUniforms {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -14,7 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // hasOpcode returns true if the decoded instruction stream contains the given opcode.
-func hasOpcodeInInstrs(instrs []spirvInstruction, opcode OpCode) bool {
+func hasOpcodeInInstrs(instrs []spirvInstruction, opcode spvenums.Op) bool {
 	for _, inst := range instrs {
 		if inst.opcode == opcode {
 			return true
@@ -24,7 +25,7 @@ func hasOpcodeInInstrs(instrs []spirvInstruction, opcode OpCode) bool {
 }
 
 // countOpcode counts how many times a given opcode appears.
-func countOpcodeInInstrs(instrs []spirvInstruction, opcode OpCode) int {
+func countOpcodeInInstrs(instrs []spirvInstruction, opcode spvenums.Op) int {
 	count := 0
 	for _, inst := range instrs {
 		if inst.opcode == opcode {
@@ -35,10 +36,10 @@ func countOpcodeInInstrs(instrs []spirvInstruction, opcode OpCode) int {
 }
 
 // hasCapability returns true if the module declares the given capability.
-func hasCapability(instrs []spirvInstruction, cap Capability) bool {
+func hasCapability(instrs []spirvInstruction, cap spvenums.Capability) bool {
 	for _, inst := range instrs {
-		if inst.opcode == OpCapability && len(inst.words) >= 2 {
-			if Capability(inst.words[1]) == cap {
+		if inst.opcode == spvenums.OpCapability && len(inst.words) >= 2 {
+			if spvenums.Capability(inst.words[1]) == cap {
 				return true
 			}
 		}
@@ -65,60 +66,60 @@ func assertValidSPIRV(t *testing.T, data []byte) {
 func TestStorageFormatToImageFormat(t *testing.T) {
 	tests := []struct {
 		format ir.StorageFormat
-		want   ImageFormat
+		want   spvenums.ImageFormat
 	}{
 		// 8-bit
-		{ir.StorageFormatR8Unorm, ImageFormatR8},
-		{ir.StorageFormatR8Snorm, ImageFormatR8Snorm},
-		{ir.StorageFormatR8Uint, ImageFormatR8ui},
-		{ir.StorageFormatR8Sint, ImageFormatR8i},
+		{ir.StorageFormatR8Unorm, spvenums.ImageFormatR8},
+		{ir.StorageFormatR8Snorm, spvenums.ImageFormatR8Snorm},
+		{ir.StorageFormatR8Uint, spvenums.ImageFormatR8ui},
+		{ir.StorageFormatR8Sint, spvenums.ImageFormatR8i},
 		// 16-bit
-		{ir.StorageFormatR16Uint, ImageFormatR16ui},
-		{ir.StorageFormatR16Sint, ImageFormatR16i},
-		{ir.StorageFormatR16Float, ImageFormatR16f},
-		{ir.StorageFormatRg8Unorm, ImageFormatRg8},
-		{ir.StorageFormatRg8Snorm, ImageFormatRg8Snorm},
-		{ir.StorageFormatRg8Uint, ImageFormatRg8ui},
-		{ir.StorageFormatRg8Sint, ImageFormatRg8i},
+		{ir.StorageFormatR16Uint, spvenums.ImageFormatR16ui},
+		{ir.StorageFormatR16Sint, spvenums.ImageFormatR16i},
+		{ir.StorageFormatR16Float, spvenums.ImageFormatR16f},
+		{ir.StorageFormatRg8Unorm, spvenums.ImageFormatRg8},
+		{ir.StorageFormatRg8Snorm, spvenums.ImageFormatRg8Snorm},
+		{ir.StorageFormatRg8Uint, spvenums.ImageFormatRg8ui},
+		{ir.StorageFormatRg8Sint, spvenums.ImageFormatRg8i},
 		// 32-bit
-		{ir.StorageFormatR32Uint, ImageFormatR32ui},
-		{ir.StorageFormatR32Sint, ImageFormatR32i},
-		{ir.StorageFormatR32Float, ImageFormatR32f},
-		{ir.StorageFormatRg16Uint, ImageFormatRg16ui},
-		{ir.StorageFormatRg16Sint, ImageFormatRg16i},
-		{ir.StorageFormatRg16Float, ImageFormatRg16f},
-		{ir.StorageFormatRgba8Unorm, ImageFormatRgba8},
-		{ir.StorageFormatRgba8Snorm, ImageFormatRgba8Snorm},
-		{ir.StorageFormatRgba8Uint, ImageFormatRgba8ui},
-		{ir.StorageFormatRgba8Sint, ImageFormatRgba8i},
-		{ir.StorageFormatBgra8Unorm, ImageFormatRgba8},
+		{ir.StorageFormatR32Uint, spvenums.ImageFormatR32ui},
+		{ir.StorageFormatR32Sint, spvenums.ImageFormatR32i},
+		{ir.StorageFormatR32Float, spvenums.ImageFormatR32f},
+		{ir.StorageFormatRg16Uint, spvenums.ImageFormatRg16ui},
+		{ir.StorageFormatRg16Sint, spvenums.ImageFormatRg16i},
+		{ir.StorageFormatRg16Float, spvenums.ImageFormatRg16f},
+		{ir.StorageFormatRgba8Unorm, spvenums.ImageFormatRgba8},
+		{ir.StorageFormatRgba8Snorm, spvenums.ImageFormatRgba8Snorm},
+		{ir.StorageFormatRgba8Uint, spvenums.ImageFormatRgba8ui},
+		{ir.StorageFormatRgba8Sint, spvenums.ImageFormatRgba8i},
+		{ir.StorageFormatBgra8Unorm, spvenums.ImageFormatRgba8},
 		// Packed 32-bit
-		{ir.StorageFormatRgb10a2Uint, ImageFormatRgb10a2ui},
-		{ir.StorageFormatRgb10a2Unorm, ImageFormatRgb10A2},
-		{ir.StorageFormatRg11b10Ufloat, ImageFormatR11fG11fB10f},
+		{ir.StorageFormatRgb10a2Uint, spvenums.ImageFormatRgb10a2ui},
+		{ir.StorageFormatRgb10a2Unorm, spvenums.ImageFormatRgb10A2},
+		{ir.StorageFormatRg11b10Ufloat, spvenums.ImageFormatR11fG11fB10f},
 		// 64-bit
-		{ir.StorageFormatRg32Uint, ImageFormatRg32ui},
-		{ir.StorageFormatRg32Sint, ImageFormatRg32i},
-		{ir.StorageFormatRg32Float, ImageFormatRg32f},
-		{ir.StorageFormatRgba16Uint, ImageFormatRgba16ui},
-		{ir.StorageFormatRgba16Sint, ImageFormatRgba16i},
-		{ir.StorageFormatRgba16Float, ImageFormatRgba16f},
+		{ir.StorageFormatRg32Uint, spvenums.ImageFormatRg32ui},
+		{ir.StorageFormatRg32Sint, spvenums.ImageFormatRg32i},
+		{ir.StorageFormatRg32Float, spvenums.ImageFormatRg32f},
+		{ir.StorageFormatRgba16Uint, spvenums.ImageFormatRgba16ui},
+		{ir.StorageFormatRgba16Sint, spvenums.ImageFormatRgba16i},
+		{ir.StorageFormatRgba16Float, spvenums.ImageFormatRgba16f},
 		// 128-bit
-		{ir.StorageFormatRgba32Uint, ImageFormatRgba32ui},
-		{ir.StorageFormatRgba32Sint, ImageFormatRgba32i},
-		{ir.StorageFormatRgba32Float, ImageFormatRgba32f},
+		{ir.StorageFormatRgba32Uint, spvenums.ImageFormatRgba32ui},
+		{ir.StorageFormatRgba32Sint, spvenums.ImageFormatRgba32i},
+		{ir.StorageFormatRgba32Float, spvenums.ImageFormatRgba32f},
 		// Normalized 16-bit per channel
-		{ir.StorageFormatR16Unorm, ImageFormatR16},
-		{ir.StorageFormatR16Snorm, ImageFormatR16Snorm},
-		{ir.StorageFormatRg16Unorm, ImageFormatRg16},
-		{ir.StorageFormatRg16Snorm, ImageFormatRg16Snorm},
-		{ir.StorageFormatRgba16Unorm, ImageFormatRgba16},
-		{ir.StorageFormatRgba16Snorm, ImageFormatRgba16Snorm},
+		{ir.StorageFormatR16Unorm, spvenums.ImageFormatR16},
+		{ir.StorageFormatR16Snorm, spvenums.ImageFormatR16Snorm},
+		{ir.StorageFormatRg16Unorm, spvenums.ImageFormatRg16},
+		{ir.StorageFormatRg16Snorm, spvenums.ImageFormatRg16Snorm},
+		{ir.StorageFormatRgba16Unorm, spvenums.ImageFormatRgba16},
+		{ir.StorageFormatRgba16Snorm, spvenums.ImageFormatRgba16Snorm},
 		// 64-bit integer (SPV_EXT_shader_image_int64)
-		{ir.StorageFormatR64Uint, ImageFormatR64ui},
-		{ir.StorageFormatR64Sint, ImageFormatR64i},
+		{ir.StorageFormatR64Uint, spvenums.ImageFormatR64ui},
+		{ir.StorageFormatR64Sint, spvenums.ImageFormatR64i},
 		// Unknown
-		{ir.StorageFormatUndefined, ImageFormatUnknown},
+		{ir.StorageFormatUndefined, spvenums.ImageFormatUnknown},
 	}
 	for _, tt := range tests {
 		got := StorageFormatToImageFormat(tt.format)
@@ -226,13 +227,13 @@ func TestModuleBuilder_AddConstantFloat64(t *testing.T) {
 
 func TestModuleBuilder_AddVariableWithInit(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	intType := b.AddTypeInt(32, false)
-	ptrType := b.AddTypePointer(StorageClassPrivate, intType)
+	ptrType := b.AddTypePointer(spvenums.StorageClassPrivate, intType)
 	initVal := b.AddConstant(intType, 42)
-	varID := b.AddVariableWithInit(ptrType, StorageClassPrivate, initVal)
+	varID := b.AddVariableWithInit(ptrType, spvenums.StorageClassPrivate, initVal)
 
 	if varID == 0 {
 		t.Error("AddVariableWithInit returned ID 0")
@@ -244,14 +245,14 @@ func TestModuleBuilder_AddVariableWithInit(t *testing.T) {
 
 func TestModuleBuilder_AddFunctionParameter(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	voidType := b.AddTypeVoid()
 	floatType := b.AddTypeFloat(32)
 	funcType := b.AddTypeFunction(voidType, floatType)
 
-	_ = b.AddFunction(funcType, voidType, FunctionControlNone)
+	_ = b.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 	paramID := b.AddFunctionParameter(floatType)
 	_ = b.AddLabel()
 	b.AddReturn()
@@ -269,12 +270,12 @@ func TestModuleBuilder_AddFunctionParameter(t *testing.T) {
 
 func TestModuleBuilder_AddLabelWithID(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	voidType := b.AddTypeVoid()
 	funcType := b.AddTypeFunction(voidType)
-	_ = b.AddFunction(funcType, voidType, FunctionControlNone)
+	_ = b.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 
 	// Pre-allocate a label ID
 	preAllocID := b.AllocID()
@@ -290,12 +291,12 @@ func TestModuleBuilder_AddLabelWithID(t *testing.T) {
 
 func TestModuleBuilder_AddUnreachable(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	voidType := b.AddTypeVoid()
 	funcType := b.AddTypeFunction(voidType)
-	_ = b.AddFunction(funcType, voidType, FunctionControlNone)
+	_ = b.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 	b.AddUnreachable()
 	b.AddFunctionEnd()
@@ -308,12 +309,12 @@ func TestModuleBuilder_AddUnreachable(t *testing.T) {
 
 func TestModuleBuilder_AddReturnValue(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	floatType := b.AddTypeFloat(32)
 	funcType := b.AddTypeFunction(floatType)
-	_ = b.AddFunction(funcType, floatType, FunctionControlNone)
+	_ = b.AddFunction(funcType, floatType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 	val := b.AddConstantFloat32(floatType, 1.0)
 	b.AddReturnValue(val)
@@ -327,12 +328,12 @@ func TestModuleBuilder_AddReturnValue(t *testing.T) {
 
 func TestModuleBuilder_AddCopyLogical(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	floatType := b.AddTypeFloat(32)
 	funcType := b.AddTypeFunction(floatType)
-	_ = b.AddFunction(funcType, floatType, FunctionControlNone)
+	_ = b.AddFunction(funcType, floatType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 	val := b.AddConstantFloat32(floatType, 2.0)
 	copyID := b.AddCopyLogical(floatType, val)
@@ -350,15 +351,15 @@ func TestModuleBuilder_AddCopyLogical(t *testing.T) {
 
 func TestModuleBuilder_AddVectorExtractDynamic(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	floatType := b.AddTypeFloat(32)
 	vec4Type := b.AddTypeVector(floatType, 4)
 	intType := b.AddTypeInt(32, false)
 	funcType := b.AddTypeFunction(floatType)
 
-	_ = b.AddFunction(funcType, floatType, FunctionControlNone)
+	_ = b.AddFunction(funcType, floatType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 
 	// Build a vec4 and extract with dynamic index
@@ -381,21 +382,21 @@ func TestModuleBuilder_AddVectorExtractDynamic(t *testing.T) {
 
 func TestModuleBuilder_AddBranchConditional(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	voidType := b.AddTypeVoid()
 	boolType := b.AddTypeBool()
 	funcType := b.AddTypeFunction(voidType)
 
-	_ = b.AddFunction(funcType, voidType, FunctionControlNone)
+	_ = b.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 
 	trueLabel := b.AllocID()
 	falseLabel := b.AllocID()
 	mergeLabel := b.AllocID()
 
-	b.AddSelectionMerge(mergeLabel, SelectionControlNone)
+	b.AddSelectionMerge(mergeLabel, spvenums.SelectionControlNone)
 	cond := b.AddConstant(boolType, 1)
 	b.AddBranchConditional(cond, trueLabel, falseLabel)
 
@@ -403,13 +404,13 @@ func TestModuleBuilder_AddBranchConditional(t *testing.T) {
 	b.AddLabelWithID(trueLabel)
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
-	b.funcAppend(b.ib.Build(OpBranch))
+	b.funcAppend(b.ib.Build(spvenums.OpBranch))
 
 	// False block: branch to merge
 	b.AddLabelWithID(falseLabel)
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
-	b.funcAppend(b.ib.Build(OpBranch))
+	b.funcAppend(b.ib.Build(spvenums.OpBranch))
 
 	// Merge block
 	b.AddLabelWithID(mergeLabel)
@@ -424,18 +425,18 @@ func TestModuleBuilder_AddBranchConditional(t *testing.T) {
 
 func TestModuleBuilder_AddKill(t *testing.T) {
 	b := NewModuleBuilder(Version1_3)
-	b.AddCapability(CapabilityShader)
-	b.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	b.AddCapability(spvenums.CapabilityShader)
+	b.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	voidType := b.AddTypeVoid()
 	funcType := b.AddTypeFunction(voidType)
-	funcID := b.AddFunction(funcType, voidType, FunctionControlNone)
+	funcID := b.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 	_ = b.AddLabel()
 	b.AddKill()
 	b.AddFunctionEnd()
 
-	b.AddEntryPoint(ExecutionModelFragment, funcID, "main", nil)
-	b.AddExecutionMode(funcID, ExecutionModeOriginUpperLeft)
+	b.AddEntryPoint(spvenums.ExecutionModelFragment, funcID, "main", nil)
+	b.AddExecutionMode(funcID, spvenums.ExecutionModeOriginUpperLeft)
 
 	data := b.Build()
 	if len(data) < 20 {
@@ -449,7 +450,7 @@ func TestModuleBuilder_AddKill(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestCompileSelectExpression exercises emitSelect (42.9%).
-// Verifies OpSelect is emitted for WGSL select() built-in.
+// Verifies spvenums.OpSelect is emitted for WGSL select() built-in.
 func TestCompileSelectExpression(t *testing.T) {
 	source := `
 @fragment
@@ -463,13 +464,13 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpSelect) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSelect) {
 		t.Error("expected OpSelect in output for WGSL select()")
 	}
 }
 
 // TestCompileSelectVectorExpression exercises emitSelect with vector condition.
-// Verifies OpSelect with vec4<bool> condition does not require scalar-to-vector splat.
+// Verifies spvenums.OpSelect with vec4<bool> condition does not require scalar-to-vector splat.
 func TestCompileSelectVectorExpression(t *testing.T) {
 	source := `
 @fragment
@@ -484,7 +485,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpSelect) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSelect) {
 		t.Error("expected OpSelect for vector select")
 	}
 }
@@ -544,37 +545,37 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	instrs := decodeSPIRVInstructions(spv)
 
 	// Fine/coarse derivatives require DerivativeControl capability
-	if !hasCapability(instrs, CapabilityDerivativeControl) {
+	if !hasCapability(instrs, spvenums.CapabilityDerivativeControl) {
 		t.Error("expected DerivativeControl capability for fine/coarse derivatives")
 	}
 	// Verify standard derivative opcodes
-	if !hasOpcodeInInstrs(instrs, OpDPdx) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdx) {
 		t.Error("expected OpDPdx for dpdx()")
 	}
-	if !hasOpcodeInInstrs(instrs, OpDPdy) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdy) {
 		t.Error("expected OpDPdy for dpdy()")
 	}
-	if !hasOpcodeInInstrs(instrs, OpFwidth) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpFwidth) {
 		t.Error("expected OpFwidth for fwidth()")
 	}
 	// Verify fine derivatives
-	if !hasOpcodeInInstrs(instrs, OpDPdxFine) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdxFine) {
 		t.Error("expected OpDPdxFine for dpdxFine()")
 	}
-	if !hasOpcodeInInstrs(instrs, OpDPdyFine) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdyFine) {
 		t.Error("expected OpDPdyFine for dpdyFine()")
 	}
 	// Verify coarse derivatives
-	if !hasOpcodeInInstrs(instrs, OpDPdxCoarse) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdxCoarse) {
 		t.Error("expected OpDPdxCoarse for dpdxCoarse()")
 	}
-	if !hasOpcodeInInstrs(instrs, OpDPdyCoarse) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDPdyCoarse) {
 		t.Error("expected OpDPdyCoarse for dpdyCoarse()")
 	}
 }
 
 // TestCompileComputeBarrier exercises emitBarrier (89.7%).
-// Verifies OpControlBarrier is emitted for workgroupBarrier() and storageBarrier().
+// Verifies spvenums.OpControlBarrier is emitted for workgroupBarrier() and storageBarrier().
 func TestCompileComputeBarrier(t *testing.T) {
 	source := `
 @group(0) @binding(0) var<storage, read_write> data: array<f32>;
@@ -589,8 +590,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// workgroupBarrier + storageBarrier = at least 2 OpControlBarrier
-	barrierCount := countOpcodeInInstrs(instrs, OpControlBarrier)
+	// workgroupBarrier + storageBarrier = at least 2 spvenums.OpControlBarrier
+	barrierCount := countOpcodeInInstrs(instrs, spvenums.OpControlBarrier)
 	if barrierCount < 2 {
 		t.Errorf("expected at least 2 OpControlBarrier, got %d", barrierCount)
 	}
@@ -621,9 +622,9 @@ fn main() {
 
 	// Verify at least some atomic operations were emitted.
 	// The exact opcodes depend on IR lowering and DCE behavior.
-	atomicOpcodes := []OpCode{
-		OpAtomicLoad, OpAtomicStore, OpAtomicIAdd, OpAtomicISub,
-		OpAtomicUMax, OpAtomicUMin, OpAtomicAnd, OpAtomicOr, OpAtomicXor,
+	atomicOpcodes := []spvenums.Op{
+		spvenums.OpAtomicLoad, spvenums.OpAtomicStore, spvenums.OpAtomicIAdd, spvenums.OpAtomicISub,
+		spvenums.OpAtomicUMax, spvenums.OpAtomicUMin, spvenums.OpAtomicAnd, spvenums.OpAtomicOr, spvenums.OpAtomicXor,
 	}
 	atomicCount := 0
 	for _, op := range atomicOpcodes {
@@ -671,21 +672,21 @@ fn main() {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpAtomicCompareExch) {
-		t.Error("expected OpAtomicCompareExch in output")
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicCompareExchange) {
+		t.Error("expected OpAtomicCompareExchange in output")
 	}
 	// The result.exchanged field uses IEqual to compare old_value == compare
-	if !hasOpcodeInInstrs(instrs, OpIEqual) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpIEqual) {
 		t.Error("expected OpIEqual for exchanged field computation")
 	}
 	// The struct is built via CompositeConstruct
-	if !hasOpcodeInInstrs(instrs, OpCompositeConstruct) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpCompositeConstruct) {
 		t.Error("expected OpCompositeConstruct for result struct {old_value, exchanged}")
 	}
 }
 
 // TestCompileDiscard exercises AddKill path through WGSL discard.
-// Verifies OpKill terminator is emitted for WGSL discard statement.
+// Verifies spvenums.OpKill terminator is emitted for WGSL discard statement.
 func TestCompileDiscard(t *testing.T) {
 	source := `
 @fragment
@@ -699,10 +700,10 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpKill) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpKill) {
 		t.Error("expected OpKill for WGSL discard statement")
 	}
-	if !hasOpcodeInInstrs(instrs, OpSelectionMerge) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSelectionMerge) {
 		t.Error("expected OpSelectionMerge for if-discard control flow")
 	}
 }
@@ -855,7 +856,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // TestCompileStorageTexture exercises emitImageStore / requestImageFormatCapabilities (50%/80%).
-// Verifies OpImageWrite is emitted and StorageImageWriteWithoutFormat capability is declared.
+// Verifies spvenums.OpImageWrite is emitted and StorageImageWriteWithoutFormat capability is declared.
 func TestCompileStorageTexture(t *testing.T) {
 	source := `
 @group(0) @binding(0) var output: texture_storage_2d<rgba8unorm, write>;
@@ -868,7 +869,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpImageWrite) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpImageWrite) {
 		t.Error("expected OpImageWrite for textureStore()")
 	}
 }
@@ -993,14 +994,14 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	assertValidSPIRV(t, spirvBytes)
 	instrs := decodeSPIRVInstructions(spirvBytes)
 
-	// Debug mode must emit OpName instructions for functions, variables, and types
-	nameCount := countOpcodeInInstrs(instrs, OpName)
+	// Debug mode must emit spvenums.OpName instructions for functions, variables, and types
+	nameCount := countOpcodeInInstrs(instrs, spvenums.OpName)
 	if nameCount == 0 {
 		t.Error("expected OpName instructions in debug mode, got 0")
 	}
 
-	// Also expect OpMemberName for struct members
-	memberNameCount := countOpcodeInInstrs(instrs, OpMemberName)
+	// Also expect spvenums.OpMemberName for struct members
+	memberNameCount := countOpcodeInInstrs(instrs, spvenums.OpMemberName)
 	if memberNameCount == 0 {
 		t.Error("expected OpMemberName for struct member 'position' and 'color'")
 	}
@@ -1155,12 +1156,12 @@ fn main(input: FragIn) -> @location(0) vec4<f32> {
 	hasFlatDecoration := false
 	hasNoPerspective := false
 	for _, inst := range instrs {
-		if inst.opcode == OpDecorate && len(inst.words) >= 3 {
-			dec := Decoration(inst.words[2])
-			if dec == DecorationFlat {
+		if inst.opcode == spvenums.OpDecorate && len(inst.words) >= 3 {
+			dec := spvenums.Decoration(inst.words[2])
+			if dec == spvenums.DecorationFlat {
 				hasFlatDecoration = true
 			}
-			if dec == DecorationNoPerspective {
+			if dec == spvenums.DecorationNoPerspective {
 				hasNoPerspective = true
 			}
 		}
@@ -1819,21 +1820,21 @@ func TestAtomicOpcode(t *testing.T) {
 		name   string
 		fun    ir.AtomicFunction
 		scalar ir.ScalarKind
-		want   OpCode
+		want   spvenums.Op
 		ok     bool
 	}{
-		{"add_uint", ir.AtomicAdd{}, ir.ScalarUint, OpAtomicIAdd, true},
-		{"add_sint", ir.AtomicAdd{}, ir.ScalarSint, OpAtomicIAdd, true},
-		{"add_float", ir.AtomicAdd{}, ir.ScalarFloat, OpAtomicFAddEXT, true},
-		{"subtract", ir.AtomicSubtract{}, ir.ScalarUint, OpAtomicISub, true},
-		{"and", ir.AtomicAnd{}, ir.ScalarUint, OpAtomicAnd, true},
-		{"or", ir.AtomicInclusiveOr{}, ir.ScalarUint, OpAtomicOr, true},
-		{"xor", ir.AtomicExclusiveOr{}, ir.ScalarUint, OpAtomicXor, true},
-		{"min_uint", ir.AtomicMin{}, ir.ScalarUint, OpAtomicUMin, true},
-		{"min_sint", ir.AtomicMin{}, ir.ScalarSint, OpAtomicSMin, true},
-		{"max_uint", ir.AtomicMax{}, ir.ScalarUint, OpAtomicUMax, true},
-		{"max_sint", ir.AtomicMax{}, ir.ScalarSint, OpAtomicSMax, true},
-		{"exchange", ir.AtomicExchange{}, ir.ScalarUint, OpAtomicExchange, true},
+		{"add_uint", ir.AtomicAdd{}, ir.ScalarUint, spvenums.OpAtomicIAdd, true},
+		{"add_sint", ir.AtomicAdd{}, ir.ScalarSint, spvenums.OpAtomicIAdd, true},
+		{"add_float", ir.AtomicAdd{}, ir.ScalarFloat, spvenums.OpAtomicFAddEXT, true},
+		{"subtract", ir.AtomicSubtract{}, ir.ScalarUint, spvenums.OpAtomicISub, true},
+		{"and", ir.AtomicAnd{}, ir.ScalarUint, spvenums.OpAtomicAnd, true},
+		{"or", ir.AtomicInclusiveOr{}, ir.ScalarUint, spvenums.OpAtomicOr, true},
+		{"xor", ir.AtomicExclusiveOr{}, ir.ScalarUint, spvenums.OpAtomicXor, true},
+		{"min_uint", ir.AtomicMin{}, ir.ScalarUint, spvenums.OpAtomicUMin, true},
+		{"min_sint", ir.AtomicMin{}, ir.ScalarSint, spvenums.OpAtomicSMin, true},
+		{"max_uint", ir.AtomicMax{}, ir.ScalarUint, spvenums.OpAtomicUMax, true},
+		{"max_sint", ir.AtomicMax{}, ir.ScalarSint, spvenums.OpAtomicSMax, true},
+		{"exchange", ir.AtomicExchange{}, ir.ScalarUint, spvenums.OpAtomicExchange, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1872,7 +1873,7 @@ fn main() {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpAtomicExchange) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicExchange) {
 		t.Error("expected OpAtomicExchange for atomicExchange()")
 	}
 }
@@ -1894,11 +1895,11 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Signed min/max should use OpAtomicSMin/OpAtomicSMax
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMin) {
+	// Signed min/max should use spvenums.OpAtomicSMin/spvenums.OpAtomicSMax
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMin) {
 		t.Error("expected OpAtomicSMin for signed atomicMin()")
 	}
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMax) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMax) {
 		t.Error("expected OpAtomicSMax for signed atomicMax()")
 	}
 }
@@ -1918,8 +1919,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Dynamic access needs OpAccessChain
-	if !hasOpcodeInInstrs(instrs, OpAccessChain) {
+	// Dynamic access needs spvenums.OpAccessChain
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAccessChain) {
 		t.Error("expected OpAccessChain for dynamic array access")
 	}
 }
@@ -1974,7 +1975,7 @@ fn main(@location(0) @interpolate(flat) mode: i32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpSwitch) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSwitch) {
 		t.Error("expected OpSwitch for WGSL switch statement")
 	}
 }
@@ -2002,8 +2003,8 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Nested loops require at least 2 OpLoopMerge
-	loopCount := countOpcodeInInstrs(instrs, OpLoopMerge)
+	// Nested loops require at least 2 spvenums.OpLoopMerge
+	loopCount := countOpcodeInInstrs(instrs, spvenums.OpLoopMerge)
 	if loopCount < 2 {
 		t.Errorf("expected at least 2 OpLoopMerge for nested loops, got %d", loopCount)
 	}
@@ -2040,8 +2041,8 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	// Multiple descriptor sets require DescriptorSet decorations
 	descriptorSetCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpDecorate && len(inst.words) >= 3 {
-			if Decoration(inst.words[2]) == DecorationDescriptorSet {
+		if inst.opcode == spvenums.OpDecorate && len(inst.words) >= 3 {
+			if spvenums.Decoration(inst.words[2]) == spvenums.DecorationDescriptorSet {
 				descriptorSetCount++
 			}
 		}
@@ -2068,7 +2069,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// textureSampleLevel uses explicit LOD sampling
-	if !hasOpcodeInInstrs(instrs, OpImageSampleExplicitLod) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpImageSampleExplicitLod) {
 		t.Error("expected OpImageSampleExplicitLod for textureSampleLevel()")
 	}
 }
@@ -2087,7 +2088,7 @@ fn main() -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasCapability(instrs, CapabilityImageQuery) {
+	if !hasCapability(instrs, spvenums.CapabilityImageQuery) {
 		t.Error("expected ImageQuery capability for textureDimensions()")
 	}
 }
@@ -2140,11 +2141,11 @@ fn main(input: VertexIn) -> VertexOut {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Vertex shader should have BuiltIn decorations for vertex_index and instance_index
+	// Vertex shader should have spvenums.BuiltIn decorations for vertex_index and instance_index
 	builtInCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpDecorate && len(inst.words) >= 3 {
-			if Decoration(inst.words[2]) == DecorationBuiltIn {
+		if inst.opcode == spvenums.OpDecorate && len(inst.words) >= 3 {
+			if spvenums.Decoration(inst.words[2]) == spvenums.DecorationBuiltIn {
 				builtInCount++
 			}
 		}
@@ -2177,12 +2178,12 @@ fn main(
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Workgroup size 8,4,2 should be specified via ExecutionMode
+	// Workgroup size 8,4,2 should be specified via spvenums.ExecutionMode
 	foundWorkgroupSize := false
 	for _, inst := range instrs {
-		if inst.opcode == OpExecutionMode && len(inst.words) >= 5 {
-			mode := ExecutionMode(inst.words[2])
-			if mode == ExecutionModeLocalSize {
+		if inst.opcode == spvenums.OpExecutionMode && len(inst.words) >= 5 {
+			mode := spvenums.ExecutionMode(inst.words[2])
+			if mode == spvenums.ExecutionModeLocalSize {
 				foundWorkgroupSize = true
 				// Verify dimensions 8, 4, 2
 				if inst.words[3] != 8 || inst.words[4] != 4 || inst.words[5] != 2 {
@@ -2214,19 +2215,19 @@ fn main(@location(0) @interpolate(flat) val: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpBitwiseAnd) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpBitwiseAnd) {
 		t.Error("expected OpBitwiseAnd for &")
 	}
-	if !hasOpcodeInInstrs(instrs, OpBitwiseOr) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpBitwiseOr) {
 		t.Error("expected OpBitwiseOr for |")
 	}
-	if !hasOpcodeInInstrs(instrs, OpBitwiseXor) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpBitwiseXor) {
 		t.Error("expected OpBitwiseXor for ^")
 	}
-	if !hasOpcodeInInstrs(instrs, OpShiftLeftLogical) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpShiftLeftLogical) {
 		t.Error("expected OpShiftLeftLogical for <<")
 	}
-	if !hasOpcodeInInstrs(instrs, OpShiftRightLogical) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpShiftRightLogical) {
 		t.Error("expected OpShiftRightLogical for >>")
 	}
 }
@@ -2290,7 +2291,7 @@ func TestCompileModuleWithAtomicResult(t *testing.T) {
 	}
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
-	if !hasOpcodeInInstrs(instrs, OpAtomicIAdd) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicIAdd) {
 		t.Error("expected OpAtomicIAdd in output")
 	}
 }
@@ -2311,7 +2312,7 @@ fn main(@location(0) @interpolate(flat) vals: vec4<i32>) -> @location(0) vec4<f3
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// Pack uses BitFieldInsert polyfill
-	if !hasOpcodeInInstrs(instrs, OpBitFieldInsert) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpBitFieldInsert) {
 		t.Error("expected OpBitFieldInsert for pack4x8 polyfill")
 	}
 }
@@ -2330,7 +2331,7 @@ fn main(@location(0) @interpolate(flat) val: u32) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// Unpack uses BitFieldSExtract/BitFieldUExtract
-	hasBitField := hasOpcodeInInstrs(instrs, OpBitFieldSExtract) || hasOpcodeInInstrs(instrs, OpBitFieldUExtract)
+	hasBitField := hasOpcodeInInstrs(instrs, spvenums.OpBitFieldSExtract) || hasOpcodeInInstrs(instrs, spvenums.OpBitFieldUExtract)
 	if !hasBitField {
 		t.Error("expected OpBitFieldSExtract or OpBitFieldUExtract for unpack4x8 polyfill")
 	}
@@ -2355,7 +2356,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// WorkgroupUniformLoad emits barrier + load + barrier
-	barrierCount := countOpcodeInInstrs(instrs, OpControlBarrier)
+	barrierCount := countOpcodeInInstrs(instrs, spvenums.OpControlBarrier)
 	// At least 3 barriers: explicit workgroupBarrier + 2 from workgroupUniformLoad
 	if barrierCount < 3 {
 		t.Errorf("expected at least 3 OpControlBarrier for workgroupBarrier + workgroupUniformLoad, got %d", barrierCount)
@@ -2381,7 +2382,7 @@ fn make_pair(x: f32, y: f32) -> Pair {
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let p = make_pair(uv.x, uv.y);
-    // Accessing p.a and p.b may trigger spill if the composite needs OpAccessChain
+    // Accessing p.a and p.b may trigger spill if the composite needs spvenums.OpAccessChain
     return vec4<f32>(p.a, p.b, p.a + p.b, 1.0);
 }
 `
@@ -2389,8 +2390,8 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// Function call results with field access produce CompositeExtract or AccessChain
-	hasExtract := hasOpcodeInInstrs(instrs, OpCompositeExtract)
-	hasAccessChain := hasOpcodeInInstrs(instrs, OpAccessChain)
+	hasExtract := hasOpcodeInInstrs(instrs, spvenums.OpCompositeExtract)
+	hasAccessChain := hasOpcodeInInstrs(instrs, spvenums.OpAccessChain)
 	if !hasExtract && !hasAccessChain {
 		t.Error("expected OpCompositeExtract or OpAccessChain for struct field access on call result")
 	}
@@ -2414,8 +2415,8 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Should have OpFunctionCall
-	if !hasOpcodeInInstrs(instrs, OpFunctionCall) {
+	// Should have spvenums.OpFunctionCall
+	if !hasOpcodeInInstrs(instrs, spvenums.OpFunctionCall) {
 		t.Error("expected OpFunctionCall for helper function calls")
 	}
 }
@@ -2492,14 +2493,14 @@ func TestCompileModuleWithLocalVarValue(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 
 	instrs := decodeSPIRVInstructions(spvBytes)
-	// Should have OpVariable for local var, OpStore, OpLoad
-	if !hasOpcodeInInstrs(instrs, OpVariable) {
+	// Should have spvenums.OpVariable for local var, spvenums.OpStore, spvenums.OpLoad
+	if !hasOpcodeInInstrs(instrs, spvenums.OpVariable) {
 		t.Error("expected OpVariable for local variable")
 	}
-	if !hasOpcodeInInstrs(instrs, OpStore) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpStore) {
 		t.Error("expected OpStore to write to local variable")
 	}
-	if !hasOpcodeInInstrs(instrs, OpLoad) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpLoad) {
 		t.Error("expected OpLoad to read local variable")
 	}
 }

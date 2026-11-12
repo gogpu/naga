@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // Bounds checks for indices into arrays, vectors, matrices and binding
@@ -164,7 +165,7 @@ func (e *ExpressionEmitter) writeRestrictedIndex(base ir.ExpressionHandle, index
 		if err != nil {
 			return boundsCheck{}, err
 		}
-		maxID = e.backend.builder.AddBinaryOp(OpISub, u32Type, lengthID, one)
+		maxID = e.backend.builder.AddBinaryOp(spvenums.OpISub, u32Type, lengthID, one)
 	}
 	if index.known {
 		if indexID, err = e.u32Constant(index.value); err != nil {
@@ -175,11 +176,11 @@ func (e *ExpressionEmitter) writeRestrictedIndex(base ir.ExpressionHandle, index
 	if err != nil {
 		return boundsCheck{}, err
 	}
-	restricted := e.backend.builder.AddExtInst(u32Type, e.backend.glslExtID, GLSLstd450UMin, indexID, maxID)
+	restricted := e.backend.builder.AddExtInst(u32Type, e.backend.glslExtID, uint32(spvenums.GlslStd450UMin), indexID, maxID)
 	return boundsCheck{id: restricted}, nil
 }
 
-// writeIndexComparison implements ReadZeroSkipWrite: OpULessThan(index,
+// writeIndexComparison implements ReadZeroSkipWrite: spvenums.OpULessThan(index,
 // length), unless both are known and the index is in bounds (Rust naga's
 // write_index_comparison). A known out-of-bounds index is still compared.
 func (e *ExpressionEmitter) writeIndexComparison(base ir.ExpressionHandle, index guardedIndex, indexID uint32) (boundsCheck, error) {
@@ -204,7 +205,7 @@ func (e *ExpressionEmitter) writeIndexComparison(base ir.ExpressionHandle, index
 	if err != nil {
 		return boundsCheck{}, err
 	}
-	condition := e.backend.builder.AddBinaryOp(OpULessThan, boolType, indexID, lengthID)
+	condition := e.backend.builder.AddBinaryOp(spvenums.OpULessThan, boolType, indexID, lengthID)
 	return boundsCheck{id: indexID, condition: condition}, nil
 }
 
@@ -268,7 +269,7 @@ func (e *ExpressionEmitter) isStructBase(base ir.ExpressionHandle) bool {
 // chainIndices returns the access chain operands for links (tip first), in
 // root-to-tip order, and the conjunction of their ReadZeroSkipWrite
 // conditions (0 when there is none). Like Rust naga's write_access_chain, the
-// checks are written tip first and combined with OpLogicalAnd, without short
+// checks are written tip first and combined with spvenums.OpLogicalAnd, without short
 // circuit; dynamic index values are evaluated root first beforehand.
 func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32, uint32, error) {
 	indexIDs := make(map[ir.ExpressionHandle]uint32)
@@ -332,7 +333,7 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 				if err != nil {
 					return nil, 0, err
 				}
-				condition = e.backend.builder.AddBinaryOp(OpLogicalAnd, boolType, condition, check.condition)
+				condition = e.backend.builder.AddBinaryOp(spvenums.OpLogicalAnd, boolType, condition, check.condition)
 			}
 		}
 		indices = append(indices, id)
@@ -349,11 +350,11 @@ func (e *ExpressionEmitter) buildAccessChain(resultType, rootID uint32, indices 
 	}
 	id := e.backend.builder.AllocID()
 	words := append([]uint32{resultType, id, rootID}, indices...)
-	return accessPointer{id: id, condition: condition, access: Instruction{Opcode: OpAccessChain, Words: words}}
+	return accessPointer{id: id, condition: condition, access: Instruction{Opcode: spvenums.OpAccessChain, Words: words}}
 }
 
 // writePointerAccess builds the pointer a load, store, atomic or call uses:
-// ONE OpAccessChain from the root variable or parameter with every index of
+// ONE spvenums.OpAccessChain from the root variable or parameter with every index of
 // the Access/AccessIndex chain, as Rust naga's write_access_chain, each index
 // bounds-checked by its policy. When the chain indexes a binding array with
 // a non-uniform index, the pointer is decorated NonUniform
@@ -391,7 +392,7 @@ func (e *ExpressionEmitter) writePointerAccess(handle ir.ExpressionHandle) (acce
 // withAccess runs body with the pointer of p: directly when p is ready, or
 // only when p's condition holds, inside a selection (ReadZeroSkipWrite). With
 // a non-zero valueType, body's result is merged with zero for the
-// out-of-bounds path through OpPhi, and the merged id is returned. Anything
+// out-of-bounds path through spvenums.OpPhi, and the merged id is returned. Anything
 // body uses besides the pointer must be computed before the call, so that it
 // dominates its later uses.
 func (e *ExpressionEmitter) withAccess(p accessPointer, valueType uint32, body func(pointer uint32) (uint32, error)) (uint32, error) {
@@ -440,8 +441,8 @@ func (e *ExpressionEmitter) loadAccessedElement(pointer accessPointer, elementTy
 }
 
 // writeVectorAccess indexes a vector value with a computed index (Rust
-// naga's write_vector_access): OpCompositeExtract for an index known in
-// bounds, OpVectorExtractDynamic otherwise, under ReadZeroSkipWrite only
+// naga's write_vector_access): spvenums.OpCompositeExtract for an index known in
+// bounds, spvenums.OpVectorExtractDynamic otherwise, under ReadZeroSkipWrite only
 // when the index is in bounds, with zero otherwise.
 func (e *ExpressionEmitter) writeVectorAccess(resultType uint32, access ir.ExprAccess, indexID uint32) (uint32, error) {
 	baseID, err := e.emitExpression(access.Base)
@@ -472,9 +473,9 @@ func (e *ExpressionEmitter) vectorElement(resultType, baseID uint32, base ir.Exp
 }
 
 // selection builds `if c1 && c2 && ... { body }` with an optional merged
-// value, as Rust naga's back/spv/selection.rs: one OpSelectionMerge in the
-// header, one OpBranchConditional per condition to the shared merge block,
-// and an OpPhi there over every predecessor.
+// value, as Rust naga's back/spv/selection.rs: one spvenums.OpSelectionMerge in the
+// header, one spvenums.OpBranchConditional per condition to the shared merge block,
+// and an spvenums.OpPhi there over every predecessor.
 type selection struct {
 	e          *ExpressionEmitter
 	valueType  uint32 // 0: no merged value
@@ -495,10 +496,10 @@ func (s *selection) ifTrue(cond, value uint32) {
 	}
 	if s.mergeLabel == 0 {
 		s.mergeLabel = e.backend.builder.AllocID()
-		e.backend.builder.AddSelectionMerge(s.mergeLabel, SelectionControlNone)
+		e.backend.builder.AddSelectionMerge(s.mergeLabel, spvenums.SelectionControlNone)
 	}
 	next := e.backend.builder.AllocID()
-	e.consumeBlock(Instruction{Opcode: OpBranchConditional, Words: []uint32{cond, next, s.mergeLabel}})
+	e.consumeBlock(Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{cond, next, s.mergeLabel}})
 	e.setCurrentBlock(&Block{LabelID: next})
 }
 
@@ -524,6 +525,6 @@ func (s *selection) finish(value uint32) uint32 {
 	for _, w := range s.incoming {
 		ib.AddWord(w)
 	}
-	e.backend.builder.funcAppend(ib.Build(OpPhi))
+	e.backend.builder.funcAppend(ib.Build(spvenums.OpPhi))
 	return phi
 }

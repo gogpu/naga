@@ -5,6 +5,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // makeImageLoadModule creates a minimal IR module with a fragment shader that
@@ -56,7 +57,7 @@ func TestImageBoundsCheck_Unchecked(t *testing.T) {
 	}
 
 	caps := extractCapabilities(spvBytes)
-	assertNoCapability(t, caps, CapabilityImageQuery)
+	assertNoCapability(t, caps, spvenums.CapabilityImageQuery)
 }
 
 // TestImageBoundsCheck_Restrict verifies Restrict adds ImageQuery and clamping.
@@ -72,15 +73,15 @@ func TestImageBoundsCheck_Restrict(t *testing.T) {
 	}
 
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityImageQuery)
+	assertCapability(t, caps, spvenums.CapabilityImageQuery)
 
-	if !divmodHasOpcode(spvBytes, OpImageQuerySizeLod) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpImageQuerySizeLod) {
 		t.Error("Restrict should emit OpImageQuerySizeLod for coordinate clamping")
 	}
-	if !divmodHasOpcode(spvBytes, OpImageQueryLevels) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpImageQueryLevels) {
 		t.Error("Restrict should emit OpImageQueryLevels for level clamping")
 	}
-	if !divmodHasOpcode(spvBytes, OpImageFetch) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpImageFetch) {
 		t.Error("Restrict should emit OpImageFetch")
 	}
 }
@@ -98,15 +99,15 @@ func TestImageBoundsCheck_RZSW(t *testing.T) {
 	}
 
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityImageQuery)
+	assertCapability(t, caps, spvenums.CapabilityImageQuery)
 
-	if !divmodHasOpcode(spvBytes, OpImageQuerySizeLod) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpImageQuerySizeLod) {
 		t.Error("RZSW should emit OpImageQuerySizeLod for bounds checking")
 	}
-	if !divmodHasOpcode(spvBytes, OpSelectionMerge) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpSelectionMerge) {
 		t.Error("RZSW should emit OpSelectionMerge for conditional load")
 	}
-	if !divmodHasOpcode(spvBytes, OpPhi) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpPhi) {
 		t.Error("RZSW should emit OpPhi for merging zero/loaded values")
 	}
 }
@@ -117,8 +118,8 @@ func TestImageBoundsCheck_RZSW(t *testing.T) {
 //   - Restrict subtracts a vector of ones from the image size; its
 //     constituents must have the coordinates' type. Rust naga builds it from
 //     an i32 one (get_scope_constant), which spirv-val rejects in a uvec2
-//     (OpConstantComposite), so u32 coordinates were invalid there too.
-//   - ReadZeroSkipWrite put the OpSelectionMerge only on the level check, so
+//     (spvenums.OpConstantComposite), so u32 coordinates were invalid there too.
+//   - ReadZeroSkipWrite put the spvenums.OpSelectionMerge only on the level check, so
 //     an image without a level (multisampled, storage) branched without one.
 //     Rust's Selection::if_true puts it on the first check, whichever it is.
 func TestImageBoundsCheckCoordinateSigns(t *testing.T) {
@@ -145,9 +146,9 @@ func TestImageBoundsCheckCoordinateSigns(t *testing.T) {
 }
 
 // TestImageBoundsCheckExternalTexture: textureLoad on a texture_external has
-// no level, and OpImageQuerySize needs a multisampled or storage image, so a
-// checked load queries the size of level 0 with OpImageQuerySizeLod (the
-// level the unchecked OpImageFetch reads). Rust naga has no SPIR-V
+// no level, and spvenums.OpImageQuerySize needs a multisampled or storage image, so a
+// checked load queries the size of level 0 with spvenums.OpImageQuerySizeLod (the
+// level the unchecked spvenums.OpImageFetch reads). Rust naga has no SPIR-V
 // texture_external (back/spv/image.rs: unimplemented).
 func TestImageBoundsCheckExternalTexture(t *testing.T) {
 	const source = `

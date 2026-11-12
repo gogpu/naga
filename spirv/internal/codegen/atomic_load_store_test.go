@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // BUG-SPV-ATOMIC-001: naga IR has no atomic load/store statement. WGSL
 // atomicLoad lowers to Expression::Load and atomicStore to Statement::Store on a
 // pointer to TypeInner::Atomic. Rust naga's SPIR-V writer
 // (back/spv/block.rs write_checked_load and Statement::Store) checks the
-// pointee type and emits OpAtomicLoad / OpAtomicStore with the scope from
+// pointee type and emits spvenums.OpAtomicLoad / spvenums.OpAtomicStore with the scope from
 // AddressSpace::to_spirv_semantics_and_scope (Storage → Device,
 // WorkGroup → Workgroup) as an i32 constant (get_scope_constant) and empty
 // (relaxed) memory semantics as a u32 constant (get_index_constant). A plain
-// OpLoad/OpStore there is a data race: SPIR-V has no atomic type, so
+// OpLoad/spvenums.OpStore there is a data race: SPIR-V has no atomic type, so
 // spirv-val cannot catch it.
 
 // spvAccessKind classifies a memory access found in a SPIR-V module.
@@ -24,12 +26,12 @@ const (
 	accessAtomicLoad  spvAccessKind = "OpAtomicLoad"
 	accessAtomicStore spvAccessKind = "OpAtomicStore"
 	accessAtomicRMW   spvAccessKind = "OpAtomic(read-modify-write)"
-	// accessLoad is an OpLoad whose result is used.
+	// accessLoad is an spvenums.OpLoad whose result is used.
 	accessLoad spvAccessKind = "OpLoad"
-	// accessDeadLoad is an OpLoad whose result is never used.
+	// accessDeadLoad is an spvenums.OpLoad whose result is never used.
 	accessDeadLoad spvAccessKind = "OpLoad(dead)"
 	accessStore    spvAccessKind = "OpStore"
-	// accessZeroInit is a whole-variable OpStore of OpConstantNull: the
+	// accessZeroInit is a whole-variable spvenums.OpStore of spvenums.OpConstantNull: the
 	// workgroup zero-initialization polyfill, a plain store in Rust too
 	// (back/spv/writer.rs generate_workgroup_vars_init_block).
 	accessZeroInit spvAccessKind = "OpStore(zero-init)"
@@ -39,20 +41,20 @@ const (
 // variable at the root of its pointer operand.
 type spvMemAccess struct {
 	kind spvAccessKind
-	ptr  uint32 // pointer operand of an OpLoad
-	op   OpCode
+	ptr  uint32 // pointer operand of an spvenums.OpLoad
+	op   spvenums.Op
 	root string
 	// Scope and semantics operands; set for atomic instructions only.
 	scope     spvIntConstant
 	semantics []spvIntConstant // one entry; two for OpAtomicCompareExchange
 }
 
-// spvIntConstant is a 32-bit integer OpConstant: its value and the
-// signedness of its OpTypeInt.
+// spvIntConstant is a 32-bit integer spvenums.OpConstant: its value and the
+// signedness of its spvenums.OpTypeInt.
 type spvIntConstant struct {
 	value  uint32
 	signed bool
-	ok     bool // false when the operand is not a 32-bit integer OpConstant
+	ok     bool // false when the operand is not a 32-bit integer spvenums.OpConstant
 }
 
 func (c spvIntConstant) String() string {
@@ -67,38 +69,38 @@ func (c spvIntConstant) String() string {
 
 // spvAtomicOperandLayout gives the word positions of pointer, scope and
 // semantics operands for the atomic opcodes this test inspects.
-var spvAtomicOperandLayout = map[OpCode]struct{ ptr, scope, firstSem, nSem int }{
-	OpAtomicLoad:        {3, 4, 5, 1},
-	OpAtomicStore:       {1, 2, 3, 1},
-	OpAtomicExchange:    {3, 4, 5, 1},
-	OpAtomicCompareExch: {3, 4, 5, 2},
-	OpAtomicIIncrement:  {3, 4, 5, 1},
-	OpAtomicIDecrement:  {3, 4, 5, 1},
-	OpAtomicIAdd:        {3, 4, 5, 1},
-	OpAtomicFAddEXT:     {3, 4, 5, 1},
-	OpAtomicISub:        {3, 4, 5, 1},
-	OpAtomicSMin:        {3, 4, 5, 1},
-	OpAtomicUMin:        {3, 4, 5, 1},
-	OpAtomicSMax:        {3, 4, 5, 1},
-	OpAtomicUMax:        {3, 4, 5, 1},
-	OpAtomicAnd:         {3, 4, 5, 1},
-	OpAtomicOr:          {3, 4, 5, 1},
-	OpAtomicXor:         {3, 4, 5, 1},
+var spvAtomicOperandLayout = map[spvenums.Op]struct{ ptr, scope, firstSem, nSem int }{
+	spvenums.OpAtomicLoad:            {3, 4, 5, 1},
+	spvenums.OpAtomicStore:           {1, 2, 3, 1},
+	spvenums.OpAtomicExchange:        {3, 4, 5, 1},
+	spvenums.OpAtomicCompareExchange: {3, 4, 5, 2},
+	spvenums.OpAtomicIIncrement:      {3, 4, 5, 1},
+	spvenums.OpAtomicIDecrement:      {3, 4, 5, 1},
+	spvenums.OpAtomicIAdd:            {3, 4, 5, 1},
+	spvenums.OpAtomicFAddEXT:         {3, 4, 5, 1},
+	spvenums.OpAtomicISub:            {3, 4, 5, 1},
+	spvenums.OpAtomicSMin:            {3, 4, 5, 1},
+	spvenums.OpAtomicUMin:            {3, 4, 5, 1},
+	spvenums.OpAtomicSMax:            {3, 4, 5, 1},
+	spvenums.OpAtomicUMax:            {3, 4, 5, 1},
+	spvenums.OpAtomicAnd:             {3, 4, 5, 1},
+	spvenums.OpAtomicOr:              {3, 4, 5, 1},
+	spvenums.OpAtomicXor:             {3, 4, 5, 1},
 }
 
 // spvPureValueOps are side-effect-free instructions with layout
 // "ResultType Result Operands..." through which a dead value may flow.
-var spvPureValueOps = map[OpCode]bool{
-	OpLoad:             true,
-	OpAccessChain:      true,
-	OpCopyLogical:      true,
-	OpCompositeExtract: true,
-	OpBitcast:          true,
+var spvPureValueOps = map[spvenums.Op]bool{
+	spvenums.OpLoad:             true,
+	spvenums.OpAccessChain:      true,
+	OpCopyLogical:               true,
+	spvenums.OpCompositeExtract: true,
+	spvenums.OpBitcast:          true,
 }
 
-// collectMemAccesses decodes every OpLoad, OpStore and atomic instruction of a
-// module and resolves its pointer operand through OpAccessChain to the root
-// OpVariable. Roots are named without relying on OpName (the backend only
+// collectMemAccesses decodes every spvenums.OpLoad, spvenums.OpStore and atomic instruction of a
+// module and resolves its pointer operand through spvenums.OpAccessChain to the root
+// OpVariable. Roots are named without relying on spvenums.OpName (the backend only
 // emits names with Options.Debug): a resource by its binding ("binding3"), a
 // workgroup variable by its declaration order among workgroup variables
 // ("workgroup0"); globals are declared in module order.
@@ -130,26 +132,26 @@ func collectMemAccesses(t *testing.T, spv []byte) []spvMemAccess {
 	inFunction := false
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpDecorate:
-			if Decoration(in.words[2]) == DecorationBinding {
+		case spvenums.OpDecorate:
+			if spvenums.Decoration(in.words[2]) == spvenums.DecorationBinding {
 				names[in.words[1]] = fmt.Sprintf("binding%d", in.words[3])
 			}
-		case OpVariable:
-			if StorageClass(in.words[3]) == StorageClassWorkgroup {
+		case spvenums.OpVariable:
+			if spvenums.StorageClass(in.words[3]) == spvenums.StorageClassWorkgroup {
 				names[in.words[2]] = fmt.Sprintf("workgroup%d", workgroupVars)
 				workgroupVars++
 			}
-		case OpTypeInt:
+		case spvenums.OpTypeInt:
 			intTypes[in.words[1]] = intType{width: in.words[2], signed: in.words[3] == 1}
-		case OpConstant:
+		case spvenums.OpConstant:
 			if len(in.words) == 4 {
 				constants[in.words[2]] = constant{typ: in.words[1], value: in.words[3]}
 			}
-		case OpConstantNull:
+		case spvenums.OpConstantNull:
 			nulls[in.words[2]] = true
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			parent[in.words[2]] = in.words[3]
-		case OpFunction:
+		case spvenums.OpFunction:
 			inFunction = true
 		}
 		if inFunction {
@@ -206,13 +208,13 @@ func collectMemAccesses(t *testing.T, spv []byte) []spvMemAccess {
 	var out []spvMemAccess
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpLoad:
+		case spvenums.OpLoad:
 			kind := accessLoad
 			if dead(in.words[2]) {
 				kind = accessDeadLoad
 			}
 			out = append(out, spvMemAccess{kind: kind, op: in.opcode, ptr: in.words[3], root: rootName(in.words[3])})
-		case OpStore:
+		case spvenums.OpStore:
 			ptr, value := in.words[1], in.words[2]
 			kind := accessStore
 			if root(ptr) == ptr && nulls[value] {
@@ -226,9 +228,9 @@ func collectMemAccesses(t *testing.T, spv []byte) []spvMemAccess {
 			}
 			kind := accessAtomicRMW
 			switch in.opcode {
-			case OpAtomicLoad:
+			case spvenums.OpAtomicLoad:
 				kind = accessAtomicLoad
-			case OpAtomicStore:
+			case spvenums.OpAtomicStore:
 				kind = accessAtomicStore
 			}
 			a := spvMemAccess{
@@ -273,7 +275,7 @@ func accessCounts(accesses []spvMemAccess) map[string]map[spvAccessKind]int {
 func checkAtomicOperands(t *testing.T, accesses []spvMemAccess, root string, wantScope uint32) {
 	t.Helper()
 	wantScopeConst := spvIntConstant{value: wantScope, signed: true, ok: true}
-	wantSem := spvIntConstant{value: MemorySemanticsNone, signed: false, ok: true}
+	wantSem := spvIntConstant{value: uint32(spvenums.MemorySemanticsNone), signed: false, ok: true}
 	for _, a := range accesses {
 		if a.root != root || a.semantics == nil {
 			continue
@@ -291,9 +293,9 @@ func checkAtomicOperands(t *testing.T, accesses []spvMemAccess, root string, wan
 
 // TestAtomicLoadStoreEmitsAtomicInstructions pins BUG-SPV-ATOMIC-001: every
 // atomicLoad / atomicStore (and workgroupUniformLoad of an atomic) becomes
-// OpAtomicLoad / OpAtomicStore with Rust's scope and semantics, for every
+// OpAtomicLoad / spvenums.OpAtomicStore with Rust's scope and semantics, for every
 // atomic scalar type and every shape of atomic data, while plain stores of
-// non-atomic data stay OpStore. No load of atomic data may be plain, not even
+// non-atomic data stay spvenums.OpStore. No load of atomic data may be plain, not even
 // a dead one (BUG-SPV-PTR-EMIT-001): a dead non-atomic read still races with
 // the atomic writes.
 func TestAtomicLoadStoreEmitsAtomicInstructions(t *testing.T) {
@@ -307,7 +309,7 @@ func TestAtomicLoadStoreEmitsAtomicInstructions(t *testing.T) {
 		source string
 		// Roots are keyed as collectMemAccesses names them (binding/workgroup order).
 		atomic map[string]rootWant
-		// plainStores: non-atomic root → expected OpStore count (no atomics).
+		// plainStores: non-atomic root → expected spvenums.OpStore count (no atomics).
 		plainStores map[string]int
 	}{
 		{
@@ -338,10 +340,10 @@ fn main() {
 }
 `,
 			atomic: map[string]rootWant{
-				"binding0": {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice}, // s_u32
-				"binding1": {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice}, // s_i32
-				"binding2": {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice}, // s_arr
-				"binding3": {atomicLoads: 2, atomicStores: 2, scope: ScopeDevice}, // s_struct
+				"binding0": {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)}, // s_u32
+				"binding1": {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)}, // s_i32
+				"binding2": {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)}, // s_arr
+				"binding3": {atomicLoads: 2, atomicStores: 2, scope: uint32(spvenums.ScopeDevice)}, // s_struct
 			},
 			plainStores: map[string]int{"binding4": 5},
 		},
@@ -370,15 +372,15 @@ fn main() {
 }
 `,
 			atomic: map[string]rootWant{
-				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: ScopeWorkgroup}, // w_u32
-				"workgroup1": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: ScopeWorkgroup}, // w_arr
-				"workgroup2": {atomicLoads: 2, atomicStores: 2, zeroInit: 1, scope: ScopeWorkgroup}, // w_struct
+				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: uint32(spvenums.ScopeWorkgroup)}, // w_u32
+				"workgroup1": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: uint32(spvenums.ScopeWorkgroup)}, // w_arr
+				"workgroup2": {atomicLoads: 2, atomicStores: 2, zeroInit: 1, scope: uint32(spvenums.ScopeWorkgroup)}, // w_struct
 			},
 			plainStores: map[string]int{"binding0": 4},
 		},
 		{
 			// Rust: Statement::WorkGroupUniformLoad goes through
-			// write_checked_load, so an atomic pointee is OpAtomicLoad.
+			// write_checked_load, so an atomic pointee is spvenums.OpAtomicLoad.
 			name: "workgroup_uniform_load_atomic",
 			source: `
 var<workgroup> w_u32: atomic<u32>;
@@ -391,7 +393,7 @@ fn main() {
 }
 `,
 			atomic: map[string]rootWant{
-				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: ScopeWorkgroup}, // w_u32
+				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: uint32(spvenums.ScopeWorkgroup)}, // w_u32
 			},
 			plainStores: map[string]int{"binding0": 1},
 		},
@@ -414,9 +416,9 @@ fn main() {
 }
 `,
 			atomic: map[string]rootWant{
-				"binding0":   {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice},                 // s_u64
-				"binding1":   {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice},                 // s_i64
-				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: ScopeWorkgroup}, // w_u64
+				"binding0":   {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)},                 // s_u64
+				"binding1":   {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)},                 // s_i64
+				"workgroup0": {atomicLoads: 1, atomicStores: 1, zeroInit: 1, scope: uint32(spvenums.ScopeWorkgroup)}, // w_u64
 			},
 			plainStores: map[string]int{"binding2": 3},
 		},
@@ -433,7 +435,7 @@ fn main() {
 }
 `,
 			atomic: map[string]rootWant{
-				"binding0": {atomicLoads: 1, atomicStores: 1, scope: ScopeDevice}, // s_f32
+				"binding0": {atomicLoads: 1, atomicStores: 1, scope: uint32(spvenums.ScopeDevice)}, // s_f32
 			},
 			plainStores: map[string]int{"binding1": 1},
 		},
@@ -516,10 +518,10 @@ fn main() {` + expand("s_u32", "1u") + expand("s_struct.a", "1i") +
 				expand("w_i32", "1i") + expand("w_arr[1]", "1u") + `}
 `,
 			roots: map[string]uint32{
-				"binding0":   ScopeDevice,    // s_u32
-				"binding1":   ScopeDevice,    // s_struct
-				"workgroup0": ScopeWorkgroup, // w_i32
-				"workgroup1": ScopeWorkgroup, // w_arr
+				"binding0":   uint32(spvenums.ScopeDevice),    // s_u32
+				"binding1":   uint32(spvenums.ScopeDevice),    // s_struct
+				"workgroup0": uint32(spvenums.ScopeWorkgroup), // w_i32
+				"workgroup1": uint32(spvenums.ScopeWorkgroup), // w_arr
 			},
 		},
 		{
@@ -532,8 +534,8 @@ var<workgroup> w_i64: atomic<i64>;
 fn main() {` + expand("s_u64", "1lu") + expand("w_i64", "1li") + `}
 `,
 			roots: map[string]uint32{
-				"binding0":   ScopeDevice,    // s_u64
-				"workgroup0": ScopeWorkgroup, // w_i64
+				"binding0":   uint32(spvenums.ScopeDevice),    // s_u64
+				"workgroup0": uint32(spvenums.ScopeWorkgroup), // w_i64
 			},
 		},
 	}

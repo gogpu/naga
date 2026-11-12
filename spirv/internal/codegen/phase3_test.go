@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // =============================================================================
@@ -50,7 +51,7 @@ func TestForceLoopBounding(t *testing.T) {
 			t.Fatalf("compile: %v", err)
 		}
 		// Force loop bounding creates vec2<u32> type + ISub + IEqual + All
-		if !divmodHasOpcode(spvBytes, OpAll) {
+		if !divmodHasOpcode(spvBytes, spvenums.OpAll) {
 			t.Error("ForceLoopBounding should emit OpAll for vec2<bool> reduction")
 		}
 	})
@@ -63,8 +64,8 @@ func TestForceLoopBounding(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		// Without force bounding, no OpAll needed for loop counter
-		if divmodHasOpcode(spvBytes, OpAll) {
+		// Without force bounding, no spvenums.OpAll needed for loop counter
+		if divmodHasOpcode(spvBytes, spvenums.OpAll) {
 			t.Error("ForceLoopBounding=false should not emit OpAll for loop counter")
 		}
 	})
@@ -83,20 +84,20 @@ fn main() {
 }`
 	opts := DefaultOptions()
 	// Restrict capabilities to just Matrix — no DotProduct
-	opts.AllowedCapabilities = map[Capability]struct{}{
-		CapabilityShader: {},
-		CapabilityMatrix: {},
+	opts.AllowedCapabilities = map[spvenums.Capability]struct{}{
+		spvenums.CapabilityShader: {},
+		spvenums.CapabilityMatrix: {},
 	}
 
 	spvBytes := compileWGSLForCapabilityTestWithOpts(t, source, opts)
 	caps := extractCapabilities(spvBytes)
 
 	// Should NOT have DotProduct capabilities (polyfill used instead)
-	assertNoCapability(t, caps, CapabilityDotProduct)
-	assertNoCapability(t, caps, CapabilityDotProductInput4x8BitPacked)
+	assertNoCapability(t, caps, spvenums.CapabilityDotProduct)
+	assertNoCapability(t, caps, spvenums.CapabilityDotProductInput4x8BitPacked)
 
-	// Should have OpBitFieldUExtract (part of polyfill)
-	if !divmodHasOpcode(spvBytes, OpBitFieldUExtract) {
+	// Should have spvenums.OpBitFieldUExtract (part of polyfill)
+	if !divmodHasOpcode(spvBytes, spvenums.OpBitFieldUExtract) {
 		t.Error("dot4 polyfill should use OpBitFieldUExtract")
 	}
 }
@@ -117,6 +118,6 @@ fn main() {
 	caps := extractCapabilities(spvBytes)
 
 	// Should have DotProduct capabilities (native path)
-	assertCapability(t, caps, CapabilityDotProduct)
-	assertCapability(t, caps, CapabilityDotProductInput4x8BitPacked)
+	assertCapability(t, caps, spvenums.CapabilityDotProduct)
+	assertCapability(t, caps, spvenums.CapabilityDotProductInput4x8BitPacked)
 }

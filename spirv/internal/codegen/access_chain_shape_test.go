@@ -2,15 +2,17 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // spvChainShape describes how the pointers that loads, stores and atomics
 // dereference were built.
 type spvChainShape struct {
 	// derefs is the number of loads, stores and atomic operations whose
-	// pointer is the result of an OpAccessChain.
+	// pointer is the result of an spvenums.OpAccessChain.
 	derefs int
-	// nested counts those whose OpAccessChain is based on another
+	// nested counts those whose spvenums.OpAccessChain is based on another
 	// OpAccessChain that is not a wrapper of a global (an access chain on a
 	// variable whose only index is the constant 0).
 	nested int
@@ -23,15 +25,15 @@ func spvAccessChainShape(t *testing.T, spv []byte) spvChainShape {
 	instrs := decodeSPIRVInstructions(spv)
 
 	chains := map[uint32][]uint32{} // result id -> [base, indices...]
-	variables := map[uint32]bool{}  // OpVariable and OpFunctionParameter results
+	variables := map[uint32]bool{}  // OpVariable and spvenums.OpFunctionParameter results
 	zero := map[uint32]bool{}       // integer constants with value 0
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			chains[in.words[2]] = in.words[3:]
-		case OpVariable, OpFunctionParameter:
+		case spvenums.OpVariable, spvenums.OpFunctionParameter:
 			variables[in.words[2]] = true
-		case OpConstant:
+		case spvenums.OpConstant:
 			if len(in.words) == 4 && in.words[3] == 0 {
 				zero[in.words[2]] = true
 			}
@@ -55,12 +57,12 @@ func spvAccessChainShape(t *testing.T, spv []byte) spvChainShape {
 	}
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpLoad, OpAtomicLoad, OpAtomicExchange, OpAtomicCompareExch, OpAtomicFAddEXT,
-			OpAtomicIIncrement, OpAtomicIDecrement, OpAtomicIAdd, OpAtomicISub,
-			OpAtomicSMin, OpAtomicUMin, OpAtomicSMax, OpAtomicUMax,
-			OpAtomicAnd, OpAtomicOr, OpAtomicXor:
+		case spvenums.OpLoad, spvenums.OpAtomicLoad, spvenums.OpAtomicExchange, spvenums.OpAtomicCompareExchange, spvenums.OpAtomicFAddEXT,
+			spvenums.OpAtomicIIncrement, spvenums.OpAtomicIDecrement, spvenums.OpAtomicIAdd, spvenums.OpAtomicISub,
+			spvenums.OpAtomicSMin, spvenums.OpAtomicUMin, spvenums.OpAtomicSMax, spvenums.OpAtomicUMax,
+			spvenums.OpAtomicAnd, spvenums.OpAtomicOr, spvenums.OpAtomicXor:
 			check(in.words[3])
-		case OpStore, OpAtomicStore:
+		case spvenums.OpStore, spvenums.OpAtomicStore:
 			check(in.words[1])
 		}
 	}
@@ -68,11 +70,11 @@ func spvAccessChainShape(t *testing.T, spv []byte) spvChainShape {
 }
 
 // TestAccessChainIsOneInstructionPerDereference: Rust naga's SPIR-V writer
-// builds the pointer a load, store or atomic dereferences as ONE OpAccessChain
+// builds the pointer a load, store or atomic dereferences as ONE spvenums.OpAccessChain
 // from the root variable, with every index of the Access/AccessIndex chain
 // (back/spv/block.rs write_access_chain). The access chain is then a single
 // instruction that a bounds check can place inside its in-bounds branch.
-// Building one OpAccessChain per link, each on top of the previous one,
+// Building one spvenums.OpAccessChain per link, each on top of the previous one,
 // produces equivalent pointers but more instructions and pointer types.
 func TestAccessChainIsOneInstructionPerDereference(t *testing.T) {
 	tests := []struct {

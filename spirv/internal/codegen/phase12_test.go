@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // =============================================================================
@@ -28,7 +29,7 @@ func compileModule(t *testing.T, module *ir.Module) []byte {
 }
 
 // =============================================================================
-// Helper: extract OpEntryPoint instructions from SPIR-V binary
+// Helper: extract spvenums.OpEntryPoint instructions from SPIR-V binary
 // =============================================================================
 
 type entryPointInfo struct {
@@ -54,7 +55,7 @@ func extractEntryPointsInfo(spvBytes []byte) []entryPointInfo {
 			break
 		}
 
-		if opcode == uint32(OpEntryPoint) && wordCount >= 4 {
+		if opcode == uint32(spvenums.OpEntryPoint) && wordCount >= 4 {
 			ep := entryPointInfo{
 				ExecutionModel: binary.LittleEndian.Uint32(spvBytes[offset+4:]),
 				FuncID:         binary.LittleEndian.Uint32(spvBytes[offset+8:]),
@@ -87,7 +88,7 @@ func extractEntryPointsInfo(spvBytes []byte) []entryPointInfo {
 }
 
 // =============================================================================
-// Helper: extract OpDecorate and OpVariable instructions
+// Helper: extract spvenums.OpDecorate and spvenums.OpVariable instructions
 // =============================================================================
 
 type decorationEntry struct {
@@ -112,7 +113,7 @@ func extractAllDecorations(spvBytes []byte) []decorationEntry {
 			break
 		}
 
-		if opcode == uint32(OpDecorate) && wordCount >= 3 {
+		if opcode == uint32(spvenums.OpDecorate) && wordCount >= 3 {
 			dec := decorationEntry{
 				TargetID:   binary.LittleEndian.Uint32(spvBytes[offset+4:]),
 				Decoration: binary.LittleEndian.Uint32(spvBytes[offset+8:]),
@@ -150,7 +151,7 @@ func extractAllVariables(spvBytes []byte) []variableEntry {
 			break
 		}
 
-		if opcode == uint32(OpVariable) && wordCount >= 4 {
+		if opcode == uint32(spvenums.OpVariable) && wordCount >= 4 {
 			v := variableEntry{
 				ResultTypeID: binary.LittleEndian.Uint32(spvBytes[offset+4:]),
 				ResultID:     binary.LittleEndian.Uint32(spvBytes[offset+8:]),
@@ -165,7 +166,7 @@ func extractAllVariables(spvBytes []byte) []variableEntry {
 }
 
 // hasOpcode scans SPIR-V binary for presence of a given opcode.
-func hasOpcode(spvBytes []byte, op OpCode) bool {
+func hasOpcode(spvBytes []byte, op spvenums.Op) bool {
 	if len(spvBytes) < 20 {
 		return false
 	}
@@ -185,11 +186,11 @@ func hasOpcode(spvBytes []byte, op OpCode) bool {
 	return false
 }
 
-// findBuiltInDecorations returns target ID -> BuiltIn value for all BuiltIn decorations.
+// findBuiltInDecorations returns target ID -> spvenums.BuiltIn value for all spvenums.BuiltIn decorations.
 func findBuiltInDecorations(spvBytes []byte) map[uint32]uint32 {
 	result := make(map[uint32]uint32)
 	for _, dec := range extractAllDecorations(spvBytes) {
-		if Decoration(dec.Decoration) == DecorationBuiltIn && len(dec.Operands) > 0 {
+		if spvenums.Decoration(dec.Decoration) == spvenums.DecorationBuiltIn && len(dec.Operands) > 0 {
 			result[dec.TargetID] = dec.Operands[0]
 		}
 	}
@@ -214,11 +215,11 @@ func makeBuiltinBinding(builtin ir.BuiltinValue) *ir.Binding {
 }
 
 // =============================================================================
-// SECTION 1: Capability detection tests
+// SECTION 1: spvenums.Capability detection tests
 // =============================================================================
 
 // TestCapability_BuiltinClipDistance verifies that using BuiltinClipDistances
-// in a struct member triggers CapabilityClipDistance.
+// in a struct member triggers spvenums.CapabilityClipDistance.
 func TestCapability_BuiltinClipDistance(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -267,10 +268,10 @@ func TestCapability_BuiltinClipDistance(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityClipDistance)
+	assertCapability(t, caps, spvenums.CapabilityClipDistance)
 }
 
-// TestCapability_BuiltinPrimitiveIndex verifies CapabilityGeometry is triggered.
+// TestCapability_BuiltinPrimitiveIndex verifies spvenums.CapabilityGeometry is triggered.
 func TestCapability_BuiltinPrimitiveIndex(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -310,10 +311,10 @@ func TestCapability_BuiltinPrimitiveIndex(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityGeometry)
+	assertCapability(t, caps, spvenums.CapabilityGeometry)
 }
 
-// TestCapability_SubgroupBuiltins verifies CapabilityGroupNonUniform is triggered
+// TestCapability_SubgroupBuiltins verifies spvenums.CapabilityGroupNonUniform is triggered
 // by subgroup-related builtins.
 func TestCapability_SubgroupBuiltins(t *testing.T) {
 	tests := []struct {
@@ -361,7 +362,7 @@ func TestCapability_SubgroupBuiltins(t *testing.T) {
 				t.Fatal(err)
 			}
 			caps := extractCapabilities(spvBytes)
-			assertCapability(t, caps, CapabilityGroupNonUniform)
+			assertCapability(t, caps, spvenums.CapabilityGroupNonUniform)
 
 			// Below SPIR-V 1.3 the backend refuses them instead of raising
 			// the version the caller asked for.
@@ -394,9 +395,9 @@ func TestCapability_Float16_StorageBuffer16Bit(t *testing.T) {
 	spvBytes := compileModule(t, module)
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityFloat16)
-	assertCapability(t, caps, CapabilityStorageBuffer16BitAccess)
-	assertCapability(t, caps, CapabilityUniformAndStorageBuffer16BitAccess)
+	assertCapability(t, caps, spvenums.CapabilityFloat16)
+	assertCapability(t, caps, spvenums.CapabilityStorageBuffer16BitAccess)
+	assertCapability(t, caps, spvenums.CapabilityUniformAndStorageBuffer16BitAccess)
 }
 
 // TestCapability_Float16_StorageInputOutput16 verifies that when
@@ -417,7 +418,7 @@ func TestCapability_Float16_StorageInputOutput16(t *testing.T) {
 		opts.UseStorageInputOutput16 = true
 		spvBytes := compileModuleWithOptions(t, module, opts)
 		caps := extractCapabilities(spvBytes)
-		assertCapability(t, caps, CapabilityStorageInputOutput16)
+		assertCapability(t, caps, spvenums.CapabilityStorageInputOutput16)
 	})
 
 	t.Run("disabled", func(t *testing.T) {
@@ -425,7 +426,7 @@ func TestCapability_Float16_StorageInputOutput16(t *testing.T) {
 		opts.UseStorageInputOutput16 = false
 		spvBytes := compileModuleWithOptions(t, module, opts)
 		caps := extractCapabilities(spvBytes)
-		assertNoCapability(t, caps, CapabilityStorageInputOutput16)
+		assertNoCapability(t, caps, spvenums.CapabilityStorageInputOutput16)
 	})
 }
 
@@ -444,7 +445,7 @@ func TestCapability_AtomicFloat32(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityAtomicFloat32AddEXT)
+	assertCapability(t, caps, spvenums.CapabilityAtomicFloat32AddEXT)
 
 	exts := extractExtensions(spvBytes)
 	found := false
@@ -500,16 +501,16 @@ func TestCapability_StorageImageExtendedFormats(t *testing.T) {
 			caps := extractCapabilities(spvBytes)
 
 			if tt.extended {
-				assertCapability(t, caps, CapabilityStorageImageExtendedFormats)
+				assertCapability(t, caps, spvenums.CapabilityStorageImageExtendedFormats)
 			} else {
-				assertNoCapability(t, caps, CapabilityStorageImageExtendedFormats)
+				assertNoCapability(t, caps, spvenums.CapabilityStorageImageExtendedFormats)
 			}
 		})
 	}
 }
 
 // TestCapability_Linkage verifies that modules with no entry points
-// get CapabilityLinkage.
+// get spvenums.CapabilityLinkage.
 func TestCapability_Linkage(t *testing.T) {
 	t.Run("no_entry_points", func(t *testing.T) {
 		module := &ir.Module{
@@ -521,7 +522,7 @@ func TestCapability_Linkage(t *testing.T) {
 		}
 		spvBytes := compileModule(t, module)
 		caps := extractCapabilities(spvBytes)
-		assertCapability(t, caps, CapabilityLinkage)
+		assertCapability(t, caps, spvenums.CapabilityLinkage)
 	})
 
 	t.Run("with_entry_point", func(t *testing.T) {
@@ -546,7 +547,7 @@ func TestCapability_Linkage(t *testing.T) {
 		}
 		spvBytes := compileModule(t, module)
 		caps := extractCapabilities(spvBytes)
-		assertNoCapability(t, caps, CapabilityLinkage)
+		assertNoCapability(t, caps, spvenums.CapabilityLinkage)
 	})
 }
 
@@ -555,7 +556,7 @@ func TestCapability_Linkage(t *testing.T) {
 // =============================================================================
 
 // TestEntryPointInterface_SPIRV14_IncludesGlobals verifies that with SPIR-V 1.4+,
-// all used global variables (Uniform, StorageBuffer, etc.) appear in OpEntryPoint.
+// all used global variables (Uniform, StorageBuffer, etc.) appear in spvenums.OpEntryPoint.
 func TestEntryPointInterface_SPIRV14_IncludesGlobals(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -612,7 +613,7 @@ func TestEntryPointInterface_SPIRV14_IncludesGlobals(t *testing.T) {
 }
 
 // TestEntryPointInterface_SPIRV11_NoExtraGlobals verifies that with SPIR-V 1.1,
-// only Input/Output variables appear in OpEntryPoint (not Uniform/StorageBuffer).
+// only Input/Output variables appear in spvenums.OpEntryPoint (not Uniform/StorageBuffer).
 func TestEntryPointInterface_SPIRV11_NoExtraGlobals(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -671,7 +672,7 @@ func TestEntryPointInterface_SPIRV11_NoExtraGlobals(t *testing.T) {
 // =============================================================================
 
 // TestForcePointSize_VertexShader verifies that ForcePointSize=true adds
-// a BuiltIn PointSize Output variable to vertex shaders.
+// a spvenums.BuiltIn PointSize Output variable to vertex shaders.
 func TestForcePointSize_VertexShader(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -711,7 +712,7 @@ func TestForcePointSize_VertexShader(t *testing.T) {
 	foundPointSize := false
 	var pointSizeVarID uint32
 	for varID, builtinVal := range builtinDecs {
-		if BuiltIn(builtinVal) == BuiltInPointSize {
+		if spvenums.BuiltIn(builtinVal) == spvenums.BuiltInPointSize {
 			foundPointSize = true
 			pointSizeVarID = varID
 			break
@@ -726,8 +727,8 @@ func TestForcePointSize_VertexShader(t *testing.T) {
 	foundOutputVar := false
 	for _, v := range vars {
 		if v.ResultID == pointSizeVarID {
-			if StorageClass(v.StorageClass) != StorageClassOutput {
-				t.Errorf("PointSize variable storage class: got %d, want %d (Output)", v.StorageClass, StorageClassOutput)
+			if spvenums.StorageClass(v.StorageClass) != spvenums.StorageClassOutput {
+				t.Errorf("PointSize variable storage class: got %d, want %d (Output)", v.StorageClass, spvenums.StorageClassOutput)
 			}
 			foundOutputVar = true
 			break
@@ -737,7 +738,7 @@ func TestForcePointSize_VertexShader(t *testing.T) {
 		t.Errorf("PointSize variable ID %d not found in OpVariable instructions", pointSizeVarID)
 	}
 
-	// Verify PointSize variable appears in OpEntryPoint interface
+	// Verify PointSize variable appears in spvenums.OpEntryPoint interface
 	eps := extractEntryPointsInfo(spvBytes)
 	if len(eps) != 1 {
 		t.Fatalf("expected 1 entry point, got %d", len(eps))
@@ -792,7 +793,7 @@ func TestForcePointSize_FragmentShader(t *testing.T) {
 
 	builtinDecs := findBuiltInDecorations(spvBytes)
 	for _, builtinVal := range builtinDecs {
-		if BuiltIn(builtinVal) == BuiltInPointSize {
+		if spvenums.BuiltIn(builtinVal) == spvenums.BuiltInPointSize {
 			t.Errorf("ForcePointSize=true: fragment shader should NOT have PointSize")
 		}
 	}
@@ -836,7 +837,7 @@ func TestForcePointSize_Disabled(t *testing.T) {
 
 	builtinDecs := findBuiltInDecorations(spvBytes)
 	for _, builtinVal := range builtinDecs {
-		if BuiltIn(builtinVal) == BuiltInPointSize {
+		if spvenums.BuiltIn(builtinVal) == spvenums.BuiltInPointSize {
 			t.Errorf("ForcePointSize=false: should NOT have PointSize")
 		}
 	}
@@ -890,14 +891,14 @@ func TestForcePointSize_NoDuplicate_StructMember(t *testing.T) {
 	opts.ForcePointSize = true
 	spvBytes := compileModuleWithOptions(t, module, opts)
 
-	// Count PointSize BuiltIn decorations (both OpDecorate and the fact
+	// Count PointSize spvenums.BuiltIn decorations (both spvenums.OpDecorate and the fact
 	// that no EXTRA force_point_size variable was created).
 	// The struct member PointSize is detected by hasPointSize check,
 	// so the backend should NOT create an additional Output variable.
 	builtinDecs := findBuiltInDecorations(spvBytes)
 	forcePointSizeCount := 0
 	for _, builtinVal := range builtinDecs {
-		if BuiltIn(builtinVal) == BuiltInPointSize {
+		if spvenums.BuiltIn(builtinVal) == spvenums.BuiltInPointSize {
 			forcePointSizeCount++
 		}
 	}
@@ -947,11 +948,11 @@ func TestWorkgroupInit_ComputeWithWorkgroupVar(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	if !hasOpcode(spvBytes, OpControlBarrier) {
+	if !hasOpcode(spvBytes, spvenums.OpControlBarrier) {
 		t.Errorf("expected OpControlBarrier in compute shader with workgroup variable")
 	}
 
-	if !hasOpcode(spvBytes, OpStore) {
+	if !hasOpcode(spvBytes, spvenums.OpStore) {
 		t.Errorf("expected OpStore for zero-initialization of workgroup variable")
 	}
 
@@ -959,7 +960,7 @@ func TestWorkgroupInit_ComputeWithWorkgroupVar(t *testing.T) {
 	foundLocalInvocID := false
 	var localInvocVarID uint32
 	for varID, builtinVal := range builtinDecs {
-		if BuiltIn(builtinVal) == BuiltInLocalInvocationID {
+		if spvenums.BuiltIn(builtinVal) == spvenums.BuiltInLocalInvocationId {
 			foundLocalInvocID = true
 			localInvocVarID = varID
 			break
@@ -972,8 +973,8 @@ func TestWorkgroupInit_ComputeWithWorkgroupVar(t *testing.T) {
 	vars := extractAllVariables(spvBytes)
 	for _, v := range vars {
 		if v.ResultID == localInvocVarID {
-			if StorageClass(v.StorageClass) != StorageClassInput {
-				t.Errorf("LocalInvocationId storage class: got %d, want %d (Input)", v.StorageClass, StorageClassInput)
+			if spvenums.StorageClass(v.StorageClass) != spvenums.StorageClassInput {
+				t.Errorf("LocalInvocationId storage class: got %d, want %d (Input)", v.StorageClass, spvenums.StorageClassInput)
 			}
 			break
 		}
@@ -1022,7 +1023,7 @@ func TestWorkgroupInit_ComputeWithoutWorkgroupVar(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	if hasOpcode(spvBytes, OpControlBarrier) {
+	if hasOpcode(spvBytes, spvenums.OpControlBarrier) {
 		t.Errorf("compute shader without workgroup variables should not have OpControlBarrier")
 	}
 }
@@ -1061,7 +1062,7 @@ func TestWorkgroupInit_VertexShader(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	if hasOpcode(spvBytes, OpControlBarrier) {
+	if hasOpcode(spvBytes, spvenums.OpControlBarrier) {
 		t.Errorf("vertex shader should not have OpControlBarrier")
 	}
 }
@@ -1265,7 +1266,7 @@ fn main(fin: FragIn) -> @location(0) vec4<f32> {
 
 	// 1. Check ShaderNonUniform capability is present
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityShaderNonUniform)
+	assertCapability(t, caps, spvenums.CapabilityShaderNonUniform)
 
 	// 2. Check SPV_EXT_descriptor_indexing extension is present
 	exts := extractExtensions(spvBytes)
@@ -1284,12 +1285,12 @@ fn main(fin: FragIn) -> @location(0) vec4<f32> {
 	decorations := extractAllDecorations(spvBytes)
 	nonUniformCount := 0
 	for _, d := range decorations {
-		if d.Decoration == uint32(DecorationNonUniform) {
+		if d.Decoration == uint32(spvenums.DecorationNonUniform) {
 			nonUniformCount++
 		}
 	}
 	// At minimum, we expect 2 NonUniform decorations for the binding array access:
-	// one for OpAccessChain result, one for OpLoad result
+	// one for spvenums.OpAccessChain result, one for spvenums.OpLoad result
 	if nonUniformCount < 2 {
 		t.Errorf("expected at least 2 NonUniform decorations, got %d", nonUniformCount)
 	}
@@ -1319,13 +1320,13 @@ fn main() -> @location(0) vec4<f32> {
 
 	// Uniform buffer index should NOT trigger NonUniform decorations
 	caps := extractCapabilities(spvBytes)
-	if caps[uint32(CapabilityShaderNonUniform)] {
+	if caps[uint32(spvenums.CapabilityShaderNonUniform)] {
 		t.Errorf("ShaderNonUniform capability should NOT be present for uniform index access")
 	}
 
 	decorations := extractAllDecorations(spvBytes)
 	for _, d := range decorations {
-		if d.Decoration == uint32(DecorationNonUniform) {
+		if d.Decoration == uint32(spvenums.DecorationNonUniform) {
 			t.Errorf("NonUniform decoration should NOT be present for uniform index access")
 			break
 		}

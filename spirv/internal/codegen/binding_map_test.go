@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -21,12 +22,12 @@ func compileWGSLWithOpts(t *testing.T, source string, opts Options) ([]byte, err
 	return NewBackend(opts).Compile(module)
 }
 
-// decorations returns the literal of every OpDecorate with the given
+// decorations returns the literal of every spvenums.OpDecorate with the given
 // decoration, keyed by target id.
-func (v *spvView) decorations(d Decoration) map[uint32]uint32 {
+func (v *spvView) decorations(d spvenums.Decoration) map[uint32]uint32 {
 	out := map[uint32]uint32{}
 	for _, in := range v.instrs {
-		if in.opcode == OpDecorate && len(in.words) == 4 && Decoration(in.words[2]) == d {
+		if in.opcode == spvenums.OpDecorate && len(in.words) == 4 && spvenums.Decoration(in.words[2]) == d {
 			out[in.words[1]] = in.words[3]
 		}
 	}
@@ -37,7 +38,7 @@ func (v *spvView) decorations(d Decoration) map[uint32]uint32 {
 func (v *spvView) typeDef(id uint32) (spirvInstruction, bool) {
 	for _, in := range v.instrs {
 		switch in.opcode {
-		case OpTypeArray, OpTypeRuntimeArray, OpTypePointer, OpTypeStruct:
+		case spvenums.OpTypeArray, spvenums.OpTypeRuntimeArray, spvenums.OpTypePointer, spvenums.OpTypeStruct:
 			if len(in.words) > 1 && in.words[1] == id {
 				return in, true
 			}
@@ -46,12 +47,12 @@ func (v *spvView) typeDef(id uint32) (spirvInstruction, bool) {
 	return spirvInstruction{}, false
 }
 
-// boundVariable returns the OpVariable decorated with (set, binding).
+// boundVariable returns the spvenums.OpVariable decorated with (set, binding).
 func (v *spvView) boundVariable(t *testing.T, set, binding uint32) spirvInstruction {
 	t.Helper()
-	sets := v.decorations(DecorationDescriptorSet)
-	bindings := v.decorations(DecorationBinding)
-	for _, in := range v.all(OpVariable, 0) {
+	sets := v.decorations(spvenums.DecorationDescriptorSet)
+	bindings := v.decorations(spvenums.DecorationBinding)
+	for _, in := range v.all(spvenums.OpVariable, 0) {
 		id := in.words[2]
 		if s, ok := sets[id]; ok && s == set && bindings[id] == binding {
 			return in
@@ -66,7 +67,7 @@ func (v *spvView) boundVariable(t *testing.T, set, binding uint32) spirvInstruct
 func (v *spvView) variableArrayLength(t *testing.T, variable spirvInstruction) (length uint32, sized bool) {
 	t.Helper()
 	ptr, ok := v.typeDef(variable.words[1])
-	if !ok || ptr.opcode != OpTypePointer {
+	if !ok || ptr.opcode != spvenums.OpTypePointer {
 		t.Fatalf("variable type %d is not an OpTypePointer", variable.words[1])
 	}
 	arr, ok := v.typeDef(ptr.words[3])
@@ -74,13 +75,13 @@ func (v *spvView) variableArrayLength(t *testing.T, variable spirvInstruction) (
 		t.Fatalf("pointee type %d not found", ptr.words[3])
 	}
 	switch arr.opcode {
-	case OpTypeArray:
+	case spvenums.OpTypeArray:
 		n, ok := v.consts[arr.words[3]]
 		if !ok {
 			t.Fatalf("array length %d is not an OpConstant", arr.words[3])
 		}
 		return n, true
-	case OpTypeRuntimeArray:
+	case spvenums.OpTypeRuntimeArray:
 		return 0, false
 	}
 	t.Fatalf("pointee type is opcode %d, want OpTypeArray or OpTypeRuntimeArray", arr.opcode)
@@ -110,7 +111,7 @@ func TestBindingMapRemapsDescriptorSetAndBinding(t *testing.T) {
 	validateWithVulkanSDK(t, spv)
 	v := newSPVView(t, spv)
 	v.boundVariable(t, 2, 5)
-	if sets := v.decorations(DecorationDescriptorSet); len(sets) != 1 {
+	if sets := v.decorations(spvenums.DecorationDescriptorSet); len(sets) != 1 {
 		t.Errorf("DescriptorSet decorations = %d, want 1 (the remapped one only)", len(sets))
 	}
 }
@@ -232,7 +233,7 @@ func TestBindingMapUnboundedBindingArrayBoundsCheck(t *testing.T) {
 		}
 		validateWithVulkanSDK(t, spv)
 		v := newSPVView(t, spv)
-		umins := v.all(OpExtInst, GLSLstd450UMin)
+		umins := v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))
 		if len(umins) != 1 {
 			t.Fatalf("UMin count = %d, want 1 (the binding-array index)", len(umins))
 		}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -87,7 +88,7 @@ func TestFrexpStructTypeDirectVector(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestSplatScalarViaBinaryOp exercises splatScalar via an integer
-// vector * scalar operation that requires OpCompositeConstruct splat.
+// vector * scalar operation that requires spvenums.OpCompositeConstruct splat.
 func TestSplatScalarViaBinaryOp(t *testing.T) {
 	source := `
 @fragment
@@ -100,8 +101,8 @@ fn main(@location(0) @interpolate(flat) v: vec3<u32>) -> @location(0) vec4<f32> 
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Scalar*vec requires splat: OpCompositeConstruct
-	if !hasOpcodeInInstrs(instrs, OpCompositeConstruct) {
+	// Scalar*vec requires splat: spvenums.OpCompositeConstruct
+	if !hasOpcodeInInstrs(instrs, spvenums.OpCompositeConstruct) {
 		t.Error("expected OpCompositeConstruct for scalar-to-vector splat")
 	}
 }
@@ -129,7 +130,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	if !hasOpcodeInInstrs(instrs, OpSelect) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpSelect) {
 		t.Error("expected OpSelect for select() with vec condition")
 	}
 }
@@ -206,7 +207,7 @@ fn main(@location(0) @interpolate(flat) v: u32) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpBitcast) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpBitcast) {
 		t.Error("expected OpBitcast for bitcast<f32>(u32)")
 	}
 }
@@ -230,7 +231,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 	// Should use GLSLstd450 Modf
-	if !hasOpcodeInInstrs(instrs, OpExtInst) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpExtInst) {
 		t.Error("expected OpExtInst for modf")
 	}
 }
@@ -265,7 +266,7 @@ func exprHandle(h ir.ExpressionHandle) *ir.ExpressionHandle {
 func TestSpillCompositeFieldAccessWithIndexChain(t *testing.T) {
 	// Build a module with a function that returns a struct, and the entry point
 	// accesses individual fields via AccessIndex. This triggers the spill path
-	// because the function call result is not a pointer but needs OpAccessChain.
+	// because the function call result is not a pointer but needs spvenums.OpAccessChain.
 	f32Handle := ir.TypeHandle(0)
 	structHandle := ir.TypeHandle(1)
 
@@ -353,13 +354,13 @@ func TestSpillCompositeFieldAccessWithIndexChain(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	if !hasOpcodeInInstrs(instrs, OpFunctionCall) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpFunctionCall) {
 		t.Error("expected OpFunctionCall")
 	}
 	// The result of FunctionCall with field access typically uses
 	// CompositeExtract or AccessChain (spill path)
-	hasExtract := hasOpcodeInInstrs(instrs, OpCompositeExtract)
-	hasAccessChain := hasOpcodeInInstrs(instrs, OpAccessChain)
+	hasExtract := hasOpcodeInInstrs(instrs, spvenums.OpCompositeExtract)
+	hasAccessChain := hasOpcodeInInstrs(instrs, spvenums.OpAccessChain)
 	if !hasExtract && !hasAccessChain {
 		t.Error("expected OpCompositeExtract or OpAccessChain for struct field access on call result")
 	}
@@ -384,7 +385,7 @@ fn main() {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpAtomicExchange) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicExchange) {
 		t.Error("expected OpAtomicExchange")
 	}
 }
@@ -408,7 +409,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	callCount := countOpcodeInInstrs(instrs, OpFunctionCall)
+	callCount := countOpcodeInInstrs(instrs, spvenums.OpFunctionCall)
 	if callCount < 3 {
 		t.Errorf("expected at least 3 OpFunctionCall, got %d", callCount)
 	}
@@ -449,7 +450,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	if !hasOpcodeInInstrs(instrs, OpAccessChain) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAccessChain) {
 		t.Error("expected OpAccessChain for runtime array access")
 	}
 }
@@ -495,7 +496,7 @@ fn main() -> @location(0) vec4<f32> {
 	instrs := decodeSPIRVInstructions(spv)
 
 	// Uniform buffers require Block decoration
-	if !hasOpcodeInInstrs(instrs, OpDecorate) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpDecorate) {
 		t.Error("expected OpDecorate for uniform buffer layout")
 	}
 }
@@ -519,9 +520,9 @@ fn main(@location(0) pos: vec4<f32>) -> @builtin(position) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Matrix multiply uses OpMatrixTimesMatrix or OpMatrixTimesVector
-	hasMMul := hasOpcodeInInstrs(instrs, OpMatrixTimesMatrix)
-	hasMVMul := hasOpcodeInInstrs(instrs, OpMatrixTimesVector)
+	// Matrix multiply uses spvenums.OpMatrixTimesMatrix or spvenums.OpMatrixTimesVector
+	hasMMul := hasOpcodeInInstrs(instrs, spvenums.OpMatrixTimesMatrix)
+	hasMVMul := hasOpcodeInInstrs(instrs, spvenums.OpMatrixTimesVector)
 	if !hasMMul && !hasMVMul {
 		t.Error("expected OpMatrixTimesMatrix or OpMatrixTimesVector")
 	}

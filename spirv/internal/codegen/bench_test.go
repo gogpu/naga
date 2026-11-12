@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -178,7 +179,7 @@ func BenchmarkSPIRVEmitReuse(b *testing.B) {
 }
 
 // BenchmarkSPIRVEmitWithDebug benchmarks SPIR-V code generation with debug
-// info (OpName instructions) to measure the overhead of debug output.
+// info (spvenums.OpName instructions) to measure the overhead of debug output.
 func BenchmarkSPIRVEmitWithDebug(b *testing.B) {
 	for _, bc := range spirvBenchShaders {
 		b.Run(bc.name, func(b *testing.B) {
@@ -217,10 +218,10 @@ func BenchmarkModuleBuilderBuild(b *testing.B) {
 	setupBuilder := func() *ModuleBuilder {
 		mb := NewModuleBuilder(Version1_3)
 
-		mb.AddCapability(CapabilityShader)
+		mb.AddCapability(spvenums.CapabilityShader)
 		glslExt := mb.AddExtInstImport("GLSL.std.450")
 		_ = glslExt
-		mb.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+		mb.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 		// Types
 		voidTy := mb.AddTypeVoid()
@@ -234,13 +235,13 @@ func BenchmarkModuleBuilderBuild(b *testing.B) {
 		_ = mb.AddConstantComposite(vec4Ty, c0, c0, c0, c1)
 
 		// Function
-		_ = mb.AddFunction(funcTy, voidTy, FunctionControlNone)
+		_ = mb.AddFunction(funcTy, voidTy, spvenums.FunctionControlNone)
 		_ = mb.AddLabel()
 		mb.AddReturn()
 		mb.AddFunctionEnd()
 
 		// Entry point
-		mb.AddEntryPoint(ExecutionModelVertex, 0, "main", nil)
+		mb.AddEntryPoint(spvenums.ExecutionModelVertex, 0, "main", nil)
 
 		return mb
 	}
@@ -267,14 +268,14 @@ func BenchmarkInstructionBuild(b *testing.B) {
 		ib.AddWord(2) // result id
 		ib.AddWord(3) // operand 1
 		ib.AddWord(4) // operand 2
-		inst := ib.Build(OpFAdd)
+		inst := ib.Build(spvenums.OpFAdd)
 		encoded := inst.Encode()
 		runtime.KeepAlive(encoded)
 	}
 }
 
 // BenchmarkInstructionBuildString benchmarks instruction building with
-// string operands (used in OpName, OpEntryPoint, etc.).
+// string operands (used in spvenums.OpName, spvenums.OpEntryPoint, etc.).
 func BenchmarkInstructionBuildString(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -283,7 +284,7 @@ func BenchmarkInstructionBuildString(b *testing.B) {
 		ib := NewInstructionBuilder()
 		ib.AddWord(42)
 		ib.AddString("vs_main_vertex_shader")
-		inst := ib.Build(OpName)
+		inst := ib.Build(spvenums.OpName)
 		encoded := inst.Encode()
 		runtime.KeepAlive(encoded)
 	}
@@ -306,9 +307,9 @@ func BenchmarkModuleBuilderTypes(b *testing.B) {
 		v3 := mb.AddTypeVector(f32, 3)
 		v4 := mb.AddTypeVector(f32, 4)
 		m4 := mb.AddTypeMatrix(v4, 4)
-		_ = mb.AddTypePointer(StorageClassFunction, f32)
-		_ = mb.AddTypePointer(StorageClassFunction, v4)
-		_ = mb.AddTypePointer(StorageClassUniform, m4)
+		_ = mb.AddTypePointer(spvenums.StorageClassFunction, f32)
+		_ = mb.AddTypePointer(spvenums.StorageClassFunction, v4)
+		_ = mb.AddTypePointer(spvenums.StorageClassUniform, m4)
 		_ = mb.AddTypeStruct(f32, f32, f32)
 		_ = mb.AddTypeStruct(v4, v3, v2)
 		runtime.KeepAlive(i32)

@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestRayQueryHelperFunctionsGenerated verifies that ray query operations
@@ -31,27 +33,27 @@ fn main() {
 	caps := extractCapabilities(spvBytes)
 
 	// Must have RayQueryKHR capability
-	assertCapability(t, caps, CapabilityRayQueryKHR)
+	assertCapability(t, caps, spvenums.CapabilityRayQueryKHR)
 
-	// Should have multiple OpFunction (entry point + helpers)
+	// Should have multiple spvenums.OpFunction (entry point + helpers)
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount < 4 {
 		t.Errorf("expected at least 4 OpFunction (2 user + 2+ ray query helpers), got %d", funcCount)
 	}
 
-	// Should have OpFunctionCall (calling helper functions)
+	// Should have spvenums.OpFunctionCall (calling helper functions)
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) < 3 {
 		t.Errorf("expected at least 3 OpFunctionCall (init + proceed + getIntersection), got %d", len(calls))
 	}
 
-	// Should have OpRayQueryInitializeKHR (inside helper)
-	if !divmodHasOpcode(spvBytes, OpRayQueryInitializeKHR) {
+	// Should have spvenums.OpRayQueryInitializeKHR (inside helper)
+	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryInitializeKHR) {
 		t.Error("ray query should emit OpRayQueryInitializeKHR")
 	}
 
-	// Should have OpRayQueryProceedKHR (inside helper)
-	if !divmodHasOpcode(spvBytes, OpRayQueryProceedKHR) {
+	// Should have spvenums.OpRayQueryProceedKHR (inside helper)
+	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryProceedKHR) {
 		t.Error("ray query should emit OpRayQueryProceedKHR")
 	}
 }
@@ -72,7 +74,7 @@ fn main() {
 
 // resultsOf returns the result ids of every instruction with opcode op that
 // has a result type and a result id.
-func resultsOf(instrs []spirvInstruction, op OpCode) map[uint32]spirvInstruction {
+func resultsOf(instrs []spirvInstruction, op spvenums.Op) map[uint32]spirvInstruction {
 	out := map[uint32]spirvInstruction{}
 	for _, in := range instrs {
 		if in.opcode == op && len(in.words) > 2 {
@@ -89,11 +91,11 @@ func resultsOf(instrs []spirvInstruction, op OpCode) map[uint32]spirvInstruction
 // same bug in 55534165 (spv/ray/query.rs: branch_conditional(tri_comp_id)).
 func TestRayQueryIntersectionTriangleBranch(t *testing.T) {
 	instrs := decodeSPIRVInstructions(compileWGSLForCapabilityTestWithOpts(t, rayQueryIntersectionShader, DefaultOptions()))
-	triangle := resultsOf(instrs, OpIEqual)
-	notNone := resultsOf(instrs, OpINotEqual)
+	triangle := resultsOf(instrs, spvenums.OpIEqual)
+	notNone := resultsOf(instrs, spvenums.OpINotEqual)
 	byTriangle, byNotNone := 0, map[uint32]int{}
 	for _, in := range instrs {
-		if in.opcode != OpBranchConditional {
+		if in.opcode != spvenums.OpBranchConditional {
 			continue
 		}
 		cond := in.words[1]
@@ -120,15 +122,15 @@ func TestRayQueryIntersectionTriangleBranch(t *testing.T) {
 // branch on initialized && !finished, as Rust naga since 55534165.
 func TestRayQueryProceedSkippedAfterTraversal(t *testing.T) {
 	instrs := decodeSPIRVInstructions(compileWGSLForCapabilityTestWithOpts(t, rayQueryIntersectionShader, DefaultOptions()))
-	ands := resultsOf(instrs, OpLogicalAnd)
-	nots := resultsOf(instrs, OpLogicalNot)
+	ands := resultsOf(instrs, spvenums.OpLogicalAnd)
+	nots := resultsOf(instrs, spvenums.OpLogicalNot)
 	for i, in := range instrs {
-		if in.opcode != OpRayQueryProceedKHR {
+		if in.opcode != spvenums.OpRayQueryProceedKHR {
 			continue
 		}
 		var guard *spirvInstruction
 		for j := i - 1; j >= 0; j-- {
-			if instrs[j].opcode == OpBranchConditional {
+			if instrs[j].opcode == spvenums.OpBranchConditional {
 				guard = &instrs[j]
 				break
 			}
@@ -171,10 +173,10 @@ fn main() {
 	spvBytes := compileWGSLForCapabilityTestWithOpts(t, source, opts)
 
 	// Should still compile and have ray query opcodes
-	if !divmodHasOpcode(spvBytes, OpRayQueryInitializeKHR) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryInitializeKHR) {
 		t.Error("ray query without init tracking should still emit OpRayQueryInitializeKHR")
 	}
-	if !divmodHasOpcode(spvBytes, OpRayQueryProceedKHR) {
+	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryProceedKHR) {
 		t.Error("ray query without init tracking should still emit OpRayQueryProceedKHR")
 	}
 }

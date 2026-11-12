@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -67,15 +68,15 @@ func TestSpanFunctionCallSPIRV(t *testing.T) {
 	t.Log("============================================")
 	t.Log("\n" + disassembleSPIRV(spirvInline))
 
-	// Focused analysis: find OpFunctionCall and surrounding stores
+	// Focused analysis: find spvenums.OpFunctionCall and surrounding stores
 	t.Log("\n============================================")
 	t.Log("FOCUSED: Function calls and deferred stores")
 	t.Log("============================================")
 	analyzeSpanCalls(t, spirvFunc)
 }
 
-// analyzeSpanCalls finds and reports OpFunctionCall instructions and
-// surrounding OpStore/OpLoad instructions in the SPIR-V.
+// analyzeSpanCalls finds and reports spvenums.OpFunctionCall instructions and
+// surrounding spvenums.OpStore/spvenums.OpLoad instructions in the SPIR-V.
 func analyzeSpanCalls(t *testing.T, data []byte) {
 	t.Helper()
 
@@ -87,15 +88,15 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 	// Collect names
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
-	// Find OpFunction, OpFunctionCall, OpStore, OpLoad, OpVariable in the main function
+	// Find spvenums.OpFunction, spvenums.OpFunctionCall, spvenums.OpStore, spvenums.OpLoad, spvenums.OpVariable in the main function
 	inMain := false
 	for i, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			if name, ok := names[inst.words[2]]; ok && name == "main" {
 				inMain = true
 				t.Logf("\n--- Entering main() ---")
@@ -103,7 +104,7 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 				break // Exited main
 			}
 		}
-		if inst.opcode == OpFunctionEnd && inMain {
+		if inst.opcode == spvenums.OpFunctionEnd && inMain {
 			t.Logf("--- End main() ---")
 			inMain = false
 		}
@@ -114,25 +115,25 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 
 		// Log interesting instructions
 		switch inst.opcode {
-		case OpVariable:
+		case spvenums.OpVariable:
 			if inst.wordCount >= 4 {
 				t.Logf("[%d] OpVariable %%%d (type=%%%d, storage=%d) %s",
 					i, inst.words[2], inst.words[1], inst.words[3],
 					nameOrEmpty(inst.words[2], names))
 			}
-		case OpStore:
+		case spvenums.OpStore:
 			if inst.wordCount >= 3 {
 				t.Logf("[%d] OpStore %%%d <- %%%d   %s <- %s",
 					i, inst.words[1], inst.words[2],
 					nameOrEmpty(inst.words[1], names), nameOrEmpty(inst.words[2], names))
 			}
-		case OpLoad:
+		case spvenums.OpLoad:
 			if inst.wordCount >= 4 {
 				t.Logf("[%d] OpLoad %%%d = load(%%%d)  %s",
 					i, inst.words[3], inst.words[3],
 					nameOrEmpty(inst.words[3], names))
 			}
-		case OpFunctionCall:
+		case spvenums.OpFunctionCall:
 			if inst.wordCount >= 4 {
 				args := ""
 				for j := 4; j < inst.wordCount; j++ {
@@ -145,20 +146,20 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 					i, inst.words[2], inst.words[3], args,
 					nameOrEmpty(inst.words[3], names))
 			}
-		case OpLabel:
+		case spvenums.OpLabel:
 			t.Logf("[%d] OpLabel %%%d", i, inst.words[1])
-		case OpReturn, OpReturnValue:
+		case spvenums.OpReturn, spvenums.OpReturnValue:
 			t.Logf("[%d] OpReturn", i)
-		case OpBranch:
+		case spvenums.OpBranch:
 			t.Logf("[%d] OpBranch -> %%%d", i, inst.words[1])
-		case OpBranchConditional:
+		case spvenums.OpBranchConditional:
 			t.Logf("[%d] OpBranchConditional %%%d -> %%%d / %%%d",
 				i, inst.words[1], inst.words[2], inst.words[3])
-		case OpISub:
+		case spvenums.OpISub:
 			t.Logf("[%d] OpISub %%%d = %%%d - %%%d", i, inst.words[2], inst.words[3], inst.words[4])
-		case OpIAdd:
+		case spvenums.OpIAdd:
 			t.Logf("[%d] OpIAdd %%%d = %%%d + %%%d", i, inst.words[2], inst.words[3], inst.words[4])
-		case OpConvertFToU:
+		case spvenums.OpConvertFToU:
 			t.Logf("[%d] OpConvertFToU %%%d = u32(%%%d)", i, inst.words[2], inst.words[3])
 		}
 	}
@@ -167,13 +168,13 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 	t.Logf("\n--- span() function body ---")
 	inSpan := false
 	for i, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			if name, ok := names[inst.words[2]]; ok && name == "span" {
 				inSpan = true
 				t.Logf("[%d] OpFunction span %%%d", i, inst.words[2])
 			}
 		}
-		if inst.opcode == OpFunctionEnd && inSpan {
+		if inst.opcode == spvenums.OpFunctionEnd && inSpan {
 			t.Logf("[%d] OpFunctionEnd", i)
 			inSpan = false
 		}

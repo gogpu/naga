@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // Two-row and f16 matrices in uniform buffers.
@@ -87,7 +88,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 		}
 		id := b.builder.AddTypeStruct(members...)
 		for c := range members {
-			b.builder.AddMemberDecorate(id, uint32(c), DecorationOffset, uint32(c)*columnStride(t))
+			b.builder.AddMemberDecorate(id, uint32(c), spvenums.DecorationOffset, uint32(c)*columnStride(t))
 			if b.options.Debug {
 				b.builder.AddMemberName(id, uint32(c), fmt.Sprintf("col%d", c))
 			}
@@ -109,7 +110,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 			return err
 		}
 		id := b.builder.AddTypeArray(base.id, b.builder.AddConstant(u32TypeID, *t.Size.Constant))
-		b.builder.AddDecorate(id, DecorationArrayStride, t.Stride)
+		b.builder.AddDecorate(id, spvenums.DecorationArrayStride, t.Stride)
 		info = &std140Type{id: id}
 	case ir.StructType:
 		needed := false
@@ -153,13 +154,13 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 			index := info.memberIndices[i]
 			if mat, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				for c := range uint32(mat.Columns) {
-					b.builder.AddMemberDecorate(info.id, index+c, DecorationOffset, m.Offset+c*columnStride(mat))
+					b.builder.AddMemberDecorate(info.id, index+c, spvenums.DecorationOffset, m.Offset+c*columnStride(mat))
 					if b.options.Debug && m.Name != "" {
 						b.builder.AddMemberName(info.id, index+c, fmt.Sprintf("%s_col%d", m.Name, c))
 					}
 				}
 			} else if b.std140Types[m.Type] != nil {
-				b.builder.AddMemberDecorate(info.id, index, DecorationOffset, m.Offset)
+				b.builder.AddMemberDecorate(info.id, index, spvenums.DecorationOffset, m.Offset)
 				if b.options.Debug && m.Name != "" {
 					b.builder.AddMemberName(info.id, index, m.Name)
 				}
@@ -275,20 +276,20 @@ func (b *Backend) std140Convert(ty ir.TypeHandle) (uint32, error) {
 		return 0, err
 	}
 	var fb FunctionBuilder
-	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{returnTypeID, functionID, uint32(FunctionControlNone),
+	fb.Signature = Instruction{Opcode: spvenums.OpFunction, Words: []uint32{returnTypeID, functionID, uint32(spvenums.FunctionControlNone),
 		b.getFuncType(returnTypeID, []uint32{info.id})}}
 	paramID := b.builder.AllocID()
-	fb.Parameters = []Instruction{{Opcode: OpFunctionParameter, Words: []uint32{info.id, paramID}}}
+	fb.Parameters = []Instruction{{Opcode: spvenums.OpFunctionParameter, Words: []uint32{info.id, paramID}}}
 	block := NewBlock(b.builder.AllocID())
 	extract := func(id, typeID, index uint32) {
-		block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{typeID, id, paramID, index}})
+		block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{typeID, id, paramID, index}})
 	}
 	call := func(id, typeID, function, arg uint32) {
-		block.Push(Instruction{Opcode: OpFunctionCall, Words: []uint32{typeID, id, function, arg}})
+		block.Push(Instruction{Opcode: spvenums.OpFunctionCall, Words: []uint32{typeID, id, function, arg}})
 	}
 	construct := func(typeID uint32, constituents []uint32) uint32 {
 		id := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpCompositeConstruct, Words: append([]uint32{typeID, id}, constituents...)})
+		block.Push(Instruction{Opcode: spvenums.OpCompositeConstruct, Words: append([]uint32{typeID, id}, constituents...)})
 		return id
 	}
 	columns := func(mat ir.MatrixType, first uint32) ([]uint32, error) {
@@ -344,7 +345,7 @@ func (b *Backend) std140Convert(ty ir.TypeHandle) (uint32, error) {
 					return 0, err
 				}
 				next += uint32(mat.Columns)
-				block.Push(Instruction{Opcode: OpCompositeConstruct, Words: append([]uint32{memberTypeID, members[i]}, ids...)})
+				block.Push(Instruction{Opcode: spvenums.OpCompositeConstruct, Words: append([]uint32{memberTypeID, members[i]}, ids...)})
 				continue
 			}
 			if member := b.std140Types[m.Type]; member != nil {
@@ -364,7 +365,7 @@ func (b *Backend) std140Convert(ty ir.TypeHandle) (uint32, error) {
 	default:
 		return 0, fmt.Errorf("type %T has no std140-compatible declaration", t)
 	}
-	fb.Consume(block, Instruction{Opcode: OpReturnValue, Words: []uint32{resultID}})
+	fb.Consume(block, Instruction{Opcode: spvenums.OpReturnValue, Words: []uint32{resultID}})
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	return functionID, nil
 }
@@ -402,15 +403,15 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 	matrixParam, indexParam := b.builder.AllocID(), b.builder.AllocID()
 	var fb FunctionBuilder
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{matrixTypeID, matrixParam}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32TypeID, indexParam}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{matrixTypeID, matrixParam}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32TypeID, indexParam}},
 	}
-	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{columnTypeID, functionID, uint32(FunctionControlNone),
+	fb.Signature = Instruction{Opcode: spvenums.OpFunction, Words: []uint32{columnTypeID, functionID, uint32(spvenums.FunctionControlNone),
 		b.getFuncType(columnTypeID, []uint32{matrixTypeID, u32TypeID})}}
 
 	header := NewBlock(b.builder.AllocID())
 	merge := b.builder.AllocID()
-	header.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{merge, uint32(SelectionControlNone)}})
+	header.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{merge, uint32(spvenums.SelectionControlNone)}})
 	cases := make([]uint32, mat.Columns)
 	for c := range cases {
 		cases[c] = b.builder.AllocID()
@@ -429,13 +430,13 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 	for c, label := range cases {
 		words = append(words, uint32(c), label)
 	}
-	fb.Consume(header, Instruction{Opcode: OpSwitch, Words: words})
+	fb.Consume(header, Instruction{Opcode: spvenums.OpSwitch, Words: words})
 
 	var incoming []uint32
 	for c, label := range cases {
 		block := NewBlock(label)
 		column := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{columnTypeID, column, matrixParam, uint32(c)}})
+		block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{columnTypeID, column, matrixParam, uint32(c)}})
 		fb.Consume(block, makeBranchInstruction(merge))
 		incoming = append(incoming, column, label)
 	}
@@ -444,12 +445,12 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 	case backend.BoundsCheckReadZeroSkipWrite:
 		incoming = append(incoming, b.constantNull(columnTypeID), header.LabelID)
 	default:
-		fb.Consume(NewBlock(defaultLabel), Instruction{Opcode: OpUnreachable})
+		fb.Consume(NewBlock(defaultLabel), Instruction{Opcode: spvenums.OpUnreachable})
 	}
 	mergeBlock := NewBlock(merge)
 	result := b.builder.AllocID()
-	mergeBlock.Push(Instruction{Opcode: OpPhi, Words: append([]uint32{columnTypeID, result}, incoming...)})
-	fb.Consume(mergeBlock, Instruction{Opcode: OpReturnValue, Words: []uint32{result}})
+	mergeBlock.Push(Instruction{Opcode: spvenums.OpPhi, Words: append([]uint32{columnTypeID, result}, incoming...)})
+	fb.Consume(mergeBlock, Instruction{Opcode: spvenums.OpReturnValue, Words: []uint32{result}})
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	return functionID, nil
 }
@@ -620,7 +621,7 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 		if err != nil {
 			return 0, true, err
 		}
-		index = e.emitConversionOp(OpBitcast, u32TypeID, index)
+		index = e.emitConversionOp(spvenums.OpBitcast, u32TypeID, index)
 	}
 	id := e.emitFunctionCall(columnTypeID, getColumn, matrix, index)
 	if component == nil {
@@ -659,7 +660,7 @@ func (e *ExpressionEmitter) loadMatCx2Member(pointer ir.ExpressionHandle) (uint3
 	if err != nil {
 		return 0, true, err
 	}
-	columnPointerTypeID := e.backend.emitPointerType(StorageClassUniform, columnTypeID)
+	columnPointerTypeID := e.backend.emitPointerType(spvenums.StorageClassUniform, columnTypeID)
 	indices := make([]uint32, mat.Columns)
 	for c := range indices {
 		if indices[c], err = e.u32Constant(info.memberIndices[access.Index] + uint32(c)); err != nil {
@@ -690,6 +691,6 @@ func (e *ExpressionEmitter) emitFunctionCall(resultTypeID, function uint32, args
 	for _, arg := range args {
 		ib.AddWord(arg)
 	}
-	e.backend.builder.funcAppend(ib.Build(OpFunctionCall))
+	e.backend.builder.funcAppend(ib.Build(spvenums.OpFunctionCall))
 	return id
 }

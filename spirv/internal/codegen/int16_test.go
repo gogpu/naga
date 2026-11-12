@@ -1,6 +1,10 @@
 package codegen
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
+)
 
 // TestInt16SPIRV: a 16-bit integer type declares Int16 and the 16-bit
 // storage capabilities with SPV_KHR_16bit_storage (Rust naga's make_scalar
@@ -14,14 +18,14 @@ func TestInt16SPIRV(t *testing.T) {
 @compute @workgroup_size(1) fn main() { o[0] = o[1] + i16(-2); u[0] = u[1] + u16(65535); }`)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	for _, c := range []Capability{CapabilityInt16, CapabilityStorageBuffer16BitAccess, CapabilityUniformAndStorageBuffer16BitAccess} {
+	for _, c := range []spvenums.Capability{spvenums.CapabilityInt16, spvenums.CapabilityStorageBuffer16BitAccess, spvenums.CapabilityUniformAndStorageBuffer16BitAccess} {
 		if !hasCapability(instrs, c) {
 			t.Errorf("missing capability %v", c)
 		}
 	}
 	var sawNeg, sawMax bool
 	for _, in := range instrs {
-		if in.opcode == OpConstant && len(in.words) == 4 {
+		if in.opcode == spvenums.OpConstant && len(in.words) == 4 {
 			switch in.words[3] {
 			case 0xFFFFFFFE:
 				sawNeg = true

@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
-// TestBuiltinToSPIRVSpirvOnlyBuiltins pins the SPIR-V BuiltIn numbers of the
+// TestBuiltinToSPIRVSpirvOnlyBuiltins pins the SPIR-V spvenums.BuiltIn numbers of the
 // built-ins WGSL cannot produce (SPIR-V core grammar: CullDistance 4,
 // PointCoord 16, WorkgroupSize 25; SPV_KHR_shader_draw_parameters: BaseVertex
 // 4424, BaseInstance 4425). A wrong number is a silently invalid interface.
@@ -14,16 +15,16 @@ func TestBuiltinToSPIRVSpirvOnlyBuiltins(t *testing.T) {
 	tests := []struct {
 		name    string
 		builtin ir.BuiltinValue
-		sc      StorageClass
-		want    BuiltIn
+		sc      spvenums.StorageClass
+		want    spvenums.BuiltIn
 	}{
-		{"cull_distance", ir.BuiltinCullDistance, StorageClassOutput, 4},
-		{"point_coord", ir.BuiltinPointCoord, StorageClassInput, 16},
-		{"base_vertex", ir.BuiltinBaseVertex, StorageClassInput, 4424},
-		{"base_instance", ir.BuiltinBaseInstance, StorageClassInput, 4425},
+		{"cull_distance", ir.BuiltinCullDistance, spvenums.StorageClassOutput, 4},
+		{"point_coord", ir.BuiltinPointCoord, spvenums.StorageClassInput, 16},
+		{"base_vertex", ir.BuiltinBaseVertex, spvenums.StorageClassInput, 4424},
+		{"base_instance", ir.BuiltinBaseInstance, spvenums.StorageClassInput, 4425},
 		// SPIR-V decorates WorkgroupSize on a constant; the variable form is
 		// invalid, so the backend refuses it (see checkBuiltins).
-		{"workgroup_size", ir.BuiltinWorkGroupSize, StorageClassInput, builtInUnmapped},
+		{"workgroup_size", ir.BuiltinWorkGroupSize, spvenums.StorageClassInput, builtInUnmapped},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -35,7 +36,7 @@ func TestBuiltinToSPIRVSpirvOnlyBuiltins(t *testing.T) {
 }
 
 // TestCapability_BuiltinCullDistance verifies that writing
-// @builtin(cull_distance) declares Capability CullDistance (Rust naga
+// @builtin(cull_distance) declares spvenums.Capability CullDistance (Rust naga
 // back/spv/writer.rs:3226).
 func TestCapability_BuiltinCullDistance(t *testing.T) {
 	module := &ir.Module{
@@ -85,5 +86,5 @@ func TestCapability_BuiltinCullDistance(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 	caps := extractCapabilities(spvBytes)
-	assertCapability(t, caps, CapabilityCullDistance)
+	assertCapability(t, caps, spvenums.CapabilityCullDistance)
 }

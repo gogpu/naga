@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // A module-scope vector value used as an *operand* used to reach the shader as
 // (0, 0, 0): the WGSL front-end put the initializer in Module.GlobalExpressions,
 // and the SPIR-V backend, which then read a separate inline value, answered a
-// constant without one with OpConstantNull. Nothing reported it — the shader compiled and every color
+// constant without one with spvenums.OpConstantNull. Nothing reported it — the shader compiled and every color
 // authored that way was black.
 //
 // These tests pin the whole matrix: `const` and `var<private>`, vec2/vec3/vec4,
@@ -104,7 +105,7 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 }
 
 // TestGlobalMatrixConstReachesSPIRV covers a module-scope matrix operand, which
-// goes through nested OpConstantComposite (columns, then the matrix).
+// goes through nested spvenums.OpConstantComposite (columns, then the matrix).
 func TestGlobalMatrixConstReachesSPIRV(t *testing.T) {
 	const src = `
 const M: mat2x2<f32> = mat2x2<f32>(0.577, 0.156, 0.021, 0.937);
@@ -120,16 +121,16 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 }
 
 // assertVectorConstantMaterialized checks that every component float was emitted as
-// an OpConstant and that some OpConstantComposite gathers them in order.
+// an spvenums.OpConstant and that some spvenums.OpConstantComposite gathers them in order.
 func assertVectorConstantMaterialized(t *testing.T, spirvBytes []byte, components []float32) {
 	t.Helper()
 
 	instrs := decodeSPIRVInstructions(spirvBytes)
 
-	// bits -> the OpConstant IDs carrying that value.
+	// bits -> the spvenums.OpConstant IDs carrying that value.
 	byBits := map[uint32][]uint32{}
 	for _, in := range instrs {
-		if in.opcode == OpConstant && in.wordCount == 4 {
+		if in.opcode == spvenums.OpConstant && in.wordCount == 4 {
 			byBits[in.words[3]] = append(byBits[in.words[3]], in.words[2])
 		}
 	}
@@ -156,7 +157,7 @@ func assertVectorConstantMaterialized(t *testing.T, spirvBytes []byte, component
 	}
 }
 
-// hasCompositeOver reports whether some OpConstantComposite has constituents whose
+// hasCompositeOver reports whether some spvenums.OpConstantComposite has constituents whose
 // values are exactly wanted, in order. Matrices nest, so a composite of composites
 // counts when the flattened leaves match.
 func hasCompositeOver(instrs []spirvInstruction, byBits map[uint32][]uint32, wanted []uint32) bool {
@@ -170,7 +171,7 @@ func hasCompositeOver(instrs []spirvInstruction, byBits map[uint32][]uint32, wan
 
 	composites := map[uint32][]uint32{}
 	for _, in := range instrs {
-		if in.opcode == OpConstantComposite && in.wordCount >= 3 {
+		if in.opcode == spvenums.OpConstantComposite && in.wordCount >= 3 {
 			composites[in.words[2]] = in.words[3:]
 		}
 	}
@@ -273,17 +274,17 @@ func compileGlobalInitModule(t *testing.T, mod *ir.Module) []byte {
 	return spirvBytes
 }
 
-// assertCompositeLanes checks that some OpConstantComposite has exactly the
-// given lanes, in order: a float, or "null" for an OpConstantNull.
+// assertCompositeLanes checks that some spvenums.OpConstantComposite has exactly the
+// given lanes, in order: a float, or "null" for an spvenums.OpConstantNull.
 func assertCompositeLanes(t *testing.T, spirvBytes []byte, lanes ...any) uint32 {
 	t.Helper()
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	laneOf := map[uint32]string{}
 	for _, in := range instrs {
 		switch {
-		case in.opcode == OpConstant && in.wordCount == 4:
+		case in.opcode == spvenums.OpConstant && in.wordCount == 4:
 			laneOf[in.words[2]] = fmt.Sprint(math.Float32frombits(in.words[3]))
-		case in.opcode == OpConstantNull:
+		case in.opcode == spvenums.OpConstantNull:
 			laneOf[in.words[2]] = "null"
 		}
 	}
@@ -292,7 +293,7 @@ func assertCompositeLanes(t *testing.T, spirvBytes []byte, lanes ...any) uint32 
 		want[i] = fmt.Sprint(lane)
 	}
 	for _, in := range instrs {
-		if in.opcode != OpConstantComposite || len(in.words)-3 != len(want) {
+		if in.opcode != spvenums.OpConstantComposite || len(in.words)-3 != len(want) {
 			continue
 		}
 		match := true
@@ -379,7 +380,7 @@ func TestGlobalVarComposedInitializer(t *testing.T) {
 	compositeID := assertCompositeLanes(t, spirvBytes, 0.125, 0.375, "null", 0.875)
 
 	for _, in := range decodeSPIRVInstructions(spirvBytes) {
-		if in.opcode == OpVariable && StorageClass(in.words[3]) == StorageClassPrivate {
+		if in.opcode == spvenums.OpVariable && spvenums.StorageClass(in.words[3]) == spvenums.StorageClassPrivate {
 			if in.wordCount != 5 || in.words[4] != compositeID {
 				t.Fatalf("private variable is not initialized with %%%d\n%s", compositeID, disassembleSPIRV(spirvBytes))
 			}
@@ -422,7 +423,7 @@ func TestGlobalInitOverrideDefaultIsNotAnError(t *testing.T) {
 
 // TestGlobalInitUnfoldedKeepsFallback pins the fallback kept for a Unary the
 // front-end has not folded yet, such as vec2<f16>(-1.0h, 2.0h): a constant
-// becomes OpConstantNull and a variable has no initializer, rather than the
+// becomes spvenums.OpConstantNull and a variable has no initializer, rather than the
 // valid shader being rejected.
 func TestGlobalInitUnfoldedKeepsFallback(t *testing.T) {
 	init := ir.ExpressionHandle(3)
@@ -437,7 +438,7 @@ func TestGlobalInitUnfoldedKeepsFallback(t *testing.T) {
 
 	spirvBytes := compileGlobalInitModule(t, mod)
 	for _, in := range decodeSPIRVInstructions(spirvBytes) {
-		if in.opcode == OpVariable && StorageClass(in.words[3]) == StorageClassPrivate && in.wordCount != 4 {
+		if in.opcode == spvenums.OpVariable && spvenums.StorageClass(in.words[3]) == spvenums.StorageClassPrivate && in.wordCount != 4 {
 			t.Fatalf("private variable has an initializer\n%s", disassembleSPIRV(spirvBytes))
 		}
 	}

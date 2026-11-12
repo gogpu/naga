@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/codegen"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // --- Configuration types (real types, not aliases) ---
@@ -338,25 +339,25 @@ func toCodegenOptions(o Options) codegen.Options {
 	}
 }
 
-func toCodegenCapabilities(caps []Capability) []codegen.Capability {
+func toCodegenCapabilities(caps []Capability) []spvenums.Capability {
 	if caps == nil {
 		return nil
 	}
-	out := make([]codegen.Capability, len(caps))
+	out := make([]spvenums.Capability, len(caps))
 	for i, c := range caps {
-		out[i] = codegen.Capability(c)
+		out[i] = spvenums.Capability(c)
 	}
 	return out
 }
 
 // toCodegenCapabilitySet keeps nil nil: nil allows every capability.
-func toCodegenCapabilitySet(set map[Capability]struct{}) map[codegen.Capability]struct{} {
+func toCodegenCapabilitySet(set map[Capability]struct{}) map[spvenums.Capability]struct{} {
 	if set == nil {
 		return nil
 	}
-	out := make(map[codegen.Capability]struct{}, len(set))
+	out := make(map[spvenums.Capability]struct{}, len(set))
 	for c := range set {
-		out[codegen.Capability(c)] = struct{}{}
+		out[spvenums.Capability(c)] = struct{}{}
 	}
 	return out
 }
