@@ -297,6 +297,27 @@ func (l *Lowerer) moduleConstU32(e parser.Expr) (uint32, error) {
 	return literalU32(l.moduleConstLiteral(e))
 }
 
+// attributeU32 is Rust's const_u32 for the argument of a module-scope
+// attribute (@group, @binding, @location, @blend_src, @id): a const-expression
+// in the module's context, concretized, that must be a non-negative u32 or
+// i32. Any suffix, hex spelling or named constant is accepted. An error the
+// lowering did not place gets the argument's span.
+func (l *Lowerer) attributeU32(e parser.Expr) (uint32, error) {
+	v, err := l.moduleConstU32(e)
+	if err == nil {
+		return v, nil
+	}
+	var sourceErr *parser.SourceError
+	if errors.As(err, &sourceErr) {
+		return 0, err
+	}
+	return 0, parser.NewSourceError(err.Error(), e.Pos(), l.source)
+}
+
+// errExpectedNonNegative is Rust's Error::ExpectedNonNegative: a const_u32
+// value below zero.
+var errExpectedNonNegative = errors.New("must be non-negative (>= 0)")
+
 func literalU32(lit ir.LiteralValue, err error) (uint32, error) {
 	if err != nil {
 		return 0, err
@@ -306,7 +327,7 @@ func literalU32(lit ir.LiteralValue, err error) (uint32, error) {
 		return uint32(v), nil
 	case ir.LiteralI32:
 		if v < 0 {
-			return 0, fmt.Errorf("must be non-negative (>= 0)")
+			return 0, errExpectedNonNegative
 		}
 		return uint32(v), nil
 	}

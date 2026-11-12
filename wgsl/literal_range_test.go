@@ -25,10 +25,10 @@ func TestParseRejectsOutOfRangeIntegerLiterals(t *testing.T) {
 		{"abstract", `const x = 99999999999999999999;`},
 		{"abstract in expression", `const x = 99999999999999999999 % 1000;`},
 		{"hex i32", `const x = 0x80000000i;`},
-		{"group attribute", "@group(4294967297) @binding(0) var<uniform> u: f32;"},
-		{"location attribute", "struct S { @location(4294967296) a: f32 }"},
-		{"blend_src attribute", "enable dual_source_blending;\nstruct S { @location(0) @blend_src(4294967296) a: f32 }"},
-		{"binding array size", "enable wgpu_binding_array;\n@group(0) @binding(0) var t: binding_array<f32, 4294967296>;"},
+		{"suffixed group attribute", "@group(4294967296u) @binding(0) var<uniform> u: f32;"},
+		// An unsuffixed attribute argument past u32 is an abstract integer
+		// that concretizes to f32, refused with Rust's const_u32 message:
+		// TestAttributeArgumentErrors.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := Parse(tc.source, ParseOptions{})
