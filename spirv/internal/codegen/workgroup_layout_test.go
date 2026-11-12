@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/internal/testtools"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestWorkgroupLayoutCopyBelow14: Workgroup memory has layout-free types
@@ -41,8 +42,8 @@ fn main() {
 		if spv[5] != tc.version.Minor {
 			t.Errorf("SPIR-V %d.%d asked: module is 1.%d", tc.version.Major, tc.version.Minor, spv[5])
 		}
-		if got := divmodHasOpcode(spv, OpCopyLogical); got != tc.copyOp {
-			t.Errorf("SPIR-V 1.%d: OpCopyLogical present %v, want %v", tc.version.Minor, got, tc.copyOp)
+		if got := divmodHasOpcode(spv, spvenums.OpCopyLogical); got != tc.copyOp {
+			t.Errorf("SPIR-V 1.%d: spvenums.OpCopyLogical present %v, want %v", tc.version.Minor, got, tc.copyOp)
 		}
 		path := filepath.Join(t.TempDir(), "w.spv")
 		if err := os.WriteFile(path, spv, 0o644); err != nil {

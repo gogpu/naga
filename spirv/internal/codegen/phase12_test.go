@@ -29,7 +29,7 @@ func compileModule(t *testing.T, module *ir.Module) []byte {
 }
 
 // =============================================================================
-// Helper: extract spvenums.OpEntryPoint instructions from SPIR-V binary
+// Helper: extract OpEntryPoint instructions from SPIR-V binary
 // =============================================================================
 
 type entryPointInfo struct {
@@ -88,7 +88,7 @@ func extractEntryPointsInfo(spvBytes []byte) []entryPointInfo {
 }
 
 // =============================================================================
-// Helper: extract spvenums.OpDecorate and spvenums.OpVariable instructions
+// Helper: extract OpDecorate and OpVariable instructions
 // =============================================================================
 
 type decorationEntry struct {
@@ -186,7 +186,7 @@ func hasOpcode(spvBytes []byte, op spvenums.Op) bool {
 	return false
 }
 
-// findBuiltInDecorations returns target ID -> spvenums.BuiltIn value for all spvenums.BuiltIn decorations.
+// findBuiltInDecorations returns target ID -> BuiltIn value for all BuiltIn decorations.
 func findBuiltInDecorations(spvBytes []byte) map[uint32]uint32 {
 	result := make(map[uint32]uint32)
 	for _, dec := range extractAllDecorations(spvBytes) {
@@ -215,11 +215,11 @@ func makeBuiltinBinding(builtin ir.BuiltinValue) *ir.Binding {
 }
 
 // =============================================================================
-// SECTION 1: spvenums.Capability detection tests
+// SECTION 1: Capability detection tests
 // =============================================================================
 
 // TestCapability_BuiltinClipDistance verifies that using BuiltinClipDistances
-// in a struct member triggers spvenums.CapabilityClipDistance.
+// in a struct member triggers CapabilityClipDistance.
 func TestCapability_BuiltinClipDistance(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -271,7 +271,7 @@ func TestCapability_BuiltinClipDistance(t *testing.T) {
 	assertCapability(t, caps, spvenums.CapabilityClipDistance)
 }
 
-// TestCapability_BuiltinPrimitiveIndex verifies spvenums.CapabilityGeometry is triggered.
+// TestCapability_BuiltinPrimitiveIndex verifies CapabilityGeometry is triggered.
 func TestCapability_BuiltinPrimitiveIndex(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -314,7 +314,7 @@ func TestCapability_BuiltinPrimitiveIndex(t *testing.T) {
 	assertCapability(t, caps, spvenums.CapabilityGeometry)
 }
 
-// TestCapability_SubgroupBuiltins verifies spvenums.CapabilityGroupNonUniform is triggered
+// TestCapability_SubgroupBuiltins verifies CapabilityGroupNonUniform is triggered
 // by subgroup-related builtins.
 func TestCapability_SubgroupBuiltins(t *testing.T) {
 	tests := []struct {
@@ -510,7 +510,7 @@ func TestCapability_StorageImageExtendedFormats(t *testing.T) {
 }
 
 // TestCapability_Linkage verifies that modules with no entry points
-// get spvenums.CapabilityLinkage.
+// get CapabilityLinkage.
 func TestCapability_Linkage(t *testing.T) {
 	t.Run("no_entry_points", func(t *testing.T) {
 		module := &ir.Module{
@@ -556,7 +556,7 @@ func TestCapability_Linkage(t *testing.T) {
 // =============================================================================
 
 // TestEntryPointInterface_SPIRV14_IncludesGlobals verifies that with SPIR-V 1.4+,
-// all used global variables (Uniform, StorageBuffer, etc.) appear in spvenums.OpEntryPoint.
+// all used global variables (Uniform, StorageBuffer, etc.) appear in OpEntryPoint.
 func TestEntryPointInterface_SPIRV14_IncludesGlobals(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -613,7 +613,7 @@ func TestEntryPointInterface_SPIRV14_IncludesGlobals(t *testing.T) {
 }
 
 // TestEntryPointInterface_SPIRV11_NoExtraGlobals verifies that with SPIR-V 1.1,
-// only Input/Output variables appear in spvenums.OpEntryPoint (not Uniform/StorageBuffer).
+// only Input/Output variables appear in OpEntryPoint (not Uniform/StorageBuffer).
 func TestEntryPointInterface_SPIRV11_NoExtraGlobals(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -672,7 +672,7 @@ func TestEntryPointInterface_SPIRV11_NoExtraGlobals(t *testing.T) {
 // =============================================================================
 
 // TestForcePointSize_VertexShader verifies that ForcePointSize=true adds
-// a spvenums.BuiltIn PointSize Output variable to vertex shaders.
+// a BuiltIn PointSize Output variable to vertex shaders.
 func TestForcePointSize_VertexShader(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -738,7 +738,7 @@ func TestForcePointSize_VertexShader(t *testing.T) {
 		t.Errorf("PointSize variable ID %d not found in OpVariable instructions", pointSizeVarID)
 	}
 
-	// Verify PointSize variable appears in spvenums.OpEntryPoint interface
+	// Verify PointSize variable appears in OpEntryPoint interface
 	eps := extractEntryPointsInfo(spvBytes)
 	if len(eps) != 1 {
 		t.Fatalf("expected 1 entry point, got %d", len(eps))
@@ -891,7 +891,7 @@ func TestForcePointSize_NoDuplicate_StructMember(t *testing.T) {
 	opts.ForcePointSize = true
 	spvBytes := compileModuleWithOptions(t, module, opts)
 
-	// Count PointSize spvenums.BuiltIn decorations (both spvenums.OpDecorate and the fact
+	// Count PointSize BuiltIn decorations (both OpDecorate and the fact
 	// that no EXTRA force_point_size variable was created).
 	// The struct member PointSize is detected by hasPointSize check,
 	// so the backend should NOT create an additional Output variable.
@@ -1290,7 +1290,7 @@ fn main(fin: FragIn) -> @location(0) vec4<f32> {
 		}
 	}
 	// At minimum, we expect 2 NonUniform decorations for the binding array access:
-	// one for spvenums.OpAccessChain result, one for spvenums.OpLoad result
+	// one for OpAccessChain result, one for OpLoad result
 	if nonUniformCount < 2 {
 		t.Errorf("expected at least 2 NonUniform decorations, got %d", nonUniformCount)
 	}

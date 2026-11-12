@@ -68,15 +68,15 @@ func TestSpanFunctionCallSPIRV(t *testing.T) {
 	t.Log("============================================")
 	t.Log("\n" + disassembleSPIRV(spirvInline))
 
-	// Focused analysis: find spvenums.OpFunctionCall and surrounding stores
+	// Focused analysis: find OpFunctionCall and surrounding stores
 	t.Log("\n============================================")
 	t.Log("FOCUSED: Function calls and deferred stores")
 	t.Log("============================================")
 	analyzeSpanCalls(t, spirvFunc)
 }
 
-// analyzeSpanCalls finds and reports spvenums.OpFunctionCall instructions and
-// surrounding spvenums.OpStore/spvenums.OpLoad instructions in the SPIR-V.
+// analyzeSpanCalls finds and reports OpFunctionCall instructions and
+// surrounding OpStore/OpLoad instructions in the SPIR-V.
 func analyzeSpanCalls(t *testing.T, data []byte) {
 	t.Helper()
 
@@ -93,7 +93,7 @@ func analyzeSpanCalls(t *testing.T, data []byte) {
 		}
 	}
 
-	// Find spvenums.OpFunction, spvenums.OpFunctionCall, spvenums.OpStore, spvenums.OpLoad, spvenums.OpVariable in the main function
+	// Find OpFunction, OpFunctionCall, OpStore, OpLoad, OpVariable in the main function
 	inMain := false
 	for i, inst := range instrs {
 		if inst.opcode == spvenums.OpFunction {

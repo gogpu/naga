@@ -179,7 +179,7 @@ func BenchmarkSPIRVEmitReuse(b *testing.B) {
 }
 
 // BenchmarkSPIRVEmitWithDebug benchmarks SPIR-V code generation with debug
-// info (spvenums.OpName instructions) to measure the overhead of debug output.
+// info (OpName instructions) to measure the overhead of debug output.
 func BenchmarkSPIRVEmitWithDebug(b *testing.B) {
 	for _, bc := range spirvBenchShaders {
 		b.Run(bc.name, func(b *testing.B) {
@@ -275,7 +275,7 @@ func BenchmarkInstructionBuild(b *testing.B) {
 }
 
 // BenchmarkInstructionBuildString benchmarks instruction building with
-// string operands (used in spvenums.OpName, spvenums.OpEntryPoint, etc.).
+// string operands (used in OpName, OpEntryPoint, etc.).
 func BenchmarkInstructionBuildString(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()

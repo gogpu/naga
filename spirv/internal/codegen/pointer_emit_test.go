@@ -64,7 +64,7 @@ func spvDeadValues(t *testing.T, spv []byte) map[spvenums.Op]int {
 // where the pointer is used (back/spv/block.rs cache_expression_value, "Put off
 // generating any code for this until we find the Expression that actually
 // dereferences the pointer"). Materializing it at Emit leaves an access chain,
-// an spvenums.OpLoad and, for workgroup data, an OpCopyLogical whose results nothing
+// an OpLoad and, for workgroup data, an OpCopyLogical whose results nothing
 // uses — on atomic data that dead load is a non-atomic read.
 func TestEmitDoesNotMaterializePointers(t *testing.T) {
 	tests := []struct {
@@ -135,8 +135,8 @@ fn main(@builtin(local_invocation_index) i: u32) {
 			spv := compileAtomicTestShader(t, tt.source)
 			for op, n := range spvDeadValues(t, spv) {
 				switch op {
-				case spvenums.OpLoad, OpCopyLogical, spvenums.OpAccessChain:
-					t.Errorf("%d dead results of opcode %d (OpLoad=61, OpAccessChain=65, OpCopyLogical=400)", n, op)
+				case spvenums.OpLoad, spvenums.OpCopyLogical, spvenums.OpAccessChain:
+					t.Errorf("%d dead results of opcode %d (OpLoad=61, OpAccessChain=65, spvenums.OpCopyLogical=400)", n, op)
 				}
 			}
 		})

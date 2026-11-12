@@ -62,7 +62,7 @@ func (b *Backend) emitRayQueryTrackerVars(fb *FunctionBuilder) rayQueryTrackerID
 	}
 }
 
-// getRayQueryPointerTypeID returns the spvenums.OpTypePointer(Function, OpTypeRayQueryKHR) type ID.
+// getRayQueryPointerTypeID returns the OpTypePointer(Function, OpTypeRayQueryKHR) type ID.
 func (b *Backend) getRayQueryPointerTypeID() uint32 {
 	// Find or create the ray query type
 	var rqTypeID uint32
@@ -81,7 +81,7 @@ func (b *Backend) getRayQueryPointerTypeID() uint32 {
 		rqTypeID = b.builder.AllocID()
 		ib := b.newIB()
 		ib.AddWord(rqTypeID)
-		b.builder.types = append(b.builder.types, ib.Build(OpTypeRayQueryKHR))
+		b.builder.types = append(b.builder.types, ib.Build(spvenums.OpTypeRayQueryKHR))
 	}
 	return b.emitPointerType(spvenums.StorageClassFunction, rqTypeID)
 }
@@ -317,7 +317,7 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 	// var proceeded: bool = false
 	constFalse := b.builder.AllocID()
 	b.builder.types = append(b.builder.types, Instruction{
-		Opcode: OpConstantFalse,
+		Opcode: spvenums.OpConstantFalse,
 		Words:  []uint32{boolTypeID, constFalse},
 	})
 	proceededID := b.builder.AllocID()
@@ -351,7 +351,7 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 		fb.Consume(block, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{validBlockID}})
 	}
 
-	// Valid block: call spvenums.OpRayQueryProceedKHR
+	// Valid block: call OpRayQueryProceedKHR
 	hasProceededID := b.builder.AllocID()
 	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryProceedKHR, Words: []uint32{boolTypeID, hasProceededID, queryID}})
 	validBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{proceededID, hasProceededID}})
@@ -623,7 +623,7 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	finalBlock.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{riVarTypeID, loadedIntersectionID, blankIntersectionID}})
 	if riVarTypeID != riTypeID {
 		decorated := b.builder.AllocID()
-		finalBlock.Push(Instruction{Opcode: OpCopyLogical, Words: []uint32{riTypeID, decorated, loadedIntersectionID}})
+		finalBlock.Push(Instruction{Opcode: spvenums.OpCopyLogical, Words: []uint32{riTypeID, decorated, loadedIntersectionID}})
 		loadedIntersectionID = decorated
 	}
 	fb.Consume(finalBlock, Instruction{Opcode: spvenums.OpReturnValue, Words: []uint32{loadedIntersectionID}})

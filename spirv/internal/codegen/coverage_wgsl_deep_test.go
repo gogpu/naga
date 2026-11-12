@@ -47,7 +47,7 @@ fn main() {
 }
 
 // TestAtomicI32AllOps exercises emitAtomic with signed i32 atomics for
-// the signed-integer opcode selection path (spvenums.OpAtomicSMax, spvenums.OpAtomicSMin).
+// the signed-integer opcode selection path (OpAtomicSMax, OpAtomicSMin).
 func TestAtomicI32AllOps(t *testing.T) {
 	source := `
 @group(0) @binding(0) var<storage, read_write> val: atomic<i32>;
@@ -92,7 +92,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	if !hasOpcodeInInstrs(instrs, spvenums.OpSelect) {
 		t.Error("expected OpSelect for scalar bool + vec4 operands")
 	}
-	// The splat should produce an spvenums.OpCompositeConstruct for the bool vector
+	// The splat should produce an OpCompositeConstruct for the bool vector
 	if !hasOpcodeInInstrs(instrs, spvenums.OpCompositeConstruct) {
 		t.Error("expected OpCompositeConstruct for bool-to-vector splat")
 	}

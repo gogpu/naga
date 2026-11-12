@@ -110,7 +110,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "Vec2VarReassign", shader)
 	validateSPIRVControlFlow(t, spirvBytes)
 
-	// Disassemble to check spvenums.OpStore
+	// Disassemble to check OpStore
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
@@ -181,7 +181,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "TwoCallsSameFunc", shader)
 	validateSPIRVControlFlow(t, spirvBytes)
 
-	// Check for two spvenums.OpFunctionCall instructions
+	// Check for two OpFunctionCall instructions
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	callCount := 0
 	for _, inst := range instrs {
@@ -306,9 +306,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // TestBoolEqualUsesLogicalEqual verifies that bool==bool comparison emits
-// OpLogicalEqual (not spvenums.OpIEqual) and bool!=bool emits spvenums.OpLogicalNotEqual
-// (not spvenums.OpINotEqual). SPIR-V spec requires logical ops for boolean operands.
-// Bug: NAGA-SPV-007 — spvenums.OpIEqual with bool operands fails spirv-val.
+// OpLogicalEqual (not OpIEqual) and bool!=bool emits OpLogicalNotEqual
+// (not OpINotEqual). SPIR-V spec requires logical ops for boolean operands.
+// Bug: NAGA-SPV-007 — OpIEqual with bool operands fails spirv-val.
 func TestBoolEqualUsesLogicalEqual(t *testing.T) {
 	const shader = `
 @group(0) @binding(0) var<storage, read_write> out: array<u32>;
@@ -375,7 +375,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 	spirvBytes := compileWGSLToSPIRV(t, "DeferredTransitive", shader)
 
-	// Verify: spvenums.OpStore for "copy" must come AFTER spvenums.OpFunctionCall (which produces count).
+	// Verify: OpStore for "copy" must come AFTER OpFunctionCall (which produces count).
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	callSeen := false
 	copyStoreAfterCall := false

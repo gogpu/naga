@@ -15,7 +15,7 @@ import (
 
 // TestImageAtomicAdd exercises emitImageAtomic with AtomicAdd on a storage
 // texture. Covers resolveImageGlobalVar, emitI32Constant, emitU32Constant,
-// and the entire image atomic code path including spvenums.OpImageTexelPointer.
+// and the entire image atomic code path including OpImageTexelPointer.
 func TestImageAtomicAdd(t *testing.T) {
 	r32uintHandle := ir.TypeHandle(0)
 	vec2i32Handle := ir.TypeHandle(2)
@@ -219,7 +219,7 @@ func TestImageAtomicSignedMin(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Signed min uses spvenums.OpAtomicSMin
+	// Signed min uses OpAtomicSMin
 	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMin) {
 		t.Error("expected OpAtomicSMin for signed image atomic min")
 	}

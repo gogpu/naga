@@ -9,11 +9,11 @@ import (
 )
 
 // TestVarInitFromUniform tests that `var x = params.value;` compiles to correct SPIR-V.
-// The init expression references a uniform buffer field, which requires spvenums.OpAccessChain + spvenums.OpLoad.
+// The init expression references a uniform buffer field, which requires OpAccessChain + OpLoad.
 // The generated SPIR-V must have:
-//  1. spvenums.OpVariable for the local var in the entry block
-//  2. spvenums.OpAccessChain + spvenums.OpLoad to get the uniform value
-//  3. spvenums.OpStore to initialize the local var
+//  1. OpVariable for the local var in the entry block
+//  2. OpAccessChain + OpLoad to get the uniform value
+//  3. OpStore to initialize the local var
 func TestVarInitFromUniform(t *testing.T) {
 	const shader = `
 struct Params {
@@ -48,14 +48,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 	t.Logf("Local variable 'x' has SPIR-V ID: %%%d", xVarID)
 
-	// Verify there is an spvenums.OpStore to 'x' in the entry block (init store)
+	// Verify there is an OpStore to 'x' in the entry block (init store)
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' in the entry block. " +
 			"The var init expression was not emitted correctly.")
 	}
 
-	// Verify the stored value comes from spvenums.OpLoad of a uniform field (via spvenums.OpAccessChain)
+	// Verify the stored value comes from OpLoad of a uniform field (via OpAccessChain)
 	verifyInitValueFromUniform(t, instrs, names, xVarID)
 }
 
@@ -94,7 +94,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an spvenums.OpStore initializing 'x'
+	// Verify there is an OpStore initializing 'x'
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x'. " +
@@ -128,7 +128,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an spvenums.OpStore initializing 'x' with a constant value
+	// Verify there is an OpStore initializing 'x' with a constant value
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' with literal 42.0")
@@ -167,7 +167,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an spvenums.OpStore initializing 'x'
+	// Verify there is an OpStore initializing 'x'
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' from let binding")
@@ -176,7 +176,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // TestVarInitOrder verifies that init expressions for local variables that depend on
 // body-emitted statements (like let bindings with uniform reads) are properly ordered.
-// The key issue: if var init spvenums.OpStore is emitted BEFORE body statements, references
+// The key issue: if var init OpStore is emitted BEFORE body statements, references
 // to let-bound values that haven't been emitted yet will fail or produce zero.
 func TestVarInitOrder(t *testing.T) {
 	// This shader intentionally has a let binding BEFORE the var init,
@@ -213,7 +213,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'scaled' not found")
 	}
 
-	// Count spvenums.OpStore instructions to 'scaled'
+	// Count OpStore instructions to 'scaled'
 	storeCount := countStoresToVar(instrs, scaledVarID)
 	t.Logf("Found %d OpStore instructions to 'scaled' (%%%d)", storeCount, scaledVarID)
 
@@ -259,7 +259,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'result' not found in SPIR-V output")
 	}
 
-	// Verify there is an spvenums.OpStore to 'result' somewhere (may be after the function call)
+	// Verify there is an OpStore to 'result' somewhere (may be after the function call)
 	storeCount := countStoresToVar(instrs, resultVarID)
 	if storeCount == 0 {
 		t.Error("BUG: No OpStore found to initialize 'result' from function call")
@@ -267,7 +267,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Logf("Found %d OpStore(s) to 'result' (%%%d)", storeCount, resultVarID)
 	}
 
-	// Verify there is an spvenums.OpFunctionCall in the main function body
+	// Verify there is an OpFunctionCall in the main function body
 	funcCallFound := false
 	inMainFunc := false
 	funcCount := 0
@@ -345,7 +345,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // TestVarWithoutInitializerIsZeroed: WGSL gives a function or private
 // variable declared without an initializer the zero value of its type. A bare
 // OpVariable starts undefined, and drivers fold that into whatever the
-// variable is assigned on another path, so each gets an spvenums.OpConstantNull
+// variable is assigned on another path, so each gets an OpConstantNull
 // initializer, as Rust naga writes it.
 func TestVarWithoutInitializerIsZeroed(t *testing.T) {
 	const shader = `
@@ -405,7 +405,7 @@ fn main() {
 
 // --- Helper functions ---
 
-// collectNames builds an ID-to-name map from spvenums.OpName instructions.
+// collectNames builds an ID-to-name map from OpName instructions.
 func collectNames(instrs []spirvInstruction) map[uint32]string {
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
@@ -416,7 +416,7 @@ func collectNames(instrs []spirvInstruction) map[uint32]string {
 	return names
 }
 
-// findFunctionVariable finds the SPIR-V ID of a Function-scope spvenums.OpVariable with the given name.
+// findFunctionVariable finds the SPIR-V ID of a Function-scope OpVariable with the given name.
 func findFunctionVariable(instrs []spirvInstruction, names map[uint32]string, name string) uint32 {
 	inFunction := false
 	for _, inst := range instrs {
@@ -442,9 +442,9 @@ func findFunctionVariable(instrs []spirvInstruction, names map[uint32]string, na
 	return 0
 }
 
-// verifyInitStore checks if there is an spvenums.OpStore targeting varID anywhere in the
+// verifyInitStore checks if there is an OpStore targeting varID anywhere in the
 // function body. Var inits are emitted as body StmtStore (matching Rust naga's
-// zero-init + separate store pattern), so the spvenums.OpStore may appear in any block.
+// zero-init + separate store pattern), so the OpStore may appear in any block.
 func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) bool {
 	t.Helper()
 	inFunction := false
@@ -460,7 +460,7 @@ func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]s
 			continue
 		}
 
-		// An spvenums.OpStore anywhere in the function to our variable = init store
+		// An OpStore anywhere in the function to our variable = init store
 		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 {
 			if inst.words[1] == varID {
 				t.Logf("  Found init OpStore to %s(%%%d) at word %d, value=%%%d",
@@ -473,11 +473,11 @@ func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]s
 }
 
 // verifyInitValueFromUniform checks that the value stored to varID comes from
-// a chain of spvenums.OpLoad <- spvenums.OpAccessChain <- (uniform global variable).
+// a chain of OpLoad <- OpAccessChain <- (uniform global variable).
 func verifyInitValueFromUniform(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) {
 	t.Helper()
 
-	// Find the spvenums.OpStore to varID anywhere in the function
+	// Find the OpStore to varID anywhere in the function
 	inFunction := false
 
 	for _, inst := range instrs {
@@ -495,7 +495,7 @@ func verifyInitValueFromUniform(t *testing.T, instrs []spirvInstruction, names m
 			valueID := inst.words[2]
 			t.Logf("  Init store value ID: %%%d", valueID)
 
-			// Trace the value ID back — it should be from spvenums.OpLoad
+			// Trace the value ID back — it should be from OpLoad
 			traceValueOrigin(t, instrs, names, valueID, 0)
 			return
 		}
@@ -545,7 +545,7 @@ func traceValueOrigin(t *testing.T, instrs []spirvInstruction, names map[uint32]
 	}
 }
 
-// countStoresToVar counts spvenums.OpStore instructions targeting the given variable ID.
+// countStoresToVar counts OpStore instructions targeting the given variable ID.
 func countStoresToVar(instrs []spirvInstruction, varID uint32) int {
 	count := 0
 	inFunction := false

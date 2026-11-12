@@ -34,7 +34,7 @@ func compileWGSLForCapabilityTest(t *testing.T, source string) []byte {
 // SPIR-V binary layout:
 //   - Header: 5 words (20 bytes) — magic, version, generator, bound, schema
 //   - Instructions: each starts with (wordCount << 16 | opcode)
-//   - spvenums.OpCapability (opcode 17) is 2 words: [header, capability_id]
+//   - OpCapability (opcode 17) is 2 words: [header, capability_id]
 func extractCapabilities(spvBytes []byte) map[uint32]bool {
 	caps := make(map[uint32]bool)
 	if len(spvBytes) < 20 {
@@ -137,7 +137,7 @@ func compileModuleForCapabilityTest(t *testing.T, module *ir.Module, opts Option
 	return spvBytes
 }
 
-// extractExtensions parses a SPIR-V binary and returns all spvenums.OpExtension strings.
+// extractExtensions parses a SPIR-V binary and returns all OpExtension strings.
 func extractExtensions(spvBytes []byte) []string {
 	var exts []string
 	if len(spvBytes) < 20 {
@@ -168,7 +168,7 @@ func extractExtensions(spvBytes []byte) []string {
 	return exts
 }
 
-// countEntryPointInterfaceVars counts total interface variables across all spvenums.OpEntryPoint
+// countEntryPointInterfaceVars counts total interface variables across all OpEntryPoint
 // instructions in the SPIR-V binary.
 func countEntryPointInterfaceVars(spvBytes []byte) int {
 	total := 0
@@ -223,7 +223,7 @@ func assertNoCapability(t *testing.T, caps map[uint32]bool, capability spvenums.
 
 // TestCapability_ShaderAlwaysPresent verifies that the Shader capability is
 // emitted for all shader stages. Every valid SPIR-V module targeting Vulkan
-// must declare spvenums.OpCapability Shader.
+// must declare OpCapability Shader.
 func TestCapability_ShaderAlwaysPresent(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -530,7 +530,7 @@ func TestCapability_NoDuplicates(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 
-	// Count spvenums.OpCapability instructions for Float64.
+	// Count OpCapability instructions for Float64.
 	count := 0
 	offset := 20 // skip header
 	for offset+4 <= len(spvBytes) {

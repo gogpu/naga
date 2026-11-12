@@ -122,7 +122,7 @@ fn main(@location(0) dummy: f32) -> @location(0) vec4<f32> {
 			constants := parseFloat32Constants(spirvBytes)
 
 			// Build a map of SPIR-V ID -> the constant value it loads from
-			// (spvenums.OpLoad of an spvenums.OpVariable that was spvenums.OpStore'd with a constant)
+			// (OpLoad of an OpVariable that was OpStore'd with a constant)
 			stores := parseStoreLoadChain(spirvBytes, constants)
 
 			// Verify each operand matches the expected value
@@ -206,7 +206,7 @@ fn main(@location(0) v: f32) -> @location(0) vec4<f32> {
 	}
 }
 
-// extInstInfo holds parsed information about an spvenums.OpExtInst instruction.
+// extInstInfo holds parsed information about an OpExtInst instruction.
 type extInstInfo struct {
 	resultType  uint32
 	resultID    uint32
@@ -245,7 +245,7 @@ func parseSPIRVWords(spirvBytes []byte) []uint32 {
 	return words
 }
 
-// findExtInst searches the SPIR-V binary for an spvenums.OpExtInst with the given GLSL instruction.
+// findExtInst searches the SPIR-V binary for an OpExtInst with the given GLSL instruction.
 func findExtInst(t *testing.T, spirvBytes []byte, targetGLSLInst uint32) *extInstInfo {
 	t.Helper()
 	words := parseSPIRVWords(spirvBytes)
@@ -261,7 +261,7 @@ func findExtInst(t *testing.T, spirvBytes []byte, targetGLSLInst uint32) *extIns
 		}
 
 		// OpExtInst format:
-		// word 0: wordCount | spvenums.OpExtInst
+		// word 0: wordCount | OpExtInst
 		// word 1: ResultType
 		// word 2: ResultID
 		// word 3: ExtSet (GLSL.std.450 import ID)
@@ -289,13 +289,13 @@ func findExtInst(t *testing.T, spirvBytes []byte, targetGLSLInst uint32) *extIns
 	return nil
 }
 
-// parseFloat32Constants extracts spvenums.OpConstant float32 values from the SPIR-V binary.
+// parseFloat32Constants extracts OpConstant float32 values from the SPIR-V binary.
 // Returns a map from SPIR-V ID -> float32 value.
 func parseFloat32Constants(spirvBytes []byte) map[uint32]float32 {
 	words := parseSPIRVWords(spirvBytes)
 	constants := make(map[uint32]float32)
 
-	// First pass: find float32 type IDs (spvenums.OpTypeFloat with width 32)
+	// First pass: find float32 type IDs (OpTypeFloat with width 32)
 	floatTypeIDs := make(map[uint32]bool)
 	offset := 5
 	for offset < len(words) {
@@ -319,7 +319,7 @@ func parseFloat32Constants(spirvBytes []byte) map[uint32]float32 {
 		offset += wordCount
 	}
 
-	// Second pass: find spvenums.OpConstant for float32 types
+	// Second pass: find OpConstant for float32 types
 	offset = 5
 	for offset < len(words) {
 		word := words[offset]
@@ -346,7 +346,7 @@ func parseFloat32Constants(spirvBytes []byte) map[uint32]float32 {
 	return constants
 }
 
-// parseStoreLoadChain traces spvenums.OpStore/spvenums.OpLoad chains to resolve which constant
+// parseStoreLoadChain traces OpStore/OpLoad chains to resolve which constant
 // value an ID ultimately holds. Returns a map from loaded-value ID -> float32 value.
 func parseStoreLoadChain(spirvBytes []byte, constants map[uint32]float32) map[uint32]float32 {
 	words := parseSPIRVWords(spirvBytes)
@@ -356,7 +356,7 @@ func parseStoreLoadChain(spirvBytes []byte, constants map[uint32]float32) map[ui
 	varToConstant := make(map[uint32]float32)
 	varHasConstant := make(map[uint32]bool)
 
-	// First pass: find spvenums.OpStore(ptr, value) where value is a known constant
+	// First pass: find OpStore(ptr, value) where value is a known constant
 	offset := 5
 	for offset < len(words) {
 		word := words[offset]
@@ -380,7 +380,7 @@ func parseStoreLoadChain(spirvBytes []byte, constants map[uint32]float32) map[ui
 		offset += wordCount
 	}
 
-	// Second pass: find spvenums.OpLoad(resultType, resultID, pointer) where pointer holds a constant
+	// Second pass: find OpLoad(resultType, resultID, pointer) where pointer holds a constant
 	offset = 5
 	for offset < len(words) {
 		word := words[offset]

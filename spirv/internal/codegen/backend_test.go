@@ -9,7 +9,7 @@ import (
 	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
-// hasDecorateInBinary checks if any spvenums.OpDecorate instruction targets the given ID with the given decoration.
+// hasDecorateInBinary checks if any OpDecorate instruction targets the given ID with the given decoration.
 func hasDecorateInBinary(instrs []spirvInstruction, targetID uint32, decoration spvenums.Decoration) bool {
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpDecorate && len(inst.words) >= 3 {
@@ -21,7 +21,7 @@ func hasDecorateInBinary(instrs []spirvInstruction, targetID uint32, decoration 
 	return false
 }
 
-// hasMemberDecorateInBinary checks if any spvenums.OpMemberDecorate targets the given struct/member/decoration.
+// hasMemberDecorateInBinary checks if any OpMemberDecorate targets the given struct/member/decoration.
 func hasMemberDecorateInBinary(instrs []spirvInstruction, structID, memberIdx uint32, decoration spvenums.Decoration) bool {
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpMemberDecorate && len(inst.words) >= 4 {
@@ -429,7 +429,7 @@ func ptrUint32Const(v uint32) *uint32 {
 	return &v
 }
 
-// TestNonWritableStorageBuffer verifies that read-only storage buffers get spvenums.OpDecorate NonWritable.
+// TestNonWritableStorageBuffer verifies that read-only storage buffers get OpDecorate NonWritable.
 // Matches Rust naga behavior: if !access.contains(STORE) -> NonWritable.
 func TestNonWritableStorageBuffer(t *testing.T) {
 	u32Type := ir.Type{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}
@@ -477,8 +477,8 @@ func TestNonWritableStorageBuffer(t *testing.T) {
 	}
 }
 
-// TestFlatOnIntegerBuiltInFragmentInput verifies that integer spvenums.BuiltIn Input variables
-// in fragment shaders get spvenums.OpDecorate Flat per Vulkan VUID-StandaloneSpirv-Flat-04744.
+// TestFlatOnIntegerBuiltInFragmentInput verifies that integer BuiltIn Input variables
+// in fragment shaders get OpDecorate Flat per Vulkan VUID-StandaloneSpirv-Flat-04744.
 func TestFlatOnIntegerBuiltInFragmentInput(t *testing.T) {
 	u32Type := ir.Type{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}
 	f32Type := ir.Type{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
@@ -538,7 +538,7 @@ func TestFlatOnIntegerBuiltInFragmentInput(t *testing.T) {
 		t.Fatalf("Expected at least 2 Input variables, got %d", len(inputVars))
 	}
 
-	// The first input (view_idx, u32) should have both spvenums.BuiltIn and Flat
+	// The first input (view_idx, u32) should have both BuiltIn and Flat
 	viewIdxVar := inputVars[0]
 	if !hasDecorateInBinary(instrs, viewIdxVar, spvenums.DecorationFlat) {
 		t.Error("Expected Flat decoration on integer BuiltIn Input in fragment shader")
@@ -613,7 +613,7 @@ func TestColMajorThroughArrayType(t *testing.T) {
 
 	instrs := decodeSPIRVInstructions(data)
 
-	// Find the struct type ID - look for spvenums.OpTypeStruct instructions
+	// Find the struct type ID - look for OpTypeStruct instructions
 	var structIDs []uint32
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpTypeStruct {
@@ -803,7 +803,7 @@ func TestFloat32ToF16Bits(t *testing.T) {
 	}
 }
 
-// TestOpLoadResultType verifies that ExprLoad produces spvenums.OpLoad with
+// TestOpLoadResultType verifies that ExprLoad produces OpLoad with
 // the VALUE type (not the pointer type) as result type.
 func TestOpLoadResultType(t *testing.T) {
 	module := &ir.Module{
@@ -839,7 +839,7 @@ func TestOpLoadResultType(t *testing.T) {
 
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Find spvenums.OpLoad instruction
+	// Find OpLoad instruction
 	var loadInstr *spirvInstruction
 	for i := range instrs {
 		if instrs[i].opcode == spvenums.OpLoad {
@@ -852,7 +852,7 @@ func TestOpLoadResultType(t *testing.T) {
 	}
 
 	// The result type (first word after opcode header) should be the i32 type, not a pointer type.
-	// Find the spvenums.OpTypeInt instruction for i32.
+	// Find the OpTypeInt instruction for i32.
 	var intTypeID uint32
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpTypeInt && len(inst.words) >= 4 {
@@ -866,7 +866,7 @@ func TestOpLoadResultType(t *testing.T) {
 		t.Fatal("OpTypeInt 32 1 not found")
 	}
 
-	// Verify spvenums.OpLoad's result type is the i32 type (not pointer type)
+	// Verify OpLoad's result type is the i32 type (not pointer type)
 	if loadInstr.words[1] != intTypeID {
 		t.Errorf("OpLoad result type = %d, want %d (i32 type)", loadInstr.words[1], intTypeID)
 	}
@@ -906,7 +906,7 @@ func TestSaturateEmitsFClampWith3Operands(t *testing.T) {
 
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Find spvenums.OpExtInst for FClamp (GLSL instruction 43)
+	// Find OpExtInst for FClamp (GLSL instruction 43)
 	var fclampInst *spirvInstruction
 	for i := range instrs {
 		if instrs[i].opcode == spvenums.OpExtInst && len(instrs[i].words) >= 5 {
@@ -962,7 +962,7 @@ func TestModfStructReturnType(t *testing.T) {
 
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Find spvenums.OpExtInst for ModfStruct (GLSL instruction 36)
+	// Find OpExtInst for ModfStruct (GLSL instruction 36)
 	var extInst *spirvInstruction
 	for i := range instrs {
 		if instrs[i].opcode == spvenums.OpExtInst && len(instrs[i].words) >= 5 {
@@ -976,7 +976,7 @@ func TestModfStructReturnType(t *testing.T) {
 		t.Fatal("OpExtInst ModfStruct not found in output")
 	}
 
-	// The result type should be a struct type (spvenums.OpTypeStruct), not a scalar type
+	// The result type should be a struct type (OpTypeStruct), not a scalar type
 	resultTypeID := extInst.words[1]
 	var isStruct bool
 	for _, inst := range instrs {
@@ -1111,7 +1111,7 @@ func TestStorageTextureImageFormat(t *testing.T) {
 	i32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 
 	for _, inst := range backend.builder.types {
-		if inst.Opcode != OpTypeImage || len(inst.Words) < 8 {
+		if inst.Opcode != spvenums.OpTypeImage || len(inst.Words) < 8 {
 			continue
 		}
 		resultID := inst.Words[0]
@@ -1203,7 +1203,7 @@ func TestSampledTextureUsesCorrectScalarKind(t *testing.T) {
 	i32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 
 	for _, inst := range backend.builder.types {
-		if inst.Opcode != OpTypeImage || len(inst.Words) < 8 {
+		if inst.Opcode != spvenums.OpTypeImage || len(inst.Words) < 8 {
 			continue
 		}
 		resultID := inst.Words[0]
@@ -1227,7 +1227,7 @@ func TestSampledTextureUsesCorrectScalarKind(t *testing.T) {
 }
 
 // TestIndexByValueSpillsToFunction verifies that dynamic indexing into by-value
-// arrays creates a Function-space temporary variable and uses spvenums.OpAccessChain.
+// arrays creates a Function-space temporary variable and uses OpAccessChain.
 func TestIndexByValueSpillsToFunction(t *testing.T) {
 	i32Handle := ir.TypeHandle(0)
 	arrHandle := ir.TypeHandle(1)
@@ -1269,14 +1269,14 @@ func TestIndexByValueSpillsToFunction(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	// Should have spvenums.OpAccessChain (spill to Function variable)
+	// Should have OpAccessChain (spill to Function variable)
 	if !divmodHasOpcode(spvBytes, spvenums.OpAccessChain) {
 		t.Error("by-value array indexing should spill to Function variable and use OpAccessChain")
 	}
 }
 
 // TestIndexByValueKnownIndexExtracts: an Access by value whose index is known
-// at translation time becomes spvenums.OpCompositeExtract, without a spill, as in Rust
+// at translation time becomes OpCompositeExtract, without a spill, as in Rust
 // naga's cache_expression_value (GuardedIndex::Known).
 func TestIndexByValueKnownIndexExtracts(t *testing.T) {
 	i32Handle := ir.TypeHandle(0)
@@ -1316,7 +1316,7 @@ func TestIndexByValueKnownIndexExtracts(t *testing.T) {
 }
 
 // TestF16PolyfillConvertsIO verifies that when UseStorageInputOutput16=false,
-// f16 entry point I/O is converted through f32 with spvenums.OpFConvert.
+// f16 entry point I/O is converted through f32 with OpFConvert.
 func TestF16PolyfillConvertsIO(t *testing.T) {
 	f16Handle := ir.TypeHandle(0)
 	locBinding := ir.Binding(ir.LocationBinding{Location: 0})

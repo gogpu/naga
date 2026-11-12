@@ -44,19 +44,19 @@ func (f *FunctionBuilder) Consume(block Block, terminator Instruction) {
 }
 
 // ToInstructions serializes all blocks into a flat instruction list suitable
-// for SPIR-V binary encoding. spvenums.OpLabel is emitted from block.LabelID (NOT
+// for SPIR-V binary encoding. OpLabel is emitted from block.LabelID (NOT
 // stored in Body). Local variables are emitted only in the first block.
 // This matches Rust naga's Function::to_words() layout:
 //
-//	spvenums.OpFunction
-//	spvenums.OpFunctionParameter...
-//	spvenums.OpLabel (block 0)
-//	spvenums.OpVariable... (locals)
+//	OpFunction
+//	OpFunctionParameter...
+//	OpLabel (block 0)
+//	OpVariable... (locals)
 //	body instructions...
-//	spvenums.OpLabel (block 1)
+//	OpLabel (block 1)
 //	body instructions...
 //	...
-//	spvenums.OpFunctionEnd
+//	OpFunctionEnd
 func (f *FunctionBuilder) ToInstructions() []Instruction {
 	// Pre-calculate capacity: signature + params + per-block(label+body) + variables + functionEnd.
 	capacity := 1 + len(f.Parameters) + len(f.Variables) + 1 // signature + params + vars + funcEnd
@@ -80,7 +80,7 @@ func (f *FunctionBuilder) ToInstructions() []Instruction {
 	return result
 }
 
-// makeLabelInstruction creates an spvenums.OpLabel instruction with the given ID.
+// makeLabelInstruction creates an OpLabel instruction with the given ID.
 // Unlike ModuleBuilder.AddLabelWithID, this returns the instruction without
 // appending it to any list.
 func makeLabelInstruction(labelID uint32) Instruction {
@@ -90,7 +90,7 @@ func makeLabelInstruction(labelID uint32) Instruction {
 	}
 }
 
-// makeFunctionEndInstruction creates an spvenums.OpFunctionEnd instruction.
+// makeFunctionEndInstruction creates an OpFunctionEnd instruction.
 // Unlike ModuleBuilder.AddFunctionEnd, this returns the instruction without
 // appending it to any list.
 func makeFunctionEndInstruction() Instruction {
@@ -104,11 +104,11 @@ func makeFunctionEndInstruction() Instruction {
 type BlockExitKind int
 
 const (
-	// BlockExitReturn terminates with spvenums.OpReturn or spvenums.OpReturnValue.
+	// BlockExitReturn terminates with OpReturn or OpReturnValue.
 	BlockExitReturn BlockExitKind = iota
-	// BlockExitBranch terminates with spvenums.OpBranch to a target label.
+	// BlockExitBranch terminates with OpBranch to a target label.
 	BlockExitBranch
-	// BlockExitBreakIf terminates with spvenums.OpBranchConditional (break-if pattern).
+	// BlockExitBreakIf terminates with OpBranchConditional (break-if pattern).
 	BlockExitBreakIf
 )
 

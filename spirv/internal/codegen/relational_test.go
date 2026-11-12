@@ -75,7 +75,7 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 // TestRelationalAnyAllOverScalarBool covers the degenerate form. any(bool) and
 // all(bool) are no-ops, so, as in Rust naga, the WGSL lowerer returns the
 // argument and no Relational reaches the IR — whatever the argument is, not only
-// a literal. Backends then never see a scalar any/all; SPIR-V's spvenums.OpAny/spvenums.OpAll
+// a literal. Backends then never see a scalar any/all; SPIR-V's OpAny/OpAll
 // would reject one, and GLSL has no any(bool) overload.
 func TestRelationalAnyAllOverScalarBool(t *testing.T) {
 	args := []struct {

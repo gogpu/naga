@@ -12,10 +12,10 @@ import (
 // and whether it ran before the module's first store to `dataRoot`.
 type spvValueOrigin struct {
 	op spvenums.Op
-	// For spvenums.OpCompositeExtract: the composite came from an spvenums.OpLoad of dataRoot
+	// For OpCompositeExtract: the composite came from an OpLoad of dataRoot
 	// that precedes the first store to dataRoot.
 	extractFromEarlyLoad bool
-	// For spvenums.OpLoad: storage class of the root variable of its pointer.
+	// For OpLoad: storage class of the root variable of its pointer.
 	loadRootClass spvenums.StorageClass
 }
 
@@ -23,7 +23,7 @@ type spvValueOrigin struct {
 // workgroup variable as the data root instead of a resource binding.
 const dataInWorkgroup = ^uint32(0)
 
-// valueStoredTo traces the value of the one spvenums.OpStore whose pointer is rooted at
+// valueStoredTo traces the value of the one OpStore whose pointer is rooted at
 // the variable decorated with Binding outBinding.
 func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spvValueOrigin {
 	t.Helper()
@@ -105,7 +105,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	for {
 		in := instrs[def[value]]
 		switch in.opcode {
-		case spvenums.OpBitcast, spvenums.OpConvertUToF, spvenums.OpConvertSToF, OpCopyLogical:
+		case spvenums.OpBitcast, spvenums.OpConvertUToF, spvenums.OpConvertSToF, spvenums.OpCopyLogical:
 			value = in.words[3]
 			continue
 		}
@@ -115,7 +115,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 			composite := in.words[3]
 			for {
 				c := instrs[def[composite]]
-				if c.opcode == OpCopyLogical {
+				if c.opcode == spvenums.OpCopyLogical {
 					composite = c.words[3]
 					continue
 				}
@@ -140,7 +140,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 
 // TestIndexingALoadedValueUsesTheValue pins BUG-SPV-LOAD-PASSTHROUGH-001.
 // `let snapshot = data;` loads a value; indexing it must read that value, not
-// memory again. Rust naga emits spvenums.OpCompositeExtract on the loaded value for a
+// memory again. Rust naga emits OpCompositeExtract on the loaded value for a
 // constant index and spills it to a temporary for a dynamic one. Re-reading
 // the buffer instead returns a value written after the `let`.
 func TestIndexingALoadedValueUsesTheValue(t *testing.T) {

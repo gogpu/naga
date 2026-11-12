@@ -7,7 +7,7 @@ import (
 	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
-// TestBuiltinToSPIRVSpirvOnlyBuiltins pins the SPIR-V spvenums.BuiltIn numbers of the
+// TestBuiltinToSPIRVSpirvOnlyBuiltins pins the SPIR-V BuiltIn numbers of the
 // built-ins WGSL cannot produce (SPIR-V core grammar: CullDistance 4,
 // PointCoord 16, WorkgroupSize 25; SPV_KHR_shader_draw_parameters: BaseVertex
 // 4424, BaseInstance 4425). A wrong number is a silently invalid interface.
@@ -36,7 +36,7 @@ func TestBuiltinToSPIRVSpirvOnlyBuiltins(t *testing.T) {
 }
 
 // TestCapability_BuiltinCullDistance verifies that writing
-// @builtin(cull_distance) declares spvenums.Capability CullDistance (Rust naga
+// @builtin(cull_distance) declares Capability CullDistance (Rust naga
 // back/spv/writer.rs:3226).
 func TestCapability_BuiltinCullDistance(t *testing.T) {
 	module := &ir.Module{

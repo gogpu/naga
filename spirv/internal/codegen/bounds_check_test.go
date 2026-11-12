@@ -22,7 +22,7 @@ func resultIDWord(op spvenums.Op) int {
 	switch op {
 	case spvenums.OpLabel:
 		return 1
-	case spvenums.OpExtInst, spvenums.OpAccessChain, spvenums.OpLoad, spvenums.OpULessThan, spvenums.OpLogicalAnd, spvenums.OpPhi, OpArrayLength, spvenums.OpISub,
+	case spvenums.OpExtInst, spvenums.OpAccessChain, spvenums.OpLoad, spvenums.OpULessThan, spvenums.OpLogicalAnd, spvenums.OpPhi, spvenums.OpArrayLength, spvenums.OpISub,
 		spvenums.OpVectorExtractDynamic, spvenums.OpConstant, spvenums.OpConstantNull, spvenums.OpFunctionParameter, spvenums.OpVariable,
 		spvenums.OpAtomicLoad, spvenums.OpAtomicIAdd, spvenums.OpCompositeExtract, spvenums.OpBitcast:
 		return 2
@@ -72,7 +72,7 @@ func (v *spvView) def(id uint32) (spirvInstruction, bool) {
 // blockOf returns the label of the block that defines id.
 func (v *spvView) blockOf(id uint32) uint32 { return v.block[v.defs[id]] }
 
-// all returns the instructions with the given opcode (for spvenums.OpExtInst, with the
+// all returns the instructions with the given opcode (for OpExtInst, with the
 // given GLSL.std.450 instruction number).
 func (v *spvView) all(op spvenums.Op, ext uint32) []spirvInstruction {
 	var out []spirvInstruction
@@ -169,8 +169,8 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		if !ok || sub.opcode != spvenums.OpISub || !v.isConst(sub.words[4], 1) {
 			t.Fatalf("UMin bound is not ISub(length, 1)")
 		}
-		if l, ok := v.def(sub.words[3]); !ok || l.opcode != OpArrayLength {
-			t.Errorf("UMin bound is not computed from OpArrayLength")
+		if l, ok := v.def(sub.words[3]); !ok || l.opcode != spvenums.OpArrayLength {
+			t.Errorf("UMin bound is not computed from spvenums.OpArrayLength")
 		}
 	})
 
@@ -256,7 +256,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 }
 
 // rzswGuarded checks the ReadZeroSkipWrite shape around the instruction at
-// index target: its block is entered through spvenums.OpBranchConditional on cond, and
+// index target: its block is entered through OpBranchConditional on cond, and
 // returns that branch's merge label.
 func rzswGuardedBlock(t *testing.T, v *spvView, target uint32) (cond uint32, merge uint32) {
 	t.Helper()
@@ -276,10 +276,10 @@ func rzswGuardedBlock(t *testing.T, v *spvView, target uint32) (cond uint32, mer
 // TestBoundsCheckReadZeroSkipWrite pins BoundsCheckPolicy ReadZeroSkipWrite
 // as Rust naga emits it (back/spv/index.rs write_index_comparison,
 // block.rs write_access_chain / write_checked_load / Statement::Store): each
-// dynamic index is compared with spvenums.OpULessThan against the length, checks are
-// combined with spvenums.OpLogicalAnd, and the access chain itself with its load or
+// dynamic index is compared with OpULessThan against the length, checks are
+// combined with OpLogicalAnd, and the access chain itself with its load or
 // store runs only in the in-bounds branch; a load merges its value with zero
-// through spvenums.OpPhi. Better than Rust, atomics stay atomic on that path and
+// through OpPhi. Better than Rust, atomics stay atomic on that path and
 // read-modify-write atomics are supported (Rust: "Atomics out-of-bounds
 // handling" not implemented).
 func TestBoundsCheckReadZeroSkipWrite(t *testing.T) {
@@ -395,8 +395,8 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		if len(lts) != 1 {
 			t.Fatalf("ULessThan count = %d, want 1", len(lts))
 		}
-		if l, ok := v.def(lts[0].words[4]); !ok || l.opcode != OpArrayLength {
-			t.Errorf("the length operand is not OpArrayLength")
+		if l, ok := v.def(lts[0].words[4]); !ok || l.opcode != spvenums.OpArrayLength {
+			t.Errorf("the length operand is not spvenums.OpArrayLength")
 		}
 	})
 

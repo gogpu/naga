@@ -180,7 +180,7 @@ func (e *ExpressionEmitter) writeRestrictedIndex(base ir.ExpressionHandle, index
 	return boundsCheck{id: restricted}, nil
 }
 
-// writeIndexComparison implements ReadZeroSkipWrite: spvenums.OpULessThan(index,
+// writeIndexComparison implements ReadZeroSkipWrite: OpULessThan(index,
 // length), unless both are known and the index is in bounds (Rust naga's
 // write_index_comparison). A known out-of-bounds index is still compared.
 func (e *ExpressionEmitter) writeIndexComparison(base ir.ExpressionHandle, index guardedIndex, indexID uint32) (boundsCheck, error) {
@@ -269,7 +269,7 @@ func (e *ExpressionEmitter) isStructBase(base ir.ExpressionHandle) bool {
 // chainIndices returns the access chain operands for links (tip first), in
 // root-to-tip order, and the conjunction of their ReadZeroSkipWrite
 // conditions (0 when there is none). Like Rust naga's write_access_chain, the
-// checks are written tip first and combined with spvenums.OpLogicalAnd, without short
+// checks are written tip first and combined with OpLogicalAnd, without short
 // circuit; dynamic index values are evaluated root first beforehand.
 func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32, uint32, error) {
 	indexIDs := make(map[ir.ExpressionHandle]uint32)
@@ -354,7 +354,7 @@ func (e *ExpressionEmitter) buildAccessChain(resultType, rootID uint32, indices 
 }
 
 // writePointerAccess builds the pointer a load, store, atomic or call uses:
-// ONE spvenums.OpAccessChain from the root variable or parameter with every index of
+// ONE OpAccessChain from the root variable or parameter with every index of
 // the Access/AccessIndex chain, as Rust naga's write_access_chain, each index
 // bounds-checked by its policy. When the chain indexes a binding array with
 // a non-uniform index, the pointer is decorated NonUniform
@@ -392,7 +392,7 @@ func (e *ExpressionEmitter) writePointerAccess(handle ir.ExpressionHandle) (acce
 // withAccess runs body with the pointer of p: directly when p is ready, or
 // only when p's condition holds, inside a selection (ReadZeroSkipWrite). With
 // a non-zero valueType, body's result is merged with zero for the
-// out-of-bounds path through spvenums.OpPhi, and the merged id is returned. Anything
+// out-of-bounds path through OpPhi, and the merged id is returned. Anything
 // body uses besides the pointer must be computed before the call, so that it
 // dominates its later uses.
 func (e *ExpressionEmitter) withAccess(p accessPointer, valueType uint32, body func(pointer uint32) (uint32, error)) (uint32, error) {
@@ -441,8 +441,8 @@ func (e *ExpressionEmitter) loadAccessedElement(pointer accessPointer, elementTy
 }
 
 // writeVectorAccess indexes a vector value with a computed index (Rust
-// naga's write_vector_access): spvenums.OpCompositeExtract for an index known in
-// bounds, spvenums.OpVectorExtractDynamic otherwise, under ReadZeroSkipWrite only
+// naga's write_vector_access): OpCompositeExtract for an index known in
+// bounds, OpVectorExtractDynamic otherwise, under ReadZeroSkipWrite only
 // when the index is in bounds, with zero otherwise.
 func (e *ExpressionEmitter) writeVectorAccess(resultType uint32, access ir.ExprAccess, indexID uint32) (uint32, error) {
 	baseID, err := e.emitExpression(access.Base)
@@ -473,9 +473,9 @@ func (e *ExpressionEmitter) vectorElement(resultType, baseID uint32, base ir.Exp
 }
 
 // selection builds `if c1 && c2 && ... { body }` with an optional merged
-// value, as Rust naga's back/spv/selection.rs: one spvenums.OpSelectionMerge in the
-// header, one spvenums.OpBranchConditional per condition to the shared merge block,
-// and an spvenums.OpPhi there over every predecessor.
+// value, as Rust naga's back/spv/selection.rs: one OpSelectionMerge in the
+// header, one OpBranchConditional per condition to the shared merge block,
+// and an OpPhi there over every predecessor.
 type selection struct {
 	e          *ExpressionEmitter
 	valueType  uint32 // 0: no merged value

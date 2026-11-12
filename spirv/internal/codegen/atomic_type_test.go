@@ -31,7 +31,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "AtomicI32", shader)
 	instrs := decodeSPIRVInstructions(spirvBytes)
 
-	// Build type ID → name map from spvenums.OpTypeInt declarations
+	// Build type ID → name map from OpTypeInt declarations
 	typeMap := make(map[uint32]string)
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpTypeInt && len(inst.words) >= 4 {
@@ -44,7 +44,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		}
 	}
 
-	// Verify each spvenums.OpAtomicIAdd has correct result type:
+	// Verify each OpAtomicIAdd has correct result type:
 	// - atomic<i32> → int result type
 	// - atomic<u32> → uint result type
 	want := []string{"int", "uint"}
@@ -68,7 +68,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 }
 
-// TestAtomicI32PointerType verifies that the pointer operand of spvenums.OpAtomicIAdd
+// TestAtomicI32PointerType verifies that the pointer operand of OpAtomicIAdd
 // points to the same type as the result type (int for i32, uint for u32).
 func TestAtomicI32PointerType(t *testing.T) {
 	const shader = `
@@ -88,7 +88,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "AtomicI32Pointer", shader)
 	instrs := decodeSPIRVInstructions(spirvBytes)
 
-	// Build pointer type chain: spvenums.OpTypePointer → base type, spvenums.OpTypeInt → signed/unsigned
+	// Build pointer type chain: OpTypePointer → base type, OpTypeInt → signed/unsigned
 	typeNames := make(map[uint32]string) // type ID → "int" or "uint"
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpTypeInt && len(inst.words) >= 4 {
@@ -101,7 +101,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		}
 	}
 
-	// For each spvenums.OpAtomicIAdd, verify pointer base type matches result type
+	// For each OpAtomicIAdd, verify pointer base type matches result type
 	atomicIdx := 0
 	for _, inst := range instrs {
 		if inst.opcode != spvenums.OpAtomicIAdd || len(inst.words) < 4 {
