@@ -49,11 +49,16 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(binaries) == 0 {
-		t.Fatalf("no binaries under %s", filepath.Join(rustDerivedDir, "spv"))
+	// The corpus is pinned; a module that disappears must fail its pin, not
+	// silently leave the sweep.
+	const corpusSize = 33
+	if len(binaries) != corpusSize {
+		t.Fatalf("binaries = %d, want %d: a corpus change updates this test", len(binaries), corpusSize)
 	}
+	seen := make(map[string]bool, len(binaries))
 	for _, path := range binaries {
 		name := strings.TrimSuffix(filepath.Base(path), ".spv")
+		seen[name] = true
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -71,6 +76,11 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		}
 		if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
 			t.Errorf("%s: parses but does not validate: %v", name, err)
+		}
+	}
+	for name := range phaseOne {
+		if !seen[name] {
+			t.Errorf("%s: the Phase 1 module is missing from the corpus", name)
 		}
 	}
 }
