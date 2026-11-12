@@ -12,9 +12,11 @@
 // must be clean.
 //
 // manifest (re)writes MANIFEST.json for an existing derived tree from explicit
-// source flags. Use it after regenerating a derived tree; a vendored tree is
-// recorded only by sync, which reads its files from the upstream commit, and
-// manifest refuses one so a hand-edited vendored file cannot be re-blessed.
+// source flags, and records a manually vendored tree (SPIRV-Headers, license
+// corpora) after an extension or a refresh. For a vendored tree it refuses to
+// re-bless a changed or missing file while the recorded commit stays the same:
+// that is the hand edit sync would have caught. A new -commit is a refresh and
+// may rewrite every file.
 package main
 
 import (
@@ -25,6 +27,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gogpu/naga/internal/testcorpus"
@@ -146,6 +149,47 @@ func applyCommitMove(set map[string]bool, prev *testcorpus.Source, src *testcorp
 	return nil
 }
 
+// checkVendoredRefresh refuses to re-bless a vendored file that changed or
+// disappeared while the recorded upstream commit stays the same. Rewriting a
+// vendored manifest at one commit is legitimate as an extension — a file added
+// from that commit — but a changed file is a hand edit that sync would have
+// caught. An explicit new commit is a refresh and may rewrite everything.
+func checkVendoredRefresh(dir string, src *testcorpus.Source, files []testcorpus.File) error {
+	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
+	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	prev, err := testcorpus.Load(dir)
+	if err != nil {
+		return fmt.Errorf("%s: %w", manifestPath, err)
+	}
+	if prev.Source.Commit == "" || src.Commit != prev.Source.Commit {
+		return nil
+	}
+	current := make(map[string]string, len(files))
+	for _, f := range files {
+		current[f.Path] = f.SHA256
+	}
+	var problems []string
+	for _, f := range prev.Files {
+		got, ok := current[f.Path]
+		switch {
+		case !ok:
+			problems = append(problems, f.Path+" is missing")
+		case got != f.SHA256:
+			problems = append(problems, f.Path+" changed")
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	sort.Strings(problems)
+	return fmt.Errorf("refusing to re-bless a vendored tree: %s at the recorded commit %q; pass the new -commit (with -commit-date and -note) when the upstream tree moves",
+		strings.Join(problems, ", "), prev.Source.Commit)
+}
+
 func runManifest(args []string, stdout io.Writer) error {
 	fl := flag.NewFlagSet("manifest", flag.ContinueOnError)
 	dir := fl.String("dir", "", "corpus tree")
@@ -163,11 +207,9 @@ func runManifest(args []string, stdout io.Writer) error {
 		return errors.New("manifest: -dir and -kind are required")
 	}
 	switch testcorpus.Kind(*kind) {
-	case testcorpus.KindDerived:
-	case testcorpus.KindVendored:
-		return errors.New("manifest: -kind vendored is refused: a vendored tree is recorded only by `corpussync sync`, which reads its files from the upstream commit")
+	case testcorpus.KindDerived, testcorpus.KindVendored:
 	default:
-		return fmt.Errorf("manifest: unknown kind %q (want derived)", *kind)
+		return fmt.Errorf("manifest: unknown kind %q (want vendored or derived)", *kind)
 	}
 	if err := inheritSource(*dir, fl, testcorpus.Kind(*kind), &src); err != nil {
 		return fmt.Errorf("manifest: %w", err)
@@ -179,6 +221,11 @@ func runManifest(args []string, stdout io.Writer) error {
 	files, err := testcorpus.HashTree(*dir)
 	if err != nil {
 		return err
+	}
+	if testcorpus.Kind(*kind) == testcorpus.KindVendored {
+		if err := checkVendoredRefresh(*dir, &src, files); err != nil {
+			return fmt.Errorf("manifest: %w", err)
+		}
 	}
 	m := &testcorpus.Manifest{
 		Schema: testcorpus.SchemaVersion,
