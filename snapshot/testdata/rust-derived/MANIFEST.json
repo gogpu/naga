@@ -5,8 +5,8 @@
     "repository": "https://github.com/gfx-rs/wgpu",
     "commit": "14328f49918cce19f7cc8bf703435968c8293035",
     "commitDate": "2026-10-14",
-    "generator": "Rust naga: WGSL front end; IR as RON (PrettyConfig, LF) before and after compact(KeepUnused::No) (docs tool ir_dump); ptr-deref-test outputs from the snapshot driver (convert_snapshots_wgsl)",
-    "note": "Regenerated at the vendored commit by TEST-CORPUS-001 (IR for the Rust corpus shaders without an IR target; ptr-deref-test outputs verified byte-identical)."
+    "generator": "Rust naga: WGSL front end; IR as RON (PrettyConfig, LF) before and after compact(KeepUnused::No) (docs tool ir_dump); ptr-deref-test outputs from the snapshot driver (convert_snapshots_wgsl); spirv-as (SPIRV-Tools v2026.1, Vulkan SDK 1.4.341.1) assembles ../rust/in/spv/*.spvasm into spv/*.spv at --target-env spv1.6",
+    "note": "Regenerated at the vendored commit by TEST-CORPUS-001 (IR for the Rust corpus shaders without an IR target; ptr-deref-test outputs verified byte-identical). spv/*.spv regenerated from the vendored assembly at the same commit by P2-TEST-017; TestSPVCorpusBinaries checks one binary per .spvasm and the SPIR-V magic."
   },
   "files": [
     {
@@ -1593,6 +1593,171 @@
       "path": "out/spv/wgsl-ptr-deref-test.spvasm",
       "sha256": "f4bbbea17c708a55e97e14a031b964f05cfc0e2b63f77f0e4f82184a015e55b8",
       "gitBlob": "d88b35b0ba00c131d9d1c47e4fe8d37cc9e8fa96"
+    },
+    {
+      "path": "spv/8151-barrier-reorder.spv",
+      "sha256": "2177694d7ffe4af6e2f732b4173258c7fac508000a3b58b25ba722f55a06b528",
+      "gitBlob": "ad83976e7d023c6c31ef80e57bd9b4230144de7f"
+    },
+    {
+      "path": "spv/atomic_compare_exchange.spv",
+      "sha256": "784451c6a823cde3d430afbd399c46818ec3c4179b74952ae7dd589d2792fa50",
+      "gitBlob": "eeb07da63de6976a4baa73f9ad2debfacf88fa68"
+    },
+    {
+      "path": "spv/atomic_exchange.spv",
+      "sha256": "0c156a2d29622b06b777c896e0bd85e136bff9305a90cda9f0e0595f2638cfd4",
+      "gitBlob": "60bd01f6bbe72411af0d62e12148d5b93a74b28e"
+    },
+    {
+      "path": "spv/atomic_global_struct_field_vertex.spv",
+      "sha256": "f7eea77080554312b7da9a2e3205c1217cc59f96e6d77c411579b587c63cdf43",
+      "gitBlob": "3ed9ee68953232e6cfb359c830899efba3225e1f"
+    },
+    {
+      "path": "spv/atomic_i_add_sub.spv",
+      "sha256": "908016125f13f136b6bff04ddae69e55cee3f507c70e18f5f0200e507b26ff24",
+      "gitBlob": "6fb4c116cc78749cf75e557e8be275daf7446541"
+    },
+    {
+      "path": "spv/atomic_i_decrement.spv",
+      "sha256": "9646f9a0f6e2337f13baf366daa63f0d286c6cb131bbbb22c9bb7bcbedbf24e0",
+      "gitBlob": "95f58eefb2bd1cabf4266fc5db50b747059b1b15"
+    },
+    {
+      "path": "spv/atomic_i_increment.spv",
+      "sha256": "c68dadd430fd319f7653f475255958b6a8d1dea8445f41f441a4c830126ade94",
+      "gitBlob": "a3445525ab7f78f1f51531871a51b16539ad872f"
+    },
+    {
+      "path": "spv/atomic_load_and_store.spv",
+      "sha256": "65d09842e2a61ed5bbf6c1059574b1045f3a78129fd6fec888f40ba355e4bdb6",
+      "gitBlob": "f431bfcfbfe66130a32951cbdfc8437dddfe29d9"
+    },
+    {
+      "path": "spv/barrier.spv",
+      "sha256": "0ce4325192d97718c5dc53e09da1a08cdeb82088658119c117c8f05286e44fa4",
+      "gitBlob": "7bf8526266c343a9e49329ef1de24cb29edcdca7"
+    },
+    {
+      "path": "spv/binding-arrays.dynamic.spv",
+      "sha256": "d27b8261928538c485edde9583e7b0fcaecd02ff97915f8e4923d64d74cfa7b9",
+      "gitBlob": "12bf2e00edf3048a9814efb67dedbf59fbe90ded"
+    },
+    {
+      "path": "spv/binding-arrays.runtime.spv",
+      "sha256": "cae672244584ec01bbe15335c957fb0442b1be0aa96b60850f8453e1e395bb6e",
+      "gitBlob": "e52a6a449ce647d2c9a0eed2ec6921a6f032d681"
+    },
+    {
+      "path": "spv/binding-arrays.static.spv",
+      "sha256": "20cf09a5d9005e81d254428013055ebc423c2acd474c1dfa09fcbbc81882b0ad",
+      "gitBlob": "0d3c304af4221791cc5192332be859c6c4c677ab"
+    },
+    {
+      "path": "spv/builtin-accessed-outside-entrypoint.spv",
+      "sha256": "28f47fe1c2791968b70c3f91a7ffabade1694e3e42c4ba8b11a0d446e51dab73",
+      "gitBlob": "f95982899e7a6f8925d3ede2f8b74fec9e1da121"
+    },
+    {
+      "path": "spv/degrees.spv",
+      "sha256": "f11574154ea225ea86aa27b163b2e7ed172da9a0caea936a1d12971d650559b5",
+      "gitBlob": "b6ac5d003b0371cb6a382a710cbe3801a0dc1777"
+    },
+    {
+      "path": "spv/do-while.spv",
+      "sha256": "8c11dc6412f233182f694a4d48932622e1bec553b75535048e63f66c08dfe14e",
+      "gitBlob": "36daa71687c2e81ef2378a8dd6e1c9cd8921aa96"
+    },
+    {
+      "path": "spv/dual-source-blending.spv",
+      "sha256": "e00c6a5ea6287b7c129fdba61f9d185cb7d17686d5efc8d065371d625f530837",
+      "gitBlob": "cb756d7243248e5b4ff42058ab92311bebca592f"
+    },
+    {
+      "path": "spv/empty-global-name.spv",
+      "sha256": "d4175cb9cc74bf3a07d5e447b8b1f85cbd6a1b6adbf65a1ecef76d3b12ed4a20",
+      "gitBlob": "45d60162e1c458546f57cbe0a9d03630ac744c1e"
+    },
+    {
+      "path": "spv/f16-spv.spv",
+      "sha256": "3cf3a4395b379e9201478dcffa9b7961e65c6a94c166146bd6aecda9db9c3e50",
+      "gitBlob": "243654023e0f014df836cee8e55d2b509945747c"
+    },
+    {
+      "path": "spv/fetch_depth.spv",
+      "sha256": "4c698b16348046f7878469dafa6d1535c9f766f19e8e113d79b56518401702fe",
+      "gitBlob": "7d7ed50fe1c5e9430424139b235ed79e897e191b"
+    },
+    {
+      "path": "spv/gather-cmp.spv",
+      "sha256": "071a103d56a532aa05bc1baf07cacd177a84c7f4eb32954ab6f290763835e62b",
+      "gitBlob": "b5e18994f47f5592d73b3079459d6dd02fdcac2f"
+    },
+    {
+      "path": "spv/gather.spv",
+      "sha256": "e3a6729275c7d1740d790c0df35223d5d23691dae65d0c694267f48af92baf8f",
+      "gitBlob": "1e21095b9747e9d1d60e6e1c9d5417098de6a79d"
+    },
+    {
+      "path": "spv/inv-hyperbolic-trig-functions.spv",
+      "sha256": "3bd8e1f09b87e95da8dcb4aef60fbc9ff5fb8b7e18dd06a397362f68c00c899a",
+      "gitBlob": "829a098876276b8a7881d318f1bf25235472897d"
+    },
+    {
+      "path": "spv/load-ms-texture.spv",
+      "sha256": "b168381564f54142f8b25a4f8895327a251f5fa766b026aafa1c3324b46e382b",
+      "gitBlob": "6222a010f21e0fb276c5e03442d0e3b642cf1d8a"
+    },
+    {
+      "path": "spv/non-semantic-debug.spv",
+      "sha256": "990acc90837ba311b89a83be2e0025b7a43059b3f91cb0421a4cdebb5f4889c8",
+      "gitBlob": "7c6f7ba36ccd5c461588561f09cbaaa1f642b9a4"
+    },
+    {
+      "path": "spv/per-vertex.spv",
+      "sha256": "088299e3b9aaa1064c510e10345b119756b2fd2478c57942661ab894c303c45f",
+      "gitBlob": "769020231f888edea9e0aa6939429acf9c8fdb33"
+    },
+    {
+      "path": "spv/quad-vert.spv",
+      "sha256": "31b2f55c60741c7f650e30a65e7ac15b1924fa7be08bb0d2b0b56758250888aa",
+      "gitBlob": "6cf7b6a1a16fbfe19029b1af5854ea22c8d88ac0"
+    },
+    {
+      "path": "spv/shadow.spv",
+      "sha256": "ea8eac81e470f30cd233b84e17d23ebe87eadca22949e2cc2d6fa17917276136",
+      "gitBlob": "6473f4ef305e1f74d6f7036d893c57134d755137"
+    },
+    {
+      "path": "spv/spec-constants-issue-5598.spv",
+      "sha256": "ebbfce7c16f801770a011e21189727d6f8815eb993b38c53194b70a1e6069afb",
+      "gitBlob": "5cb65ad26e54694a9d71ad65168f2c53b2b0f07c"
+    },
+    {
+      "path": "spv/spec-constants.spv",
+      "sha256": "df56c9ce72a8b2256f2dc5d423953b86ff746259ba5208cef5f4bfe6bc43d20a",
+      "gitBlob": "4976b909a14e8d0e054f152681cab4c7f4fe07ae"
+    },
+    {
+      "path": "spv/subgroup-barrier.spv",
+      "sha256": "fbf74356f22216f050151d5ce610dfb1bcdb733ce5bf51ec0bf6c6c220cb846b",
+      "gitBlob": "78955f900e2265ff34a4ee389f98da9c80af35b2"
+    },
+    {
+      "path": "spv/subgroup-operations-s.spv",
+      "sha256": "fe21e0d5acda8500636cde4d0f72c6290727ef56425a8cef5e954e62d4d40e20",
+      "gitBlob": "38dde797f42abb9a0d1f5edb09a2e40f263c4a8b"
+    },
+    {
+      "path": "spv/subgroup-reduce-issue-8389.spv",
+      "sha256": "010d39bccb090c6234205a36e71b03c9befb8e98ece50eb034b9c8c0cf4b50be",
+      "gitBlob": "192e6caf967dc9057bd6620f51b2890b2d05549b"
+    },
+    {
+      "path": "spv/unnamed-gl-per-vertex.spv",
+      "sha256": "9e897695ad75d527bcf4156af9e40f19112b0a60bd74fd83f3526212760baf60",
+      "gitBlob": "8dbbb851adb4efa5d1d395fc990765a7a15fa59d"
     }
   ]
 }

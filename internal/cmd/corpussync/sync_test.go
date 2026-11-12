@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +66,16 @@ func upstreamFiles() map[string]string {
 		"naga/tests/out/glsl/wgsl-a.main.Compute.glsl": "// glsl\n",
 		"naga/tests/out/ir/wgsl-a.ron":                 "(ir)\n",
 		"naga/tests/out/ir/wgsl-a.compact.ron":         "(compact)\n",
-		// Not selected: non-WGSL sources, other output kinds, other inputs.
+		// SPIR-V input corpus: the assembly, its parameters and its goldens.
+		"naga/tests/in/spv/s.spvasm":                 "; spv input\n",
+		"naga/tests/in/spv/s.toml":                   "targets = \"MSL\"\n",
+		"naga/tests/in/spv/s.slang":                  "// source\n",
+		"naga/tests/out/msl/spv-s.metal":             "// spv msl\n",
+		"naga/tests/out/hlsl/spv-s.hlsl":             "// spv hlsl\n",
+		"naga/tests/out/glsl/spv-s.main.Vertex.glsl": "// spv glsl\n",
+		"naga/tests/out/ir/spv-s.ron":                "(spv ir)\n",
+		// Not selected: the SPIR-V backend's own output for an spv input, the
+		// WGSL round-trip, analysis info, non-corpus sources and code.
 		"naga/tests/out/spv/spv-b.spvasm":         "; from spv input\n",
 		"naga/tests/out/wgsl/wgsl-a.wgsl":         "// wgsl roundtrip\n",
 		"naga/tests/out/analysis/wgsl-a.info.ron": "(info)\n",
@@ -94,6 +104,12 @@ func TestSyncCopiesSelectedFilesByteForByte(t *testing.T) {
 		"out/glsl/wgsl-a.main.Compute.glsl": "// glsl\n",
 		"out/ir/wgsl-a.ron":                 "(ir)\n",
 		"out/ir/wgsl-a.compact.ron":         "(compact)\n",
+		"in/spv/s.spvasm":                   "; spv input\n",
+		"in/spv/s.toml":                     "targets = \"MSL\"\n",
+		"out/msl/spv-s.metal":               "// spv msl\n",
+		"out/hlsl/spv-s.hlsl":               "// spv hlsl\n",
+		"out/glsl/spv-s.main.Vertex.glsl":   "// spv glsl\n",
+		"out/ir/spv-s.ron":                  "(spv ir)\n",
 	}
 	m, err := testcorpus.Load(out)
 	if err != nil {
@@ -167,6 +183,99 @@ func TestSyncReplacesStaleFilesAndKeepsReadme(t *testing.T) {
 	if problems, err := testcorpus.Verify(out); err != nil || len(problems) != 0 {
 		t.Errorf("Verify after re-sync: %v %v", problems, err)
 	}
+}
+
+// TestManifestKeepsExistingSource pins the provenance rule: rewriting a
+// manifest without the source flags keeps the tree's recorded commit,
+// generator and note; an explicit flag overrides its own field only.
+func TestManifestKeepsExistingSource(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.spv"), []byte("spv"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	full := []string{"manifest", "-dir", dir, "-kind", "derived",
+		"-repo", upstreamRepository, "-commit", "14328f49", "-commit-date", "2026-10-14",
+		"-generator", "spirv-as", "-note", "keep me"}
+	if err := run(full, &out); err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived"}, &out); err != nil {
+		t.Fatalf("manifest without source flags: %v", err)
+	}
+	m, err := testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source.Repository != upstreamRepository || m.Source.Commit != "14328f49" ||
+		m.Source.CommitDate != "2026-10-14" || m.Source.Generator != "spirv-as" ||
+		m.Source.Note != "keep me" {
+		t.Errorf("source = %+v, want the existing provenance kept", m.Source)
+	}
+
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived", "-note", "new note"}, &out); err != nil {
+		t.Fatalf("manifest with -note: %v", err)
+	}
+	m, err = testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source.Note != "new note" || m.Source.Generator != "spirv-as" || m.Source.Commit != "14328f49" {
+		t.Errorf("source = %+v, want only the note overridden", m.Source)
+	}
+}
+
+// TestRunErrors covers the command's refusal paths: usage, unknown command,
+// missing flags, and an unreadable manifest that must not be overwritten.
+func TestRunErrors(t *testing.T) {
+	if err := run(nil, io.Discard); err == nil {
+		t.Error("run with no arguments succeeded, want a usage error")
+	}
+	if err := run([]string{"bogus"}, io.Discard); err == nil {
+		t.Error("run with an unknown command succeeded, want an error")
+	}
+	if err := run([]string{"sync"}, io.Discard); err == nil {
+		t.Error("sync without -wgpu/-out succeeded, want an error")
+	}
+	dir := t.TempDir()
+	if err := run([]string{"manifest", "-dir", dir}, io.Discard); err == nil {
+		t.Error("manifest without -kind succeeded, want an error")
+	}
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived"}, io.Discard); err == nil {
+		t.Error("manifest without a repository anywhere succeeded, want an error")
+	}
+	if err := os.WriteFile(filepath.Join(dir, testcorpus.ManifestName), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived", "-repo", "https://example.com/x"}, io.Discard); err == nil {
+		t.Error("manifest over an invalid existing manifest succeeded, want an error")
+	}
+}
+
+// TestSyncRequiresBothCorpora pins the shape check: a checkout missing either
+// input set is refused instead of vendoring an empty half.
+func TestSyncRequiresBothCorpora(t *testing.T) {
+	t.Run("no SPIR-V inputs", func(t *testing.T) {
+		files := upstreamFiles()
+		delete(files, "naga/tests/in/spv/s.spvasm")
+		delete(files, "naga/tests/in/spv/s.toml")
+		upstream := fakeUpstream(t, files)
+		_, err := syncCorpus(upstream, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "no .spvasm inputs") {
+			t.Fatalf("err = %v, want a refusal mentioning the missing SPIR-V inputs", err)
+		}
+	})
+	t.Run("no WGSL inputs", func(t *testing.T) {
+		files := upstreamFiles()
+		delete(files, "naga/tests/in/wgsl/a.wgsl")
+		delete(files, "naga/tests/in/wgsl/a.toml")
+		upstream := fakeUpstream(t, files)
+		_, err := syncCorpus(upstream, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "no .wgsl inputs") {
+			t.Fatalf("err = %v, want a refusal mentioning the missing WGSL inputs", err)
+		}
+	})
 }
 
 func TestSyncRefusesDirtyUpstream(t *testing.T) {

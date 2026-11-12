@@ -21,7 +21,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gogpu/naga/internal/testcorpus"
@@ -82,6 +84,41 @@ func formatChanges(r Report) string {
 	return b.String()
 }
 
+// inheritSource fills the source fields a flag did not set from the manifest
+// already recorded in the tree, so a regeneration (usually run with only -dir
+// and -kind) cannot erase the provenance of derived files. A missing manifest
+// leaves src untouched; an invalid one is an error.
+func inheritSource(dir string, fl *flag.FlagSet, src *testcorpus.Source) error {
+	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
+	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	prev, err := testcorpus.Load(dir)
+	if err != nil {
+		return fmt.Errorf("%s: %w", manifestPath, err)
+	}
+	set := make(map[string]bool)
+	fl.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if !set["repo"] {
+		src.Repository = prev.Source.Repository
+	}
+	if !set["commit"] {
+		src.Commit = prev.Source.Commit
+	}
+	if !set["commit-date"] {
+		src.CommitDate = prev.Source.CommitDate
+	}
+	if !set["generator"] {
+		src.Generator = prev.Source.Generator
+	}
+	if !set["note"] {
+		src.Note = prev.Source.Note
+	}
+	return nil
+}
+
 func runManifest(args []string, stdout io.Writer) error {
 	fl := flag.NewFlagSet("manifest", flag.ContinueOnError)
 	dir := fl.String("dir", "", "corpus tree")
@@ -95,8 +132,14 @@ func runManifest(args []string, stdout io.Writer) error {
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
-	if *dir == "" || *kind == "" || src.Repository == "" {
-		return errors.New("manifest: -dir, -kind and -repo are required")
+	if *dir == "" || *kind == "" {
+		return errors.New("manifest: -dir and -kind are required")
+	}
+	if err := inheritSource(*dir, fl, &src); err != nil {
+		return fmt.Errorf("manifest: %w", err)
+	}
+	if src.Repository == "" {
+		return errors.New("manifest: -repo is required (or an existing manifest with a repository)")
 	}
 
 	files, err := testcorpus.HashTree(*dir)
