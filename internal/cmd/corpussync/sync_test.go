@@ -226,6 +226,93 @@ func TestManifestKeepsExistingSource(t *testing.T) {
 	}
 }
 
+// TestManifestRefusesVendoredTree pins the provenance boundary: a vendored
+// tree is recorded only by sync, so manifest cannot re-bless a hand-edited
+// vendored file while keeping the upstream commit claim. The edit stays
+// visible to the integrity check after the refusal.
+func TestManifestRefusesVendoredTree(t *testing.T) {
+	upstream := fakeUpstream(t, upstreamFiles())
+	dir := t.TempDir()
+	if _, err := syncCorpus(upstream, dir); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, dir, map[string]string{"in/spv/s.spvasm": "; edited by hand\n"})
+
+	var out bytes.Buffer
+	err := run([]string{"manifest", "-dir", dir, "-kind", "vendored", "-repo", upstreamRepository}, &out)
+	if err == nil || !strings.Contains(err.Error(), "vendored") {
+		t.Fatalf("err = %v, want a refusal of -kind vendored", err)
+	}
+	problems, verifyErr := testcorpus.Verify(dir)
+	if verifyErr != nil || len(problems) != 1 || problems[0].Path != "in/spv/s.spvasm" {
+		t.Errorf("Verify after the refused rewrite = %v %v, want the hand edit still detected", problems, verifyErr)
+	}
+}
+
+// TestManifestRefusesKindMismatch: a tree recorded as one kind is never
+// rewritten as the other.
+func TestManifestRefusesKindMismatch(t *testing.T) {
+	upstream := fakeUpstream(t, upstreamFiles())
+	dir := t.TempDir()
+	if _, err := syncCorpus(upstream, dir); err != nil {
+		t.Fatal(err)
+	}
+	err := run([]string{"manifest", "-dir", dir, "-kind", "derived", "-repo", upstreamRepository}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "recorded as vendored") {
+		t.Fatalf("err = %v, want a refusal naming the recorded kind", err)
+	}
+}
+
+// TestManifestChangedCommitNeedsNewProvenance: an explicit -commit that
+// differs from the recorded one must not inherit the date and note that
+// described the old commit; naming the recorded commit again inherits as
+// usual.
+func TestManifestChangedCommitNeedsNewProvenance(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"a.spv": "spv"})
+	var out bytes.Buffer
+	base := []string{"manifest", "-dir", dir, "-kind", "derived", "-repo", upstreamRepository,
+		"-commit", "old", "-commit-date", "2026-01-01", "-note", "old note", "-generator", "spirv-as"}
+	if err := run(base, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"manifest", "-dir", dir, "-kind", "derived", "-commit", "new"},
+		{"manifest", "-dir", dir, "-kind", "derived", "-commit", "new", "-commit-date", "2026-02-02"},
+	} {
+		err := run(args, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "-commit-date") || !strings.Contains(err.Error(), "-note") {
+			t.Errorf("run(%q) = %v, want a refusal naming -commit-date and -note", args, err)
+		}
+	}
+
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived",
+		"-commit", "new", "-commit-date", "2026-02-02", "-note", "new note"}, &out); err != nil {
+		t.Fatalf("manifest with the new provenance: %v", err)
+	}
+	m, err := testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source.Commit != "new" || m.Source.CommitDate != "2026-02-02" || m.Source.Note != "new note" ||
+		m.Source.Repository != upstreamRepository || m.Source.Generator != "spirv-as" {
+		t.Errorf("source = %+v, want the new commit's date and note with the kept repository and generator", m.Source)
+	}
+
+	// Naming the recorded commit again is not a move: the date and note stay.
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "derived", "-commit", "new"}, &out); err != nil {
+		t.Fatalf("manifest with the recorded commit: %v", err)
+	}
+	m, err = testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source.CommitDate != "2026-02-02" || m.Source.Note != "new note" {
+		t.Errorf("source = %+v, want the recorded date and note kept", m.Source)
+	}
+}
+
 // TestRunErrors covers the command's refusal paths: usage, unknown command,
 // missing flags, and an unreadable manifest that must not be overwritten.
 func TestRunErrors(t *testing.T) {
@@ -337,6 +424,7 @@ func TestRunRejectsUsageErrors(t *testing.T) {
 		{"sync"},                          // -wgpu and -out required
 		{"manifest", "-dir", t.TempDir()}, // -kind and -repo required
 		{"manifest", "-dir", t.TempDir(), "-kind", "copied", "-repo", "r"},
+		{"manifest", "-dir", t.TempDir(), "-kind", "vendored", "-repo", "r"},
 	}
 	for _, args := range tests {
 		var stdout bytes.Buffer
