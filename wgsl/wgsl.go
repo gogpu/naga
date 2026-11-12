@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/gogpu/naga/frontend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/lower"
 	"github.com/gogpu/naga/wgsl/internal/parser"
@@ -22,19 +23,7 @@ type ParseOptions struct{}
 type ParseInfo struct {
 	// Warnings are the diagnostics that do not stop compilation, such as an
 	// unused value of a call whose result must be used.
-	Warnings []Diagnostic
-}
-
-// Diagnostic is a message about a span of the source.
-type Diagnostic struct {
-	Message string
-	Span    ir.Span
-}
-
-// Label marks a span of the source in a [ParseError].
-type Label struct {
-	Span ir.Span
-	Text string
+	Warnings []frontend.Diagnostic
 }
 
 // ParseError is the error [Parse] returns, in Rust naga's shape: a message, the
@@ -43,7 +32,7 @@ type Label struct {
 // [ParseError.Format] place it in the source.
 type ParseError struct {
 	Message string
-	Labels  []Label
+	Labels  []frontend.Label
 	Notes   []string
 }
 
@@ -72,7 +61,7 @@ func (e *ParseError) Location(source string) (ir.SourceLocation, bool) {
 //
 // Each label is drawn under its own copy of its line.
 func (e *ParseError) Format(source, path string) string {
-	var labels []Label
+	var labels []frontend.Label
 	for _, l := range e.Labels {
 		if l.Span.IsDefined() {
 			labels = append(labels, l)
@@ -150,7 +139,7 @@ func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	}
 	var info ParseInfo
 	for _, w := range result.Warnings {
-		info.Warnings = append(info.Warnings, Diagnostic{Message: w.Message, Span: spanOf(source, w.Span)})
+		info.Warnings = append(info.Warnings, frontend.Diagnostic{Message: w.Message, Span: spanOf(source, w.Span)})
 	}
 	return result.Module, info, nil
 }
@@ -167,7 +156,7 @@ func fromParserErrors(source string, errs []parser.ParseError, err error) *Parse
 	}
 	pe := &ParseError{
 		Message: errs[0].Message,
-		Labels:  []Label{{Span: tokenSpan(errs[0].Token), Text: errs[0].Label}},
+		Labels:  []frontend.Label{{Span: tokenSpan(errs[0].Token), Text: errs[0].Label}},
 		Notes:   append([]string(nil), errs[0].Notes...),
 	}
 	for _, e := range errs[1:] {
@@ -190,7 +179,7 @@ func fromLowerError(source string, err error) *ParseError {
 	first := (*list)[0]
 	pe := &ParseError{Message: first.Message}
 	if span := spanOf(source, first.Span); span.IsDefined() {
-		pe.Labels = []Label{{Span: span}}
+		pe.Labels = []frontend.Label{{Span: span}}
 	}
 	for _, e := range (*list)[1:] {
 		pe.Notes = append(pe.Notes, e.Error())
