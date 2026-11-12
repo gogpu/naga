@@ -345,6 +345,16 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	}, nil
 }
 
+// msgLiteralNotRepresentable is Rust naga's message for
+// NumberError::NotRepresentable: an integer literal outside its type's range.
+const msgLiteralNotRepresentable = "numeric literal not representable by target type"
+
+// literalNotRepresentable is the error of an integer literal outside its
+// type's range: a shader-creation error.
+func (l *Lowerer) literalNotRepresentable(lit *parser.Literal) error {
+	return parser.NewSourceError(msgLiteralNotRepresentable, lit.Span, l.source)
+}
+
 // addError adds an error with source location.
 func (l *Lowerer) addError(message string, span parser.Span) {
 	l.errors.Add(parser.NewSourceError(message, span, l.source))
@@ -813,7 +823,10 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 	for _, attr := range v.Attributes {
 		if attr.Name == "group" && len(attr.Args) > 0 {
 			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				group, _ := strconv.ParseUint(lit.Value, 10, 32)
+				group, err := strconv.ParseUint(lit.Value, 10, 32)
+				if err != nil {
+					return l.literalNotRepresentable(lit)
+				}
 				if binding == nil {
 					binding = &ir.ResourceBinding{}
 				}
@@ -823,7 +836,10 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		}
 		if attr.Name == "binding" && len(attr.Args) > 0 {
 			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				bind, _ := strconv.ParseUint(lit.Value, 10, 32)
+				bind, err := strconv.ParseUint(lit.Value, 10, 32)
+				if err != nil {
+					return l.literalNotRepresentable(lit)
+				}
 				if binding == nil {
 					binding = &ir.ResourceBinding{}
 				}
@@ -2724,23 +2740,41 @@ func (l *Lowerer) lowerLiteral(lit *parser.Literal) (ir.ExpressionHandle, error)
 			text = text[:len(text)-1]
 		}
 		hasSuffix := isUnsigned || is64bit || (len(lit.Value) > 0 && lit.Value[len(lit.Value)-1] == 'i')
+		// A literal outside its type's range is a shader-creation error, as
+		// Rust naga's NumberError::NotRepresentable; it must not be clamped to
+		// a different value.
 		if isUnsigned {
 			if is64bit {
-				v, _ := strconv.ParseUint(text, 0, 64)
+				v, err := strconv.ParseUint(text, 0, 64)
+				if err != nil {
+					return 0, l.literalNotRepresentable(lit)
+				}
 				value = ir.LiteralU64(v)
 			} else {
-				v, _ := strconv.ParseUint(text, 0, 32)
+				v, err := strconv.ParseUint(text, 0, 32)
+				if err != nil {
+					return 0, l.literalNotRepresentable(lit)
+				}
 				value = ir.LiteralU32(v)
 			}
 		} else if is64bit {
-			v, _ := strconv.ParseInt(text, 0, 64)
+			v, err := strconv.ParseInt(text, 0, 64)
+			if err != nil {
+				return 0, l.literalNotRepresentable(lit)
+			}
 			value = ir.LiteralI64(v)
 		} else if hasSuffix {
-			v, _ := strconv.ParseInt(text, 0, 32)
+			v, err := strconv.ParseInt(text, 0, 32)
+			if err != nil {
+				return 0, l.literalNotRepresentable(lit)
+			}
 			value = ir.LiteralI32(v)
 		} else {
 			// No suffix: abstract integer literal (concretized later by context)
-			v, _ := strconv.ParseInt(text, 0, 64)
+			v, err := strconv.ParseInt(text, 0, 64)
+			if err != nil {
+				return 0, l.literalNotRepresentable(lit)
+			}
 			value = ir.LiteralAbstractInt(v)
 		}
 	case parser.TokenFloatLiteral:
@@ -4536,7 +4570,10 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		var size *uint32
 		if t.Size != nil {
 			if lit, ok := t.Size.(*parser.Literal); ok && lit.Kind == parser.TokenIntLiteral {
-				n, _ := strconv.ParseUint(lit.Value, 0, 32)
+				n, err := strconv.ParseUint(lit.Value, 0, 32)
+				if err != nil {
+					return 0, l.literalNotRepresentable(lit)
+				}
 				s := uint32(n)
 				size = &s
 			}
@@ -5284,7 +5321,11 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 		case "location":
 			if len(attr.Args) > 0 {
 				if lit, ok := attr.Args[0].(*parser.Literal); ok {
-					loc, _ := strconv.ParseUint(lit.Value, 10, 32)
+					loc, err := strconv.ParseUint(lit.Value, 10, 32)
+					if err != nil {
+						l.addError(msgLiteralNotRepresentable, lit.Span)
+						continue
+					}
 					if locBinding == nil {
 						locBinding = &ir.LocationBinding{}
 					}
@@ -5299,7 +5340,11 @@ func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 			}
 			if len(attr.Args) > 0 {
 				if lit, ok := attr.Args[0].(*parser.Literal); ok {
-					idx, _ := strconv.ParseUint(lit.Value, 10, 32)
+					idx, err := strconv.ParseUint(lit.Value, 10, 32)
+					if err != nil {
+						l.addError(msgLiteralNotRepresentable, lit.Span)
+						continue
+					}
 					if locBinding == nil {
 						locBinding = &ir.LocationBinding{}
 					}
