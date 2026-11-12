@@ -1408,10 +1408,10 @@ func (v *validator) builtinVaryingError(stage ir.ShaderStage, ty ir.TypeHandle, 
 		return ""
 	}
 	if !visible {
-		return fmt.Sprintf("Built-in %s is not available at this stage", builtin)
+		return fmt.Sprintf("Built-in %s is not available at this stage", builtinDebug(builtin))
 	}
 	if !typeOK {
-		return fmt.Sprintf("Built-in type for %s is invalid", builtin)
+		return fmt.Sprintf("Built-in type for %s is invalid. Found %s", builtinDebug(builtin), typeInnerDebug(inner))
 	}
 	return ""
 }
