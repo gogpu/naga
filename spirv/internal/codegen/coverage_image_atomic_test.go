@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,7 @@ import (
 
 // TestImageAtomicAdd exercises emitImageAtomic with AtomicAdd on a storage
 // texture. Covers resolveImageGlobalVar, emitI32Constant, emitU32Constant,
-// and the entire image atomic code path including OpImageTexelPointer.
+// and the entire image atomic code path including spvenums.OpImageTexelPointer.
 func TestImageAtomicAdd(t *testing.T) {
 	r32uintHandle := ir.TypeHandle(0)
 	vec2i32Handle := ir.TypeHandle(2)
@@ -82,11 +83,11 @@ func TestImageAtomicAdd(t *testing.T) {
 	instrs := decodeSPIRVInstructions(spvBytes)
 
 	// OpImageTexelPointer should be emitted to get a pointer to the texel
-	if !hasOpcodeInInstrs(instrs, OpImageTexelPointer) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpImageTexelPointer) {
 		t.Error("expected OpImageTexelPointer for image atomic")
 	}
 	// The atomic operation itself
-	if !hasOpcodeInInstrs(instrs, OpAtomicIAdd) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicIAdd) {
 		t.Error("expected OpAtomicIAdd for image atomic add")
 	}
 }
@@ -152,7 +153,7 @@ func TestImageAtomicExchange(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	if !hasOpcodeInInstrs(instrs, OpAtomicExchange) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicExchange) {
 		t.Error("expected OpAtomicExchange for image atomic exchange")
 	}
 }
@@ -218,8 +219,8 @@ func TestImageAtomicSignedMin(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Signed min uses OpAtomicSMin
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMin) {
+	// Signed min uses spvenums.OpAtomicSMin
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMin) {
 		t.Error("expected OpAtomicSMin for signed image atomic min")
 	}
 }

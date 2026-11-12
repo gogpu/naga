@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/internal/testtools"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestVec2IfElseCacheBug reproduces the exact pattern from path_tiling.wgsl:
@@ -27,7 +28,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var xy0 = vec2<f32>(1.0, 2.0);
     let xy1 = vec2<f32>(5.0, 6.0);
 
-    // First read of xy0.x — goes through emitAccessIndex → OpAccessChain + OpLoad
+    // First read of xy0.x — goes through emitAccessIndex → spvenums.OpAccessChain + spvenums.OpLoad
     let first_x = xy0.x;
 
     // Conditional store — modifies xy0 inside if/else
@@ -85,21 +86,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
-	// Count OpLoad instructions in the main function body (after merge)
-	// We need at least 2 separate OpLoad of xy0's .x component
+	// Count spvenums.OpLoad instructions in the main function body (after merge)
+	// We need at least 2 separate spvenums.OpLoad of xy0's .x component
 	var loadCount, storeCount, accessChainCount int
 	for _, inst := range instrs {
 		switch inst.opcode {
-		case OpLoad:
+		case spvenums.OpLoad:
 			loadCount++
-		case OpStore:
+		case spvenums.OpStore:
 			storeCount++
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			accessChainCount++
 		}
 	}
@@ -258,12 +259,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
-	// Find the OpStore for p0out and verify it comes AFTER the if/else merge.
+	// Find the spvenums.OpStore for p0out and verify it comes AFTER the if/else merge.
 	// Collect key instruction positions.
 	var (
 		p0outStoreOffset = -1
@@ -286,26 +287,26 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// Track merge labels for if/else blocks
 	mergeLabels := make(map[uint32]bool)
 	for _, inst := range instrs {
-		if inst.opcode == OpSelectionMerge && inst.wordCount >= 2 {
+		if inst.opcode == spvenums.OpSelectionMerge && inst.wordCount >= 2 {
 			mergeLabels[inst.words[1]] = true
 		}
 	}
 
 	for _, inst := range instrs {
 		// Track merge block entries (label that is a merge target)
-		if inst.opcode == OpLabel && mergeLabels[inst.words[1]] {
+		if inst.opcode == spvenums.OpLabel && mergeLabels[inst.words[1]] {
 			lastMergeOffset = inst.offset
 		}
 
 		// Track stores to xy0 inside if/else branches
-		if inst.opcode == OpStore && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 {
 			targetName := names[inst.words[1]]
 			if targetName == "xy0" && lastMergeOffset == -1 {
 				// xy0 store before any merge = inside if/else
 				lastXY0StoreInIf = inst.offset
 			}
 
-			// Find the first OpStore to p0out (not the prologue init)
+			// Find the first spvenums.OpStore to p0out (not the prologue init)
 			if inst.words[1] == p0outID && p0outStoreOffset == -1 {
 				p0outStoreOffset = inst.offset
 			}
@@ -369,7 +370,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
@@ -389,7 +390,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// Find last merge block and result store
 	mergeLabels := make(map[uint32]bool)
 	for _, inst := range instrs {
-		if inst.opcode == OpSelectionMerge && inst.wordCount >= 2 {
+		if inst.opcode == spvenums.OpSelectionMerge && inst.wordCount >= 2 {
 			mergeLabels[inst.words[1]] = true
 		}
 	}
@@ -397,11 +398,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	var lastMergeOffset, resultStoreOffset int
 	mergeCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpLabel && mergeLabels[inst.words[1]] {
+		if inst.opcode == spvenums.OpLabel && mergeLabels[inst.words[1]] {
 			lastMergeOffset = inst.offset
 			mergeCount++
 		}
-		if inst.opcode == OpStore && inst.wordCount >= 3 && inst.words[1] == resultID {
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 && inst.words[1] == resultID {
 			resultStoreOffset = inst.offset
 		}
 	}
@@ -454,15 +455,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
-	// Find the first OpSelectionMerge to mark where body control flow begins
+	// Find the first spvenums.OpSelectionMerge to mark where body control flow begins
 	var firstSelectionMergeOffset int
 	for _, inst := range instrs {
-		if inst.opcode == OpSelectionMerge {
+		if inst.opcode == spvenums.OpSelectionMerge {
 			firstSelectionMergeOffset = inst.offset
 			break
 		}
@@ -471,7 +472,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// Find stores to x, y, z and check they're in the prologue (before selection merge)
 	var xStoreOffset, yStoreOffset, zStoreOffset int
 	for _, inst := range instrs {
-		if inst.opcode != OpStore || inst.wordCount < 3 {
+		if inst.opcode != spvenums.OpStore || inst.wordCount < 3 {
 			continue
 		}
 		name := names[inst.words[1]]

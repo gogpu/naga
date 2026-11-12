@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // fragDepthRangeAt is where the range of a frag_depth clamp is: members
@@ -79,10 +80,10 @@ func (b *Backend) declareFragDepthRange(epIdx int, ep *ir.EntryPoint, output *en
 				return err
 			}
 			block := b.builder.AddTypeStruct(f32TypeID, f32TypeID)
-			b.builder.AddDecorate(block, DecorationBlock)
-			b.builder.AddMemberDecorate(block, 0, DecorationOffset, b.options.ClampFragDepth.Offset)
-			b.builder.AddMemberDecorate(block, 1, DecorationOffset, b.options.ClampFragDepth.Offset+4)
-			b.fragDepthRange = b.builder.AddVariable(b.emitPointerType(StorageClassPushConstant, block), StorageClassPushConstant)
+			b.builder.AddDecorate(block, spvenums.DecorationBlock)
+			b.builder.AddMemberDecorate(block, 0, spvenums.DecorationOffset, b.options.ClampFragDepth.Offset)
+			b.builder.AddMemberDecorate(block, 1, spvenums.DecorationOffset, b.options.ClampFragDepth.Offset+4)
+			b.fragDepthRange = b.builder.AddVariable(b.emitPointerType(spvenums.StorageClassPushConstant, block), spvenums.StorageClassPushConstant)
 			if b.options.Debug {
 				b.builder.AddName(block, "FragDepthRange")
 				b.builder.AddMemberName(block, 0, "min")
@@ -118,8 +119,8 @@ func (e *ExpressionEmitter) flipPositionY(varID uint32) error {
 	if err != nil {
 		return err
 	}
-	y := b.builder.AddAccessChain(b.emitPointerType(StorageClassOutput, f32TypeID), varID, index)
-	b.builder.AddStore(y, b.builder.AddUnaryOp(OpFNegate, f32TypeID, b.builder.AddLoad(f32TypeID, y)))
+	y := b.builder.AddAccessChain(b.emitPointerType(spvenums.StorageClassOutput, f32TypeID), varID, index)
+	b.builder.AddStore(y, b.builder.AddUnaryOp(spvenums.OpFNegate, f32TypeID, b.builder.AddLoad(f32TypeID, y)))
 	return nil
 }
 
@@ -137,7 +138,7 @@ func (e *ExpressionEmitter) clampFragDepth(varID, value uint32) (uint32, error) 
 	if err != nil {
 		return 0, err
 	}
-	ptrTypeID := b.emitPointerType(StorageClassPushConstant, f32TypeID)
+	ptrTypeID := b.emitPointerType(spvenums.StorageClassPushConstant, f32TypeID)
 	bound := func(member uint32) (uint32, error) {
 		index, err := e.u32Constant(member)
 		if err != nil {
@@ -153,5 +154,5 @@ func (e *ExpressionEmitter) clampFragDepth(varID, value uint32) (uint32, error) 
 	if err != nil {
 		return 0, err
 	}
-	return b.builder.AddExtInst(f32TypeID, b.glslExtID, GLSLstd450FClamp, value, low, high), nil
+	return b.builder.AddExtInst(f32TypeID, b.glslExtID, uint32(spvenums.GlslStd450FClamp), value, low, high), nil
 }

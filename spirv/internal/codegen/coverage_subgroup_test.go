@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // ---------------------------------------------------------------------------
@@ -67,10 +68,10 @@ func TestSubgroupBallotNoPredicate(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	if !hasOpcodeInInstrs(instrs, OpGroupNonUniformBallot) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformBallot) {
 		t.Error("expected OpGroupNonUniformBallot")
 	}
-	if !hasCapability(instrs, CapabilityGroupNonUniformBallot) {
+	if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformBallot) {
 		t.Error("expected CapabilityGroupNonUniformBallot")
 	}
 	if !hasOpcodeInInstrs(instrs, OpConstantTrue) {
@@ -111,7 +112,7 @@ func TestSubgroupBallotWithPredicate(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	if !hasOpcodeInInstrs(instrs, OpGroupNonUniformBallot) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformBallot) {
 		t.Error("expected OpGroupNonUniformBallot")
 	}
 }
@@ -151,10 +152,10 @@ func TestSubgroupCollectiveAdd(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	if !hasOpcodeInInstrs(instrs, OpGroupNonUniformIAdd) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformIAdd) {
 		t.Error("expected OpGroupNonUniformIAdd for integer add reduce")
 	}
-	if !hasCapability(instrs, CapabilityGroupNonUniformArithmetic) {
+	if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformArithmetic) {
 		t.Error("expected CapabilityGroupNonUniformArithmetic")
 	}
 }
@@ -168,112 +169,112 @@ func TestSubgroupCollectiveAllOps(t *testing.T) {
 		colOp   ir.CollectiveOperation
 		scalar  ir.ScalarType
 		litVal  ir.LiteralValue
-		wantOp  OpCode
-		wantCap Capability
+		wantOp  spvenums.Op
+		wantCap spvenums.Capability
 		isVote  bool
 		isBool  bool
 	}{
 		{
 			name: "All/vote", op: ir.SubgroupOperationAll, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			litVal: ir.LiteralBool(true), wantOp: OpGroupNonUniformAll,
-			wantCap: CapabilityGroupNonUniformVote, isVote: true, isBool: true,
+			litVal: ir.LiteralBool(true), wantOp: spvenums.OpGroupNonUniformAll,
+			wantCap: spvenums.CapabilityGroupNonUniformVote, isVote: true, isBool: true,
 		},
 		{
 			name: "Any/vote", op: ir.SubgroupOperationAny, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			litVal: ir.LiteralBool(false), wantOp: OpGroupNonUniformAny,
-			wantCap: CapabilityGroupNonUniformVote, isVote: true, isBool: true,
+			litVal: ir.LiteralBool(false), wantOp: spvenums.OpGroupNonUniformAny,
+			wantCap: spvenums.CapabilityGroupNonUniformVote, isVote: true, isBool: true,
 		},
 		{
 			name: "Add/float", op: ir.SubgroupOperationAdd, colOp: ir.CollectiveInclusiveScan,
 			scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			litVal: ir.LiteralF32(1.0), wantOp: OpGroupNonUniformFAdd,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralF32(1.0), wantOp: spvenums.OpGroupNonUniformFAdd,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Mul/float", op: ir.SubgroupOperationMul, colOp: ir.CollectiveExclusiveScan,
 			scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			litVal: ir.LiteralF32(2.0), wantOp: OpGroupNonUniformFMul,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralF32(2.0), wantOp: spvenums.OpGroupNonUniformFMul,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Mul/int", op: ir.SubgroupOperationMul, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-			litVal: ir.LiteralI32(3), wantOp: OpGroupNonUniformIMul,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralI32(3), wantOp: spvenums.OpGroupNonUniformIMul,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Min/float", op: ir.SubgroupOperationMin, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			litVal: ir.LiteralF32(0.0), wantOp: OpGroupNonUniformFMin,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralF32(0.0), wantOp: spvenums.OpGroupNonUniformFMin,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Min/uint", op: ir.SubgroupOperationMin, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			litVal: ir.LiteralU32(0), wantOp: OpGroupNonUniformUMin,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralU32(0), wantOp: spvenums.OpGroupNonUniformUMin,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Min/sint", op: ir.SubgroupOperationMin, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-			litVal: ir.LiteralI32(0), wantOp: OpGroupNonUniformSMin,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralI32(0), wantOp: spvenums.OpGroupNonUniformSMin,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Max/float", op: ir.SubgroupOperationMax, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			litVal: ir.LiteralF32(0.0), wantOp: OpGroupNonUniformFMax,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralF32(0.0), wantOp: spvenums.OpGroupNonUniformFMax,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Max/uint", op: ir.SubgroupOperationMax, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			litVal: ir.LiteralU32(0), wantOp: OpGroupNonUniformUMax,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralU32(0), wantOp: spvenums.OpGroupNonUniformUMax,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Max/sint", op: ir.SubgroupOperationMax, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-			litVal: ir.LiteralI32(0), wantOp: OpGroupNonUniformSMax,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralI32(0), wantOp: spvenums.OpGroupNonUniformSMax,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "And/bool", op: ir.SubgroupOperationAnd, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			litVal: ir.LiteralBool(true), wantOp: OpGroupNonUniformLogicalAnd,
-			wantCap: CapabilityGroupNonUniformArithmetic, isBool: true,
+			litVal: ir.LiteralBool(true), wantOp: spvenums.OpGroupNonUniformLogicalAnd,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic, isBool: true,
 		},
 		{
 			name: "And/uint", op: ir.SubgroupOperationAnd, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			litVal: ir.LiteralU32(0xFF), wantOp: OpGroupNonUniformBitwiseAnd,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralU32(0xFF), wantOp: spvenums.OpGroupNonUniformBitwiseAnd,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Or/bool", op: ir.SubgroupOperationOr, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			litVal: ir.LiteralBool(false), wantOp: OpGroupNonUniformLogicalOr,
-			wantCap: CapabilityGroupNonUniformArithmetic, isBool: true,
+			litVal: ir.LiteralBool(false), wantOp: spvenums.OpGroupNonUniformLogicalOr,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic, isBool: true,
 		},
 		{
 			name: "Or/uint", op: ir.SubgroupOperationOr, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			litVal: ir.LiteralU32(0x0F), wantOp: OpGroupNonUniformBitwiseOr,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralU32(0x0F), wantOp: spvenums.OpGroupNonUniformBitwiseOr,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 		{
 			name: "Xor/bool", op: ir.SubgroupOperationXor, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			litVal: ir.LiteralBool(true), wantOp: OpGroupNonUniformLogicalXor,
-			wantCap: CapabilityGroupNonUniformArithmetic, isBool: true,
+			litVal: ir.LiteralBool(true), wantOp: spvenums.OpGroupNonUniformLogicalXor,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic, isBool: true,
 		},
 		{
 			name: "Xor/uint", op: ir.SubgroupOperationXor, colOp: ir.CollectiveReduce,
 			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			litVal: ir.LiteralU32(0xAA), wantOp: OpGroupNonUniformBitwiseXor,
-			wantCap: CapabilityGroupNonUniformArithmetic,
+			litVal: ir.LiteralU32(0xAA), wantOp: spvenums.OpGroupNonUniformBitwiseXor,
+			wantCap: spvenums.CapabilityGroupNonUniformArithmetic,
 		},
 	}
 
@@ -324,16 +325,16 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 	tests := []struct {
 		name    string
 		mode    ir.GatherMode
-		wantOp  OpCode
-		wantCap Capability
+		wantOp  spvenums.Op
+		wantCap spvenums.Capability
 		// extra expressions needed for the mode (e.g. index/delta/mask)
 		extraExprs []ir.Expression
 	}{
 		{
 			name:    "BroadcastFirst",
 			mode:    ir.GatherBroadcastFirst{},
-			wantOp:  OpGroupNonUniformBroadcastFirst,
-			wantCap: CapabilityGroupNonUniformBallot,
+			wantOp:  spvenums.OpGroupNonUniformBroadcastFirst,
+			wantCap: spvenums.CapabilityGroupNonUniformBallot,
 		},
 		{
 			// A shuffle, as Rust naga writes subgroupBroadcast
@@ -341,8 +342,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 			// OpGroupNonUniformBroadcast must be a constant instruction.
 			name:    "Broadcast",
 			mode:    ir.GatherBroadcast{Index: 2},
-			wantOp:  OpGroupNonUniformShuffle,
-			wantCap: CapabilityGroupNonUniformShuffle,
+			wantOp:  spvenums.OpGroupNonUniformShuffle,
+			wantCap: spvenums.CapabilityGroupNonUniformShuffle,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // expr 2: index
 			},
@@ -350,8 +351,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "Shuffle",
 			mode:    ir.GatherShuffle{Index: 2},
-			wantOp:  OpGroupNonUniformShuffle,
-			wantCap: CapabilityGroupNonUniformShuffle,
+			wantOp:  spvenums.OpGroupNonUniformShuffle,
+			wantCap: spvenums.CapabilityGroupNonUniformShuffle,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
 			},
@@ -359,8 +360,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "ShuffleDown",
 			mode:    ir.GatherShuffleDown{Delta: 2},
-			wantOp:  OpGroupNonUniformShuffleDown,
-			wantCap: CapabilityGroupNonUniformShuffleRel,
+			wantOp:  spvenums.OpGroupNonUniformShuffleDown,
+			wantCap: spvenums.CapabilityGroupNonUniformShuffleRelative,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
 			},
@@ -368,8 +369,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "ShuffleUp",
 			mode:    ir.GatherShuffleUp{Delta: 2},
-			wantOp:  OpGroupNonUniformShuffleUp,
-			wantCap: CapabilityGroupNonUniformShuffleRel,
+			wantOp:  spvenums.OpGroupNonUniformShuffleUp,
+			wantCap: spvenums.CapabilityGroupNonUniformShuffleRelative,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
 			},
@@ -377,8 +378,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "ShuffleXor",
 			mode:    ir.GatherShuffleXor{Mask: 2},
-			wantOp:  OpGroupNonUniformShuffleXor,
-			wantCap: CapabilityGroupNonUniformShuffle,
+			wantOp:  spvenums.OpGroupNonUniformShuffleXor,
+			wantCap: spvenums.CapabilityGroupNonUniformShuffle,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(3)}},
 			},
@@ -386,8 +387,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "QuadBroadcast",
 			mode:    ir.GatherQuadBroadcast{Index: 2},
-			wantOp:  OpGroupNonUniformQuadBroadcast,
-			wantCap: CapabilityGroupNonUniformQuad,
+			wantOp:  spvenums.OpGroupNonUniformQuadBroadcast,
+			wantCap: spvenums.CapabilityGroupNonUniformQuad,
 			extraExprs: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralU32(2)}},
 			},
@@ -395,8 +396,8 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 		{
 			name:    "QuadSwap/X",
 			mode:    ir.GatherQuadSwap{Direction: ir.QuadDirectionX},
-			wantOp:  OpGroupNonUniformQuadSwap,
-			wantCap: CapabilityGroupNonUniformQuad,
+			wantOp:  spvenums.OpGroupNonUniformQuadSwap,
+			wantCap: spvenums.CapabilityGroupNonUniformQuad,
 		},
 	}
 
@@ -502,8 +503,8 @@ func TestSubgroupCollectiveWithVector(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Float vector add → OpGroupNonUniformFAdd
-	if !hasOpcodeInInstrs(instrs, OpGroupNonUniformFAdd) {
+	// Float vector add → spvenums.OpGroupNonUniformFAdd
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformFAdd) {
 		t.Error("expected OpGroupNonUniformFAdd for float vector reduce")
 	}
 }

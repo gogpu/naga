@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -37,13 +38,13 @@ fn main() {
 }
 
 // barrierSemantics returns the memory semantics constant of every
-// OpControlBarrier (operand 3) and OpMemoryBarrier (operand 2) of spv.
+// OpControlBarrier (operand 3) and spvenums.OpMemoryBarrier (operand 2) of spv.
 func barrierSemantics(t *testing.T, spv []byte) (control, memory []uint32) {
 	t.Helper()
 	instrs := decodeSPIRVInstructions(spv)
 	consts := map[uint32]uint32{}
 	for _, in := range instrs {
-		if in.opcode == OpConstant && len(in.words) == 4 {
+		if in.opcode == spvenums.OpConstant && len(in.words) == 4 {
 			consts[in.words[2]] = in.words[3]
 		}
 	}
@@ -56,9 +57,9 @@ func barrierSemantics(t *testing.T, spv []byte) (control, memory []uint32) {
 	}
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpControlBarrier:
+		case spvenums.OpControlBarrier:
 			control = append(control, value(in.words[3]))
-		case OpMemoryBarrier:
+		case spvenums.OpMemoryBarrier:
 			memory = append(memory, value(in.words[2]))
 		}
 	}
@@ -77,8 +78,8 @@ func barrierSemantics(t *testing.T, spv []byte) (control, memory []uint32) {
 // we take the same storage classes but atomic counters, which WGSL and Vulkan
 // do not have.
 func TestSubgroupBarrierSemanticsValidForVulkan(t *testing.T) {
-	const want = MemorySemanticsAcquireRelease | MemorySemanticsUniformMemory |
-		MemorySemanticsWorkgroupMemory | MemorySemanticsImageMemory
+	const want = uint32(spvenums.MemorySemanticsAcquireRelease | spvenums.MemorySemanticsUniformMemory |
+		spvenums.MemorySemanticsWorkgroupMemory | spvenums.MemorySemanticsImageMemory)
 	spv := compileWGSLForCapabilityTestWithOpts(t, `
 enable subgroups;
 @compute @workgroup_size(1)
@@ -108,9 +109,9 @@ fn main() {
 `, Options{Version: Version1_3})
 	control, _ := barrierSemantics(t, spv)
 	want := []uint32{
-		MemorySemanticsAcquireRelease | MemorySemanticsWorkgroupMemory,
-		MemorySemanticsAcquireRelease | MemorySemanticsUniformMemory,
-		MemorySemanticsAcquireRelease | MemorySemanticsImageMemory,
+		uint32(spvenums.MemorySemanticsAcquireRelease | spvenums.MemorySemanticsWorkgroupMemory),
+		uint32(spvenums.MemorySemanticsAcquireRelease | spvenums.MemorySemanticsUniformMemory),
+		uint32(spvenums.MemorySemanticsAcquireRelease | spvenums.MemorySemanticsImageMemory),
 	}
 	if len(control) != len(want) {
 		t.Fatalf("OpControlBarrier count = %d, want %d", len(control), len(want))

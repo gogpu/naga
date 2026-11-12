@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // =============================================================================
 // Helpers for div/mod wrapper tests
 // =============================================================================
 
-// countOpFunctions counts the number of OpFunction instructions in SPIR-V binary.
+// countOpFunctions counts the number of spvenums.OpFunction instructions in SPIR-V binary.
 func countOpFunctions(spvBytes []byte) int {
 	count := 0
 	offset := 20
@@ -22,7 +23,7 @@ func countOpFunctions(spvBytes []byte) int {
 		if wordCount == 0 || offset+wordCount*4 > len(spvBytes) {
 			break
 		}
-		if opcode == uint32(OpFunction) {
+		if opcode == uint32(spvenums.OpFunction) {
 			count++
 		}
 		offset += wordCount * 4
@@ -30,7 +31,7 @@ func countOpFunctions(spvBytes []byte) int {
 	return count
 }
 
-// findOpFunctionCalls finds all OpFunctionCall instructions and returns
+// findOpFunctionCalls finds all spvenums.OpFunctionCall instructions and returns
 // the called function IDs.
 func findOpFunctionCalls(spvBytes []byte) []uint32 {
 	var calls []uint32
@@ -42,7 +43,7 @@ func findOpFunctionCalls(spvBytes []byte) []uint32 {
 		if wordCount == 0 || offset+wordCount*4 > len(spvBytes) {
 			break
 		}
-		if opcode == uint32(OpFunctionCall) && wordCount >= 4 {
+		if opcode == uint32(spvenums.OpFunctionCall) && wordCount >= 4 {
 			// OpFunctionCall: result_type, result_id, function_id, args...
 			funcID := binary.LittleEndian.Uint32(spvBytes[offset+12:])
 			calls = append(calls, funcID)
@@ -53,7 +54,7 @@ func findOpFunctionCalls(spvBytes []byte) []uint32 {
 }
 
 // divmodHasOpcode checks if a specific opcode exists in the SPIR-V binary.
-func divmodHasOpcode(spvBytes []byte, op OpCode) bool {
+func divmodHasOpcode(spvBytes []byte, op spvenums.Op) bool {
 	offset := 20
 	for offset+4 <= len(spvBytes) {
 		word := binary.LittleEndian.Uint32(spvBytes[offset:])
@@ -71,7 +72,7 @@ func divmodHasOpcode(spvBytes []byte, op OpCode) bool {
 }
 
 // divmodOperands returns the operand words of every instruction with opcode op.
-func divmodOperands(spvBytes []byte, op OpCode) [][]uint32 {
+func divmodOperands(spvBytes []byte, op spvenums.Op) [][]uint32 {
 	var found [][]uint32
 	offset := 20
 	for offset+4 <= len(spvBytes) {
@@ -93,7 +94,7 @@ func divmodOperands(spvBytes []byte, op OpCode) [][]uint32 {
 }
 
 // divmodCountOpcode counts occurrences of a specific opcode.
-func divmodCountOpcode(spvBytes []byte, op OpCode) int {
+func divmodCountOpcode(spvBytes []byte, op spvenums.Op) int {
 	count := 0
 	offset := 20
 	for offset+4 <= len(spvBytes) {
@@ -147,30 +148,30 @@ func TestWrappedDivU32(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have 2 OpFunction: the wrapper + the entry point
+	// Should have 2 spvenums.OpFunction: the wrapper + the entry point
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount != 2 {
 		t.Errorf("expected 2 OpFunction (wrapper + entry), got %d", funcCount)
 	}
 
-	// Should have OpFunctionCall (calling the wrapper)
+	// Should have spvenums.OpFunctionCall (calling the wrapper)
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) == 0 {
 		t.Error("expected at least 1 OpFunctionCall for wrapped division")
 	}
 
-	// Should have OpIEqual (zero check in wrapper)
-	if !divmodHasOpcode(spvBytes, OpIEqual) {
+	// Should have spvenums.OpIEqual (zero check in wrapper)
+	if !divmodHasOpcode(spvBytes, spvenums.OpIEqual) {
 		t.Error("expected OpIEqual in wrapper for zero check")
 	}
 
-	// Should have OpSelect (selecting safe divisor)
-	if !divmodHasOpcode(spvBytes, OpSelect) {
+	// Should have spvenums.OpSelect (selecting safe divisor)
+	if !divmodHasOpcode(spvBytes, spvenums.OpSelect) {
 		t.Error("expected OpSelect in wrapper")
 	}
 
-	// Unsigned div should NOT have OpLogicalAnd (no overflow check needed)
-	if divmodHasOpcode(spvBytes, OpLogicalAnd) {
+	// Unsigned div should NOT have spvenums.OpLogicalAnd (no overflow check needed)
+	if divmodHasOpcode(spvBytes, spvenums.OpLogicalAnd) {
 		t.Error("unsigned div wrapper should not have OpLogicalAnd (overflow check)")
 	}
 }
@@ -207,24 +208,24 @@ func TestWrappedDivI32(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have 2 OpFunction
+	// Should have 2 spvenums.OpFunction
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount != 2 {
 		t.Errorf("expected 2 OpFunction (wrapper + entry), got %d", funcCount)
 	}
 
-	// Signed div SHOULD have OpLogicalAnd (overflow check: lhs==INT_MIN && rhs==-1)
-	if !divmodHasOpcode(spvBytes, OpLogicalAnd) {
+	// Signed div SHOULD have spvenums.OpLogicalAnd (overflow check: lhs==INT_MIN && rhs==-1)
+	if !divmodHasOpcode(spvBytes, spvenums.OpLogicalAnd) {
 		t.Error("signed div wrapper should have OpLogicalAnd for overflow check")
 	}
 
-	// Should have OpLogicalOr (combining zero check and overflow check)
-	if !divmodHasOpcode(spvBytes, OpLogicalOr) {
+	// Should have spvenums.OpLogicalOr (combining zero check and overflow check)
+	if !divmodHasOpcode(spvBytes, spvenums.OpLogicalOr) {
 		t.Error("signed div wrapper should have OpLogicalOr")
 	}
 
-	// Should have OpIEqual (at least 3: rhs==0, lhs==INT_MIN, rhs==-1)
-	ieqCount := divmodCountOpcode(spvBytes, OpIEqual)
+	// Should have spvenums.OpIEqual (at least 3: rhs==0, lhs==INT_MIN, rhs==-1)
+	ieqCount := divmodCountOpcode(spvBytes, spvenums.OpIEqual)
 	if ieqCount < 3 {
 		t.Errorf("expected at least 3 OpIEqual in signed div wrapper, got %d", ieqCount)
 	}
@@ -264,13 +265,13 @@ func TestWrappedModI32AvoidsOpSRem(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	if divmodHasOpcode(spvBytes, OpSRem) || divmodHasOpcode(spvBytes, OpSMod) {
+	if divmodHasOpcode(spvBytes, spvenums.OpSRem) || divmodHasOpcode(spvBytes, spvenums.OpSMod) {
 		t.Error("signed modulo wrapper must not use OpSRem or OpSMod")
 	}
-	selects := divmodOperands(spvBytes, OpSelect)
-	divs := divmodOperands(spvBytes, OpSDiv)
-	muls := divmodOperands(spvBytes, OpIMul)
-	subs := divmodOperands(spvBytes, OpISub)
+	selects := divmodOperands(spvBytes, spvenums.OpSelect)
+	divs := divmodOperands(spvBytes, spvenums.OpSDiv)
+	muls := divmodOperands(spvBytes, spvenums.OpIMul)
+	subs := divmodOperands(spvBytes, spvenums.OpISub)
 	if len(selects) != 1 || len(divs) != 1 || len(muls) != 1 || len(subs) != 1 {
 		t.Fatalf("want one OpSelect, OpSDiv, OpIMul and OpISub, got %d, %d, %d, %d",
 			len(selects), len(divs), len(muls), len(subs))
@@ -321,20 +322,20 @@ func TestFloatDivNoWrapper(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have only 1 OpFunction (the entry point, no wrapper)
+	// Should have only 1 spvenums.OpFunction (the entry point, no wrapper)
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount != 1 {
 		t.Errorf("expected 1 OpFunction (no wrapper for float div), got %d", funcCount)
 	}
 
-	// Should NOT have OpFunctionCall
+	// Should NOT have spvenums.OpFunctionCall
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) != 0 {
 		t.Errorf("expected no OpFunctionCall for float div, got %d", len(calls))
 	}
 
-	// Should have OpFDiv directly
-	if !divmodHasOpcode(spvBytes, OpFDiv) {
+	// Should have spvenums.OpFDiv directly
+	if !divmodHasOpcode(spvBytes, spvenums.OpFDiv) {
 		t.Error("float division should use OpFDiv directly")
 	}
 }
@@ -375,13 +376,13 @@ func TestWrappedDivDeduplicated(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have 2 OpFunction: ONE wrapper + entry point (not 3)
+	// Should have 2 spvenums.OpFunction: ONE wrapper + entry point (not 3)
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount != 2 {
 		t.Errorf("expected 2 OpFunction (1 deduped wrapper + entry), got %d", funcCount)
 	}
 
-	// Should have 2 OpFunctionCall (both divides call the same wrapper)
+	// Should have 2 spvenums.OpFunctionCall (both divides call the same wrapper)
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) != 2 {
 		t.Errorf("expected 2 OpFunctionCall, got %d", len(calls))
@@ -429,18 +430,18 @@ func TestWrappedDivVec2I32(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have 2 OpFunction: vec2<i32> wrapper + entry point
+	// Should have 2 spvenums.OpFunction: vec2<i32> wrapper + entry point
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount != 2 {
 		t.Errorf("expected 2 OpFunction (wrapper + entry), got %d", funcCount)
 	}
 
-	// Signed vec div should have OpLogicalAnd (overflow check applies per component)
-	if !divmodHasOpcode(spvBytes, OpLogicalAnd) {
+	// Signed vec div should have spvenums.OpLogicalAnd (overflow check applies per component)
+	if !divmodHasOpcode(spvBytes, spvenums.OpLogicalAnd) {
 		t.Error("signed vec2<i32> div wrapper should have OpLogicalAnd for overflow check")
 	}
 
-	// Should have OpFunctionCall
+	// Should have spvenums.OpFunctionCall
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) == 0 {
 		t.Error("expected OpFunctionCall for wrapped vec2<i32> division")
@@ -485,18 +486,18 @@ func TestWrappedModU32(t *testing.T) {
 		t.Errorf("expected 2 OpFunction (wrapper + entry), got %d", funcCount)
 	}
 
-	// Should use OpUMod in the wrapper
-	if !divmodHasOpcode(spvBytes, OpUMod) {
+	// Should use spvenums.OpUMod in the wrapper
+	if !divmodHasOpcode(spvBytes, spvenums.OpUMod) {
 		t.Error("u32 modulo wrapper should use OpUMod")
 	}
 }
 
 // =============================================================================
-// Test: f32 modulo is OpFRem (truncated), not OpFMod (floored)
+// Test: f32 modulo is spvenums.OpFRem (truncated), not spvenums.OpFMod (floored)
 // =============================================================================
 
 // WGSL defines e1 % e2 on floats as e1 - e2 * trunc(e1 / e2), whose sign
-// follows e1 (OpFRem). OpFMod follows e2: -1.5 % 1.0 gave 0.5, not -0.5.
+// follows e1 (spvenums.OpFRem). spvenums.OpFMod follows e2: -1.5 % 1.0 gave 0.5, not -0.5.
 func TestFloatModUsesOpFRem(t *testing.T) {
 	spvBytes := compileWGSL(t, `
 @group(0) @binding(0) var<storage, read_write> d: array<f32>;
@@ -509,10 +510,10 @@ fn main() {
     d[4] = (v % d[1]).y;
 }
 `)
-	if n := divmodCountOpcode(spvBytes, OpFRem); n != 3 {
+	if n := divmodCountOpcode(spvBytes, spvenums.OpFRem); n != 3 {
 		t.Errorf("OpFRem count = %d, want 3 (scalar, vector, vector by scalar)", n)
 	}
-	if divmodHasOpcode(spvBytes, OpFMod) {
+	if divmodHasOpcode(spvBytes, spvenums.OpFMod) {
 		t.Error("float modulo must not use OpFMod")
 	}
 }

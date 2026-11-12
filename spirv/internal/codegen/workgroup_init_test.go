@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestZeroInitializeWorkgroupMemoryModes checks that Polyfill zeroes the
@@ -37,9 +38,9 @@ fn main(@builtin(local_invocation_index) i: u32) {
 			var barrier, init bool
 			for _, in := range decodeSPIRVInstructions(spv) {
 				switch {
-				case in.opcode == OpControlBarrier:
+				case in.opcode == spvenums.OpControlBarrier:
 					barrier = true
-				case in.opcode == OpVariable && StorageClass(in.words[3]) == StorageClassWorkgroup:
+				case in.opcode == spvenums.OpVariable && spvenums.StorageClass(in.words[3]) == spvenums.StorageClassWorkgroup:
 					init = len(in.words) > 4
 				}
 			}

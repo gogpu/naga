@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // rayQueryFuncKind identifies the type of ray query helper function.
@@ -35,24 +36,24 @@ const (
 // Returns the tracker IDs. Variables are added to FunctionBuilder.Variables.
 func (b *Backend) emitRayQueryTrackerVars(fb *FunctionBuilder) rayQueryTrackerIDs {
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
+	f32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, f32TypeID)
 
 	// initialized_tracker: u32, init to 0 (RayQueryPoint::empty)
 	initTrackerID := b.builder.AllocID()
 	initVal := b.builder.AddConstant(u32TypeID, 0)
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{u32PtrTypeID, initTrackerID, uint32(StorageClassFunction), initVal},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{u32PtrTypeID, initTrackerID, uint32(spvenums.StorageClassFunction), initVal},
 	})
 
 	// t_max_tracker: f32, init to 0.0
 	tMaxTrackerID := b.builder.AllocID()
 	tMaxInitVal := b.builder.AddConstantFloat32(f32TypeID, 0.0)
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{f32PtrTypeID, tMaxTrackerID, uint32(StorageClassFunction), tMaxInitVal},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{f32PtrTypeID, tMaxTrackerID, uint32(spvenums.StorageClassFunction), tMaxInitVal},
 	})
 
 	return rayQueryTrackerIDs{
@@ -61,7 +62,7 @@ func (b *Backend) emitRayQueryTrackerVars(fb *FunctionBuilder) rayQueryTrackerID
 	}
 }
 
-// getRayQueryPointerTypeID returns the OpTypePointer(Function, OpTypeRayQueryKHR) type ID.
+// getRayQueryPointerTypeID returns the spvenums.OpTypePointer(Function, OpTypeRayQueryKHR) type ID.
 func (b *Backend) getRayQueryPointerTypeID() uint32 {
 	// Find or create the ray query type
 	var rqTypeID uint32
@@ -82,7 +83,7 @@ func (b *Backend) getRayQueryPointerTypeID() uint32 {
 		ib.AddWord(rqTypeID)
 		b.builder.types = append(b.builder.types, ib.Build(OpTypeRayQueryKHR))
 	}
-	return b.emitPointerType(StorageClassFunction, rqTypeID)
+	return b.emitPointerType(spvenums.StorageClassFunction, rqTypeID)
 }
 
 // writeRayQueryInitialize generates the ray_query_initialize helper function.
@@ -122,9 +123,9 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 	}
 
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
+	f32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, f32TypeID)
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	boolVec3TypeID := b.emitVectorType(boolTypeID, 3)
 	vec3f32TypeID := b.emitVectorType(f32TypeID, 3)
@@ -137,8 +138,8 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 	var fb FunctionBuilder
 	funcID := b.builder.AllocID()
 	fb.Signature = Instruction{
-		Opcode: OpFunction,
-		Words:  []uint32{voidTypeID, funcID, uint32(FunctionControlNone), funcTypeID},
+		Opcode: spvenums.OpFunction,
+		Words:  []uint32{voidTypeID, funcID, uint32(spvenums.FunctionControlNone), funcTypeID},
 	}
 
 	// Parameters
@@ -148,11 +149,11 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 	initTrackerID := b.builder.AllocID()
 	tMaxTrackerID := b.builder.AllocID()
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{accelTypeID, accelID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{rayDescTypeID, descID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{f32PtrTypeID, tMaxTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{accelTypeID, accelID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rayDescTypeID, descID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{f32PtrTypeID, tMaxTrackerID}},
 	}
 
 	// Entry block
@@ -161,19 +162,19 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 
 	// Extract RayDesc fields
 	rayFlagsID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{u32TypeID, rayFlagsID, descID, 0}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{u32TypeID, rayFlagsID, descID, 0}})
 	cullMaskID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{u32TypeID, cullMaskID, descID, 1}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{u32TypeID, cullMaskID, descID, 1}})
 	tMinID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{f32TypeID, tMinID, descID, 2}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{f32TypeID, tMinID, descID, 2}})
 	tMaxID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{f32TypeID, tMaxID, descID, 3}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{f32TypeID, tMaxID, descID, 3}})
 	// Store tmax to tracker
-	block.Push(Instruction{Opcode: OpStore, Words: []uint32{tMaxTrackerID, tMaxID}})
+	block.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{tMaxTrackerID, tMaxID}})
 	rayOriginID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{vec3f32TypeID, rayOriginID, descID, 4}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{vec3f32TypeID, rayOriginID, descID, 4}})
 	rayDirID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpCompositeExtract, Words: []uint32{vec3f32TypeID, rayDirID, descID, 5}})
+	block.Push(Instruction{Opcode: spvenums.OpCompositeExtract, Words: []uint32{vec3f32TypeID, rayDirID, descID, 5}})
 
 	// Validation checks (only when init tracking is enabled)
 	var validID uint32
@@ -183,39 +184,39 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 
 		// tmin <= tmax
 		tMinLeTMaxID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpFOrdLessThanEqual, Words: []uint32{boolTypeID, tMinLeTMaxID, tMinID, tMaxID}})
+		block.Push(Instruction{Opcode: spvenums.OpFOrdLessThanEqual, Words: []uint32{boolTypeID, tMinLeTMaxID, tMinID, tMaxID}})
 
 		// tmin >= 0
 		tMinGeZeroID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpFOrdGreaterThanEqual, Words: []uint32{boolTypeID, tMinGeZeroID, tMinID, zeroF32ID}})
+		block.Push(Instruction{Opcode: spvenums.OpFOrdGreaterThanEqual, Words: []uint32{boolTypeID, tMinGeZeroID, tMinID, zeroF32ID}})
 
 		// Check ray origin finite
 		originInfID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpIsInf, Words: []uint32{boolVec3TypeID, originInfID, rayOriginID}})
+		block.Push(Instruction{Opcode: spvenums.OpIsInf, Words: []uint32{boolVec3TypeID, originInfID, rayOriginID}})
 		anyOriginInfID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAny, Words: []uint32{boolTypeID, anyOriginInfID, originInfID}})
+		block.Push(Instruction{Opcode: spvenums.OpAny, Words: []uint32{boolTypeID, anyOriginInfID, originInfID}})
 		originNanID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpIsNan, Words: []uint32{boolVec3TypeID, originNanID, rayOriginID}})
+		block.Push(Instruction{Opcode: spvenums.OpIsNan, Words: []uint32{boolVec3TypeID, originNanID, rayOriginID}})
 		anyOriginNanID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAny, Words: []uint32{boolTypeID, anyOriginNanID, originNanID}})
+		block.Push(Instruction{Opcode: spvenums.OpAny, Words: []uint32{boolTypeID, anyOriginNanID, originNanID}})
 		originNotFiniteID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalOr, Words: []uint32{boolTypeID, originNotFiniteID, anyOriginNanID, anyOriginInfID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalOr, Words: []uint32{boolTypeID, originNotFiniteID, anyOriginNanID, anyOriginInfID}})
 		allOriginFiniteID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, allOriginFiniteID, originNotFiniteID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, allOriginFiniteID, originNotFiniteID}})
 
 		// Check ray dir finite
 		dirInfID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpIsInf, Words: []uint32{boolVec3TypeID, dirInfID, rayDirID}})
+		block.Push(Instruction{Opcode: spvenums.OpIsInf, Words: []uint32{boolVec3TypeID, dirInfID, rayDirID}})
 		anyDirInfID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAny, Words: []uint32{boolTypeID, anyDirInfID, dirInfID}})
+		block.Push(Instruction{Opcode: spvenums.OpAny, Words: []uint32{boolTypeID, anyDirInfID, dirInfID}})
 		dirNanID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpIsNan, Words: []uint32{boolVec3TypeID, dirNanID, rayDirID}})
+		block.Push(Instruction{Opcode: spvenums.OpIsNan, Words: []uint32{boolVec3TypeID, dirNanID, rayDirID}})
 		anyDirNanID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAny, Words: []uint32{boolTypeID, anyDirNanID, dirNanID}})
+		block.Push(Instruction{Opcode: spvenums.OpAny, Words: []uint32{boolTypeID, anyDirNanID, dirNanID}})
 		dirNotFiniteID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalOr, Words: []uint32{boolTypeID, dirNotFiniteID, anyDirNanID, anyDirInfID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalOr, Words: []uint32{boolTypeID, dirNotFiniteID, anyDirNanID, anyDirInfID}})
 		allDirFiniteID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, allDirFiniteID, dirNotFiniteID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, allDirFiniteID, dirNotFiniteID}})
 
 		// Check flag combinations with writeLessThan2True pattern
 		containsSkipTriangles := writeRayFlagsContainsFlag(b, &block, rayFlagsID, 256) // SKIP_TRIANGLES = 0x100
@@ -256,26 +257,26 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 	validBlock := NewBlock(validLabelID)
 
 	if b.options.RayQueryInitTracking {
-		block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{mergeLabelID, 0}})
-		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{validID, validLabelID, invalidLabelID}})
+		block.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{mergeLabelID, 0}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{validID, validLabelID, invalidLabelID}})
 	} else {
-		fb.Consume(block, Instruction{Opcode: OpBranch, Words: []uint32{validLabelID}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{validLabelID}})
 	}
 
 	// Valid block: perform the actual initialization
 	validBlock.Push(Instruction{
-		Opcode: OpRayQueryInitializeKHR,
+		Opcode: spvenums.OpRayQueryInitializeKHR,
 		Words:  []uint32{queryID, accelID, rayFlagsID, cullMaskID, rayOriginID, tMinID, rayDirID, tMaxID},
 	})
 	constInitialized := b.builder.AddConstant(u32TypeID, rqPointInitialized)
-	validBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{initTrackerID, constInitialized}})
-	fb.Consume(validBlock, Instruction{Opcode: OpBranch, Words: []uint32{mergeLabelID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{initTrackerID, constInitialized}})
+	fb.Consume(validBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{mergeLabelID}})
 
 	if b.options.RayQueryInitTracking {
-		fb.Consume(invalidBlock, Instruction{Opcode: OpBranch, Words: []uint32{mergeLabelID}})
+		fb.Consume(invalidBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{mergeLabelID}})
 	}
 
-	fb.Consume(mergeBlock, Instruction{Opcode: OpReturn})
+	fb.Consume(mergeBlock, Instruction{Opcode: spvenums.OpReturn})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	b.rayQueryFuncIDs[rqFuncInitialize] = funcID
@@ -290,24 +291,24 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-	boolPtrTypeID := b.emitPointerType(StorageClassFunction, boolTypeID)
+	boolPtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, boolTypeID)
 
 	funcTypeID := b.getFuncType(boolTypeID, []uint32{rqPtrTypeID, u32PtrTypeID})
 
 	var fb FunctionBuilder
 	funcID := b.builder.AllocID()
 	fb.Signature = Instruction{
-		Opcode: OpFunction,
-		Words:  []uint32{boolTypeID, funcID, uint32(FunctionControlNone), funcTypeID},
+		Opcode: spvenums.OpFunction,
+		Words:  []uint32{boolTypeID, funcID, uint32(spvenums.FunctionControlNone), funcTypeID},
 	}
 
 	queryID := b.builder.AllocID()
 	initTrackerID := b.builder.AllocID()
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
 	}
 
 	blockID := b.builder.AllocID()
@@ -321,13 +322,13 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 	})
 	proceededID := b.builder.AllocID()
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{boolPtrTypeID, proceededID, uint32(StorageClassFunction), constFalse},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{boolPtrTypeID, proceededID, uint32(spvenums.StorageClassFunction), constFalse},
 	})
 
 	// Load initialized tracker
 	loadedTrackerID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
+	block.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
 
 	mergeID := b.builder.AllocID()
 	mergeBlock := NewBlock(mergeID)
@@ -342,35 +343,35 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 		// result stays false either way (Rust 55534165).
 		finished := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointFinishedTraversal)
 		notFinished := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, notFinished, finished}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, notFinished, finished}})
 		isValid := writeLogicalAnd(b, &block, notFinished, isInitialized)
-		block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{mergeID, 0}})
-		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isValid, validBlockID, mergeID}})
+		block.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{mergeID, 0}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{isValid, validBlockID, mergeID}})
 	} else {
-		fb.Consume(block, Instruction{Opcode: OpBranch, Words: []uint32{validBlockID}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{validBlockID}})
 	}
 
-	// Valid block: call OpRayQueryProceedKHR
+	// Valid block: call spvenums.OpRayQueryProceedKHR
 	hasProceededID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryProceedKHR, Words: []uint32{boolTypeID, hasProceededID, queryID}})
-	validBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{proceededID, hasProceededID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryProceedKHR, Words: []uint32{boolTypeID, hasProceededID, queryID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{proceededID, hasProceededID}})
 
 	// Update tracker: add PROCEED flag, and FINISHED_TRAVERSAL if proceed returned false
 	addFlagFinished := b.builder.AddConstant(u32TypeID, rqPointProceed|rqPointFinishedTraversal)
 	addFlagContinuing := b.builder.AddConstant(u32TypeID, rqPointProceed)
 
 	addFlagsID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpSelect, Words: []uint32{u32TypeID, addFlagsID, hasProceededID, addFlagContinuing, addFlagFinished}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpSelect, Words: []uint32{u32TypeID, addFlagsID, hasProceededID, addFlagContinuing, addFlagFinished}})
 	finalFlagsID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpBitwiseOr, Words: []uint32{u32TypeID, finalFlagsID, loadedTrackerID, addFlagsID}})
-	validBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{initTrackerID, finalFlagsID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpBitwiseOr, Words: []uint32{u32TypeID, finalFlagsID, loadedTrackerID, addFlagsID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{initTrackerID, finalFlagsID}})
 
-	fb.Consume(validBlock, Instruction{Opcode: OpBranch, Words: []uint32{mergeID}})
+	fb.Consume(validBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{mergeID}})
 
 	// Merge: load and return proceeded value
 	loadedProceededID := b.builder.AllocID()
-	mergeBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{boolTypeID, loadedProceededID, proceededID}})
-	fb.Consume(mergeBlock, Instruction{Opcode: OpReturnValue, Words: []uint32{loadedProceededID}})
+	mergeBlock.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{boolTypeID, loadedProceededID, proceededID}})
+	fb.Consume(mergeBlock, Instruction{Opcode: spvenums.OpReturnValue, Words: []uint32{loadedProceededID}})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	b.rayQueryFuncIDs[rqFuncProceed] = funcID
@@ -401,26 +402,26 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	// variables do (layoutFree, SPIR-V 1.5 on, so OpCopyLogical exists); the
 	// function returns the decorated one.
 	riVarTypeID := riTypeID
-	if b.layoutFree(StorageClassFunction) && b.module.SpecialTypes.RayIntersection != nil {
+	if b.layoutFree(spvenums.StorageClassFunction) && b.module.SpecialTypes.RayIntersection != nil {
 		var err error
 		riVarTypeID, err = b.emitTypeWithoutLayout(*b.module.SpecialTypes.RayIntersection)
 		if err != nil {
 			panic(fmt.Sprintf("spirv: failed to emit RayIntersection type: %v", err))
 		}
 	}
-	riPtrTypeID := b.emitPointerType(StorageClassFunction, riVarTypeID)
+	riPtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, riVarTypeID)
 
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
+	f32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, f32TypeID)
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-	boolPtrTypeID := b.emitPointerType(StorageClassFunction, boolTypeID)
+	boolPtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, boolTypeID)
 	vec2f32TypeID := b.emitVectorType(f32TypeID, 2)
-	vec2f32PtrTypeID := b.emitPointerType(StorageClassFunction, vec2f32TypeID)
+	vec2f32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, vec2f32TypeID)
 	vec3f32TypeID := b.emitVectorType(f32TypeID, 3)
 	mat4x3TypeID := b.emitMatrixType(vec3f32TypeID, 4)
-	mat4x3PtrTypeID := b.emitPointerType(StorageClassFunction, mat4x3TypeID)
+	mat4x3PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, mat4x3TypeID)
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
 
@@ -429,15 +430,15 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	var fb FunctionBuilder
 	funcID := b.builder.AllocID()
 	fb.Signature = Instruction{
-		Opcode: OpFunction,
-		Words:  []uint32{riTypeID, funcID, uint32(FunctionControlNone), funcTypeID},
+		Opcode: spvenums.OpFunction,
+		Words:  []uint32{riTypeID, funcID, uint32(spvenums.FunctionControlNone), funcTypeID},
 	}
 
 	queryID := b.builder.AllocID()
 	initTrackerID := b.builder.AllocID()
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
 	}
 
 	labelID := b.builder.AllocID()
@@ -447,8 +448,8 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	blankIntersection := b.builder.AddConstantNull(riVarTypeID)
 	blankIntersectionID := b.builder.AllocID()
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{riPtrTypeID, blankIntersectionID, uint32(StorageClassFunction), blankIntersection},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{riPtrTypeID, blankIntersectionID, uint32(spvenums.StorageClassFunction), blankIntersection},
 	})
 
 	// Intersection index: committed=1, candidate=0
@@ -460,7 +461,7 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 
 	// Load tracker and check validity
 	loadedTrackerID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
+	block.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
 	proceededID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointProceed)
 	finishedID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointFinishedTraversal)
 
@@ -469,7 +470,7 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 		isValidID = writeLogicalAnd(b, &block, finishedID, proceededID)
 	} else {
 		notFinishedID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
 		isValidID = writeLogicalAnd(b, &block, notFinishedID, proceededID)
 	}
 
@@ -478,12 +479,12 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	finalLabelID := b.builder.AllocID()
 	finalBlock := NewBlock(finalLabelID)
 
-	block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
-	fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
+	block.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
+	fb.Consume(block, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
 
 	// Valid block: get intersection type
 	rawKindID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, intersectionID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, intersectionID}})
 
 	var kindID uint32
 	if committed {
@@ -492,47 +493,47 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 		// Remap candidate kind to IR kind
 		candidateTriID := b.builder.AddConstant(u32TypeID, 0) // CandidateTriangle = 0
 		conditionID := b.builder.AllocID()
-		validBlock.Push(Instruction{Opcode: OpIEqual, Words: []uint32{boolTypeID, conditionID, rawKindID, candidateTriID}})
+		validBlock.Push(Instruction{Opcode: spvenums.OpIEqual, Words: []uint32{boolTypeID, conditionID, rawKindID, candidateTriID}})
 		kindID = b.builder.AllocID()
 		triKindID := b.builder.AddConstant(u32TypeID, 1)  // Triangle = 1
 		aabbKindID := b.builder.AddConstant(u32TypeID, 3) // Aabb = 3
-		validBlock.Push(Instruction{Opcode: OpSelect, Words: []uint32{u32TypeID, kindID, conditionID, triKindID, aabbKindID}})
+		validBlock.Push(Instruction{Opcode: spvenums.OpSelect, Words: []uint32{u32TypeID, kindID, conditionID, triKindID, aabbKindID}})
 	}
 
 	// Store kind to intersection[0]
 	idx0 := b.builder.AddConstant(u32TypeID, 0)
 	accessKindID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{u32PtrTypeID, accessKindID, blankIntersectionID, idx0}})
-	validBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{accessKindID, kindID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{u32PtrTypeID, accessKindID, blankIntersectionID, idx0}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessKindID, kindID}})
 
 	// Check if not none
 	noneID := b.builder.AddConstant(u32TypeID, 0) // None = 0
 	notNoneID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpINotEqual, Words: []uint32{boolTypeID, notNoneID, kindID, noneID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpINotEqual, Words: []uint32{boolTypeID, notNoneID, kindID, noneID}})
 
 	notNoneLabelID := b.builder.AllocID()
 	notNoneBlock := NewBlock(notNoneLabelID)
 	outerMergeLabelID := b.builder.AllocID()
 	outerMergeBlock := NewBlock(outerMergeLabelID)
 
-	validBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{outerMergeLabelID, 0}})
-	fb.Consume(validBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{notNoneID, notNoneLabelID, outerMergeLabelID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{outerMergeLabelID, 0}})
+	fb.Consume(validBlock, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{notNoneID, notNoneLabelID, outerMergeLabelID}})
 
 	// notNone block: get all intersection properties
 	instanceCustomIndexID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionInstanceCustomIndexKHR, Words: []uint32{u32TypeID, instanceCustomIndexID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionInstanceCustomIndexKHR, Words: []uint32{u32TypeID, instanceCustomIndexID, queryID, intersectionID}})
 	instanceIdID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionInstanceIdKHR, Words: []uint32{u32TypeID, instanceIdID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionInstanceIdKHR, Words: []uint32{u32TypeID, instanceIdID, queryID, intersectionID}})
 	sbtRecordOffsetID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR, Words: []uint32{u32TypeID, sbtRecordOffsetID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR, Words: []uint32{u32TypeID, sbtRecordOffsetID, queryID, intersectionID}})
 	geometryIndexID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionGeometryIndexKHR, Words: []uint32{u32TypeID, geometryIndexID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionGeometryIndexKHR, Words: []uint32{u32TypeID, geometryIndexID, queryID, intersectionID}})
 	primitiveIndexID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionPrimitiveIndexKHR, Words: []uint32{u32TypeID, primitiveIndexID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionPrimitiveIndexKHR, Words: []uint32{u32TypeID, primitiveIndexID, queryID, intersectionID}})
 	objectToWorldID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionObjectToWorldKHR, Words: []uint32{mat4x3TypeID, objectToWorldID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionObjectToWorldKHR, Words: []uint32{mat4x3TypeID, objectToWorldID, queryID, intersectionID}})
 	worldToObjectID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionWorldToObjectKHR, Words: []uint32{mat4x3TypeID, worldToObjectID, queryID, intersectionID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionWorldToObjectKHR, Words: []uint32{mat4x3TypeID, worldToObjectID, queryID, intersectionID}})
 
 	// Store to struct fields
 	idx2 := b.builder.AddConstant(u32TypeID, 2)
@@ -545,13 +546,13 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 
 	storeU32Field := func(block *Block, fieldIdx, valueID uint32) {
 		accessID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{u32PtrTypeID, accessID, blankIntersectionID, fieldIdx}})
-		block.Push(Instruction{Opcode: OpStore, Words: []uint32{accessID, valueID}})
+		block.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{u32PtrTypeID, accessID, blankIntersectionID, fieldIdx}})
+		block.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessID, valueID}})
 	}
 	storeMatField := func(block *Block, fieldIdx, valueID uint32) {
 		accessID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{mat4x3PtrTypeID, accessID, blankIntersectionID, fieldIdx}})
-		block.Push(Instruction{Opcode: OpStore, Words: []uint32{accessID, valueID}})
+		block.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{mat4x3PtrTypeID, accessID, blankIntersectionID, fieldIdx}})
+		block.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessID, valueID}})
 	}
 
 	storeU32Field(&notNoneBlock, idx2, instanceCustomIndexID)
@@ -565,7 +566,7 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	// Check if triangle
 	triID := b.builder.AddConstant(u32TypeID, 1) // Triangle = 1
 	triCompID := b.builder.AllocID()
-	notNoneBlock.Push(Instruction{Opcode: OpIEqual, Words: []uint32{boolTypeID, triCompID, kindID, triID}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpIEqual, Words: []uint32{boolTypeID, triCompID, kindID, triID}})
 
 	// For committed: t goes in notNone block. For candidate: t goes in tri block.
 	triLabelID := b.builder.AllocID()
@@ -576,56 +577,56 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	if committed {
 		// Store t in notNone block
 		tID := b.builder.AllocID()
-		notNoneBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, tID, queryID, intersectionID}})
+		notNoneBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, tID, queryID, intersectionID}})
 		idx1 := b.builder.AddConstant(u32TypeID, 1)
 		accessTID := b.builder.AllocID()
-		notNoneBlock.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{f32PtrTypeID, accessTID, blankIntersectionID, idx1}})
-		notNoneBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{accessTID, tID}})
+		notNoneBlock.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{f32PtrTypeID, accessTID, blankIntersectionID, idx1}})
+		notNoneBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessTID, tID}})
 	}
 
-	notNoneBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{innerMergeLabelID, 0}})
+	notNoneBlock.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{innerMergeLabelID, 0}})
 	// Barycentrics and front face exist only for a triangle hit (Rust
 	// 55534165: branch on tri_comp_id, not not_none_comp_id).
-	fb.Consume(notNoneBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{triCompID, triLabelID, innerMergeLabelID}})
+	fb.Consume(notNoneBlock, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{triCompID, triLabelID, innerMergeLabelID}})
 
 	if !committed {
 		// Store t in tri block for candidate
 		tID := b.builder.AllocID()
-		triBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, tID, queryID, intersectionID}})
+		triBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, tID, queryID, intersectionID}})
 		idx1 := b.builder.AddConstant(u32TypeID, 1)
 		accessTID := b.builder.AllocID()
-		triBlock.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{f32PtrTypeID, accessTID, blankIntersectionID, idx1}})
-		triBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{accessTID, tID}})
+		triBlock.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{f32PtrTypeID, accessTID, blankIntersectionID, idx1}})
+		triBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessTID, tID}})
 	}
 
 	// Tri block: barycentrics and front_face
 	barycentricsID := b.builder.AllocID()
-	triBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionBarycentricsKHR, Words: []uint32{vec2f32TypeID, barycentricsID, queryID, intersectionID}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionBarycentricsKHR, Words: []uint32{vec2f32TypeID, barycentricsID, queryID, intersectionID}})
 	frontFaceID := b.builder.AllocID()
-	triBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionFrontFaceKHR, Words: []uint32{boolTypeID, frontFaceID, queryID, intersectionID}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionFrontFaceKHR, Words: []uint32{boolTypeID, frontFaceID, queryID, intersectionID}})
 
 	idx7 := b.builder.AddConstant(u32TypeID, 7)
 	idx8 := b.builder.AddConstant(u32TypeID, 8)
 	accessBarycentricsID := b.builder.AllocID()
-	triBlock.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{vec2f32PtrTypeID, accessBarycentricsID, blankIntersectionID, idx7}})
-	triBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{accessBarycentricsID, barycentricsID}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{vec2f32PtrTypeID, accessBarycentricsID, blankIntersectionID, idx7}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessBarycentricsID, barycentricsID}})
 	accessFrontFaceID := b.builder.AllocID()
-	triBlock.Push(Instruction{Opcode: OpAccessChain, Words: []uint32{boolPtrTypeID, accessFrontFaceID, blankIntersectionID, idx8}})
-	triBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{accessFrontFaceID, frontFaceID}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpAccessChain, Words: []uint32{boolPtrTypeID, accessFrontFaceID, blankIntersectionID, idx8}})
+	triBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{accessFrontFaceID, frontFaceID}})
 
-	fb.Consume(triBlock, Instruction{Opcode: OpBranch, Words: []uint32{innerMergeLabelID}})
-	fb.Consume(innerMergeBlock, Instruction{Opcode: OpBranch, Words: []uint32{outerMergeLabelID}})
-	fb.Consume(outerMergeBlock, Instruction{Opcode: OpBranch, Words: []uint32{finalLabelID}})
+	fb.Consume(triBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{innerMergeLabelID}})
+	fb.Consume(innerMergeBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{outerMergeLabelID}})
+	fb.Consume(outerMergeBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{finalLabelID}})
 
 	// Final block: load and return
 	loadedIntersectionID := b.builder.AllocID()
-	finalBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{riVarTypeID, loadedIntersectionID, blankIntersectionID}})
+	finalBlock.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{riVarTypeID, loadedIntersectionID, blankIntersectionID}})
 	if riVarTypeID != riTypeID {
 		decorated := b.builder.AllocID()
 		finalBlock.Push(Instruction{Opcode: OpCopyLogical, Words: []uint32{riTypeID, decorated, loadedIntersectionID}})
 		loadedIntersectionID = decorated
 	}
-	fb.Consume(finalBlock, Instruction{Opcode: OpReturnValue, Words: []uint32{loadedIntersectionID}})
+	fb.Consume(finalBlock, Instruction{Opcode: spvenums.OpReturnValue, Words: []uint32{loadedIntersectionID}})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	b.rayQueryFuncIDs[kind] = funcID
@@ -642,9 +643,9 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
+	f32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, f32TypeID)
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	voidTypeID := b.getVoidType()
 
@@ -653,8 +654,8 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	var fb FunctionBuilder
 	funcID := b.builder.AllocID()
 	fb.Signature = Instruction{
-		Opcode: OpFunction,
-		Words:  []uint32{voidTypeID, funcID, uint32(FunctionControlNone), funcTypeID},
+		Opcode: spvenums.OpFunction,
+		Words:  []uint32{voidTypeID, funcID, uint32(spvenums.FunctionControlNone), funcTypeID},
 	}
 
 	queryID := b.builder.AllocID()
@@ -662,10 +663,10 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	depthID := b.builder.AllocID()
 	tMaxTrackerID := b.builder.AllocID()
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{f32TypeID, depthID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{f32PtrTypeID, tMaxTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{f32TypeID, depthID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{f32PtrTypeID, tMaxTrackerID}},
 	}
 
 	blockID := b.builder.AllocID()
@@ -674,13 +675,13 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	// Two local f32 variables
 	currentT1 := b.builder.AllocID()
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{f32PtrTypeID, currentT1, uint32(StorageClassFunction)},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{f32PtrTypeID, currentT1, uint32(spvenums.StorageClassFunction)},
 	})
 	currentT2 := b.builder.AllocID()
 	fb.Variables = append(fb.Variables, Instruction{
-		Opcode: OpVariable,
-		Words:  []uint32{f32PtrTypeID, currentT2, uint32(StorageClassFunction)},
+		Opcode: spvenums.OpVariable,
+		Words:  []uint32{f32PtrTypeID, currentT2, uint32(spvenums.StorageClassFunction)},
 	})
 	currentT := currentT2 // Use the second one as the actual currentT (matching Rust's shadowing)
 
@@ -691,16 +692,16 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 
 	if b.options.RayQueryInitTracking {
 		loadedTrackerID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
+		block.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
 		proceededID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointProceed)
 		finishedID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointFinishedTraversal)
 		notFinishedID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
 		isValidID := writeLogicalAnd(b, &block, notFinishedID, proceededID)
-		block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
-		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
+		block.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
 	} else {
-		fb.Consume(block, Instruction{Opcode: OpBranch, Words: []uint32{validLabelID}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{validLabelID}})
 	}
 
 	// Valid block: check candidate type is AABB
@@ -708,23 +709,23 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	committedIntersectionID := b.builder.AddConstant(u32TypeID, 1) // CommittedIntersection
 
 	rawKindID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, candidateIntersectionID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, candidateIntersectionID}})
 
 	candidateAABBID := b.builder.AddConstant(u32TypeID, 1) // CandidateAABB = 1
 	isAABBID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpIEqual, Words: []uint32{boolTypeID, isAABBID, rawKindID, candidateAABBID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpIEqual, Words: []uint32{boolTypeID, isAABBID, rawKindID, candidateAABBID}})
 
 	// Get tmin
 	tMinID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryGetRayTMinKHR, Words: []uint32{f32TypeID, tMinID, queryID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetRayTMinKHR, Words: []uint32{f32TypeID, tMinID, queryID}})
 
 	// Get committed intersection type
 	committedTypeID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, committedTypeID, queryID, committedIntersectionID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, committedTypeID, queryID, committedIntersectionID}})
 
 	committedNoneID := b.builder.AddConstant(u32TypeID, 0) // CommittedNone = 0
 	noCommittedID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpIEqual, Words: []uint32{boolTypeID, noCommittedID, committedTypeID, committedNoneID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpIEqual, Words: []uint32{boolTypeID, noCommittedID, committedTypeID, committedNoneID}})
 
 	// Branch: if no committed, use t_max_tracker; else use committed t
 	nextValidBlockID := b.builder.AllocID()
@@ -733,29 +734,29 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	committedBlockID := b.builder.AllocID()
 	committedBlock := NewBlock(committedBlockID)
 
-	validBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{nextValidBlockID, 0}})
-	fb.Consume(validBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{noCommittedID, noCommittedBlockID, committedBlockID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{nextValidBlockID, 0}})
+	fb.Consume(validBlock, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{noCommittedID, noCommittedBlockID, committedBlockID}})
 
 	// No committed: load t_max
 	tMaxLoadID := b.builder.AllocID()
-	noCommittedBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{f32TypeID, tMaxLoadID, tMaxTrackerID}})
-	noCommittedBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{currentT, tMaxLoadID}})
-	fb.Consume(noCommittedBlock, Instruction{Opcode: OpBranch, Words: []uint32{nextValidBlockID}})
+	noCommittedBlock.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{f32TypeID, tMaxLoadID, tMaxTrackerID}})
+	noCommittedBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{currentT, tMaxLoadID}})
+	fb.Consume(noCommittedBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{nextValidBlockID}})
 
 	// Has committed: get committed t
 	latestTID := b.builder.AllocID()
-	committedBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, latestTID, queryID, candidateIntersectionID}})
-	committedBlock.Push(Instruction{Opcode: OpStore, Words: []uint32{currentT, latestTID}})
-	fb.Consume(committedBlock, Instruction{Opcode: OpBranch, Words: []uint32{nextValidBlockID}})
+	committedBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTKHR, Words: []uint32{f32TypeID, latestTID, queryID, candidateIntersectionID}})
+	committedBlock.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{currentT, latestTID}})
+	fb.Consume(committedBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{nextValidBlockID}})
 
 	// Next valid block: check depth in range
 	nextValidBlock := NewBlock(nextValidBlockID)
 	tGeTMinID := b.builder.AllocID()
-	nextValidBlock.Push(Instruction{Opcode: OpFOrdGreaterThanEqual, Words: []uint32{boolTypeID, tGeTMinID, depthID, tMinID}})
+	nextValidBlock.Push(Instruction{Opcode: spvenums.OpFOrdGreaterThanEqual, Words: []uint32{boolTypeID, tGeTMinID, depthID, tMinID}})
 	tCurrentLoadID := b.builder.AllocID()
-	nextValidBlock.Push(Instruction{Opcode: OpLoad, Words: []uint32{f32TypeID, tCurrentLoadID, currentT}})
+	nextValidBlock.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{f32TypeID, tCurrentLoadID, currentT}})
 	tLeTCurrentID := b.builder.AllocID()
-	nextValidBlock.Push(Instruction{Opcode: OpFOrdLessThanEqual, Words: []uint32{boolTypeID, tLeTCurrentID, depthID, tCurrentLoadID}})
+	nextValidBlock.Push(Instruction{Opcode: spvenums.OpFOrdLessThanEqual, Words: []uint32{boolTypeID, tLeTCurrentID, depthID, tCurrentLoadID}})
 	tInRangeID := writeLogicalAnd(b, &nextValidBlock, tGeTMinID, tLeTCurrentID)
 	callValidID := writeLogicalAnd(b, &nextValidBlock, tInRangeID, isAABBID)
 
@@ -764,14 +765,14 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	genMergeLabelID := b.builder.AllocID()
 	genMergeBlock := NewBlock(genMergeLabelID)
 
-	nextValidBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{genMergeLabelID, 0}})
-	fb.Consume(nextValidBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{callValidID, generateLabelID, genMergeLabelID}})
+	nextValidBlock.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{genMergeLabelID, 0}})
+	fb.Consume(nextValidBlock, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{callValidID, generateLabelID, genMergeLabelID}})
 
-	generateBlock.Push(Instruction{Opcode: OpRayQueryGenerateIntersectionKHR, Words: []uint32{queryID, depthID}})
-	fb.Consume(generateBlock, Instruction{Opcode: OpBranch, Words: []uint32{genMergeLabelID}})
-	fb.Consume(genMergeBlock, Instruction{Opcode: OpBranch, Words: []uint32{finalLabelID}})
+	generateBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGenerateIntersectionKHR, Words: []uint32{queryID, depthID}})
+	fb.Consume(generateBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{genMergeLabelID}})
+	fb.Consume(genMergeBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{finalLabelID}})
 
-	fb.Consume(finalBlock, Instruction{Opcode: OpReturn})
+	fb.Consume(finalBlock, Instruction{Opcode: spvenums.OpReturn})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	b.rayQueryFuncIDs[rqFuncGenerateIntersection] = funcID
@@ -786,7 +787,7 @@ func (b *Backend) writeRayQueryConfirmIntersection() uint32 {
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
 	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
+	u32PtrTypeID := b.emitPointerType(spvenums.StorageClassFunction, u32TypeID)
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	voidTypeID := b.getVoidType()
 
@@ -795,15 +796,15 @@ func (b *Backend) writeRayQueryConfirmIntersection() uint32 {
 	var fb FunctionBuilder
 	funcID := b.builder.AllocID()
 	fb.Signature = Instruction{
-		Opcode: OpFunction,
-		Words:  []uint32{voidTypeID, funcID, uint32(FunctionControlNone), funcTypeID},
+		Opcode: spvenums.OpFunction,
+		Words:  []uint32{voidTypeID, funcID, uint32(spvenums.FunctionControlNone), funcTypeID},
 	}
 
 	queryID := b.builder.AllocID()
 	initTrackerID := b.builder.AllocID()
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
-		{Opcode: OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{rqPtrTypeID, queryID}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{u32PtrTypeID, initTrackerID}},
 	}
 
 	blockID := b.builder.AllocID()
@@ -816,40 +817,40 @@ func (b *Backend) writeRayQueryConfirmIntersection() uint32 {
 
 	if b.options.RayQueryInitTracking {
 		loadedTrackerID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
+		block.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{u32TypeID, loadedTrackerID, initTrackerID}})
 		proceededID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointProceed)
 		finishedID := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointFinishedTraversal)
 		notFinishedID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, notFinishedID, finishedID}})
 		isValidID := writeLogicalAnd(b, &block, notFinishedID, proceededID)
-		block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
-		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
+		block.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{finalLabelID, 0}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{isValidID, validLabelID, finalLabelID}})
 	} else {
-		fb.Consume(block, Instruction{Opcode: OpBranch, Words: []uint32{validLabelID}})
+		fb.Consume(block, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{validLabelID}})
 	}
 
 	// Check candidate is triangle
 	candidateIntersectionID := b.builder.AddConstant(u32TypeID, 0) // CandidateIntersection
 	rawKindID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, candidateIntersectionID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpRayQueryGetIntersectionTypeKHR, Words: []uint32{u32TypeID, rawKindID, queryID, candidateIntersectionID}})
 
 	candidateTriID := b.builder.AddConstant(u32TypeID, 0) // CandidateTriangle = 0
 	isTriID := b.builder.AllocID()
-	validBlock.Push(Instruction{Opcode: OpIEqual, Words: []uint32{boolTypeID, isTriID, rawKindID, candidateTriID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpIEqual, Words: []uint32{boolTypeID, isTriID, rawKindID, candidateTriID}})
 
 	confirmLabelID := b.builder.AllocID()
 	confirmBlock := NewBlock(confirmLabelID)
 	confirmMergeLabelID := b.builder.AllocID()
 	confirmMergeBlock := NewBlock(confirmMergeLabelID)
 
-	validBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{confirmMergeLabelID, 0}})
-	fb.Consume(validBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{isTriID, confirmLabelID, confirmMergeLabelID}})
+	validBlock.Push(Instruction{Opcode: spvenums.OpSelectionMerge, Words: []uint32{confirmMergeLabelID, 0}})
+	fb.Consume(validBlock, Instruction{Opcode: spvenums.OpBranchConditional, Words: []uint32{isTriID, confirmLabelID, confirmMergeLabelID}})
 
-	confirmBlock.Push(Instruction{Opcode: OpRayQueryConfirmIntersectionKHR, Words: []uint32{queryID}})
-	fb.Consume(confirmBlock, Instruction{Opcode: OpBranch, Words: []uint32{confirmMergeLabelID}})
-	fb.Consume(confirmMergeBlock, Instruction{Opcode: OpBranch, Words: []uint32{finalLabelID}})
+	confirmBlock.Push(Instruction{Opcode: spvenums.OpRayQueryConfirmIntersectionKHR, Words: []uint32{queryID}})
+	fb.Consume(confirmBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{confirmMergeLabelID}})
+	fb.Consume(confirmMergeBlock, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{finalLabelID}})
 
-	fb.Consume(finalBlock, Instruction{Opcode: OpReturn})
+	fb.Consume(finalBlock, Instruction{Opcode: spvenums.OpReturn})
 
 	b.builder.functions = append(b.builder.functions, fb.ToInstructions()...)
 	b.rayQueryFuncIDs[rqFuncConfirmIntersection] = funcID
@@ -864,9 +865,9 @@ func writeRayFlagsContainsFlag(b *Backend, block *Block, id uint32, flag uint32)
 	zeroID := b.builder.AddConstant(u32TypeID, 0)
 
 	andID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpBitwiseAnd, Words: []uint32{u32TypeID, andID, id, bitID}})
+	block.Push(Instruction{Opcode: spvenums.OpBitwiseAnd, Words: []uint32{u32TypeID, andID, id, bitID}})
 	eqID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpINotEqual, Words: []uint32{boolTypeID, eqID, andID, zeroID}})
+	block.Push(Instruction{Opcode: spvenums.OpINotEqual, Words: []uint32{boolTypeID, eqID, andID, zeroID}})
 	return eqID
 }
 
@@ -874,7 +875,7 @@ func writeRayFlagsContainsFlag(b *Backend, block *Block, id uint32, flag uint32)
 func writeLogicalAnd(b *Backend, block *Block, one, two uint32) uint32 {
 	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	id := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpLogicalAnd, Words: []uint32{boolTypeID, id, one, two}})
+	block.Push(Instruction{Opcode: spvenums.OpLogicalAnd, Words: []uint32{boolTypeID, id, one, two}})
 	return id
 }
 
@@ -904,12 +905,12 @@ func writeLessThan2True(b *Backend, block *Block, bools []uint32) uint32 {
 	allOrID := eachTwoTrue[len(eachTwoTrue)-1]
 	for i := len(eachTwoTrue) - 2; i >= 0; i-- {
 		newAllOrID := b.builder.AllocID()
-		block.Push(Instruction{Opcode: OpLogicalOr, Words: []uint32{boolTypeID, newAllOrID, allOrID, eachTwoTrue[i]}})
+		block.Push(Instruction{Opcode: spvenums.OpLogicalOr, Words: []uint32{boolTypeID, newAllOrID, allOrID, eachTwoTrue[i]}})
 		allOrID = newAllOrID
 	}
 
 	// NOT to get "less than 2"
 	lessThan2ID := b.builder.AllocID()
-	block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, lessThan2ID, allOrID}})
+	block.Push(Instruction{Opcode: spvenums.OpLogicalNot, Words: []uint32{boolTypeID, lessThan2ID, allOrID}})
 	return lessThan2ID
 }

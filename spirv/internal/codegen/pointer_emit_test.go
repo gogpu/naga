@@ -2,12 +2,14 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // spvDeadValues counts, per opcode, the results of pure value instructions
 // (spvPureValueOps) in function bodies that are never observed: no
 // instruction other than a dead pure value reads them.
-func spvDeadValues(t *testing.T, spv []byte) map[OpCode]int {
+func spvDeadValues(t *testing.T, spv []byte) map[spvenums.Op]int {
 	t.Helper()
 	instrs := decodeSPIRVInstructions(spv)
 	if instrs == nil {
@@ -15,13 +17,13 @@ func spvDeadValues(t *testing.T, spv []byte) map[OpCode]int {
 	}
 	users := map[uint32][]uint32{}
 	type def struct {
-		op OpCode
+		op spvenums.Op
 		id uint32
 	}
 	var defs []def
 	inFunction := false
 	for _, in := range instrs {
-		if in.opcode == OpFunction {
+		if in.opcode == spvenums.OpFunction {
 			inFunction = true
 		}
 		if !inFunction {
@@ -47,7 +49,7 @@ func spvDeadValues(t *testing.T, spv []byte) map[OpCode]int {
 		}
 		return true
 	}
-	counts := map[OpCode]int{}
+	counts := map[spvenums.Op]int{}
 	for _, d := range defs {
 		if dead(d.id) {
 			counts[d.op]++
@@ -62,7 +64,7 @@ func spvDeadValues(t *testing.T, spv []byte) map[OpCode]int {
 // where the pointer is used (back/spv/block.rs cache_expression_value, "Put off
 // generating any code for this until we find the Expression that actually
 // dereferences the pointer"). Materializing it at Emit leaves an access chain,
-// an OpLoad and, for workgroup data, an OpCopyLogical whose results nothing
+// an spvenums.OpLoad and, for workgroup data, an OpCopyLogical whose results nothing
 // uses — on atomic data that dead load is a non-atomic read.
 func TestEmitDoesNotMaterializePointers(t *testing.T) {
 	tests := []struct {
@@ -133,7 +135,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 			spv := compileAtomicTestShader(t, tt.source)
 			for op, n := range spvDeadValues(t, spv) {
 				switch op {
-				case OpLoad, OpCopyLogical, OpAccessChain:
+				case spvenums.OpLoad, OpCopyLogical, spvenums.OpAccessChain:
 					t.Errorf("%d dead results of opcode %d (OpLoad=61, OpAccessChain=65, OpCopyLogical=400)", n, op)
 				}
 			}
@@ -181,9 +183,9 @@ fn main(fragment_in: FragmentIn) -> @location(0) u32 {
 	hasCapability := false
 	for _, in := range instrs {
 		switch {
-		case in.opcode == OpDecorate && Decoration(in.words[2]) == DecorationNonUniform:
+		case in.opcode == spvenums.OpDecorate && spvenums.Decoration(in.words[2]) == spvenums.DecorationNonUniform:
 			nonUniform[in.words[1]] = true
-		case in.opcode == OpCapability && Capability(in.words[1]) == CapabilityShaderNonUniform:
+		case in.opcode == spvenums.OpCapability && spvenums.Capability(in.words[1]) == spvenums.CapabilityShaderNonUniform:
 			hasCapability = true
 		}
 	}

@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // spvValueOrigin describes where the value stored to the single variable at
@@ -9,19 +11,19 @@ import (
 // through conversions, and for a load, the storage class of its root variable
 // and whether it ran before the module's first store to `dataRoot`.
 type spvValueOrigin struct {
-	op OpCode
-	// For OpCompositeExtract: the composite came from an OpLoad of dataRoot
+	op spvenums.Op
+	// For spvenums.OpCompositeExtract: the composite came from an spvenums.OpLoad of dataRoot
 	// that precedes the first store to dataRoot.
 	extractFromEarlyLoad bool
-	// For OpLoad: storage class of the root variable of its pointer.
-	loadRootClass StorageClass
+	// For spvenums.OpLoad: storage class of the root variable of its pointer.
+	loadRootClass spvenums.StorageClass
 }
 
 // dataInWorkgroup, as valueStoredTo's dataBinding, selects the module's
 // workgroup variable as the data root instead of a resource binding.
 const dataInWorkgroup = ^uint32(0)
 
-// valueStoredTo traces the value of the one OpStore whose pointer is rooted at
+// valueStoredTo traces the value of the one spvenums.OpStore whose pointer is rooted at
 // the variable decorated with Binding outBinding.
 func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spvValueOrigin {
 	t.Helper()
@@ -29,22 +31,22 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	def := map[uint32]int{}        // result id → instruction index
 	parent := map[uint32]uint32{}  // access chain result → base
 	binding := map[uint32]uint32{} // variable id → binding
-	varClass := map[uint32]StorageClass{}
+	varClass := map[uint32]spvenums.StorageClass{}
 	for i, in := range instrs {
 		switch in.opcode {
-		case OpDecorate:
-			if Decoration(in.words[2]) == DecorationBinding {
+		case spvenums.OpDecorate:
+			if spvenums.Decoration(in.words[2]) == spvenums.DecorationBinding {
 				binding[in.words[1]] = in.words[3]
 			}
-		case OpVariable:
-			varClass[in.words[2]] = StorageClass(in.words[3])
-		case OpAccessChain:
+		case spvenums.OpVariable:
+			varClass[in.words[2]] = spvenums.StorageClass(in.words[3])
+		case spvenums.OpAccessChain:
 			parent[in.words[2]] = in.words[3]
 		}
 		if len(in.words) > 2 {
 			switch in.opcode {
-			case OpStore, OpDecorate, OpName, OpEntryPoint, OpExecutionMode, OpBranch, OpBranchConditional,
-				OpSelectionMerge, OpLoopMerge, OpReturn, OpReturnValue, OpMemberDecorate:
+			case spvenums.OpStore, spvenums.OpDecorate, spvenums.OpName, spvenums.OpEntryPoint, spvenums.OpExecutionMode, spvenums.OpBranch, spvenums.OpBranchConditional,
+				spvenums.OpSelectionMerge, spvenums.OpLoopMerge, spvenums.OpReturn, spvenums.OpReturnValue, spvenums.OpMemberDecorate:
 			default:
 				def[in.words[2]] = i
 			}
@@ -62,7 +64,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	isData := func(p uint32) bool {
 		r := root(p)
 		if dataBinding == dataInWorkgroup {
-			return varClass[r] == StorageClassWorkgroup
+			return varClass[r] == spvenums.StorageClassWorkgroup
 		}
 		b, ok := binding[r]
 		return ok && b == dataBinding
@@ -70,7 +72,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 
 	nulls := map[uint32]bool{}
 	for _, in := range instrs {
-		if in.opcode == OpConstantNull {
+		if in.opcode == spvenums.OpConstantNull {
 			nulls[in.words[2]] = true
 		}
 	}
@@ -78,7 +80,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	storeIdx := -1
 	var value uint32
 	for i, in := range instrs {
-		if in.opcode != OpStore {
+		if in.opcode != spvenums.OpStore {
 			continue
 		}
 		// The workgroup zero-initialization stores a null to the whole
@@ -103,13 +105,13 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 	for {
 		in := instrs[def[value]]
 		switch in.opcode {
-		case OpBitcast, OpConvertUToF, OpConvertSToF, OpCopyLogical:
+		case spvenums.OpBitcast, spvenums.OpConvertUToF, spvenums.OpConvertSToF, OpCopyLogical:
 			value = in.words[3]
 			continue
 		}
 		origin := spvValueOrigin{op: in.opcode}
 		switch in.opcode {
-		case OpCompositeExtract:
+		case spvenums.OpCompositeExtract:
 			composite := in.words[3]
 			for {
 				c := instrs[def[composite]]
@@ -120,16 +122,16 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 				// Below SPIR-V 1.4 the layout copy is a call of a function
 				// that copies its one argument member by member; the only
 				// calls in these shaders are those copies.
-				if c.opcode == OpFunctionCall && len(c.words) == 5 {
+				if c.opcode == spvenums.OpFunctionCall && len(c.words) == 5 {
 					composite = c.words[4]
 					continue
 				}
-				if c.opcode == OpLoad && isData(c.words[3]) && def[composite] < firstDataStore {
+				if c.opcode == spvenums.OpLoad && isData(c.words[3]) && def[composite] < firstDataStore {
 					origin.extractFromEarlyLoad = true
 				}
 				break
 			}
-		case OpLoad:
+		case spvenums.OpLoad:
 			origin.loadRootClass = varClass[root(in.words[3])]
 		}
 		return origin
@@ -138,7 +140,7 @@ func valueStoredTo(t *testing.T, spv []byte, outBinding, dataBinding uint32) spv
 
 // TestIndexingALoadedValueUsesTheValue pins BUG-SPV-LOAD-PASSTHROUGH-001.
 // `let snapshot = data;` loads a value; indexing it must read that value, not
-// memory again. Rust naga emits OpCompositeExtract on the loaded value for a
+// memory again. Rust naga emits spvenums.OpCompositeExtract on the loaded value for a
 // constant index and spills it to a temporary for a dynamic one. Re-reading
 // the buffer instead returns a value written after the `let`.
 func TestIndexingALoadedValueUsesTheValue(t *testing.T) {
@@ -220,13 +222,13 @@ fn main() {
 			}
 			origin := valueStoredTo(t, compileAtomicTestShader(t, tt.source), 1, data)
 			if tt.wantExtract {
-				if origin.op != OpCompositeExtract || !origin.extractFromEarlyLoad {
+				if origin.op != spvenums.OpCompositeExtract || !origin.extractFromEarlyLoad {
 					t.Errorf("stored value comes from opcode %d (extract from the snapshot load: %v); "+
-						"want OpCompositeExtract of the load taken before the store to data", origin.op, origin.extractFromEarlyLoad)
+						"want spvenums.OpCompositeExtract of the load taken before the store to data", origin.op, origin.extractFromEarlyLoad)
 				}
 				return
 			}
-			if origin.op != OpLoad || origin.loadRootClass != StorageClassFunction {
+			if origin.op != spvenums.OpLoad || origin.loadRootClass != spvenums.StorageClassFunction {
 				t.Errorf("stored value comes from opcode %d (load root class %d); want an OpLoad from a "+
 					"Function-class temporary holding the snapshot", origin.op, origin.loadRootClass)
 			}
@@ -256,11 +258,11 @@ fn main() {
 	found := false
 	for _, in := range instrs {
 		switch in.opcode {
-		case OpFunctionParameter:
+		case spvenums.OpFunctionParameter:
 			params[in.words[2]] = true
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			chains[in.words[2]] = in.words[3]
-		case OpLoad:
+		case spvenums.OpLoad:
 			if base, ok := chains[in.words[3]]; ok && params[base] {
 				found = true
 			}

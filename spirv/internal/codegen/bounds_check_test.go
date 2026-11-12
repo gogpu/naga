@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // spvView indexes a decoded SPIR-V module for bounds-check assertions.
@@ -17,13 +18,13 @@ type spvView struct {
 
 // resultIDWord is the word index of the result id for the opcodes these
 // tests look at (instructions with a result type have it at 2).
-func resultIDWord(op OpCode) int {
+func resultIDWord(op spvenums.Op) int {
 	switch op {
-	case OpLabel:
+	case spvenums.OpLabel:
 		return 1
-	case OpExtInst, OpAccessChain, OpLoad, OpULessThan, OpLogicalAnd, OpPhi, OpArrayLength, OpISub,
-		OpVectorExtractDynamic, OpConstant, OpConstantNull, OpFunctionParameter, OpVariable,
-		OpAtomicLoad, OpAtomicIAdd, OpCompositeExtract, OpBitcast:
+	case spvenums.OpExtInst, spvenums.OpAccessChain, spvenums.OpLoad, spvenums.OpULessThan, spvenums.OpLogicalAnd, spvenums.OpPhi, OpArrayLength, spvenums.OpISub,
+		spvenums.OpVectorExtractDynamic, spvenums.OpConstant, spvenums.OpConstantNull, spvenums.OpFunctionParameter, spvenums.OpVariable,
+		spvenums.OpAtomicLoad, spvenums.OpAtomicIAdd, spvenums.OpCompositeExtract, spvenums.OpBitcast:
 		return 2
 	}
 	return 0
@@ -40,7 +41,7 @@ func newSPVView(t *testing.T, spv []byte) *spvView {
 	}
 	var label uint32
 	for i, in := range v.instrs {
-		if in.opcode == OpLabel {
+		if in.opcode == spvenums.OpLabel {
 			label = in.words[1]
 		}
 		v.block[i] = label
@@ -48,11 +49,11 @@ func newSPVView(t *testing.T, spv []byte) *spvView {
 			v.defs[in.words[w]] = i
 		}
 		switch in.opcode {
-		case OpConstant:
+		case spvenums.OpConstant:
 			if len(in.words) == 4 {
 				v.consts[in.words[2]] = in.words[3]
 			}
-		case OpConstantNull:
+		case spvenums.OpConstantNull:
 			v.nulls[in.words[2]] = true
 		}
 	}
@@ -71,15 +72,15 @@ func (v *spvView) def(id uint32) (spirvInstruction, bool) {
 // blockOf returns the label of the block that defines id.
 func (v *spvView) blockOf(id uint32) uint32 { return v.block[v.defs[id]] }
 
-// all returns the instructions with the given opcode (for OpExtInst, with the
+// all returns the instructions with the given opcode (for spvenums.OpExtInst, with the
 // given GLSL.std.450 instruction number).
-func (v *spvView) all(op OpCode, ext uint32) []spirvInstruction {
+func (v *spvView) all(op spvenums.Op, ext uint32) []spirvInstruction {
 	var out []spirvInstruction
 	for _, in := range v.instrs {
 		if in.opcode != op {
 			continue
 		}
-		if op == OpExtInst && in.words[4] != ext {
+		if op == spvenums.OpExtInst && in.words[4] != ext {
 			continue
 		}
 		out = append(out, in)
@@ -131,7 +132,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
     a[i] = 1.0;
     out = a[i + 1u];
 }`, restrictAll)
-		umins := v.all(OpExtInst, GLSLstd450UMin)
+		umins := v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))
 		if len(umins) != 2 {
 			t.Fatalf("UMin count = %d, want 2 (one per dynamic index)", len(umins))
 		}
@@ -140,12 +141,12 @@ fn main(@builtin(local_invocation_index) i: u32) {
 				t.Errorf("UMin bound operand is not the constant 7 (length 8 - 1)")
 			}
 		}
-		for _, ac := range v.all(OpAccessChain, 0) {
+		for _, ac := range v.all(spvenums.OpAccessChain, 0) {
 			for _, ix := range ac.words[4:] {
 				if _, isConst := v.consts[ix]; isConst {
 					continue
 				}
-				if d, ok := v.def(ix); !ok || d.opcode != OpExtInst || d.words[4] != GLSLstd450UMin {
+				if d, ok := v.def(ix); !ok || d.opcode != spvenums.OpExtInst || d.words[4] != uint32(spvenums.GlslStd450UMin) {
 					t.Errorf("access chain index %%%d is not restricted by UMin", ix)
 				}
 			}
@@ -160,12 +161,12 @@ struct Data { count: u32, items: array<f32> }
 fn main(@builtin(local_invocation_index) i: u32) {
     data.items[i] = 2.0;
 }`, restrictAll)
-		umins := v.all(OpExtInst, GLSLstd450UMin)
+		umins := v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))
 		if len(umins) != 1 {
 			t.Fatalf("UMin count = %d, want 1", len(umins))
 		}
 		sub, ok := v.def(umins[0].words[6])
-		if !ok || sub.opcode != OpISub || !v.isConst(sub.words[4], 1) {
+		if !ok || sub.opcode != spvenums.OpISub || !v.isConst(sub.words[4], 1) {
 			t.Fatalf("UMin bound is not ISub(length, 1)")
 		}
 		if l, ok := v.def(sub.words[3]); !ok || l.opcode != OpArrayLength {
@@ -181,12 +182,12 @@ fn pick(v: vec4<f32>, i: u32) -> f32 { return v[i]; }
 fn main(@builtin(local_invocation_index) i: u32) {
     out = pick(vec4<f32>(1.0, 2.0, 3.0, 4.0), i);
 }`, restrictAll)
-		extracts := v.all(OpVectorExtractDynamic, 0)
+		extracts := v.all(spvenums.OpVectorExtractDynamic, 0)
 		if len(extracts) != 1 {
 			t.Fatalf("OpVectorExtractDynamic count = %d, want 1", len(extracts))
 		}
 		u, ok := v.def(extracts[0].words[4])
-		if !ok || u.opcode != OpExtInst || u.words[4] != GLSLstd450UMin || !v.isConst(u.words[6], 3) {
+		if !ok || u.opcode != spvenums.OpExtInst || u.words[4] != uint32(spvenums.GlslStd450UMin) || !v.isConst(u.words[6], 3) {
 			t.Errorf("vector index is not UMin(i, 3)")
 		}
 	})
@@ -199,7 +200,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 fn main(@builtin(local_invocation_index) i: u32) {
     out = m[i];
 }`, restrictAll)
-		umins := v.all(OpExtInst, GLSLstd450UMin)
+		umins := v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))
 		if len(umins) != 1 || !v.isConst(umins[0].words[6], 2) {
 			t.Errorf("want one UMin(i, 2) for a 3-column matrix, got %d", len(umins))
 		}
@@ -214,7 +215,7 @@ fn main() {
     var w = vec4<f32>(1.0);
     out = a[7] + w[3];
 }`, restrictAll)
-		if n := len(v.all(OpExtInst, GLSLstd450UMin)); n != 0 {
+		if n := len(v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))); n != 0 {
 			t.Errorf("UMin count = %d, want 0 for indices known to be in bounds", n)
 		}
 	})
@@ -229,11 +230,11 @@ fn main(@builtin(local_invocation_index) i: u32) {
 }`
 		// Rust choose_policy: storage/uniform pointers use `buffer`, the rest `index`.
 		onlyIndex := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckUnchecked))
-		if umins := onlyIndex.all(OpExtInst, GLSLstd450UMin); len(umins) != 1 || !onlyIndex.isConst(umins[0].words[6], 3) {
+		if umins := onlyIndex.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin)); len(umins) != 1 || !onlyIndex.isConst(umins[0].words[6], 3) {
 			t.Errorf("Index=Restrict: want one UMin(i, 3) for the local array, got %d", len(umins))
 		}
 		onlyBuffer := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckUnchecked, backend.BoundsCheckRestrict))
-		if umins := onlyBuffer.all(OpExtInst, GLSLstd450UMin); len(umins) != 1 || !onlyBuffer.isConst(umins[0].words[6], 15) {
+		if umins := onlyBuffer.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin)); len(umins) != 1 || !onlyBuffer.isConst(umins[0].words[6], 15) {
 			t.Errorf("Buffer=Restrict: want one UMin(i, 15) for the storage array, got %d", len(umins))
 		}
 	})
@@ -248,21 +249,21 @@ fn main(@builtin(local_invocation_index) i: u32) {
 }`, restrictAll)
 		// Rust: UMin typed u32 over the i32 index (the unsigned view maps a
 		// negative index to the last element).
-		if n := len(v.all(OpExtInst, GLSLstd450UMin)); n != 1 {
+		if n := len(v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))); n != 1 {
 			t.Errorf("UMin count = %d, want 1", n)
 		}
 	})
 }
 
 // rzswGuarded checks the ReadZeroSkipWrite shape around the instruction at
-// index target: its block is entered through OpBranchConditional on cond, and
+// index target: its block is entered through spvenums.OpBranchConditional on cond, and
 // returns that branch's merge label.
 func rzswGuardedBlock(t *testing.T, v *spvView, target uint32) (cond uint32, merge uint32) {
 	t.Helper()
 	label := v.blockOf(target)
 	for i, in := range v.instrs {
-		if in.opcode == OpBranchConditional && in.words[2] == label {
-			if i > 0 && v.instrs[i-1].opcode == OpSelectionMerge {
+		if in.opcode == spvenums.OpBranchConditional && in.words[2] == label {
+			if i > 0 && v.instrs[i-1].opcode == spvenums.OpSelectionMerge {
 				return in.words[1], v.instrs[i-1].words[1]
 			}
 			return in.words[1], in.words[3]
@@ -275,10 +276,10 @@ func rzswGuardedBlock(t *testing.T, v *spvView, target uint32) (cond uint32, mer
 // TestBoundsCheckReadZeroSkipWrite pins BoundsCheckPolicy ReadZeroSkipWrite
 // as Rust naga emits it (back/spv/index.rs write_index_comparison,
 // block.rs write_access_chain / write_checked_load / Statement::Store): each
-// dynamic index is compared with OpULessThan against the length, checks are
-// combined with OpLogicalAnd, and the access chain itself with its load or
+// dynamic index is compared with spvenums.OpULessThan against the length, checks are
+// combined with spvenums.OpLogicalAnd, and the access chain itself with its load or
 // store runs only in the in-bounds branch; a load merges its value with zero
-// through OpPhi. Better than Rust, atomics stay atomic on that path and
+// through spvenums.OpPhi. Better than Rust, atomics stay atomic on that path and
 // read-modify-write atomics are supported (Rust: "Atomics out-of-bounds
 // handling" not implemented).
 func TestBoundsCheckReadZeroSkipWrite(t *testing.T) {
@@ -290,13 +291,13 @@ fn main(@builtin(local_invocation_index) i: u32) {
     var a: array<f32, 8>;
     out = a[i];
 }`, rzswAll)
-		lts := v.all(OpULessThan, 0)
+		lts := v.all(spvenums.OpULessThan, 0)
 		if len(lts) != 1 || !v.isConst(lts[0].words[4], 8) {
 			t.Fatalf("want one ULessThan(i, 8), got %d", len(lts))
 		}
 		var load spirvInstruction
-		for _, ac := range v.all(OpAccessChain, 0) {
-			for _, ld := range v.all(OpLoad, 0) {
+		for _, ac := range v.all(spvenums.OpAccessChain, 0) {
+			for _, ld := range v.all(spvenums.OpLoad, 0) {
 				if ld.words[3] == ac.words[2] {
 					load = ld
 				}
@@ -313,7 +314,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 			t.Errorf("the access chain is not in the in-bounds block")
 		}
 		var phi spirvInstruction
-		for _, p := range v.all(OpPhi, 0) {
+		for _, p := range v.all(spvenums.OpPhi, 0) {
 			if v.blockOf(p.words[2]) == merge {
 				phi = p
 			}
@@ -336,17 +337,17 @@ fn main(@builtin(local_invocation_index) i: u32) {
     var a: array<f32, 8>;
     a[i] = 3.0;
 }`, rzswAll)
-		if n := len(v.all(OpULessThan, 0)); n != 1 {
+		if n := len(v.all(spvenums.OpULessThan, 0)); n != 1 {
 			t.Fatalf("ULessThan count = %d, want 1", n)
 		}
 		found := false
-		for _, in := range v.all(OpStore, 0) {
-			if d, ok := v.def(in.words[1]); ok && d.opcode == OpAccessChain {
+		for _, in := range v.all(spvenums.OpStore, 0) {
+			if d, ok := v.def(in.words[1]); ok && d.opcode == spvenums.OpAccessChain {
 				found = true
 				label := v.block[v.defs[in.words[1]]]
 				// the store is in the same in-bounds block as its access chain
 				for i, x := range v.instrs {
-					if x.opcode == OpStore && x.words[1] == in.words[1] && v.block[i] != label {
+					if x.opcode == spvenums.OpStore && x.words[1] == in.words[1] && v.block[i] != label {
 						t.Errorf("store and its access chain are in different blocks")
 					}
 				}
@@ -356,7 +357,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		if !found {
 			t.Fatal("no store through an access chain")
 		}
-		if n := len(v.all(OpPhi, 0)); n != 0 {
+		if n := len(v.all(spvenums.OpPhi, 0)); n != 0 {
 			t.Errorf("OpPhi count = %d, want 0 for a store", n)
 		}
 	})
@@ -369,12 +370,12 @@ fn main(@builtin(local_invocation_index) i: u32) {
     var a: array<array<f32, 4>, 8>;
     out = a[i][i + 1u];
 }`, rzswAll)
-		ands := v.all(OpLogicalAnd, 0)
-		if len(v.all(OpULessThan, 0)) != 2 || len(ands) != 1 {
+		ands := v.all(spvenums.OpLogicalAnd, 0)
+		if len(v.all(spvenums.OpULessThan, 0)) != 2 || len(ands) != 1 {
 			t.Fatalf("want two ULessThan combined by one LogicalAnd")
 		}
 		used := false
-		for _, b := range v.all(OpBranchConditional, 0) {
+		for _, b := range v.all(spvenums.OpBranchConditional, 0) {
 			used = used || b.words[1] == ands[0].words[2]
 		}
 		if !used {
@@ -390,7 +391,7 @@ struct Data { count: u32, items: array<f32> }
 fn main(@builtin(local_invocation_index) i: u32) {
     data.count = u32(data.items[i]);
 }`, rzswAll)
-		lts := v.all(OpULessThan, 0)
+		lts := v.all(spvenums.OpULessThan, 0)
 		if len(lts) != 1 {
 			t.Fatalf("ULessThan count = %d, want 1", len(lts))
 		}
@@ -407,13 +408,13 @@ fn pick(v: vec4<f32>, i: u32) -> f32 { return v[i]; }
 fn main(@builtin(local_invocation_index) i: u32) {
     out = pick(vec4<f32>(1.0), i);
 }`, rzswAll)
-		extracts := v.all(OpVectorExtractDynamic, 0)
+		extracts := v.all(spvenums.OpVectorExtractDynamic, 0)
 		if len(extracts) != 1 {
 			t.Fatalf("OpVectorExtractDynamic count = %d, want 1", len(extracts))
 		}
 		_, merge := rzswGuardedBlock(t, v, extracts[0].words[2])
 		phiFound := false
-		for _, p := range v.all(OpPhi, 0) {
+		for _, p := range v.all(spvenums.OpPhi, 0) {
 			if v.blockOf(p.words[2]) == merge && (p.words[3] == extracts[0].words[2] || p.words[5] == extracts[0].words[2]) {
 				phiFound = true
 			}
@@ -432,30 +433,30 @@ fn main(@builtin(local_invocation_index) i: u32) {
     let old = atomicAdd(&c.hits[i], 1u);
     atomicStore(&c.hits[i + 1u], atomicLoad(&c.hits[i + 2u]) + old);
 }`, rzswAll)
-		if n := len(v.all(OpLoad, 0)) + len(v.all(OpStore, 0)); n != 0 {
-			for _, in := range append(v.all(OpLoad, 0), v.all(OpStore, 0)...) {
+		if n := len(v.all(spvenums.OpLoad, 0)) + len(v.all(spvenums.OpStore, 0)); n != 0 {
+			for _, in := range append(v.all(spvenums.OpLoad, 0), v.all(spvenums.OpStore, 0)...) {
 				ptr := in.words[3]
-				if in.opcode == OpStore {
+				if in.opcode == spvenums.OpStore {
 					ptr = in.words[1]
 				}
-				if d, ok := v.def(ptr); ok && d.opcode == OpAccessChain {
+				if d, ok := v.def(ptr); ok && d.opcode == spvenums.OpAccessChain {
 					t.Errorf("non-atomic %v through an access chain into atomic data", in.opcode)
 				}
 			}
 		}
-		for _, op := range []OpCode{OpAtomicIAdd, OpAtomicLoad} {
+		for _, op := range []spvenums.Op{spvenums.OpAtomicIAdd, spvenums.OpAtomicLoad} {
 			ins := v.all(op, 0)
 			if len(ins) != 1 {
 				t.Fatalf("%v count = %d, want 1", op, len(ins))
 			}
 			rzswGuardedBlock(t, v, ins[0].words[2])
 		}
-		stores := v.all(OpAtomicStore, 0)
+		stores := v.all(spvenums.OpAtomicStore, 0)
 		if len(stores) != 1 {
 			t.Fatalf("OpAtomicStore count = %d, want 1", len(stores))
 		}
 		rzswGuardedBlock(t, v, stores[0].words[1])
-		if n := len(v.all(OpULessThan, 0)); n != 3 {
+		if n := len(v.all(spvenums.OpULessThan, 0)); n != 3 {
 			t.Errorf("ULessThan count = %d, want 3", n)
 		}
 	})
@@ -472,7 +473,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
     a[i] = data.items[i];
     data.count = u32(a[i + 1u]);
 }`, indexBuffer(backend.BoundsCheckUnchecked, backend.BoundsCheckUnchecked))
-	if n := len(v.all(OpExtInst, GLSLstd450UMin)) + len(v.all(OpULessThan, 0)); n != 0 {
+	if n := len(v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin))) + len(v.all(spvenums.OpULessThan, 0)); n != 0 {
 		t.Errorf("Unchecked emitted %d bounds-check instructions", n)
 	}
 }
@@ -492,7 +493,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 }`
 	bounds := func(v *spvView) map[uint32]int {
 		got := map[uint32]int{}
-		for _, u := range v.all(OpExtInst, GLSLstd450UMin) {
+		for _, u := range v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin)) {
 			got[v.consts[u.words[6]]]++
 		}
 		return got
@@ -523,7 +524,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	t.Run("restrict", func(t *testing.T) {
 		v := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckRestrict, backend.BoundsCheckUnchecked))
 		got := map[uint32]int{}
-		for _, u := range v.all(OpExtInst, GLSLstd450UMin) {
+		for _, u := range v.all(spvenums.OpExtInst, uint32(spvenums.GlslStd450UMin)) {
 			got[v.consts[u.words[6]]]++
 		}
 		if len(got) != 2 || got[2] != 1 || got[3] != 1 {
@@ -532,21 +533,21 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	})
 	t.Run("read_zero_skip_write", func(t *testing.T) {
 		v := compileBoundsTest(t, source, indexBuffer(backend.BoundsCheckReadZeroSkipWrite, backend.BoundsCheckUnchecked))
-		lts := v.all(OpULessThan, 0)
+		lts := v.all(spvenums.OpULessThan, 0)
 		if len(lts) != 2 {
 			t.Fatalf("ULessThan count = %d, want 2", len(lts))
 		}
 		phis := 0
-		for _, ld := range v.all(OpLoad, 0) {
+		for _, ld := range v.all(spvenums.OpLoad, 0) {
 			ac, ok := v.def(ld.words[3])
-			if !ok || ac.opcode != OpAccessChain {
+			if !ok || ac.opcode != spvenums.OpAccessChain {
 				continue
 			}
-			if root, ok := v.def(ac.words[3]); !ok || root.opcode != OpVariable || StorageClass(root.words[3]) != StorageClassFunction {
+			if root, ok := v.def(ac.words[3]); !ok || root.opcode != spvenums.OpVariable || spvenums.StorageClass(root.words[3]) != spvenums.StorageClassFunction {
 				continue
 			}
 			_, merge := rzswGuardedBlock(t, v, ld.words[2])
-			for _, p := range v.all(OpPhi, 0) {
+			for _, p := range v.all(spvenums.OpPhi, 0) {
 				if v.blockOf(p.words[2]) == merge {
 					phis++
 				}
@@ -571,7 +572,7 @@ struct Data { count: u32, items: array<Item, 16> }
 fn main(@builtin(local_invocation_index) i: u32) {
     data.items[i].pos.z = 1.0;
 }`, rzswAll)
-	lts := v.all(OpULessThan, 0)
+	lts := v.all(spvenums.OpULessThan, 0)
 	if len(lts) != 1 || !v.isConst(lts[0].words[4], 16) {
 		t.Errorf("want one ULessThan(i, 16) for the array index only, got %d", len(lts))
 	}

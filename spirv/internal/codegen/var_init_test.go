@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestVarInitFromUniform tests that `var x = params.value;` compiles to correct SPIR-V.
-// The init expression references a uniform buffer field, which requires OpAccessChain + OpLoad.
+// The init expression references a uniform buffer field, which requires spvenums.OpAccessChain + spvenums.OpLoad.
 // The generated SPIR-V must have:
-//  1. OpVariable for the local var in the entry block
-//  2. OpAccessChain + OpLoad to get the uniform value
-//  3. OpStore to initialize the local var
+//  1. spvenums.OpVariable for the local var in the entry block
+//  2. spvenums.OpAccessChain + spvenums.OpLoad to get the uniform value
+//  3. spvenums.OpStore to initialize the local var
 func TestVarInitFromUniform(t *testing.T) {
 	const shader = `
 struct Params {
@@ -46,14 +48,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 	t.Logf("Local variable 'x' has SPIR-V ID: %%%d", xVarID)
 
-	// Verify there is an OpStore to 'x' in the entry block (init store)
+	// Verify there is an spvenums.OpStore to 'x' in the entry block (init store)
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' in the entry block. " +
 			"The var init expression was not emitted correctly.")
 	}
 
-	// Verify the stored value comes from OpLoad of a uniform field (via OpAccessChain)
+	// Verify the stored value comes from spvenums.OpLoad of a uniform field (via spvenums.OpAccessChain)
 	verifyInitValueFromUniform(t, instrs, names, xVarID)
 }
 
@@ -92,7 +94,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an OpStore initializing 'x'
+	// Verify there is an spvenums.OpStore initializing 'x'
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x'. " +
@@ -126,7 +128,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an OpStore initializing 'x' with a constant value
+	// Verify there is an spvenums.OpStore initializing 'x' with a constant value
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' with literal 42.0")
@@ -165,7 +167,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'x' not found in SPIR-V output")
 	}
 
-	// Verify there is an OpStore initializing 'x'
+	// Verify there is an spvenums.OpStore initializing 'x'
 	initStoreFound := verifyInitStore(t, instrs, names, xVarID)
 	if !initStoreFound {
 		t.Error("BUG: No OpStore found to initialize 'x' from let binding")
@@ -174,7 +176,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // TestVarInitOrder verifies that init expressions for local variables that depend on
 // body-emitted statements (like let bindings with uniform reads) are properly ordered.
-// The key issue: if var init OpStore is emitted BEFORE body statements, references
+// The key issue: if var init spvenums.OpStore is emitted BEFORE body statements, references
 // to let-bound values that haven't been emitted yet will fail or produce zero.
 func TestVarInitOrder(t *testing.T) {
 	// This shader intentionally has a let binding BEFORE the var init,
@@ -211,7 +213,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'scaled' not found")
 	}
 
-	// Count OpStore instructions to 'scaled'
+	// Count spvenums.OpStore instructions to 'scaled'
 	storeCount := countStoresToVar(instrs, scaledVarID)
 	t.Logf("Found %d OpStore instructions to 'scaled' (%%%d)", storeCount, scaledVarID)
 
@@ -257,7 +259,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Fatal("BUG: Local variable 'result' not found in SPIR-V output")
 	}
 
-	// Verify there is an OpStore to 'result' somewhere (may be after the function call)
+	// Verify there is an spvenums.OpStore to 'result' somewhere (may be after the function call)
 	storeCount := countStoresToVar(instrs, resultVarID)
 	if storeCount == 0 {
 		t.Error("BUG: No OpStore found to initialize 'result' from function call")
@@ -265,22 +267,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Logf("Found %d OpStore(s) to 'result' (%%%d)", storeCount, resultVarID)
 	}
 
-	// Verify there is an OpFunctionCall in the main function body
+	// Verify there is an spvenums.OpFunctionCall in the main function body
 	funcCallFound := false
 	inMainFunc := false
 	funcCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			funcCount++
 			// The second function should be main (first is double)
 			if funcCount == 2 {
 				inMainFunc = true
 			}
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inMainFunc = false
 		}
-		if inMainFunc && inst.opcode == OpFunctionCall {
+		if inMainFunc && inst.opcode == spvenums.OpFunctionCall {
 			funcCallFound = true
 			t.Logf("Found OpFunctionCall at word %d", inst.offset)
 		}
@@ -343,7 +345,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // TestVarWithoutInitializerIsZeroed: WGSL gives a function or private
 // variable declared without an initializer the zero value of its type. A bare
 // OpVariable starts undefined, and drivers fold that into whatever the
-// variable is assigned on another path, so each gets an OpConstantNull
+// variable is assigned on another path, so each gets an spvenums.OpConstantNull
 // initializer, as Rust naga writes it.
 func TestVarWithoutInitializerIsZeroed(t *testing.T) {
 	const shader = `
@@ -368,7 +370,7 @@ fn main() {
 	names := collectNames(instrs)
 	nulls := map[uint32]bool{}
 	for _, inst := range instrs {
-		if inst.opcode == OpConstantNull {
+		if inst.opcode == spvenums.OpConstantNull {
 			nulls[inst.words[2]] = true
 		}
 	}
@@ -376,13 +378,13 @@ fn main() {
 	locals := map[string]bool{}
 	privates := 0
 	for _, inst := range instrs {
-		if inst.opcode != OpVariable {
+		if inst.opcode != spvenums.OpVariable {
 			continue
 		}
-		switch StorageClass(inst.words[3]) {
-		case StorageClassFunction:
+		switch spvenums.StorageClass(inst.words[3]) {
+		case spvenums.StorageClassFunction:
 			locals[names[inst.words[2]]] = zeroed(inst)
-		case StorageClassPrivate:
+		case spvenums.StorageClassPrivate:
 			privates++
 			if !zeroed(inst) {
 				t.Errorf("private variable %%%d has no OpConstantNull initializer", inst.words[2])
@@ -403,33 +405,33 @@ fn main() {
 
 // --- Helper functions ---
 
-// collectNames builds an ID-to-name map from OpName instructions.
+// collectNames builds an ID-to-name map from spvenums.OpName instructions.
 func collectNames(instrs []spirvInstruction) map[uint32]string {
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 	return names
 }
 
-// findFunctionVariable finds the SPIR-V ID of a Function-scope OpVariable with the given name.
+// findFunctionVariable finds the SPIR-V ID of a Function-scope spvenums.OpVariable with the given name.
 func findFunctionVariable(instrs []spirvInstruction, names map[uint32]string, name string) uint32 {
 	inFunction := false
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
 			continue
 		}
-		if inst.opcode == OpVariable && inst.wordCount >= 4 {
-			sc := StorageClass(inst.words[3])
-			if sc == StorageClassFunction {
+		if inst.opcode == spvenums.OpVariable && inst.wordCount >= 4 {
+			sc := spvenums.StorageClass(inst.words[3])
+			if sc == spvenums.StorageClassFunction {
 				varID := inst.words[2]
 				if names[varID] == name {
 					return varID
@@ -440,26 +442,26 @@ func findFunctionVariable(instrs []spirvInstruction, names map[uint32]string, na
 	return 0
 }
 
-// verifyInitStore checks if there is an OpStore targeting varID anywhere in the
+// verifyInitStore checks if there is an spvenums.OpStore targeting varID anywhere in the
 // function body. Var inits are emitted as body StmtStore (matching Rust naga's
-// zero-init + separate store pattern), so the OpStore may appear in any block.
+// zero-init + separate store pattern), so the spvenums.OpStore may appear in any block.
 func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) bool {
 	t.Helper()
 	inFunction := false
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
 			continue
 		}
 
-		// An OpStore anywhere in the function to our variable = init store
-		if inst.opcode == OpStore && inst.wordCount >= 3 {
+		// An spvenums.OpStore anywhere in the function to our variable = init store
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 {
 			if inst.words[1] == varID {
 				t.Logf("  Found init OpStore to %s(%%%d) at word %d, value=%%%d",
 					names[varID], varID, inst.offset, inst.words[2])
@@ -471,29 +473,29 @@ func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]s
 }
 
 // verifyInitValueFromUniform checks that the value stored to varID comes from
-// a chain of OpLoad <- OpAccessChain <- (uniform global variable).
+// a chain of spvenums.OpLoad <- spvenums.OpAccessChain <- (uniform global variable).
 func verifyInitValueFromUniform(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) {
 	t.Helper()
 
-	// Find the OpStore to varID anywhere in the function
+	// Find the spvenums.OpStore to varID anywhere in the function
 	inFunction := false
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
 			continue
 		}
 
-		if inst.opcode == OpStore && inst.wordCount >= 3 && inst.words[1] == varID {
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 && inst.words[1] == varID {
 			valueID := inst.words[2]
 			t.Logf("  Init store value ID: %%%d", valueID)
 
-			// Trace the value ID back — it should be from OpLoad
+			// Trace the value ID back — it should be from spvenums.OpLoad
 			traceValueOrigin(t, instrs, names, valueID, 0)
 			return
 		}
@@ -514,14 +516,14 @@ func traceValueOrigin(t *testing.T, instrs []spirvInstruction, names map[uint32]
 	for _, inst := range instrs {
 		// Look for the instruction that defines valueID
 		switch inst.opcode {
-		case OpLoad:
+		case spvenums.OpLoad:
 			if inst.wordCount >= 4 && inst.words[2] == valueID {
 				sourceID := inst.words[3]
 				t.Logf("%sOpLoad %%%d from %%%d(%s)", indent, valueID, sourceID, names[sourceID])
 				traceValueOrigin(t, instrs, names, sourceID, depth+1)
 				return
 			}
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			if inst.wordCount >= 4 && inst.words[2] == valueID {
 				baseID := inst.words[3]
 				var indices []string
@@ -533,9 +535,9 @@ func traceValueOrigin(t *testing.T, instrs []spirvInstruction, names map[uint32]
 				traceValueOrigin(t, instrs, names, baseID, depth+1)
 				return
 			}
-		case OpVariable:
+		case spvenums.OpVariable:
 			if inst.wordCount >= 4 && inst.words[2] == valueID {
-				sc := StorageClass(inst.words[3])
+				sc := spvenums.StorageClass(inst.words[3])
 				t.Logf("%sOpVariable %%%d(%s) storage=%s", indent, valueID, names[valueID], storageClassName(uint32(sc)))
 				return
 			}
@@ -543,21 +545,21 @@ func traceValueOrigin(t *testing.T, instrs []spirvInstruction, names map[uint32]
 	}
 }
 
-// countStoresToVar counts OpStore instructions targeting the given variable ID.
+// countStoresToVar counts spvenums.OpStore instructions targeting the given variable ID.
 func countStoresToVar(instrs []spirvInstruction, varID uint32) int {
 	count := 0
 	inFunction := false
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
 			continue
 		}
-		if inst.opcode == OpStore && inst.wordCount >= 3 && inst.words[1] == varID {
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 && inst.words[1] == varID {
 			count++
 		}
 	}
@@ -575,7 +577,7 @@ func dumpFunctionBlocks(t *testing.T, instrs []spirvInstruction, names map[uint3
 	blockNum := 0
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 			blockNum = 0
 			if inst.wordCount >= 5 {
@@ -584,7 +586,7 @@ func dumpFunctionBlocks(t *testing.T, instrs []spirvInstruction, names map[uint3
 			}
 			continue
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 			t.Log("--- FUNCTION END ---")
 			continue
@@ -593,83 +595,83 @@ func dumpFunctionBlocks(t *testing.T, instrs []spirvInstruction, names map[uint3
 			continue
 		}
 
-		if inst.opcode == OpLabel {
+		if inst.opcode == spvenums.OpLabel {
 			blockNum++
 			t.Logf("  BLOCK %d (label %%%d):", blockNum, inst.words[1])
 			continue
 		}
 
 		switch inst.opcode {
-		case OpVariable:
+		case spvenums.OpVariable:
 			if inst.wordCount >= 4 {
 				sc := storageClassName(inst.words[3])
 				t.Logf("    %4d: %%%d(%s) = OpVariable %s (type=%s)",
 					inst.offset, inst.words[2], names[inst.words[2]], sc, typeInfo[inst.words[1]])
 			}
-		case OpLoad:
+		case spvenums.OpLoad:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %%%d = OpLoad %%%d(%s) (type=%s)",
 					inst.offset, inst.words[2], inst.words[3], names[inst.words[3]], typeInfo[inst.words[1]])
 			}
-		case OpStore:
+		case spvenums.OpStore:
 			if inst.wordCount >= 3 {
 				t.Logf("    %4d: OpStore *%%%d(%s) = %%%d(%s)",
 					inst.offset, inst.words[1], names[inst.words[1]], inst.words[2], names[inst.words[2]])
 			}
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			var indices []string
 			for i := 4; i < inst.wordCount; i++ {
 				indices = append(indices, fmt.Sprintf("%%%d", inst.words[i]))
 			}
 			t.Logf("    %4d: %%%d = OpAccessChain base:%%%d(%s) [%s]",
 				inst.offset, inst.words[2], inst.words[3], names[inst.words[3]], strings.Join(indices, ", "))
-		case OpSelectionMerge:
+		case spvenums.OpSelectionMerge:
 			t.Logf("    %4d: OpSelectionMerge merge:%%%d", inst.offset, inst.words[1])
-		case OpBranchConditional:
+		case spvenums.OpBranchConditional:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: OpBranchConditional cond:%%%d true:%%%d false:%%%d",
 					inst.offset, inst.words[1], inst.words[2], inst.words[3])
 			}
-		case OpBranch:
+		case spvenums.OpBranch:
 			t.Logf("    %4d: OpBranch -> %%%d", inst.offset, inst.words[1])
-		case OpReturn:
+		case spvenums.OpReturn:
 			t.Logf("    %4d: OpReturn", inst.offset)
-		case OpFMul:
+		case spvenums.OpFMul:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpFMul %%%d, %%%d",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
 			}
-		case OpFAdd:
+		case spvenums.OpFAdd:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpFAdd %%%d, %%%d",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
 			}
-		case OpIMul:
+		case spvenums.OpIMul:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpIMul %%%d, %%%d",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
 			}
-		case OpConvertFToU:
+		case spvenums.OpConvertFToU:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %%%d = OpConvertFToU %%%d",
 					inst.offset, inst.words[2], inst.words[3])
 			}
-		case OpConvertUToF:
+		case spvenums.OpConvertUToF:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %%%d = OpConvertUToF %%%d",
 					inst.offset, inst.words[2], inst.words[3])
 			}
-		case OpCompositeExtract:
+		case spvenums.OpCompositeExtract:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpCompositeExtract %%%d [%d]",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
 			}
-		case OpUGreaterThanEqual:
+		case spvenums.OpUGreaterThanEqual:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpUGreaterThanEqual %%%d, %%%d",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
 			}
-		case OpINotEqual:
+		case spvenums.OpINotEqual:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %%%d = OpINotEqual %%%d, %%%d",
 					inst.offset, inst.words[2], inst.words[3], inst.words[4])
@@ -692,11 +694,11 @@ func buildTypeInfo(instrs []spirvInstruction, names map[uint32]string) map[uint3
 	info := make(map[uint32]string)
 	for _, inst := range instrs {
 		switch inst.opcode {
-		case OpTypeVoid:
+		case spvenums.OpTypeVoid:
 			info[inst.words[1]] = "void"
-		case OpTypeBool:
+		case spvenums.OpTypeBool:
 			info[inst.words[1]] = "bool"
-		case OpTypeInt:
+		case spvenums.OpTypeInt:
 			if inst.wordCount >= 4 {
 				sign := "u"
 				if inst.words[3] == 1 {
@@ -704,24 +706,24 @@ func buildTypeInfo(instrs []spirvInstruction, names map[uint32]string) map[uint3
 				}
 				info[inst.words[1]] = fmt.Sprintf("%s%d", sign, inst.words[2])
 			}
-		case OpTypeFloat:
+		case spvenums.OpTypeFloat:
 			if inst.wordCount >= 3 {
 				info[inst.words[1]] = fmt.Sprintf("f%d", inst.words[2])
 			}
-		case OpTypeVector:
+		case spvenums.OpTypeVector:
 			if inst.wordCount >= 4 {
 				info[inst.words[1]] = fmt.Sprintf("vec%d<%s>", inst.words[3], info[inst.words[2]])
 			}
-		case OpTypePointer:
+		case spvenums.OpTypePointer:
 			if inst.wordCount >= 4 {
 				info[inst.words[1]] = fmt.Sprintf("ptr<%s,%s>",
 					storageClassName(inst.words[2]), info[inst.words[3]])
 			}
-		case OpTypeRuntimeArray:
+		case spvenums.OpTypeRuntimeArray:
 			if inst.wordCount >= 3 {
 				info[inst.words[1]] = fmt.Sprintf("rtarray<%s>", info[inst.words[2]])
 			}
-		case OpTypeStruct:
+		case spvenums.OpTypeStruct:
 			name := names[inst.words[1]]
 			if name == "" {
 				name = "struct"

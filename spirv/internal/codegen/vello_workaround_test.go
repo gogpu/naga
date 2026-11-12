@@ -3,6 +3,8 @@ package codegen
 import (
 	"os"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // TestVelloWorkaround_NestedForLoops tests whether nested for-loops compile
@@ -108,18 +110,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "Vec2VarReassign", shader)
 	validateSPIRVControlFlow(t, spirvBytes)
 
-	// Disassemble to check OpStore
+	// Disassemble to check spvenums.OpStore
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
 	storeCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpStore {
+		if inst.opcode == spvenums.OpStore {
 			storeCount++
 			t.Logf("OpStore *%s = %s (word %d)",
 				idStr(inst.words[1], names), idStr(inst.words[2], names), inst.offset)
@@ -179,11 +181,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "TwoCallsSameFunc", shader)
 	validateSPIRVControlFlow(t, spirvBytes)
 
-	// Check for two OpFunctionCall instructions
+	// Check for two spvenums.OpFunctionCall instructions
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	callCount := 0
 	for _, inst := range instrs {
-		if inst.opcode == OpFunctionCall {
+		if inst.opcode == spvenums.OpFunctionCall {
 			callCount++
 		}
 	}
@@ -286,15 +288,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		var funcs, calls, extInsts, stores, loads int
 		for _, inst := range instrs {
 			switch inst.opcode {
-			case OpFunction:
+			case spvenums.OpFunction:
 				funcs++
-			case OpFunctionCall:
+			case spvenums.OpFunctionCall:
 				calls++
-			case OpExtInst:
+			case spvenums.OpExtInst:
 				extInsts++
-			case OpStore:
+			case spvenums.OpStore:
 				stores++
-			case OpLoad:
+			case spvenums.OpLoad:
 				loads++
 			}
 		}
@@ -304,9 +306,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // TestBoolEqualUsesLogicalEqual verifies that bool==bool comparison emits
-// OpLogicalEqual (not OpIEqual) and bool!=bool emits OpLogicalNotEqual
-// (not OpINotEqual). SPIR-V spec requires logical ops for boolean operands.
-// Bug: NAGA-SPV-007 — OpIEqual with bool operands fails spirv-val.
+// OpLogicalEqual (not spvenums.OpIEqual) and bool!=bool emits spvenums.OpLogicalNotEqual
+// (not spvenums.OpINotEqual). SPIR-V spec requires logical ops for boolean operands.
+// Bug: NAGA-SPV-007 — spvenums.OpIEqual with bool operands fails spirv-val.
 func TestBoolEqualUsesLogicalEqual(t *testing.T) {
 	const shader = `
 @group(0) @binding(0) var<storage, read_write> out: array<u32>;
@@ -329,13 +331,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	var logicalEqual, logicalNotEqual, iEqual, iNotEqual int
 	for _, inst := range instrs {
 		switch inst.opcode {
-		case OpLogicalEqual:
+		case spvenums.OpLogicalEqual:
 			logicalEqual++
-		case OpLogicalNotEqual:
+		case spvenums.OpLogicalNotEqual:
 			logicalNotEqual++
-		case OpIEqual:
+		case spvenums.OpIEqual:
 			iEqual++
-		case OpINotEqual:
+		case spvenums.OpINotEqual:
 			iNotEqual++
 		}
 	}
@@ -373,17 +375,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 	spirvBytes := compileWGSLToSPIRV(t, "DeferredTransitive", shader)
 
-	// Verify: OpStore for "copy" must come AFTER OpFunctionCall (which produces count).
+	// Verify: spvenums.OpStore for "copy" must come AFTER spvenums.OpFunctionCall (which produces count).
 	instrs := decodeSPIRVInstructions(spirvBytes)
 	callSeen := false
 	copyStoreAfterCall := false
 	for _, inst := range instrs {
-		if inst.opcode == OpFunctionCall {
+		if inst.opcode == spvenums.OpFunctionCall {
 			callSeen = true
 		}
 		// After the call, look for Store to "copy" variable.
 		// The Store for copy should reference a Load from count, which was just stored.
-		if callSeen && inst.opcode == OpStore {
+		if callSeen && inst.opcode == spvenums.OpStore {
 			copyStoreAfterCall = true
 		}
 	}

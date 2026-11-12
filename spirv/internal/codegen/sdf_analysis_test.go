@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -151,16 +152,16 @@ func disassembleSPIRV(data []byte) string {
 	offset := 5
 	for offset < len(words) {
 		wordCount := int(words[offset] >> 16)
-		opcode := OpCode(words[offset] & 0xFFFF)
+		opcode := spvenums.Op(words[offset] & 0xFFFF)
 		if wordCount == 0 || offset+wordCount > len(words) {
 			break
 		}
-		if opcode == OpName && wordCount >= 3 {
+		if opcode == spvenums.OpName && wordCount >= 3 {
 			id := words[offset+1]
 			name := decodeString(words[offset+2 : offset+wordCount])
 			names[id] = name
 		}
-		if opcode == OpMemberName && wordCount >= 4 {
+		if opcode == spvenums.OpMemberName && wordCount >= 4 {
 			structID := words[offset+1]
 			memberIdx := words[offset+2]
 			name := decodeString(words[offset+3 : offset+wordCount])
@@ -176,7 +177,7 @@ func disassembleSPIRV(data []byte) string {
 	offset = 5
 	for offset < len(words) {
 		wordCount := int(words[offset] >> 16)
-		opcode := OpCode(words[offset] & 0xFFFF)
+		opcode := spvenums.Op(words[offset] & 0xFFFF)
 		if wordCount == 0 || offset+wordCount > len(words) {
 			fmt.Fprintf(&sb, "; ERROR: invalid instruction at word %d\n", offset)
 			break
@@ -229,24 +230,24 @@ func idStr(id uint32, names map[uint32]string) string {
 }
 
 // formatInstruction formats a single SPIR-V instruction for display.
-func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, memberNames map[uint32]map[uint32]string) string {
+func formatInstruction(opcode spvenums.Op, words []uint32, names map[uint32]string, memberNames map[uint32]map[uint32]string) string {
 	opName := opcodeName(opcode)
 
 	switch opcode {
-	case OpCapability:
+	case spvenums.OpCapability:
 		if len(words) >= 2 {
 			return fmt.Sprintf("%s %s", opName, capabilityName(words[1]))
 		}
-	case OpExtInstImport:
+	case spvenums.OpExtInstImport:
 		if len(words) >= 3 {
 			name := decodeString(words[2:])
 			return fmt.Sprintf("%s %s = %q", opName, idStr(words[1], names), name)
 		}
-	case OpMemoryModel:
+	case spvenums.OpMemoryModel:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s %s %s", opName, addressingModelName(words[1]), memoryModelName(words[2]))
 		}
-	case OpEntryPoint:
+	case spvenums.OpEntryPoint:
 		if len(words) >= 4 {
 			model := executionModelName(words[1])
 			funcID := idStr(words[2], names)
@@ -260,7 +261,7 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %s %q %s", opName, model, funcID, name, strings.Join(ifaces, " "))
 		}
-	case OpExecutionMode:
+	case spvenums.OpExecutionMode:
 		if len(words) >= 3 {
 			funcID := idStr(words[1], names)
 			mode := executionModeName(words[2])
@@ -273,17 +274,17 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %s", opName, funcID, mode)
 		}
-	case OpName:
+	case spvenums.OpName:
 		if len(words) >= 3 {
 			name := decodeString(words[2:])
 			return fmt.Sprintf("%s %s %q", opName, idStr(words[1], names), name)
 		}
-	case OpMemberName:
+	case spvenums.OpMemberName:
 		if len(words) >= 4 {
 			name := decodeString(words[3:])
 			return fmt.Sprintf("%s %s %d %q", opName, idStr(words[1], names), words[2], name)
 		}
-	case OpDecorate:
+	case spvenums.OpDecorate:
 		if len(words) >= 3 {
 			target := idStr(words[1], names)
 			dec := decorationName(words[2])
@@ -296,7 +297,7 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %s", opName, target, dec)
 		}
-	case OpMemberDecorate:
+	case spvenums.OpMemberDecorate:
 		if len(words) >= 4 {
 			structID := idStr(words[1], names)
 			memberIdx := words[2]
@@ -316,11 +317,11 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %s %s", opName, structID, memberStr, dec)
 		}
-	case OpTypeVoid:
+	case spvenums.OpTypeVoid:
 		return fmt.Sprintf("%s %s", opName, idStr(words[1], names))
-	case OpTypeBool:
+	case spvenums.OpTypeBool:
 		return fmt.Sprintf("%s %s", opName, idStr(words[1], names))
-	case OpTypeInt:
+	case spvenums.OpTypeInt:
 		if len(words) >= 4 {
 			sign := "unsigned"
 			if words[3] == 1 {
@@ -328,37 +329,37 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %d %s", opName, idStr(words[1], names), words[2], sign)
 		}
-	case OpTypeFloat:
+	case spvenums.OpTypeFloat:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s %s %d", opName, idStr(words[1], names), words[2])
 		}
-	case OpTypeVector:
+	case spvenums.OpTypeVector:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s %d", opName, idStr(words[1], names), idStr(words[2], names), words[3])
 		}
-	case OpTypeMatrix:
+	case spvenums.OpTypeMatrix:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s %d", opName, idStr(words[1], names), idStr(words[2], names), words[3])
 		}
-	case OpTypeArray:
+	case spvenums.OpTypeArray:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s %s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names))
 		}
-	case OpTypeRuntimeArray:
+	case spvenums.OpTypeRuntimeArray:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s %s %s", opName, idStr(words[1], names), idStr(words[2], names))
 		}
-	case OpTypeStruct:
+	case spvenums.OpTypeStruct:
 		var members []string
 		for i := 2; i < len(words); i++ {
 			members = append(members, idStr(words[i], names))
 		}
 		return fmt.Sprintf("%s %s { %s }", opName, idStr(words[1], names), strings.Join(members, ", "))
-	case OpTypePointer:
+	case spvenums.OpTypePointer:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s %s", opName, idStr(words[1], names), storageClassName(words[2]), idStr(words[3], names))
 		}
-	case OpTypeFunction:
+	case spvenums.OpTypeFunction:
 		var params []string
 		for i := 3; i < len(words); i++ {
 			params = append(params, idStr(words[i], names))
@@ -367,97 +368,97 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			return fmt.Sprintf("%s %s %s (%s)", opName, idStr(words[1], names), idStr(words[2], names), strings.Join(params, ", "))
 		}
 		return fmt.Sprintf("%s %s %s", opName, idStr(words[1], names), idStr(words[2], names))
-	case OpConstant:
+	case spvenums.OpConstant:
 		if len(words) >= 4 {
 			typeID := words[1]
 			resultID := words[2]
 			val := words[3]
 			return fmt.Sprintf("%s %s %s = %d (0x%08X, f32=%v)", opName, idStr(typeID, names), idStr(resultID, names), val, val, math.Float32frombits(val))
 		}
-	case OpConstantComposite:
+	case spvenums.OpConstantComposite:
 		var constituents []string
 		for i := 3; i < len(words); i++ {
 			constituents = append(constituents, idStr(words[i], names))
 		}
 		return fmt.Sprintf("%s %s %s = { %s }", opName, idStr(words[1], names), idStr(words[2], names), strings.Join(constituents, ", "))
-	case OpConstantNull:
+	case spvenums.OpConstantNull:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s %s %s", opName, idStr(words[1], names), idStr(words[2], names))
 		}
-	case OpVariable:
+	case spvenums.OpVariable:
 		if len(words) >= 4 {
 			sc := storageClassName(words[3])
 			return fmt.Sprintf("%s %s %s %s", opName, idStr(words[1], names), idStr(words[2], names), sc)
 		}
-	case OpFunction:
+	case spvenums.OpFunction:
 		if len(words) >= 5 {
 			return fmt.Sprintf("%s %s %s %s %s", opName, idStr(words[1], names), idStr(words[2], names), funcControlName(words[3]), idStr(words[4], names))
 		}
-	case OpFunctionParameter:
+	case spvenums.OpFunctionParameter:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s %s %s", opName, idStr(words[1], names), idStr(words[2], names))
 		}
-	case OpFunctionEnd:
+	case spvenums.OpFunctionEnd:
 		return opName
-	case OpFunctionCall:
+	case spvenums.OpFunctionCall:
 		var args []string
 		for i := 4; i < len(words); i++ {
 			args = append(args, idStr(words[i], names))
 		}
 		return fmt.Sprintf("%s %s %s = call %s(%s)", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), strings.Join(args, ", "))
-	case OpLabel:
+	case spvenums.OpLabel:
 		return fmt.Sprintf("%s %s", opName, idStr(words[1], names))
-	case OpBranch:
+	case spvenums.OpBranch:
 		return fmt.Sprintf("%s %s", opName, idStr(words[1], names))
-	case OpBranchConditional:
+	case spvenums.OpBranchConditional:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s true:%s false:%s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names))
 		}
-	case OpSelectionMerge:
+	case spvenums.OpSelectionMerge:
 		if len(words) >= 3 {
 			return fmt.Sprintf("%s merge:%s control:%d", opName, idStr(words[1], names), words[2])
 		}
-	case OpLoopMerge:
+	case spvenums.OpLoopMerge:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s merge:%s continue:%s control:%d", opName, idStr(words[1], names), idStr(words[2], names), words[3])
 		}
-	case OpReturn:
+	case spvenums.OpReturn:
 		return opName
-	case OpReturnValue:
+	case spvenums.OpReturnValue:
 		if len(words) >= 2 {
 			return fmt.Sprintf("%s %s", opName, idStr(words[1], names))
 		}
-	case OpLoad:
+	case spvenums.OpLoad:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s = load %s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names))
 		}
-	case OpStore:
+	case spvenums.OpStore:
 		if len(words) >= 3 {
 			return fmt.Sprintf("OpStore *%s = %s", idStr(words[1], names), idStr(words[2], names))
 		}
-	case OpAccessChain:
+	case spvenums.OpAccessChain:
 		var indices []string
 		for i := 4; i < len(words); i++ {
 			indices = append(indices, idStr(words[i], names))
 		}
 		return fmt.Sprintf("%s %s %s = base:%s [%s]", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), strings.Join(indices, ", "))
-	case OpCompositeConstruct:
+	case spvenums.OpCompositeConstruct:
 		var constituents []string
 		for i := 3; i < len(words); i++ {
 			constituents = append(constituents, idStr(words[i], names))
 		}
 		return fmt.Sprintf("%s %s %s = { %s }", opName, idStr(words[1], names), idStr(words[2], names), strings.Join(constituents, ", "))
-	case OpCompositeExtract:
+	case spvenums.OpCompositeExtract:
 		var indices []string
 		for i := 4; i < len(words); i++ {
 			indices = append(indices, fmt.Sprintf("%d", words[i]))
 		}
 		return fmt.Sprintf("%s %s %s = %s . [%s]", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), strings.Join(indices, ", "))
-	case OpVectorExtractDynamic:
+	case spvenums.OpVectorExtractDynamic:
 		if len(words) >= 5 {
 			return fmt.Sprintf("%s %s %s = %s [%s]", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), idStr(words[4], names))
 		}
-	case OpExtInst:
+	case spvenums.OpExtInst:
 		if len(words) >= 5 {
 			extSet := idStr(words[3], names)
 			extOpcode := words[4]
@@ -467,28 +468,28 @@ func formatInstruction(opcode OpCode, words []uint32, names map[uint32]string, m
 			}
 			return fmt.Sprintf("%s %s %s = %s op:%d(%s) (%s)", opName, idStr(words[1], names), idStr(words[2], names), extSet, extOpcode, glslOpName(extOpcode), strings.Join(operands, ", "))
 		}
-	case OpConvertFToU, OpConvertFToS, OpConvertUToF, OpConvertSToF, OpBitcast:
+	case spvenums.OpConvertFToU, spvenums.OpConvertFToS, spvenums.OpConvertUToF, spvenums.OpConvertSToF, spvenums.OpBitcast:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s = %s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names))
 		}
-	case OpFNegate, OpSNegate, OpNot:
+	case spvenums.OpFNegate, spvenums.OpSNegate, spvenums.OpNot:
 		if len(words) >= 4 {
 			return fmt.Sprintf("%s %s %s = %s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names))
 		}
-	case OpFAdd, OpFSub, OpFMul, OpFDiv, OpFMod,
-		OpIAdd, OpISub, OpIMul, OpSDiv, OpUDiv, OpSMod, OpUMod,
-		OpShiftLeftLogical, OpShiftRightLogical, OpShiftRightArithmetic,
-		OpBitwiseOr, OpBitwiseAnd, OpBitwiseXor,
-		OpLogicalOr, OpLogicalAnd,
-		OpFOrdEqual, OpFOrdNotEqual, OpFOrdLessThan, OpFOrdGreaterThan,
-		OpFOrdLessThanEqual, OpFOrdGreaterThanEqual,
-		OpIEqual, OpINotEqual,
-		OpULessThan, OpULessThanEqual, OpUGreaterThan, OpUGreaterThanEqual,
-		OpSLessThan, OpSLessThanEqual, OpSGreaterThan, OpSGreaterThanEqual:
+	case spvenums.OpFAdd, spvenums.OpFSub, spvenums.OpFMul, spvenums.OpFDiv, spvenums.OpFMod,
+		spvenums.OpIAdd, spvenums.OpISub, spvenums.OpIMul, spvenums.OpSDiv, spvenums.OpUDiv, spvenums.OpSMod, spvenums.OpUMod,
+		spvenums.OpShiftLeftLogical, spvenums.OpShiftRightLogical, spvenums.OpShiftRightArithmetic,
+		spvenums.OpBitwiseOr, spvenums.OpBitwiseAnd, spvenums.OpBitwiseXor,
+		spvenums.OpLogicalOr, spvenums.OpLogicalAnd,
+		spvenums.OpFOrdEqual, spvenums.OpFOrdNotEqual, spvenums.OpFOrdLessThan, spvenums.OpFOrdGreaterThan,
+		spvenums.OpFOrdLessThanEqual, spvenums.OpFOrdGreaterThanEqual,
+		spvenums.OpIEqual, spvenums.OpINotEqual,
+		spvenums.OpULessThan, spvenums.OpULessThanEqual, spvenums.OpUGreaterThan, spvenums.OpUGreaterThanEqual,
+		spvenums.OpSLessThan, spvenums.OpSLessThanEqual, spvenums.OpSGreaterThan, spvenums.OpSGreaterThanEqual:
 		if len(words) >= 5 {
 			return fmt.Sprintf("%s %s %s = %s, %s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), idStr(words[4], names))
 		}
-	case OpSelect:
+	case spvenums.OpSelect:
 		if len(words) >= 6 {
 			return fmt.Sprintf("%s %s %s = cond:%s true:%s false:%s", opName, idStr(words[1], names), idStr(words[2], names), idStr(words[3], names), idStr(words[4], names), idStr(words[5], names))
 		}
@@ -516,11 +517,11 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	offset := 5
 	for offset < len(words) {
 		wc := int(words[offset] >> 16)
-		op := OpCode(words[offset] & 0xFFFF)
+		op := spvenums.Op(words[offset] & 0xFFFF)
 		if wc == 0 || offset+wc > len(words) {
 			break
 		}
-		if op == OpName && wc >= 3 {
+		if op == spvenums.OpName && wc >= 3 {
 			names[words[offset+1]] = decodeString(words[offset+2 : offset+wc])
 		}
 		offset += wc
@@ -531,14 +532,14 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	// Track types to understand pointer chains
 	typeInfo := make(map[uint32]string) // id -> description
 
-	// Track all OpStore instructions
+	// Track all spvenums.OpStore instructions
 	var stores []struct {
 		offset    int
 		pointerID uint32
 		valueID   uint32
 	}
 
-	// Track all OpAccessChain instructions
+	// Track all spvenums.OpAccessChain instructions
 	var accessChains []struct {
 		offset   int
 		resultID uint32
@@ -570,29 +571,29 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	offset = 5
 	for offset < len(words) {
 		wc := int(words[offset] >> 16)
-		op := OpCode(words[offset] & 0xFFFF)
+		op := spvenums.Op(words[offset] & 0xFFFF)
 		if wc == 0 || offset+wc > len(words) {
 			break
 		}
 
 		switch op {
-		case OpTypeVoid:
+		case spvenums.OpTypeVoid:
 			typeInfo[words[offset+1]] = "void"
-		case OpTypeBool:
+		case spvenums.OpTypeBool:
 			typeInfo[words[offset+1]] = "bool"
-		case OpTypeInt:
+		case spvenums.OpTypeInt:
 			sign := "u"
 			if words[offset+3] == 1 {
 				sign = "i"
 			}
 			typeInfo[words[offset+1]] = fmt.Sprintf("%s%d", sign, words[offset+2])
-		case OpTypeFloat:
+		case spvenums.OpTypeFloat:
 			typeInfo[words[offset+1]] = fmt.Sprintf("f%d", words[offset+2])
-		case OpTypeVector:
+		case spvenums.OpTypeVector:
 			typeInfo[words[offset+1]] = fmt.Sprintf("vec%d<%s>", words[offset+3], typeInfo[words[offset+2]])
-		case OpTypeRuntimeArray:
+		case spvenums.OpTypeRuntimeArray:
 			typeInfo[words[offset+1]] = fmt.Sprintf("RuntimeArray<%s>", typeInfo[words[offset+2]])
-		case OpTypeStruct:
+		case spvenums.OpTypeStruct:
 			var members []string
 			for i := 2; i < wc; i++ {
 				members = append(members, typeInfo[words[offset+i]])
@@ -602,25 +603,25 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 				name = fmt.Sprintf("struct_%d", words[offset+1])
 			}
 			typeInfo[words[offset+1]] = fmt.Sprintf("%s{%s}", name, strings.Join(members, ", "))
-		case OpTypePointer:
+		case spvenums.OpTypePointer:
 			sc := storageClassName(words[offset+2])
 			typeInfo[words[offset+1]] = fmt.Sprintf("ptr<%s, %s>", sc, typeInfo[words[offset+3]])
-		case OpTypeFunction:
+		case spvenums.OpTypeFunction:
 			typeInfo[words[offset+1]] = "functype"
 
-		case OpVariable:
+		case spvenums.OpVariable:
 			if wc >= 4 {
 				storageVars[words[offset+2]] = words[offset+3]
 			}
 
-		case OpStore:
+		case spvenums.OpStore:
 			stores = append(stores, struct {
 				offset    int
 				pointerID uint32
 				valueID   uint32
 			}{offset, words[offset+1], words[offset+2]})
 
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			var indices []uint32
 			for i := 4; i < wc; i++ {
 				indices = append(indices, words[offset+i])
@@ -632,7 +633,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 				indices  []uint32
 			}{offset, words[offset+2], words[offset+3], indices})
 
-		case OpBitwiseOr:
+		case spvenums.OpBitwiseOr:
 			if wc >= 5 {
 				bitwiseOrs = append(bitwiseOrs, struct {
 					offset   int
@@ -641,7 +642,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 				}{offset, words[offset+2], words[offset+3], words[offset+4]})
 			}
 
-		case OpShiftLeftLogical:
+		case spvenums.OpShiftLeftLogical:
 			if wc >= 5 {
 				shiftLefts = append(shiftLefts, struct {
 					offset   int
@@ -651,7 +652,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 				}{offset, words[offset+2], words[offset+3], words[offset+4]})
 			}
 
-		case OpConvertFToU:
+		case spvenums.OpConvertFToU:
 			if wc >= 4 {
 				convertFToUs = append(convertFToUs, struct {
 					offset   int
@@ -665,9 +666,9 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	}
 
 	// Report findings
-	t.Logf("Storage variables (StorageBuffer class=%d):", StorageClassStorageBuffer)
+	t.Logf("Storage variables (StorageBuffer class=%d):", spvenums.StorageClassStorageBuffer)
 	for varID, sc := range storageVars {
-		if sc == uint32(StorageClassStorageBuffer) {
+		if sc == uint32(spvenums.StorageClassStorageBuffer) {
 			t.Logf("  %s (storageClass=StorageBuffer)", idStr(varID, names))
 		}
 	}
@@ -702,7 +703,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	}
 
 	// KEY ANALYSIS: Check the final store to pixels[idx]
-	// The last OpStore in the function body should be the store to pixels[idx]
+	// The last spvenums.OpStore in the function body should be the store to pixels[idx]
 	// Its value should trace back through BitwiseOr chain
 	if len(stores) > 0 {
 		lastStore := stores[len(stores)-1]
@@ -733,7 +734,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	// Additional check: verify AccessChain for wrapped storage buffers
 	t.Log("\n=== ACCESS CHAIN ANALYSIS FOR STORAGE BUFFER ===")
 	for _, ac := range accessChains {
-		if sc, ok := storageVars[ac.baseID]; ok && sc == uint32(StorageClassStorageBuffer) {
+		if sc, ok := storageVars[ac.baseID]; ok && sc == uint32(spvenums.StorageClassStorageBuffer) {
 			indexStrs := make([]string, len(ac.indices))
 			for i, idx := range ac.indices {
 				indexStrs[i] = idStr(idx, names)
@@ -793,220 +794,220 @@ func traceValueChain(t *testing.T, valueID uint32,
 
 // Helper name functions for SPIR-V constants
 
-func opcodeName(op OpCode) string {
+func opcodeName(op spvenums.Op) string {
 	switch op {
-	case OpNop:
+	case spvenums.OpNop:
 		return "OpNop"
-	case OpSource:
+	case spvenums.OpSource:
 		return "OpSource"
-	case OpString:
+	case spvenums.OpString:
 		return "OpString"
-	case OpName:
+	case spvenums.OpName:
 		return "OpName"
-	case OpMemberName:
+	case spvenums.OpMemberName:
 		return "OpMemberName"
-	case OpExtInstImport:
+	case spvenums.OpExtInstImport:
 		return "OpExtInstImport"
-	case OpExtInst:
+	case spvenums.OpExtInst:
 		return "OpExtInst"
-	case OpMemoryModel:
+	case spvenums.OpMemoryModel:
 		return "OpMemoryModel"
-	case OpEntryPoint:
+	case spvenums.OpEntryPoint:
 		return "OpEntryPoint"
-	case OpExecutionMode:
+	case spvenums.OpExecutionMode:
 		return "OpExecutionMode"
-	case OpCapability:
+	case spvenums.OpCapability:
 		return "OpCapability"
-	case OpTypeVoid:
+	case spvenums.OpTypeVoid:
 		return "OpTypeVoid"
-	case OpTypeBool:
+	case spvenums.OpTypeBool:
 		return "OpTypeBool"
-	case OpTypeInt:
+	case spvenums.OpTypeInt:
 		return "OpTypeInt"
-	case OpTypeFloat:
+	case spvenums.OpTypeFloat:
 		return "OpTypeFloat"
-	case OpTypeVector:
+	case spvenums.OpTypeVector:
 		return "OpTypeVector"
-	case OpTypeMatrix:
+	case spvenums.OpTypeMatrix:
 		return "OpTypeMatrix"
-	case OpTypeArray:
+	case spvenums.OpTypeArray:
 		return "OpTypeArray"
-	case OpTypeRuntimeArray:
+	case spvenums.OpTypeRuntimeArray:
 		return "OpTypeRuntimeArray"
-	case OpTypeStruct:
+	case spvenums.OpTypeStruct:
 		return "OpTypeStruct"
-	case OpTypePointer:
+	case spvenums.OpTypePointer:
 		return "OpTypePointer"
-	case OpTypeFunction:
+	case spvenums.OpTypeFunction:
 		return "OpTypeFunction"
-	case OpConstant:
+	case spvenums.OpConstant:
 		return "OpConstant"
-	case OpConstantComposite:
+	case spvenums.OpConstantComposite:
 		return "OpConstantComposite"
-	case OpConstantNull:
+	case spvenums.OpConstantNull:
 		return "OpConstantNull"
-	case OpFunction:
+	case spvenums.OpFunction:
 		return "OpFunction"
-	case OpFunctionParameter:
+	case spvenums.OpFunctionParameter:
 		return "OpFunctionParameter"
-	case OpFunctionEnd:
+	case spvenums.OpFunctionEnd:
 		return "OpFunctionEnd"
-	case OpFunctionCall:
+	case spvenums.OpFunctionCall:
 		return "OpFunctionCall"
-	case OpVariable:
+	case spvenums.OpVariable:
 		return "OpVariable"
-	case OpLoad:
+	case spvenums.OpLoad:
 		return "OpLoad"
-	case OpStore:
+	case spvenums.OpStore:
 		return "OpStore"
-	case OpAccessChain:
+	case spvenums.OpAccessChain:
 		return "OpAccessChain"
-	case OpDecorate:
+	case spvenums.OpDecorate:
 		return "OpDecorate"
-	case OpMemberDecorate:
+	case spvenums.OpMemberDecorate:
 		return "OpMemberDecorate"
-	case OpLabel:
+	case spvenums.OpLabel:
 		return "OpLabel"
-	case OpBranch:
+	case spvenums.OpBranch:
 		return "OpBranch"
-	case OpBranchConditional:
+	case spvenums.OpBranchConditional:
 		return "OpBranchConditional"
-	case OpSelectionMerge:
+	case spvenums.OpSelectionMerge:
 		return "OpSelectionMerge"
-	case OpLoopMerge:
+	case spvenums.OpLoopMerge:
 		return "OpLoopMerge"
-	case OpReturn:
+	case spvenums.OpReturn:
 		return "OpReturn"
-	case OpReturnValue:
+	case spvenums.OpReturnValue:
 		return "OpReturnValue"
-	case OpUnreachable:
+	case spvenums.OpUnreachable:
 		return "OpUnreachable"
-	case OpKill:
+	case spvenums.OpKill:
 		return "OpKill"
-	case OpCompositeConstruct:
+	case spvenums.OpCompositeConstruct:
 		return "OpCompositeConstruct"
-	case OpCompositeExtract:
+	case spvenums.OpCompositeExtract:
 		return "OpCompositeExtract"
-	case OpVectorExtractDynamic:
+	case spvenums.OpVectorExtractDynamic:
 		return "OpVectorExtractDynamic"
-	case OpVectorShuffle:
+	case spvenums.OpVectorShuffle:
 		return "OpVectorShuffle"
-	case OpFNegate:
+	case spvenums.OpFNegate:
 		return "OpFNegate"
-	case OpSNegate:
+	case spvenums.OpSNegate:
 		return "OpSNegate"
-	case OpFAdd:
+	case spvenums.OpFAdd:
 		return "OpFAdd"
-	case OpFSub:
+	case spvenums.OpFSub:
 		return "OpFSub"
-	case OpFMul:
+	case spvenums.OpFMul:
 		return "OpFMul"
-	case OpFDiv:
+	case spvenums.OpFDiv:
 		return "OpFDiv"
-	case OpFMod:
+	case spvenums.OpFMod:
 		return "OpFMod"
-	case OpIAdd:
+	case spvenums.OpIAdd:
 		return "OpIAdd"
-	case OpISub:
+	case spvenums.OpISub:
 		return "OpISub"
-	case OpIMul:
+	case spvenums.OpIMul:
 		return "OpIMul"
-	case OpSDiv:
+	case spvenums.OpSDiv:
 		return "OpSDiv"
-	case OpUDiv:
+	case spvenums.OpUDiv:
 		return "OpUDiv"
-	case OpSMod:
+	case spvenums.OpSMod:
 		return "OpSMod"
-	case OpUMod:
+	case spvenums.OpUMod:
 		return "OpUMod"
-	case OpConvertFToU:
+	case spvenums.OpConvertFToU:
 		return "OpConvertFToU"
-	case OpConvertFToS:
+	case spvenums.OpConvertFToS:
 		return "OpConvertFToS"
-	case OpConvertUToF:
+	case spvenums.OpConvertUToF:
 		return "OpConvertUToF"
-	case OpConvertSToF:
+	case spvenums.OpConvertSToF:
 		return "OpConvertSToF"
-	case OpBitcast:
+	case spvenums.OpBitcast:
 		return "OpBitcast"
-	case OpShiftLeftLogical:
+	case spvenums.OpShiftLeftLogical:
 		return "OpShiftLeftLogical"
-	case OpShiftRightLogical:
+	case spvenums.OpShiftRightLogical:
 		return "OpShiftRightLogical"
-	case OpShiftRightArithmetic:
+	case spvenums.OpShiftRightArithmetic:
 		return "OpShiftRightArithmetic"
-	case OpBitwiseOr:
+	case spvenums.OpBitwiseOr:
 		return "OpBitwiseOr"
-	case OpBitwiseAnd:
+	case spvenums.OpBitwiseAnd:
 		return "OpBitwiseAnd"
-	case OpBitwiseXor:
+	case spvenums.OpBitwiseXor:
 		return "OpBitwiseXor"
-	case OpLogicalOr:
+	case spvenums.OpLogicalOr:
 		return "OpLogicalOr"
-	case OpLogicalAnd:
+	case spvenums.OpLogicalAnd:
 		return "OpLogicalAnd"
-	case OpLogicalNot:
+	case spvenums.OpLogicalNot:
 		return "OpLogicalNot"
-	case OpNot:
+	case spvenums.OpNot:
 		return "OpNot"
-	case OpSelect:
+	case spvenums.OpSelect:
 		return "OpSelect"
-	case OpFOrdEqual:
+	case spvenums.OpFOrdEqual:
 		return "OpFOrdEqual"
-	case OpFOrdNotEqual:
+	case spvenums.OpFOrdNotEqual:
 		return "OpFOrdNotEqual"
-	case OpFOrdLessThan:
+	case spvenums.OpFOrdLessThan:
 		return "OpFOrdLessThan"
-	case OpFOrdGreaterThan:
+	case spvenums.OpFOrdGreaterThan:
 		return "OpFOrdGreaterThan"
-	case OpFOrdLessThanEqual:
+	case spvenums.OpFOrdLessThanEqual:
 		return "OpFOrdLessThanEqual"
-	case OpFOrdGreaterThanEqual:
+	case spvenums.OpFOrdGreaterThanEqual:
 		return "OpFOrdGreaterThanEqual"
-	case OpIEqual:
+	case spvenums.OpIEqual:
 		return "OpIEqual"
-	case OpINotEqual:
+	case spvenums.OpINotEqual:
 		return "OpINotEqual"
-	case OpULessThan:
+	case spvenums.OpULessThan:
 		return "OpULessThan"
-	case OpULessThanEqual:
+	case spvenums.OpULessThanEqual:
 		return "OpULessThanEqual"
-	case OpUGreaterThan:
+	case spvenums.OpUGreaterThan:
 		return "OpUGreaterThan"
-	case OpUGreaterThanEqual:
+	case spvenums.OpUGreaterThanEqual:
 		return "OpUGreaterThanEqual"
-	case OpSLessThan:
+	case spvenums.OpSLessThan:
 		return "OpSLessThan"
-	case OpSLessThanEqual:
+	case spvenums.OpSLessThanEqual:
 		return "OpSLessThanEqual"
-	case OpSGreaterThan:
+	case spvenums.OpSGreaterThan:
 		return "OpSGreaterThan"
-	case OpSGreaterThanEqual:
+	case spvenums.OpSGreaterThanEqual:
 		return "OpSGreaterThanEqual"
-	case OpSwitch:
+	case spvenums.OpSwitch:
 		return "OpSwitch"
-	case OpAtomicLoad:
+	case spvenums.OpAtomicLoad:
 		return "OpAtomicLoad"
-	case OpAtomicStore:
+	case spvenums.OpAtomicStore:
 		return "OpAtomicStore"
-	case OpAtomicIAdd:
+	case spvenums.OpAtomicIAdd:
 		return "OpAtomicIAdd"
-	case OpAtomicCompareExch:
-		return "OpAtomicCompareExch"
+	case spvenums.OpAtomicCompareExchange:
+		return "OpAtomicCompareExchange"
 	default:
 		return fmt.Sprintf("Op(%d)", op)
 	}
 }
 
 func capabilityName(c uint32) string {
-	switch Capability(c) {
-	case CapabilityShader:
+	switch spvenums.Capability(c) {
+	case spvenums.CapabilityShader:
 		return "Shader"
-	case CapabilityFloat16:
+	case spvenums.CapabilityFloat16:
 		return "Float16"
-	case CapabilityFloat64:
+	case spvenums.CapabilityFloat64:
 		return "Float64"
-	case CapabilityInt64:
+	case spvenums.CapabilityInt64:
 		return "Int64"
 	default:
 		return fmt.Sprintf("Cap(%d)", c)
@@ -1014,12 +1015,12 @@ func capabilityName(c uint32) string {
 }
 
 func addressingModelName(m uint32) string {
-	switch AddressingModel(m) {
-	case AddressingModelLogical:
+	switch spvenums.AddressingModel(m) {
+	case spvenums.AddressingModelLogical:
 		return "Logical"
-	case AddressingModelPhysical32:
+	case spvenums.AddressingModelPhysical32:
 		return "Physical32"
-	case AddressingModelPhysical64:
+	case spvenums.AddressingModelPhysical64:
 		return "Physical64"
 	default:
 		return fmt.Sprintf("Addressing(%d)", m)
@@ -1027,12 +1028,12 @@ func addressingModelName(m uint32) string {
 }
 
 func memoryModelName(m uint32) string {
-	switch MemoryModel(m) {
-	case MemoryModelSimple:
+	switch spvenums.MemoryModel(m) {
+	case spvenums.MemoryModelSimple:
 		return "Simple"
-	case MemoryModelGLSL450:
+	case spvenums.MemoryModelGLSL450:
 		return "GLSL450"
-	case MemoryModelVulkan:
+	case spvenums.MemoryModelVulkan:
 		return "Vulkan"
 	default:
 		return fmt.Sprintf("Memory(%d)", m)
@@ -1040,12 +1041,12 @@ func memoryModelName(m uint32) string {
 }
 
 func executionModelName(m uint32) string {
-	switch ExecutionModel(m) {
-	case ExecutionModelVertex:
+	switch spvenums.ExecutionModel(m) {
+	case spvenums.ExecutionModelVertex:
 		return "Vertex"
-	case ExecutionModelFragment:
+	case spvenums.ExecutionModelFragment:
 		return "Fragment"
-	case ExecutionModelGLCompute:
+	case spvenums.ExecutionModelGLCompute:
 		return "GLCompute"
 	default:
 		return fmt.Sprintf("Model(%d)", m)
@@ -1053,10 +1054,10 @@ func executionModelName(m uint32) string {
 }
 
 func executionModeName(m uint32) string {
-	switch ExecutionMode(m) {
-	case ExecutionModeOriginUpperLeft:
+	switch spvenums.ExecutionMode(m) {
+	case spvenums.ExecutionModeOriginUpperLeft:
 		return "OriginUpperLeft"
-	case ExecutionModeLocalSize:
+	case spvenums.ExecutionModeLocalSize:
 		return "LocalSize"
 	default:
 		return fmt.Sprintf("Mode(%d)", m)
@@ -1064,24 +1065,24 @@ func executionModeName(m uint32) string {
 }
 
 func storageClassName(sc uint32) string {
-	switch StorageClass(sc) {
-	case StorageClassUniformConstant:
+	switch spvenums.StorageClass(sc) {
+	case spvenums.StorageClassUniformConstant:
 		return "UniformConstant"
-	case StorageClassInput:
+	case spvenums.StorageClassInput:
 		return "Input"
-	case StorageClassUniform:
+	case spvenums.StorageClassUniform:
 		return "Uniform"
-	case StorageClassOutput:
+	case spvenums.StorageClassOutput:
 		return "Output"
-	case StorageClassWorkgroup:
+	case spvenums.StorageClassWorkgroup:
 		return "Workgroup"
-	case StorageClassPrivate:
+	case spvenums.StorageClassPrivate:
 		return "Private"
-	case StorageClassFunction:
+	case spvenums.StorageClassFunction:
 		return "Function"
-	case StorageClassPushConstant:
+	case spvenums.StorageClassPushConstant:
 		return "PushConstant"
-	case StorageClassStorageBuffer:
+	case spvenums.StorageClassStorageBuffer:
 		return "StorageBuffer"
 	default:
 		return fmt.Sprintf("SC(%d)", sc)
@@ -1089,26 +1090,26 @@ func storageClassName(sc uint32) string {
 }
 
 func decorationName(dec uint32) string {
-	switch Decoration(dec) {
-	case DecorationBlock:
+	switch spvenums.Decoration(dec) {
+	case spvenums.DecorationBlock:
 		return "Block"
-	case DecorationArrayStride:
+	case spvenums.DecorationArrayStride:
 		return "ArrayStride"
-	case DecorationMatrixStride:
+	case spvenums.DecorationMatrixStride:
 		return "MatrixStride"
-	case DecorationBuiltIn:
+	case spvenums.DecorationBuiltIn:
 		return "BuiltIn"
-	case DecorationLocation:
+	case spvenums.DecorationLocation:
 		return "Location"
-	case DecorationBinding:
+	case spvenums.DecorationBinding:
 		return "Binding"
-	case DecorationDescriptorSet:
+	case spvenums.DecorationDescriptorSet:
 		return "DescriptorSet"
-	case DecorationOffset:
+	case spvenums.DecorationOffset:
 		return "Offset"
-	case DecorationColMajor:
+	case spvenums.DecorationColMajor:
 		return "ColMajor"
-	case DecorationRowMajor:
+	case spvenums.DecorationRowMajor:
 		return "RowMajor"
 	default:
 		return fmt.Sprintf("Dec(%d)", dec)

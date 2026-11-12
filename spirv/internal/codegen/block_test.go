@@ -1,6 +1,10 @@
 package codegen
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
+)
 
 func TestNewBlock(t *testing.T) {
 	block := NewBlock(42)
@@ -12,19 +16,19 @@ func TestNewBlock(t *testing.T) {
 	}
 
 	// Push instructions and verify order.
-	inst1 := Instruction{Opcode: OpStore, Words: []uint32{1, 2}}
-	inst2 := Instruction{Opcode: OpLoad, Words: []uint32{3, 4, 5}}
+	inst1 := Instruction{Opcode: spvenums.OpStore, Words: []uint32{1, 2}}
+	inst2 := Instruction{Opcode: spvenums.OpLoad, Words: []uint32{3, 4, 5}}
 	block.Push(inst1)
 	block.Push(inst2)
 
 	if len(block.Body) != 2 {
 		t.Fatalf("Body length = %d, want 2", len(block.Body))
 	}
-	if block.Body[0].Opcode != OpStore {
-		t.Errorf("Body[0].Opcode = %d, want OpStore (%d)", block.Body[0].Opcode, OpStore)
+	if block.Body[0].Opcode != spvenums.OpStore {
+		t.Errorf("Body[0].Opcode = %d, want spvenums.OpStore (%d)", block.Body[0].Opcode, spvenums.OpStore)
 	}
-	if block.Body[1].Opcode != OpLoad {
-		t.Errorf("Body[1].Opcode = %d, want OpLoad (%d)", block.Body[1].Opcode, OpLoad)
+	if block.Body[1].Opcode != spvenums.OpLoad {
+		t.Errorf("Body[1].Opcode = %d, want spvenums.OpLoad (%d)", block.Body[1].Opcode, spvenums.OpLoad)
 	}
 }
 
@@ -32,9 +36,9 @@ func TestFunctionBuilder_Consume(t *testing.T) {
 	var fb FunctionBuilder
 
 	block := NewBlock(10)
-	block.Push(Instruction{Opcode: OpStore, Words: []uint32{1, 2}})
+	block.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{1, 2}})
 
-	terminator := Instruction{Opcode: OpReturn, Words: nil}
+	terminator := Instruction{Opcode: spvenums.OpReturn, Words: nil}
 	fb.Consume(block, terminator)
 
 	if len(fb.Blocks) != 1 {
@@ -48,63 +52,63 @@ func TestFunctionBuilder_Consume(t *testing.T) {
 	if len(tb.Body) != 2 {
 		t.Fatalf("TerminatedBlock.Body length = %d, want 2 (1 instruction + terminator)", len(tb.Body))
 	}
-	if tb.Body[0].Opcode != OpStore {
-		t.Errorf("Body[0].Opcode = %d, want OpStore (%d)", tb.Body[0].Opcode, OpStore)
+	if tb.Body[0].Opcode != spvenums.OpStore {
+		t.Errorf("Body[0].Opcode = %d, want spvenums.OpStore (%d)", tb.Body[0].Opcode, spvenums.OpStore)
 	}
-	if tb.Body[1].Opcode != OpReturn {
-		t.Errorf("Body[1].Opcode = %d, want OpReturn (%d)", tb.Body[1].Opcode, OpReturn)
+	if tb.Body[1].Opcode != spvenums.OpReturn {
+		t.Errorf("Body[1].Opcode = %d, want spvenums.OpReturn (%d)", tb.Body[1].Opcode, spvenums.OpReturn)
 	}
 }
 
 func TestFunctionBuilder_ToInstructions(t *testing.T) {
 	var fb FunctionBuilder
 
-	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{1, 0, 2}}
+	fb.Signature = Instruction{Opcode: spvenums.OpFunction, Words: []uint32{1, 0, 2}}
 	fb.Parameters = []Instruction{
-		{Opcode: OpFunctionParameter, Words: []uint32{3, 4}},
+		{Opcode: spvenums.OpFunctionParameter, Words: []uint32{3, 4}},
 	}
 	fb.Variables = []Instruction{
-		{Opcode: OpVariable, Words: []uint32{5, 6, 7}},
+		{Opcode: spvenums.OpVariable, Words: []uint32{5, 6, 7}},
 	}
 
 	// Block 0: entry block
 	block0 := NewBlock(100)
-	block0.Push(Instruction{Opcode: OpStore, Words: []uint32{6, 4}})
-	fb.Consume(block0, Instruction{Opcode: OpBranch, Words: []uint32{200}})
+	block0.Push(Instruction{Opcode: spvenums.OpStore, Words: []uint32{6, 4}})
+	fb.Consume(block0, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{200}})
 
 	// Block 1: second block
 	block1 := NewBlock(200)
-	block1.Push(Instruction{Opcode: OpLoad, Words: []uint32{8, 9, 6}})
-	fb.Consume(block1, Instruction{Opcode: OpReturn, Words: nil})
+	block1.Push(Instruction{Opcode: spvenums.OpLoad, Words: []uint32{8, 9, 6}})
+	fb.Consume(block1, Instruction{Opcode: spvenums.OpReturn, Words: nil})
 
 	result := fb.ToInstructions()
 
 	// Expected order:
-	// [0] OpFunction (signature)
-	// [1] OpFunctionParameter
-	// [2] OpLabel 100 (block 0)
-	// [3] OpVariable (local, first block only)
-	// [4] OpStore (block 0 body)
-	// [5] OpBranch (block 0 terminator)
-	// [6] OpLabel 200 (block 1)
-	// [7] OpLoad (block 1 body)
-	// [8] OpReturn (block 1 terminator)
-	// [9] OpFunctionEnd
+	// [0] spvenums.OpFunction (signature)
+	// [1] spvenums.OpFunctionParameter
+	// [2] spvenums.OpLabel 100 (block 0)
+	// [3] spvenums.OpVariable (local, first block only)
+	// [4] spvenums.OpStore (block 0 body)
+	// [5] spvenums.OpBranch (block 0 terminator)
+	// [6] spvenums.OpLabel 200 (block 1)
+	// [7] spvenums.OpLoad (block 1 body)
+	// [8] spvenums.OpReturn (block 1 terminator)
+	// [9] spvenums.OpFunctionEnd
 
 	expected := []struct {
-		opcode  OpCode
-		labelID uint32 // only checked for OpLabel
+		opcode  spvenums.Op
+		labelID uint32 // only checked for spvenums.OpLabel
 	}{
-		{OpFunction, 0},
-		{OpFunctionParameter, 0},
-		{OpLabel, 100},
-		{OpVariable, 0},
-		{OpStore, 0},
-		{OpBranch, 0},
-		{OpLabel, 200},
-		{OpLoad, 0},
-		{OpReturn, 0},
-		{OpFunctionEnd, 0},
+		{spvenums.OpFunction, 0},
+		{spvenums.OpFunctionParameter, 0},
+		{spvenums.OpLabel, 100},
+		{spvenums.OpVariable, 0},
+		{spvenums.OpStore, 0},
+		{spvenums.OpBranch, 0},
+		{spvenums.OpLabel, 200},
+		{spvenums.OpLoad, 0},
+		{spvenums.OpReturn, 0},
+		{spvenums.OpFunctionEnd, 0},
 	}
 
 	if len(result) != len(expected) {
@@ -116,7 +120,7 @@ func TestFunctionBuilder_ToInstructions(t *testing.T) {
 		if got.Opcode != want.opcode {
 			t.Errorf("result[%d].Opcode = %d, want %d", i, got.Opcode, want.opcode)
 		}
-		if want.opcode == OpLabel {
+		if want.opcode == spvenums.OpLabel {
 			if len(got.Words) < 1 || got.Words[0] != want.labelID {
 				labelVal := uint32(0)
 				if len(got.Words) > 0 {
@@ -131,39 +135,39 @@ func TestFunctionBuilder_ToInstructions(t *testing.T) {
 func TestFunctionBuilder_VariablesInFirstBlock(t *testing.T) {
 	var fb FunctionBuilder
 
-	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{1, 0, 2}}
+	fb.Signature = Instruction{Opcode: spvenums.OpFunction, Words: []uint32{1, 0, 2}}
 	fb.Variables = []Instruction{
-		{Opcode: OpVariable, Words: []uint32{10, 11, 7}},
-		{Opcode: OpVariable, Words: []uint32{12, 13, 7}},
+		{Opcode: spvenums.OpVariable, Words: []uint32{10, 11, 7}},
+		{Opcode: spvenums.OpVariable, Words: []uint32{12, 13, 7}},
 	}
 
 	// Block 0
 	block0 := NewBlock(100)
-	fb.Consume(block0, Instruction{Opcode: OpBranch, Words: []uint32{200}})
+	fb.Consume(block0, Instruction{Opcode: spvenums.OpBranch, Words: []uint32{200}})
 
 	// Block 1
 	block1 := NewBlock(200)
-	fb.Consume(block1, Instruction{Opcode: OpReturn, Words: nil})
+	fb.Consume(block1, Instruction{Opcode: spvenums.OpReturn, Words: nil})
 
 	// Block 2
 	block2 := NewBlock(300)
-	fb.Consume(block2, Instruction{Opcode: OpReturn, Words: nil})
+	fb.Consume(block2, Instruction{Opcode: spvenums.OpReturn, Words: nil})
 
 	result := fb.ToInstructions()
 
-	// Count OpVariable occurrences and verify they appear only after the first OpLabel.
+	// Count spvenums.OpVariable occurrences and verify they appear only after the first spvenums.OpLabel.
 	variableCount := 0
 	firstLabelSeen := false
 	secondLabelSeen := false
 	for _, inst := range result {
-		if inst.Opcode == OpLabel {
+		if inst.Opcode == spvenums.OpLabel {
 			if !firstLabelSeen {
 				firstLabelSeen = true
 			} else {
 				secondLabelSeen = true
 			}
 		}
-		if inst.Opcode == OpVariable {
+		if inst.Opcode == spvenums.OpVariable {
 			variableCount++
 			if !firstLabelSeen {
 				t.Error("OpVariable appears before first OpLabel")
@@ -251,8 +255,8 @@ func TestLoopContext_ValueSemantics(t *testing.T) {
 
 func TestMakeLabelInstruction(t *testing.T) {
 	inst := makeLabelInstruction(42)
-	if inst.Opcode != OpLabel {
-		t.Errorf("Opcode = %d, want OpLabel (%d)", inst.Opcode, OpLabel)
+	if inst.Opcode != spvenums.OpLabel {
+		t.Errorf("Opcode = %d, want spvenums.OpLabel (%d)", inst.Opcode, spvenums.OpLabel)
 	}
 	if len(inst.Words) != 1 || inst.Words[0] != 42 {
 		t.Errorf("Words = %v, want [42]", inst.Words)
@@ -261,8 +265,8 @@ func TestMakeLabelInstruction(t *testing.T) {
 
 func TestMakeFunctionEndInstruction(t *testing.T) {
 	inst := makeFunctionEndInstruction()
-	if inst.Opcode != OpFunctionEnd {
-		t.Errorf("Opcode = %d, want OpFunctionEnd (%d)", inst.Opcode, OpFunctionEnd)
+	if inst.Opcode != spvenums.OpFunctionEnd {
+		t.Errorf("Opcode = %d, want spvenums.OpFunctionEnd (%d)", inst.Opcode, spvenums.OpFunctionEnd)
 	}
 	if inst.Words != nil {
 		t.Errorf("Words = %v, want nil", inst.Words)
@@ -272,17 +276,17 @@ func TestMakeFunctionEndInstruction(t *testing.T) {
 func TestFunctionBuilder_EmptyFunction(t *testing.T) {
 	// Edge case: function with no blocks (just signature + end).
 	var fb FunctionBuilder
-	fb.Signature = Instruction{Opcode: OpFunction, Words: []uint32{1, 0, 2}}
+	fb.Signature = Instruction{Opcode: spvenums.OpFunction, Words: []uint32{1, 0, 2}}
 
 	result := fb.ToInstructions()
 
 	if len(result) != 2 {
 		t.Fatalf("result length = %d, want 2 (OpFunction + OpFunctionEnd)", len(result))
 	}
-	if result[0].Opcode != OpFunction {
+	if result[0].Opcode != spvenums.OpFunction {
 		t.Errorf("result[0].Opcode = %d, want OpFunction", result[0].Opcode)
 	}
-	if result[1].Opcode != OpFunctionEnd {
+	if result[1].Opcode != spvenums.OpFunctionEnd {
 		t.Errorf("result[1].Opcode = %d, want OpFunctionEnd", result[1].Opcode)
 	}
 }

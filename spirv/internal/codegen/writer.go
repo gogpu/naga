@@ -3,11 +3,13 @@ package codegen
 import (
 	"encoding/binary"
 	"math"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // Instruction represents a SPIR-V instruction.
 type Instruction struct {
-	Opcode OpCode
+	Opcode spvenums.Op
 	Words  []uint32 // result type ID, result ID, operands
 }
 
@@ -78,7 +80,7 @@ func (b *InstructionBuilder) AddString(s string) {
 // Build builds the instruction with the given opcode.
 // It copies the words to a new slice so the builder can be safely reused.
 // If the builder has an arena, words are allocated from the arena (amortized O(1)).
-func (b *InstructionBuilder) Build(opcode OpCode) Instruction {
+func (b *InstructionBuilder) Build(opcode spvenums.Op) Instruction {
 	var words []uint32
 	if b.arena != nil {
 		words = b.arena.alloc(len(b.words))
@@ -149,11 +151,11 @@ type ModuleBuilder struct {
 	entryPoints    []Instruction
 	executionModes []Instruction
 	debugStrings   []Instruction // OpString
-	debugNames     []Instruction // OpName, OpMemberName
-	annotations    []Instruction // OpDecorate, OpMemberDecorate
-	types          []Instruction // OpType*, OpConstant*
+	debugNames     []Instruction // OpName, spvenums.OpMemberName
+	annotations    []Instruction // OpDecorate, spvenums.OpMemberDecorate
+	types          []Instruction // OpType*, spvenums.OpConstant*
 	globalVars     []Instruction // OpVariable (global)
-	functions      []Instruction // OpFunction...OpFunctionEnd
+	functions      []Instruction // OpFunction...spvenums.OpFunctionEnd
 
 	// funcSink redirects function-body instruction emission. When non-nil,
 	// all Add* methods that normally append to `functions` append here instead.
@@ -171,13 +173,13 @@ type ModuleBuilder struct {
 	// Word arena for bulk allocation of instruction word slices.
 	arena wordArena
 
-	// constantCache deduplicates OpConstant by (typeID, value) for single-word constants.
-	// Without this, identical constants get different IDs, making OpTypeArray
+	// constantCache deduplicates spvenums.OpConstant by (typeID, value) for single-word constants.
+	// Without this, identical constants get different IDs, making spvenums.OpTypeArray
 	// with same element+length appear as different types to spirv-val.
 	// Key: (typeID << 32) | value. Only used for single-word constants (covers 99% of cases).
 	constantCache map[uint64]uint32
 
-	// compositeConstituents records each OpConstantComposite's constituents,
+	// compositeConstituents records each spvenums.OpConstantComposite's constituents,
 	// so that a constant can be written again with a layout-free type
 	// (Backend.layoutFreeConstant).
 	compositeConstituents map[uint32][]uint32
@@ -281,17 +283,17 @@ func (b *ModuleBuilder) AllocID() uint32 {
 }
 
 // AddCapability adds a capability.
-func (b *ModuleBuilder) AddCapability(capability Capability) {
+func (b *ModuleBuilder) AddCapability(capability spvenums.Capability) {
 	b.ib.Reset()
 	b.ib.AddWord(uint32(capability))
-	b.capabilities = append(b.capabilities, b.ib.Build(OpCapability))
+	b.capabilities = append(b.capabilities, b.ib.Build(spvenums.OpCapability))
 }
 
 // AddExtension adds an extension.
 func (b *ModuleBuilder) AddExtension(name string) {
 	b.ib.Reset()
 	b.ib.AddString(name)
-	b.extensions = append(b.extensions, b.ib.Build(OpExtension))
+	b.extensions = append(b.extensions, b.ib.Build(spvenums.OpExtension))
 }
 
 // AddExtInstImport imports an extended instruction set.
@@ -300,21 +302,21 @@ func (b *ModuleBuilder) AddExtInstImport(name string) uint32 {
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddString(name)
-	b.extInstImports = append(b.extInstImports, b.ib.Build(OpExtInstImport))
+	b.extInstImports = append(b.extInstImports, b.ib.Build(spvenums.OpExtInstImport))
 	return id
 }
 
 // SetMemoryModel sets the memory model.
-func (b *ModuleBuilder) SetMemoryModel(addressing AddressingModel, memory MemoryModel) {
+func (b *ModuleBuilder) SetMemoryModel(addressing spvenums.AddressingModel, memory spvenums.MemoryModel) {
 	b.ib.Reset()
 	b.ib.AddWord(uint32(addressing))
 	b.ib.AddWord(uint32(memory))
-	inst := b.ib.Build(OpMemoryModel)
+	inst := b.ib.Build(spvenums.OpMemoryModel)
 	b.memoryModel = &inst
 }
 
 // AddEntryPoint adds an entry point.
-func (b *ModuleBuilder) AddEntryPoint(execModel ExecutionModel, funcID uint32, name string, interfaces []uint32) {
+func (b *ModuleBuilder) AddEntryPoint(execModel spvenums.ExecutionModel, funcID uint32, name string, interfaces []uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(uint32(execModel))
 	b.ib.AddWord(funcID)
@@ -322,18 +324,18 @@ func (b *ModuleBuilder) AddEntryPoint(execModel ExecutionModel, funcID uint32, n
 	for _, iface := range interfaces {
 		b.ib.AddWord(iface)
 	}
-	b.entryPoints = append(b.entryPoints, b.ib.Build(OpEntryPoint))
+	b.entryPoints = append(b.entryPoints, b.ib.Build(spvenums.OpEntryPoint))
 }
 
 // AddExecutionMode adds an execution mode.
-func (b *ModuleBuilder) AddExecutionMode(entryPoint uint32, mode ExecutionMode, params ...uint32) {
+func (b *ModuleBuilder) AddExecutionMode(entryPoint uint32, mode spvenums.ExecutionMode, params ...uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(entryPoint)
 	b.ib.AddWord(uint32(mode))
 	for _, param := range params {
 		b.ib.AddWord(param)
 	}
-	b.executionModes = append(b.executionModes, b.ib.Build(OpExecutionMode))
+	b.executionModes = append(b.executionModes, b.ib.Build(spvenums.OpExecutionMode))
 }
 
 // AddString adds a debug string.
@@ -342,7 +344,7 @@ func (b *ModuleBuilder) AddString(text string) uint32 {
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddString(text)
-	b.debugStrings = append(b.debugStrings, b.ib.Build(OpString))
+	b.debugStrings = append(b.debugStrings, b.ib.Build(spvenums.OpString))
 	return id
 }
 
@@ -351,7 +353,7 @@ func (b *ModuleBuilder) AddName(id uint32, name string) {
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddString(name)
-	b.debugNames = append(b.debugNames, b.ib.Build(OpName))
+	b.debugNames = append(b.debugNames, b.ib.Build(spvenums.OpName))
 }
 
 // AddMemberName adds a debug member name.
@@ -360,22 +362,22 @@ func (b *ModuleBuilder) AddMemberName(structID, member uint32, name string) {
 	b.ib.AddWord(structID)
 	b.ib.AddWord(member)
 	b.ib.AddString(name)
-	b.debugNames = append(b.debugNames, b.ib.Build(OpMemberName))
+	b.debugNames = append(b.debugNames, b.ib.Build(spvenums.OpMemberName))
 }
 
 // AddDecorate adds a decoration.
-func (b *ModuleBuilder) AddDecorate(id uint32, decoration Decoration, params ...uint32) {
+func (b *ModuleBuilder) AddDecorate(id uint32, decoration spvenums.Decoration, params ...uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(decoration))
 	for _, param := range params {
 		b.ib.AddWord(param)
 	}
-	b.annotations = append(b.annotations, b.ib.Build(OpDecorate))
+	b.annotations = append(b.annotations, b.ib.Build(spvenums.OpDecorate))
 }
 
 // AddMemberDecorate adds a member decoration.
-func (b *ModuleBuilder) AddMemberDecorate(structID, member uint32, decoration Decoration, params ...uint32) {
+func (b *ModuleBuilder) AddMemberDecorate(structID, member uint32, decoration spvenums.Decoration, params ...uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(structID)
 	b.ib.AddWord(member)
@@ -383,24 +385,24 @@ func (b *ModuleBuilder) AddMemberDecorate(structID, member uint32, decoration De
 	for _, param := range params {
 		b.ib.AddWord(param)
 	}
-	b.annotations = append(b.annotations, b.ib.Build(OpMemberDecorate))
+	b.annotations = append(b.annotations, b.ib.Build(spvenums.OpMemberDecorate))
 }
 
-// AddTypeVoid adds OpTypeVoid.
+// AddTypeVoid adds spvenums.OpTypeVoid.
 func (b *ModuleBuilder) AddTypeVoid() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.types = append(b.types, b.ib.Build(OpTypeVoid))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeVoid))
 	return id
 }
 
-// AddTypeBool adds OpTypeBool.
+// AddTypeBool adds spvenums.OpTypeBool.
 func (b *ModuleBuilder) AddTypeBool() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.types = append(b.types, b.ib.Build(OpTypeBool))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeBool))
 	return id
 }
 
@@ -413,17 +415,17 @@ func (b *ModuleBuilder) AddTypeSampler() uint32 {
 	return id
 }
 
-// AddTypeFloat adds OpTypeFloat.
+// AddTypeFloat adds spvenums.OpTypeFloat.
 func (b *ModuleBuilder) AddTypeFloat(width uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(width)
-	b.types = append(b.types, b.ib.Build(OpTypeFloat))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeFloat))
 	return id
 }
 
-// AddTypeInt adds OpTypeInt.
+// AddTypeInt adds spvenums.OpTypeInt.
 func (b *ModuleBuilder) AddTypeInt(width uint32, signed bool) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -434,65 +436,65 @@ func (b *ModuleBuilder) AddTypeInt(width uint32, signed bool) uint32 {
 	} else {
 		b.ib.AddWord(0)
 	}
-	b.types = append(b.types, b.ib.Build(OpTypeInt))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeInt))
 	return id
 }
 
-// AddTypeVector adds OpTypeVector.
+// AddTypeVector adds spvenums.OpTypeVector.
 func (b *ModuleBuilder) AddTypeVector(componentType uint32, count uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(componentType)
 	b.ib.AddWord(count)
-	b.types = append(b.types, b.ib.Build(OpTypeVector))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeVector))
 	return id
 }
 
-// AddTypeMatrix adds OpTypeMatrix.
+// AddTypeMatrix adds spvenums.OpTypeMatrix.
 func (b *ModuleBuilder) AddTypeMatrix(columnType uint32, columnCount uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(columnType)
 	b.ib.AddWord(columnCount)
-	b.types = append(b.types, b.ib.Build(OpTypeMatrix))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeMatrix))
 	return id
 }
 
-// AddTypeArray adds OpTypeArray.
+// AddTypeArray adds spvenums.OpTypeArray.
 func (b *ModuleBuilder) AddTypeArray(elementType uint32, length uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(elementType)
 	b.ib.AddWord(length) // length is a constant ID
-	b.types = append(b.types, b.ib.Build(OpTypeArray))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeArray))
 	return id
 }
 
-// AddTypeRuntimeArray adds OpTypeRuntimeArray for storage buffer runtime-sized arrays.
+// AddTypeRuntimeArray adds spvenums.OpTypeRuntimeArray for storage buffer runtime-sized arrays.
 func (b *ModuleBuilder) AddTypeRuntimeArray(elementType uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(elementType)
-	b.types = append(b.types, b.ib.Build(OpTypeRuntimeArray))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeRuntimeArray))
 	return id
 }
 
-// AddTypePointer adds OpTypePointer.
-func (b *ModuleBuilder) AddTypePointer(storageClass StorageClass, baseType uint32) uint32 {
+// AddTypePointer adds spvenums.OpTypePointer.
+func (b *ModuleBuilder) AddTypePointer(storageClass spvenums.StorageClass, baseType uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(storageClass))
 	b.ib.AddWord(baseType)
-	b.types = append(b.types, b.ib.Build(OpTypePointer))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypePointer))
 	return id
 }
 
-// AddTypeFunction adds OpTypeFunction.
+// AddTypeFunction adds spvenums.OpTypeFunction.
 func (b *ModuleBuilder) AddTypeFunction(returnType uint32, paramTypes ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -501,11 +503,11 @@ func (b *ModuleBuilder) AddTypeFunction(returnType uint32, paramTypes ...uint32)
 	for _, paramType := range paramTypes {
 		b.ib.AddWord(paramType)
 	}
-	b.types = append(b.types, b.ib.Build(OpTypeFunction))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeFunction))
 	return id
 }
 
-// AddTypeStruct adds OpTypeStruct.
+// AddTypeStruct adds spvenums.OpTypeStruct.
 func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -513,15 +515,15 @@ func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 	for _, memberType := range memberTypes {
 		b.ib.AddWord(memberType)
 	}
-	b.types = append(b.types, b.ib.Build(OpTypeStruct))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeStruct))
 	return id
 }
 
-// AddConstant adds OpConstant.
+// AddConstant adds spvenums.OpConstant.
 func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 	// Deduplicate single-word constants (covers array lengths, integer literals).
 	// Without this, identical constants get different SPIR-V IDs, making
-	// layout-free and decorated OpTypeArray appear as non-equivalent types
+	// layout-free and decorated spvenums.OpTypeArray appear as non-equivalent types
 	// to spirv-val, which rejects OpCopyLogical (VUID-StandaloneSpirv-None-10684).
 	if len(values) == 1 {
 		key := uint64(typeID)<<32 | uint64(values[0])
@@ -534,7 +536,7 @@ func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 		b.ib.AddWord(typeID)
 		b.ib.AddWord(id)
 		b.ib.AddWord(values[0])
-		b.types = append(b.types, b.ib.Build(OpConstant))
+		b.types = append(b.types, b.ib.Build(spvenums.OpConstant))
 
 		if b.constantCache == nil {
 			b.constantCache = make(map[uint64]uint32)
@@ -551,7 +553,7 @@ func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 	for _, value := range values {
 		b.ib.AddWord(value)
 	}
-	b.types = append(b.types, b.ib.Build(OpConstant))
+	b.types = append(b.types, b.ib.Build(spvenums.OpConstant))
 	return id
 }
 
@@ -561,13 +563,13 @@ func (b *ModuleBuilder) AddConstantFloat32(typeID uint32, value float32) uint32 
 	return b.AddConstant(typeID, bits)
 }
 
-// AddConstantNull adds OpConstantNull for a given type (all zeros/false/null).
+// AddConstantNull adds spvenums.OpConstantNull for a given type (all zeros/false/null).
 func (b *ModuleBuilder) AddConstantNull(typeID uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(typeID)
 	b.ib.AddWord(id)
-	b.types = append(b.types, b.ib.Build(OpConstantNull))
+	b.types = append(b.types, b.ib.Build(spvenums.OpConstantNull))
 	return id
 }
 
@@ -579,7 +581,7 @@ func (b *ModuleBuilder) AddConstantFloat64(typeID uint32, value float64) uint32 
 	return b.AddConstant(typeID, lowBits, highBits)
 }
 
-// AddConstantComposite adds OpConstantComposite.
+// AddConstantComposite adds spvenums.OpConstantComposite.
 func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -588,7 +590,7 @@ func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint
 	for _, constituent := range constituents {
 		b.ib.AddWord(constituent)
 	}
-	b.types = append(b.types, b.ib.Build(OpConstantComposite))
+	b.types = append(b.types, b.ib.Build(spvenums.OpConstantComposite))
 	if b.compositeConstituents == nil {
 		b.compositeConstituents = make(map[uint32][]uint32)
 	}
@@ -596,38 +598,38 @@ func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint
 	return id
 }
 
-// AddVariable adds OpVariable.
-func (b *ModuleBuilder) AddVariable(pointerType uint32, storageClass StorageClass) uint32 {
+// AddVariable adds spvenums.OpVariable.
+func (b *ModuleBuilder) AddVariable(pointerType uint32, storageClass spvenums.StorageClass) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(pointerType)
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(storageClass))
-	b.globalVars = append(b.globalVars, b.ib.Build(OpVariable))
+	b.globalVars = append(b.globalVars, b.ib.Build(spvenums.OpVariable))
 	return id
 }
 
-// AddVariableWithInit adds OpVariable with initializer.
-func (b *ModuleBuilder) AddVariableWithInit(pointerType uint32, storageClass StorageClass, initID uint32) uint32 {
+// AddVariableWithInit adds spvenums.OpVariable with initializer.
+func (b *ModuleBuilder) AddVariableWithInit(pointerType uint32, storageClass spvenums.StorageClass, initID uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(pointerType)
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(storageClass))
 	b.ib.AddWord(initID)
-	b.globalVars = append(b.globalVars, b.ib.Build(OpVariable))
+	b.globalVars = append(b.globalVars, b.ib.Build(spvenums.OpVariable))
 	return id
 }
 
 // AddFunction adds a function definition.
-func (b *ModuleBuilder) AddFunction(funcType uint32, returnType uint32, control FunctionControl) uint32 {
+func (b *ModuleBuilder) AddFunction(funcType uint32, returnType uint32, control spvenums.FunctionControl) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(returnType)
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(control))
 	b.ib.AddWord(funcType)
-	b.funcAppend(b.ib.Build(OpFunction))
+	b.funcAppend(b.ib.Build(spvenums.OpFunction))
 	return id
 }
 
@@ -637,7 +639,7 @@ func (b *ModuleBuilder) AddFunctionParameter(typeID uint32) uint32 {
 	b.ib.Reset()
 	b.ib.AddWord(typeID)
 	b.ib.AddWord(id)
-	b.funcAppend(b.ib.Build(OpFunctionParameter))
+	b.funcAppend(b.ib.Build(spvenums.OpFunctionParameter))
 	return id
 }
 
@@ -646,7 +648,7 @@ func (b *ModuleBuilder) AddLabel() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.funcAppend(b.ib.Build(OpLabel))
+	b.funcAppend(b.ib.Build(spvenums.OpLabel))
 	return id
 }
 
@@ -654,36 +656,36 @@ func (b *ModuleBuilder) AddLabel() uint32 {
 func (b *ModuleBuilder) AddLabelWithID(id uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.funcAppend(b.ib.Build(OpLabel))
+	b.funcAppend(b.ib.Build(spvenums.OpLabel))
 }
 
-// AddReturn adds OpReturn.
+// AddReturn adds spvenums.OpReturn.
 func (b *ModuleBuilder) AddReturn() {
 	b.ib.Reset()
-	b.funcAppend(b.ib.Build(OpReturn))
+	b.funcAppend(b.ib.Build(spvenums.OpReturn))
 }
 
-// AddUnreachable adds OpUnreachable (terminator for unreachable basic blocks).
+// AddUnreachable adds spvenums.OpUnreachable (terminator for unreachable basic blocks).
 func (b *ModuleBuilder) AddUnreachable() {
 	b.ib.Reset()
-	b.funcAppend(b.ib.Build(OpUnreachable))
+	b.funcAppend(b.ib.Build(spvenums.OpUnreachable))
 }
 
-// AddReturnValue adds OpReturnValue.
+// AddReturnValue adds spvenums.OpReturnValue.
 func (b *ModuleBuilder) AddReturnValue(valueID uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(valueID)
-	b.funcAppend(b.ib.Build(OpReturnValue))
+	b.funcAppend(b.ib.Build(spvenums.OpReturnValue))
 }
 
-// AddFunctionEnd adds OpFunctionEnd.
+// AddFunctionEnd adds spvenums.OpFunctionEnd.
 func (b *ModuleBuilder) AddFunctionEnd() {
 	b.ib.Reset()
-	b.funcAppend(b.ib.Build(OpFunctionEnd))
+	b.funcAppend(b.ib.Build(spvenums.OpFunctionEnd))
 }
 
 // AddBinaryOp adds a binary operation instruction.
-func (b *ModuleBuilder) AddBinaryOp(opcode OpCode, resultType uint32, left uint32, right uint32) uint32 {
+func (b *ModuleBuilder) AddBinaryOp(opcode spvenums.Op, resultType uint32, left uint32, right uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(resultType)
@@ -695,7 +697,7 @@ func (b *ModuleBuilder) AddBinaryOp(opcode OpCode, resultType uint32, left uint3
 }
 
 // AddUnaryOp adds a unary operation instruction.
-func (b *ModuleBuilder) AddUnaryOp(opcode OpCode, resultType uint32, operand uint32) uint32 {
+func (b *ModuleBuilder) AddUnaryOp(opcode spvenums.Op, resultType uint32, operand uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(resultType)
@@ -705,23 +707,23 @@ func (b *ModuleBuilder) AddUnaryOp(opcode OpCode, resultType uint32, operand uin
 	return resultID
 }
 
-// AddLoad adds OpLoad.
+// AddLoad adds spvenums.OpLoad.
 func (b *ModuleBuilder) AddLoad(resultType uint32, pointer uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(resultType)
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(pointer)
-	b.funcAppend(b.ib.Build(OpLoad))
+	b.funcAppend(b.ib.Build(spvenums.OpLoad))
 	return resultID
 }
 
-// AddStore adds OpStore.
+// AddStore adds spvenums.OpStore.
 func (b *ModuleBuilder) AddStore(pointer uint32, value uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(pointer)
 	b.ib.AddWord(value)
-	b.funcAppend(b.ib.Build(OpStore))
+	b.funcAppend(b.ib.Build(spvenums.OpStore))
 }
 
 // AddCopyLogical adds OpCopyLogical (opcode 400, SPIR-V 1.4+).
@@ -736,7 +738,7 @@ func (b *ModuleBuilder) AddCopyLogical(resultType uint32, operand uint32) uint32
 	return resultID
 }
 
-// AddAccessChain adds OpAccessChain.
+// AddAccessChain adds spvenums.OpAccessChain.
 func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -746,11 +748,11 @@ func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices .
 	for _, index := range indices {
 		b.ib.AddWord(index)
 	}
-	b.funcAppend(b.ib.Build(OpAccessChain))
+	b.funcAppend(b.ib.Build(spvenums.OpAccessChain))
 	return resultID
 }
 
-// AddCompositeConstruct adds OpCompositeConstruct.
+// AddCompositeConstruct adds spvenums.OpCompositeConstruct.
 func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -759,12 +761,12 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 	for _, constituent := range constituents {
 		b.ib.AddWord(constituent)
 	}
-	b.funcAppend(b.ib.Build(OpCompositeConstruct))
+	b.funcAppend(b.ib.Build(spvenums.OpCompositeConstruct))
 	return resultID
 }
 
-// AddCompositeExtract adds OpCompositeExtract to extract a member from a composite value.
-// Unlike OpAccessChain, this operates on values (not pointers) and indexes are literals.
+// AddCompositeExtract adds spvenums.OpCompositeExtract to extract a member from a composite value.
+// Unlike spvenums.OpAccessChain, this operates on values (not pointers) and indexes are literals.
 func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32, indexes ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -774,12 +776,12 @@ func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32,
 	for _, idx := range indexes {
 		b.ib.AddWord(idx)
 	}
-	b.funcAppend(b.ib.Build(OpCompositeExtract))
+	b.funcAppend(b.ib.Build(spvenums.OpCompositeExtract))
 	return resultID
 }
 
-// AddVectorExtractDynamic adds OpVectorExtractDynamic to extract an element from a vector
-// using a dynamic (runtime) index. Unlike OpCompositeExtract, the index is an ID not a literal.
+// AddVectorExtractDynamic adds spvenums.OpVectorExtractDynamic to extract an element from a vector
+// using a dynamic (runtime) index. Unlike spvenums.OpCompositeExtract, the index is an ID not a literal.
 func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32, index uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -787,11 +789,11 @@ func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(vector)
 	b.ib.AddWord(index)
-	b.funcAppend(b.ib.Build(OpVectorExtractDynamic))
+	b.funcAppend(b.ib.Build(spvenums.OpVectorExtractDynamic))
 	return resultID
 }
 
-// AddVectorShuffle adds OpVectorShuffle for vector swizzle operations.
+// AddVectorShuffle adds spvenums.OpVectorShuffle for vector swizzle operations.
 func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 uint32, components []uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -802,11 +804,11 @@ func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 ui
 	for _, component := range components {
 		b.ib.AddWord(component)
 	}
-	b.funcAppend(b.ib.Build(OpVectorShuffle))
+	b.funcAppend(b.ib.Build(spvenums.OpVectorShuffle))
 	return resultID
 }
 
-// AddSelect adds OpSelect.
+// AddSelect adds spvenums.OpSelect.
 func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept uint32, reject uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -815,43 +817,43 @@ func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept ui
 	b.ib.AddWord(condition)
 	b.ib.AddWord(accept)
 	b.ib.AddWord(reject)
-	b.funcAppend(b.ib.Build(OpSelect))
+	b.funcAppend(b.ib.Build(spvenums.OpSelect))
 	return resultID
 }
 
-// AddSelectionMerge adds OpSelectionMerge.
-func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control SelectionControl) {
+// AddSelectionMerge adds spvenums.OpSelectionMerge.
+func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control spvenums.SelectionControl) {
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
 	b.ib.AddWord(uint32(control))
-	b.funcAppend(b.ib.Build(OpSelectionMerge))
+	b.funcAppend(b.ib.Build(spvenums.OpSelectionMerge))
 }
 
-// AddLoopMerge adds OpLoopMerge.
-func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, control LoopControl) {
+// AddLoopMerge adds spvenums.OpLoopMerge.
+func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, control spvenums.LoopControl) {
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
 	b.ib.AddWord(continueLabel)
 	b.ib.AddWord(uint32(control))
-	b.funcAppend(b.ib.Build(OpLoopMerge))
+	b.funcAppend(b.ib.Build(spvenums.OpLoopMerge))
 }
 
-// AddBranchConditional adds OpBranchConditional.
+// AddBranchConditional adds spvenums.OpBranchConditional.
 func (b *ModuleBuilder) AddBranchConditional(condition uint32, trueLabel uint32, falseLabel uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(condition)
 	b.ib.AddWord(trueLabel)
 	b.ib.AddWord(falseLabel)
-	b.funcAppend(b.ib.Build(OpBranchConditional))
+	b.funcAppend(b.ib.Build(spvenums.OpBranchConditional))
 }
 
-// AddKill adds OpKill (fragment shader discard).
+// AddKill adds spvenums.OpKill (fragment shader discard).
 func (b *ModuleBuilder) AddKill() {
 	b.ib.Reset()
-	b.funcAppend(b.ib.Build(OpKill))
+	b.funcAppend(b.ib.Build(spvenums.OpKill))
 }
 
-// AddExtInst adds OpExtInst (extended instruction).
+// AddExtInst adds spvenums.OpExtInst (extended instruction).
 func (b *ModuleBuilder) AddExtInst(resultType uint32, extSet uint32, instruction uint32, operands ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -862,7 +864,7 @@ func (b *ModuleBuilder) AddExtInst(resultType uint32, extSet uint32, instruction
 	for _, operand := range operands {
 		b.ib.AddWord(operand)
 	}
-	b.funcAppend(b.ib.Build(OpExtInst))
+	b.funcAppend(b.ib.Build(spvenums.OpExtInst))
 	return resultID
 }
 

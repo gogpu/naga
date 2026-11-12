@@ -3,16 +3,18 @@ package codegen
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 func TestModuleBuilder_MinimalModule(t *testing.T) {
 	builder := NewModuleBuilder(Version1_3)
 
 	// Add basic capability
-	builder.AddCapability(CapabilityShader)
+	builder.AddCapability(spvenums.CapabilityShader)
 
 	// Set memory model (required)
-	builder.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	builder.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	// Build the module
 	data := builder.Build()
@@ -60,8 +62,8 @@ func TestModuleBuilder_MinimalModule(t *testing.T) {
 func TestModuleBuilder_WithTypes(t *testing.T) {
 	builder := NewModuleBuilder(Version1_3)
 
-	builder.AddCapability(CapabilityShader)
-	builder.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	builder.AddCapability(spvenums.CapabilityShader)
+	builder.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	// Add some types
 	voidType := builder.AddTypeVoid()
@@ -92,22 +94,22 @@ func TestModuleBuilder_WithTypes(t *testing.T) {
 func TestModuleBuilder_WithEntryPoint(t *testing.T) {
 	builder := NewModuleBuilder(Version1_3)
 
-	builder.AddCapability(CapabilityShader)
-	builder.SetMemoryModel(AddressingModelLogical, MemoryModelGLSL450)
+	builder.AddCapability(spvenums.CapabilityShader)
+	builder.SetMemoryModel(spvenums.AddressingModelLogical, spvenums.MemoryModelGLSL450)
 
 	// Create function types
 	voidType := builder.AddTypeVoid()
 	funcType := builder.AddTypeFunction(voidType)
 
 	// Create function
-	funcID := builder.AddFunction(funcType, voidType, FunctionControlNone)
+	funcID := builder.AddFunction(funcType, voidType, spvenums.FunctionControlNone)
 	labelID := builder.AddLabel()
 	builder.AddReturn()
 	builder.AddFunctionEnd()
 
 	// Add entry point
-	builder.AddEntryPoint(ExecutionModelFragment, funcID, "main", nil)
-	builder.AddExecutionMode(funcID, ExecutionModeOriginUpperLeft)
+	builder.AddEntryPoint(spvenums.ExecutionModelFragment, funcID, "main", nil)
+	builder.AddExecutionMode(funcID, spvenums.ExecutionModeOriginUpperLeft)
 
 	// Build
 	data := builder.Build()
@@ -130,16 +132,16 @@ func TestInstructionBuilder_String(t *testing.T) {
 	builder := NewInstructionBuilder()
 	builder.AddString("hello")
 
-	inst := builder.Build(OpName)
+	inst := builder.Build(spvenums.OpName)
 	encoded := inst.Encode()
 
 	// First word is opcode
 	opcodeWord := encoded[0]
 	wordCount := opcodeWord >> 16
-	opcode := OpCode(opcodeWord & 0xFFFF)
+	opcode := spvenums.Op(opcodeWord & 0xFFFF)
 
-	if opcode != OpName {
-		t.Errorf("Wrong opcode: got %d, want %d", opcode, OpName)
+	if opcode != spvenums.OpName {
+		t.Errorf("Wrong opcode: got %d, want %d", opcode, spvenums.OpName)
 	}
 
 	// Word count includes opcode word

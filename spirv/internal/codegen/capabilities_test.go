@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -33,7 +34,7 @@ func compileWGSLForCapabilityTest(t *testing.T, source string) []byte {
 // SPIR-V binary layout:
 //   - Header: 5 words (20 bytes) — magic, version, generator, bound, schema
 //   - Instructions: each starts with (wordCount << 16 | opcode)
-//   - OpCapability (opcode 17) is 2 words: [header, capability_id]
+//   - spvenums.OpCapability (opcode 17) is 2 words: [header, capability_id]
 func extractCapabilities(spvBytes []byte) map[uint32]bool {
 	caps := make(map[uint32]bool)
 	if len(spvBytes) < 20 {
@@ -50,7 +51,7 @@ func extractCapabilities(spvBytes []byte) map[uint32]bool {
 			break
 		}
 
-		if opcode == uint32(OpCapability) && wordCount >= 2 {
+		if opcode == uint32(spvenums.OpCapability) && wordCount >= 2 {
 			capID := binary.LittleEndian.Uint32(spvBytes[offset+4:])
 			caps[capID] = true
 		}
@@ -63,44 +64,44 @@ func extractCapabilities(spvBytes []byte) map[uint32]bool {
 // capabilityName returns a human-readable name for a capability ID.
 // Used in test error messages for clarity.
 func capabilityNameForTest(c uint32) string {
-	switch Capability(c) {
-	case CapabilityMatrix:
+	switch spvenums.Capability(c) {
+	case spvenums.CapabilityMatrix:
 		return "Matrix"
-	case CapabilityShader:
+	case spvenums.CapabilityShader:
 		return "Shader"
-	case CapabilityFloat16:
+	case spvenums.CapabilityFloat16:
 		return "Float16"
-	case CapabilityFloat64:
+	case spvenums.CapabilityFloat64:
 		return "Float64"
-	case CapabilityInt64:
+	case spvenums.CapabilityInt64:
 		return "Int64"
-	case CapabilityInt16:
+	case spvenums.CapabilityInt16:
 		return "Int16"
-	case CapabilityInt8:
+	case spvenums.CapabilityInt8:
 		return "Int8"
-	case CapabilityImageQuery:
+	case spvenums.CapabilityImageQuery:
 		return "ImageQuery"
-	case CapabilityDotProductInput4x8BitPacked:
+	case spvenums.CapabilityDotProductInput4x8BitPacked:
 		return "DotProductInput4x8BitPacked"
-	case CapabilityDotProduct:
+	case spvenums.CapabilityDotProduct:
 		return "DotProduct"
-	case CapabilityClipDistance:
+	case spvenums.CapabilityClipDistance:
 		return "ClipDistance"
-	case CapabilityGeometry:
+	case spvenums.CapabilityGeometry:
 		return "Geometry"
-	case CapabilityGroupNonUniform:
+	case spvenums.CapabilityGroupNonUniform:
 		return "GroupNonUniform"
-	case CapabilityStorageBuffer16BitAccess:
+	case spvenums.CapabilityStorageBuffer16BitAccess:
 		return "StorageBuffer16BitAccess"
-	case CapabilityUniformAndStorageBuffer16BitAccess:
+	case spvenums.CapabilityUniformAndStorageBuffer16BitAccess:
 		return "UniformAndStorageBuffer16BitAccess"
-	case CapabilityStorageInputOutput16:
+	case spvenums.CapabilityStorageInputOutput16:
 		return "StorageInputOutput16"
-	case CapabilityAtomicFloat32AddEXT:
+	case spvenums.CapabilityAtomicFloat32AddEXT:
 		return "AtomicFloat32AddEXT"
-	case CapabilityStorageImageExtendedFormats:
+	case spvenums.CapabilityStorageImageExtendedFormats:
 		return "StorageImageExtendedFormats"
-	case CapabilityLinkage:
+	case spvenums.CapabilityLinkage:
 		return "Linkage"
 	default:
 		return "Unknown"
@@ -136,7 +137,7 @@ func compileModuleForCapabilityTest(t *testing.T, module *ir.Module, opts Option
 	return spvBytes
 }
 
-// extractExtensions parses a SPIR-V binary and returns all OpExtension strings.
+// extractExtensions parses a SPIR-V binary and returns all spvenums.OpExtension strings.
 func extractExtensions(spvBytes []byte) []string {
 	var exts []string
 	if len(spvBytes) < 20 {
@@ -150,7 +151,7 @@ func extractExtensions(spvBytes []byte) []string {
 		if wordCount == 0 || offset+int(wordCount)*4 > len(spvBytes) {
 			break
 		}
-		if opcode == uint32(OpExtension) && wordCount >= 2 {
+		if opcode == uint32(spvenums.OpExtension) && wordCount >= 2 {
 			// Extension name starts at word 1, null-terminated UTF-8 packed in words
 			nameBytes := spvBytes[offset+4 : offset+int(wordCount)*4]
 			name := ""
@@ -167,7 +168,7 @@ func extractExtensions(spvBytes []byte) []string {
 	return exts
 }
 
-// countEntryPointInterfaceVars counts total interface variables across all OpEntryPoint
+// countEntryPointInterfaceVars counts total interface variables across all spvenums.OpEntryPoint
 // instructions in the SPIR-V binary.
 func countEntryPointInterfaceVars(spvBytes []byte) int {
 	total := 0
@@ -205,7 +206,7 @@ func countEntryPointInterfaceVars(spvBytes []byte) int {
 }
 
 // assertCapability checks that a specific capability is present in the set.
-func assertCapability(t *testing.T, caps map[uint32]bool, capability Capability) {
+func assertCapability(t *testing.T, caps map[uint32]bool, capability spvenums.Capability) {
 	t.Helper()
 	if !caps[uint32(capability)] {
 		t.Errorf("expected capability %s (%d) to be present", capabilityNameForTest(uint32(capability)), capability)
@@ -213,7 +214,7 @@ func assertCapability(t *testing.T, caps map[uint32]bool, capability Capability)
 }
 
 // assertNoCapability checks that a specific capability is NOT present in the set.
-func assertNoCapability(t *testing.T, caps map[uint32]bool, capability Capability) {
+func assertNoCapability(t *testing.T, caps map[uint32]bool, capability spvenums.Capability) {
 	t.Helper()
 	if caps[uint32(capability)] {
 		t.Errorf("expected capability %s (%d) to NOT be present", capabilityNameForTest(uint32(capability)), capability)
@@ -222,7 +223,7 @@ func assertNoCapability(t *testing.T, caps map[uint32]bool, capability Capabilit
 
 // TestCapability_ShaderAlwaysPresent verifies that the Shader capability is
 // emitted for all shader stages. Every valid SPIR-V module targeting Vulkan
-// must declare OpCapability Shader.
+// must declare spvenums.OpCapability Shader.
 func TestCapability_ShaderAlwaysPresent(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -253,7 +254,7 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
 			spvBytes := compileWGSLForCapabilityTest(t, tt.source)
 			caps := extractCapabilities(spvBytes)
 
-			assertCapability(t, caps, CapabilityShader)
+			assertCapability(t, caps, spvenums.CapabilityShader)
 		})
 	}
 }
@@ -272,8 +273,8 @@ fn main() {
 	spvBytes := compileWGSLForCapabilityTest(t, source)
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityFloat16)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityFloat16)
 }
 
 // TestCapability_Float64_ViaIR verifies that the Float64 capability is emitted
@@ -298,8 +299,8 @@ func TestCapability_Float64_ViaIR(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityFloat64)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityFloat64)
 }
 
 // TestCapability_Int16_ViaIR verifies that the Int16 capability is emitted
@@ -323,8 +324,8 @@ func TestCapability_Int16_ViaIR(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityInt16)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityInt16)
 }
 
 // TestCapability_Int64_ViaIR verifies that the Int64 capability is emitted
@@ -348,8 +349,8 @@ func TestCapability_Int64_ViaIR(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityInt64)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityInt64)
 }
 
 // TestCapability_Int8_ViaIR verifies that the Int8 capability is emitted
@@ -373,8 +374,8 @@ func TestCapability_Int8_ViaIR(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityInt8)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityInt8)
 }
 
 // TestCapability_ImageQuery verifies that the ImageQuery capability is emitted
@@ -395,8 +396,8 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spvBytes := compileWGSLForCapabilityTest(t, source)
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityImageQuery)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityImageQuery)
 }
 
 // TestCapability_DotProduct verifies that the DotProduct and
@@ -434,9 +435,9 @@ fn main() {
 			spvBytes := compileWGSLForCapabilityTest(t, tt.source)
 			caps := extractCapabilities(spvBytes)
 
-			assertCapability(t, caps, CapabilityShader)
-			assertCapability(t, caps, CapabilityDotProduct)
-			assertCapability(t, caps, CapabilityDotProductInput4x8BitPacked)
+			assertCapability(t, caps, spvenums.CapabilityShader)
+			assertCapability(t, caps, spvenums.CapabilityDotProduct)
+			assertCapability(t, caps, spvenums.CapabilityDotProductInput4x8BitPacked)
 		})
 	}
 }
@@ -450,21 +451,21 @@ func TestCapability_NotEmittedWhenUnused(t *testing.T) {
 	caps := extractCapabilities(spvBytes)
 
 	// Shader must be present.
-	assertCapability(t, caps, CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityShader)
 
 	// All optional capabilities must NOT be present in a minimal shader.
 	optionalCaps := []struct {
-		cap  Capability
+		cap  spvenums.Capability
 		name string
 	}{
-		{CapabilityFloat16, "Float16"},
-		{CapabilityFloat64, "Float64"},
-		{CapabilityInt64, "Int64"},
-		{CapabilityInt16, "Int16"},
-		{CapabilityInt8, "Int8"},
-		{CapabilityImageQuery, "ImageQuery"},
-		{CapabilityDotProductInput4x8BitPacked, "DotProductInput4x8BitPacked"},
-		{CapabilityDotProduct, "DotProduct"},
+		{spvenums.CapabilityFloat16, "Float16"},
+		{spvenums.CapabilityFloat64, "Float64"},
+		{spvenums.CapabilityInt64, "Int64"},
+		{spvenums.CapabilityInt16, "Int16"},
+		{spvenums.CapabilityInt8, "Int8"},
+		{spvenums.CapabilityImageQuery, "ImageQuery"},
+		{spvenums.CapabilityDotProductInput4x8BitPacked, "DotProductInput4x8BitPacked"},
+		{spvenums.CapabilityDotProduct, "DotProduct"},
 	}
 
 	for _, oc := range optionalCaps {
@@ -485,7 +486,7 @@ func TestCapability_UserRequestedViaOptions(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.ExtraCapabilities = []Capability{CapabilityFloat64, CapabilityInt64}
+	opts.ExtraCapabilities = []spvenums.Capability{spvenums.CapabilityFloat64, spvenums.CapabilityInt64}
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -495,13 +496,13 @@ func TestCapability_UserRequestedViaOptions(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityFloat64)
-	assertCapability(t, caps, CapabilityInt64)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityFloat64)
+	assertCapability(t, caps, spvenums.CapabilityInt64)
 
 	// Features not requested should not appear.
-	assertNoCapability(t, caps, CapabilityFloat16)
-	assertNoCapability(t, caps, CapabilityInt8)
+	assertNoCapability(t, caps, spvenums.CapabilityFloat16)
+	assertNoCapability(t, caps, spvenums.CapabilityInt8)
 }
 
 // TestCapability_NoDuplicates verifies that each capability appears exactly
@@ -521,7 +522,7 @@ func TestCapability_NoDuplicates(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.ExtraCapabilities = []Capability{CapabilityFloat64}
+	opts.ExtraCapabilities = []spvenums.Capability{spvenums.CapabilityFloat64}
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -529,7 +530,7 @@ func TestCapability_NoDuplicates(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 
-	// Count OpCapability instructions for Float64.
+	// Count spvenums.OpCapability instructions for Float64.
 	count := 0
 	offset := 20 // skip header
 	for offset+4 <= len(spvBytes) {
@@ -541,9 +542,9 @@ func TestCapability_NoDuplicates(t *testing.T) {
 			break
 		}
 
-		if opcode == uint32(OpCapability) && wordCount >= 2 {
+		if opcode == uint32(spvenums.OpCapability) && wordCount >= 2 {
 			capID := binary.LittleEndian.Uint32(spvBytes[offset+4:])
-			if Capability(capID) == CapabilityFloat64 {
+			if spvenums.Capability(capID) == spvenums.CapabilityFloat64 {
 				count++
 			}
 		}
@@ -604,13 +605,13 @@ func TestCapability_MultipleNonStandardTypes(t *testing.T) {
 
 	caps := extractCapabilities(spvBytes)
 
-	assertCapability(t, caps, CapabilityShader)
-	assertCapability(t, caps, CapabilityFloat64)
-	assertCapability(t, caps, CapabilityInt16)
-	assertCapability(t, caps, CapabilityInt8)
-	assertCapability(t, caps, CapabilityInt64)
+	assertCapability(t, caps, spvenums.CapabilityShader)
+	assertCapability(t, caps, spvenums.CapabilityFloat64)
+	assertCapability(t, caps, spvenums.CapabilityInt16)
+	assertCapability(t, caps, spvenums.CapabilityInt8)
+	assertCapability(t, caps, spvenums.CapabilityInt64)
 
 	// Standard types should not trigger extra capabilities.
-	assertNoCapability(t, caps, CapabilityFloat16)
-	assertNoCapability(t, caps, CapabilityImageQuery)
+	assertNoCapability(t, caps, spvenums.CapabilityFloat16)
+	assertNoCapability(t, caps, spvenums.CapabilityImageQuery)
 }

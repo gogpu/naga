@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -35,7 +36,7 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 
 func TestRelationalRectRejectionCompilesToSPIRV(t *testing.T) {
 	spirvBytes := compileRelationalShader(t, "rect", relationalRectShader)
-	assertHasOpcode(t, spirvBytes, OpAny, "any() over a vec2<bool>")
+	assertHasOpcode(t, spirvBytes, spvenums.OpAny, "any() over a vec2<bool>")
 }
 
 // TestRelationalAnyAllOverVectors covers both reductions at every vector width.
@@ -45,14 +46,14 @@ func TestRelationalAnyAllOverVectors(t *testing.T) {
 		fun     string
 		size    string
 		swizzle string
-		opcode  OpCode
+		opcode  spvenums.Op
 	}{
-		{"any/vec2", "any", "vec2<f32>", ".xy", OpAny},
-		{"any/vec3", "any", "vec3<f32>", ".xyz", OpAny},
-		{"any/vec4", "any", "vec4<f32>", "", OpAny},
-		{"all/vec2", "all", "vec2<f32>", ".xy", OpAll},
-		{"all/vec3", "all", "vec3<f32>", ".xyz", OpAll},
-		{"all/vec4", "all", "vec4<f32>", "", OpAll},
+		{"any/vec2", "any", "vec2<f32>", ".xy", spvenums.OpAny},
+		{"any/vec3", "any", "vec3<f32>", ".xyz", spvenums.OpAny},
+		{"any/vec4", "any", "vec4<f32>", "", spvenums.OpAny},
+		{"all/vec2", "all", "vec2<f32>", ".xy", spvenums.OpAll},
+		{"all/vec3", "all", "vec3<f32>", ".xyz", spvenums.OpAll},
+		{"all/vec4", "all", "vec4<f32>", "", spvenums.OpAll},
 	}
 
 	for _, tc := range cases {
@@ -74,7 +75,7 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 // TestRelationalAnyAllOverScalarBool covers the degenerate form. any(bool) and
 // all(bool) are no-ops, so, as in Rust naga, the WGSL lowerer returns the
 // argument and no Relational reaches the IR — whatever the argument is, not only
-// a literal. Backends then never see a scalar any/all; SPIR-V's OpAny/OpAll
+// a literal. Backends then never see a scalar any/all; SPIR-V's spvenums.OpAny/spvenums.OpAll
 // would reject one, and GLSL has no any(bool) overload.
 func TestRelationalAnyAllOverScalarBool(t *testing.T) {
 	args := []struct {
@@ -99,8 +100,8 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 `
 				assertNoRelationalInIR(t, src)
 				spirvBytes := compileRelationalShader(t, fun+"/"+a.name, src)
-				assertLacksOpcode(t, spirvBytes, OpAny, fun+" over a scalar bool")
-				assertLacksOpcode(t, spirvBytes, OpAll, fun+" over a scalar bool")
+				assertLacksOpcode(t, spirvBytes, spvenums.OpAny, fun+" over a scalar bool")
+				assertLacksOpcode(t, spirvBytes, spvenums.OpAll, fun+" over a scalar bool")
 			})
 		}
 	}
@@ -137,12 +138,12 @@ func TestRelationalIsNanIsInf(t *testing.T) {
 		name   string
 		fun    string
 		arg    string
-		opcode OpCode
+		opcode spvenums.Op
 	}{
-		{"isnan/scalar", "isnan", "p.x", OpIsNan},
-		{"isnan/vector", "isnan", "p.xy", OpIsNan},
-		{"isinf/scalar", "isinf", "p.x", OpIsInf},
-		{"isinf/vector", "isinf", "p.xy", OpIsInf},
+		{"isnan/scalar", "isnan", "p.x", spvenums.OpIsNan},
+		{"isnan/vector", "isnan", "p.xy", spvenums.OpIsNan},
+		{"isinf/scalar", "isinf", "p.x", spvenums.OpIsInf},
+		{"isinf/vector", "isinf", "p.xy", spvenums.OpIsInf},
 	}
 
 	for _, tc := range cases {
@@ -171,14 +172,14 @@ func compileRelationalShader(t *testing.T, label, source string) []byte {
 	return spirvBytes
 }
 
-func assertHasOpcode(t *testing.T, spirvBytes []byte, op OpCode, what string) {
+func assertHasOpcode(t *testing.T, spirvBytes []byte, op spvenums.Op, what string) {
 	t.Helper()
 	if !hasOpcode(spirvBytes, op) {
 		t.Fatalf("%s emitted no %v\n%s", what, op, disassembleSPIRV(spirvBytes))
 	}
 }
 
-func assertLacksOpcode(t *testing.T, spirvBytes []byte, op OpCode, what string) {
+func assertLacksOpcode(t *testing.T, spirvBytes []byte, op spvenums.Op, what string) {
 	t.Helper()
 	if hasOpcode(spirvBytes, op) {
 		t.Fatalf("%s emitted %v, which requires a vector operand\n%s",

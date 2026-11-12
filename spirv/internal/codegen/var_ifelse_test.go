@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -122,7 +123,7 @@ func TestVarIfElseSPIRV(t *testing.T) {
 // spirvInstruction represents a decoded SPIR-V instruction with offset info.
 type spirvInstruction struct {
 	offset    int
-	opcode    OpCode
+	opcode    spvenums.Op
 	wordCount int
 	words     []uint32
 }
@@ -142,7 +143,7 @@ func decodeSPIRVInstructions(data []byte) []spirvInstruction {
 	offset := 5 // skip header
 	for offset < len(words) {
 		wc := int(words[offset] >> 16)
-		op := OpCode(words[offset] & 0xFFFF)
+		op := spvenums.Op(words[offset] & 0xFFFF)
 		if wc == 0 || offset+wc > len(words) {
 			break
 		}
@@ -169,13 +170,13 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	// Collect names for readability
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
 
 	// ---------------------------------------------------------------
-	// 1. Find all OpVariable with Function storage class
+	// 1. Find all spvenums.OpVariable with Function storage class
 	// ---------------------------------------------------------------
 	t.Log("\n--- 1. Function-scope OpVariable instructions ---")
 	var funcVars []spirvInstruction
@@ -184,26 +185,26 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	firstLabelSeen := false
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 			firstLabelSeen = false
 			entryBlockStarted = false
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
-		if inFunction && inst.opcode == OpLabel && !firstLabelSeen {
+		if inFunction && inst.opcode == spvenums.OpLabel && !firstLabelSeen {
 			firstLabelSeen = true
 			entryBlockStarted = true
 		}
-		// Any non-OpVariable, non-OpLabel instruction after entry label ends the entry block variable section
-		if entryBlockStarted && inst.opcode != OpVariable && inst.opcode != OpLabel {
+		// Any non-spvenums.OpVariable, non-spvenums.OpLabel instruction after entry label ends the entry block variable section
+		if entryBlockStarted && inst.opcode != spvenums.OpVariable && inst.opcode != spvenums.OpLabel {
 			entryBlockStarted = false
 		}
 
-		if inst.opcode == OpVariable && inst.wordCount >= 4 {
-			sc := StorageClass(inst.words[3])
-			if sc == StorageClassFunction {
+		if inst.opcode == spvenums.OpVariable && inst.wordCount >= 4 {
+			sc := spvenums.StorageClass(inst.words[3])
+			if sc == spvenums.StorageClassFunction {
 				location := "NON-ENTRY"
 				if entryBlockStarted {
 					location = "ENTRY BLOCK"
@@ -219,12 +220,12 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 2. Find OpSelectionMerge and control flow structure
+	// 2. Find spvenums.OpSelectionMerge and control flow structure
 	// ---------------------------------------------------------------
 	t.Log("\n--- 2. Selection merge and control flow ---")
 	var selMerges []spirvInstruction
 	for _, inst := range instrs {
-		if inst.opcode == OpSelectionMerge {
+		if inst.opcode == spvenums.OpSelectionMerge {
 			mergeLabel := inst.words[1]
 			t.Logf("  word %d: OpSelectionMerge merge:%s control:%d",
 				inst.offset, idStr(mergeLabel, names), inst.words[2])
@@ -233,33 +234,33 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 3. Find all OpBranchConditional
+	// 3. Find all spvenums.OpBranchConditional
 	// ---------------------------------------------------------------
 	t.Log("\n--- 3. OpBranchConditional instructions ---")
 	for _, inst := range instrs {
-		if inst.opcode == OpBranchConditional && inst.wordCount >= 4 {
+		if inst.opcode == spvenums.OpBranchConditional && inst.wordCount >= 4 {
 			t.Logf("  word %d: OpBranchConditional cond:%s true:%s false:%s",
 				inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names), idStr(inst.words[3], names))
 		}
 	}
 
 	// ---------------------------------------------------------------
-	// 4. Find all OpStore instructions
+	// 4. Find all spvenums.OpStore instructions
 	// ---------------------------------------------------------------
 	t.Log("\n--- 4. OpStore instructions ---")
 	for _, inst := range instrs {
-		if inst.opcode == OpStore && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpStore && inst.wordCount >= 3 {
 			t.Logf("  word %d: OpStore *%s = %s",
 				inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names))
 		}
 	}
 
 	// ---------------------------------------------------------------
-	// 5. Find all OpLoad instructions
+	// 5. Find all spvenums.OpLoad instructions
 	// ---------------------------------------------------------------
 	t.Log("\n--- 5. OpLoad instructions ---")
 	for _, inst := range instrs {
-		if inst.opcode == OpLoad && inst.wordCount >= 4 {
+		if inst.opcode == spvenums.OpLoad && inst.wordCount >= 4 {
 			t.Logf("  word %d: OpLoad %s %s = load %s",
 				inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names), idStr(inst.words[3], names))
 		}
@@ -271,54 +272,54 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	t.Log("\n--- 6. Full control flow graph ---")
 	for _, inst := range instrs {
 		switch inst.opcode {
-		case OpFunction:
+		case spvenums.OpFunction:
 			if inst.wordCount >= 5 {
 				t.Logf("  word %d: OpFunction %s %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[4], names))
 			}
-		case OpLabel:
+		case spvenums.OpLabel:
 			t.Logf("  word %d: OpLabel %s", inst.offset, idStr(inst.words[1], names))
-		case OpBranch:
+		case spvenums.OpBranch:
 			t.Logf("  word %d:   OpBranch -> %s", inst.offset, idStr(inst.words[1], names))
-		case OpBranchConditional:
+		case spvenums.OpBranchConditional:
 			if inst.wordCount >= 4 {
 				t.Logf("  word %d:   OpBranchConditional cond:%s true:%s false:%s",
 					inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpSelectionMerge:
+		case spvenums.OpSelectionMerge:
 			t.Logf("  word %d:   OpSelectionMerge merge:%s",
 				inst.offset, idStr(inst.words[1], names))
-		case OpReturn:
+		case spvenums.OpReturn:
 			t.Logf("  word %d:   OpReturn", inst.offset)
-		case OpUnreachable:
+		case spvenums.OpUnreachable:
 			t.Logf("  word %d:   OpUnreachable", inst.offset)
-		case OpFunctionEnd:
+		case spvenums.OpFunctionEnd:
 			t.Logf("  word %d: OpFunctionEnd", inst.offset)
-		case OpVariable:
-			if inst.wordCount >= 4 && StorageClass(inst.words[3]) == StorageClassFunction {
+		case spvenums.OpVariable:
+			if inst.wordCount >= 4 && spvenums.StorageClass(inst.words[3]) == spvenums.StorageClassFunction {
 				t.Logf("  word %d:   OpVariable(Function) %s", inst.offset, idStr(inst.words[2], names))
 			}
-		case OpStore:
+		case spvenums.OpStore:
 			if inst.wordCount >= 3 {
 				t.Logf("  word %d:   OpStore *%s = %s",
 					inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names))
 			}
-		case OpLoad:
+		case spvenums.OpLoad:
 			if inst.wordCount >= 4 {
 				t.Logf("  word %d:   OpLoad %s = load %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpConvertFToU:
+		case spvenums.OpConvertFToU:
 			if inst.wordCount >= 4 {
 				t.Logf("  word %d:   OpConvertFToU %s = %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpFMul:
+		case spvenums.OpFMul:
 			if inst.wordCount >= 5 {
 				t.Logf("  word %d:   OpFMul %s = %s * %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), idStr(inst.words[4], names))
 			}
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			var indices []string
 			for i := 4; i < inst.wordCount; i++ {
 				indices = append(indices, idStr(inst.words[i], names))
@@ -329,25 +330,25 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 7. Verify: OpVariable for 'result' must be in entry block
+	// 7. Verify: spvenums.OpVariable for 'result' must be in entry block
 	// ---------------------------------------------------------------
 	t.Log("\n--- 7. CRITICAL CHECK: Is OpVariable for 'result' in entry block? ---")
 	checkEntryBlockVariables(t, instrs, names)
 
 	// ---------------------------------------------------------------
-	// 8. Verify: OpStore in both if/else branches target same variable
+	// 8. Verify: spvenums.OpStore in both if/else branches target same variable
 	// ---------------------------------------------------------------
 	t.Log("\n--- 8. CRITICAL CHECK: Do both if/else branches store to the same variable? ---")
 	checkBranchStores(t, instrs, names, selMerges)
 
 	// ---------------------------------------------------------------
-	// 9. Verify: OpLoad after merge loads from the var
+	// 9. Verify: spvenums.OpLoad after merge loads from the var
 	// ---------------------------------------------------------------
 	t.Log("\n--- 9. CRITICAL CHECK: Does OpLoad after merge load from the correct variable? ---")
 	checkPostMergeLoad(t, instrs, names, selMerges, funcVars)
 }
 
-// checkEntryBlockVariables verifies all Function-scope OpVariable are in the entry block.
+// checkEntryBlockVariables verifies all Function-scope spvenums.OpVariable are in the entry block.
 func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
@@ -356,33 +357,33 @@ func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map
 	entryBlockEnded := false
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 			entryBlock = false
 			entryBlockEnded = false
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
 			continue
 		}
 
-		if inst.opcode == OpLabel && !entryBlock && !entryBlockEnded {
+		if inst.opcode == spvenums.OpLabel && !entryBlock && !entryBlockEnded {
 			entryBlock = true
 			continue
 		}
 
-		// In entry block, OpVariable is OK. Any other non-debug instruction ends the variable section.
-		if entryBlock && inst.opcode != OpVariable &&
-			inst.opcode != OpName && inst.opcode != OpMemberName {
+		// In entry block, spvenums.OpVariable is OK. Any other non-debug instruction ends the variable section.
+		if entryBlock && inst.opcode != spvenums.OpVariable &&
+			inst.opcode != spvenums.OpName && inst.opcode != spvenums.OpMemberName {
 			entryBlock = false
 			entryBlockEnded = true
 		}
 
-		if inst.opcode == OpVariable && inst.wordCount >= 4 {
-			sc := StorageClass(inst.words[3])
-			if sc == StorageClassFunction {
+		if inst.opcode == spvenums.OpVariable && inst.wordCount >= 4 {
+			sc := spvenums.StorageClass(inst.words[3])
+			if sc == spvenums.StorageClassFunction {
 				if entryBlock {
 					t.Logf("  OK: OpVariable %s is in entry block (word %d)",
 						idStr(inst.words[2], names), inst.offset)
@@ -395,7 +396,7 @@ func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map
 	}
 }
 
-// checkBranchStores checks if OpStore instructions exist in both branches of the if/else
+// checkBranchStores checks if spvenums.OpStore instructions exist in both branches of the if/else
 // and whether they target the same pointer (the 'result' variable).
 func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32]string, selMerges []spirvInstruction) {
 	t.Helper()
@@ -410,7 +411,7 @@ func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32
 		mergeLabel := merge.words[1]
 		t.Logf("  Selection %d: merge label = %s", i, idStr(mergeLabel, names))
 
-		// Find the OpBranchConditional that follows this merge
+		// Find the spvenums.OpBranchConditional that follows this merge
 		mergeIdx := -1
 		for j, inst := range instrs {
 			if inst.offset == merge.offset {
@@ -423,7 +424,7 @@ func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32
 		}
 
 		branchCond := instrs[mergeIdx+1]
-		if branchCond.opcode != OpBranchConditional {
+		if branchCond.opcode != spvenums.OpBranchConditional {
 			t.Logf("  WARNING: Instruction after OpSelectionMerge is not OpBranchConditional but %s",
 				opcodeName(branchCond.opcode))
 			continue
@@ -465,12 +466,12 @@ func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32
 	}
 }
 
-// collectStoresInBlock collects OpStore instructions in a basic block starting at the given label ID.
+// collectStoresInBlock collects spvenums.OpStore instructions in a basic block starting at the given label ID.
 func collectStoresInBlock(instrs []spirvInstruction, labelID uint32) []spirvInstruction {
 	var stores []spirvInstruction
 	inBlock := false
 	for _, inst := range instrs {
-		if inst.opcode == OpLabel && inst.words[1] == labelID {
+		if inst.opcode == spvenums.OpLabel && inst.words[1] == labelID {
 			inBlock = true
 			continue
 		}
@@ -478,19 +479,19 @@ func collectStoresInBlock(instrs []spirvInstruction, labelID uint32) []spirvInst
 			continue
 		}
 		// Block ends at next terminator
-		if inst.opcode == OpBranch || inst.opcode == OpBranchConditional ||
-			inst.opcode == OpReturn || inst.opcode == OpReturnValue ||
-			inst.opcode == OpUnreachable || inst.opcode == OpKill {
+		if inst.opcode == spvenums.OpBranch || inst.opcode == spvenums.OpBranchConditional ||
+			inst.opcode == spvenums.OpReturn || inst.opcode == spvenums.OpReturnValue ||
+			inst.opcode == spvenums.OpUnreachable || inst.opcode == spvenums.OpKill {
 			break
 		}
-		if inst.opcode == OpStore {
+		if inst.opcode == spvenums.OpStore {
 			stores = append(stores, inst)
 		}
 	}
 	return stores
 }
 
-// checkPostMergeLoad verifies that after the merge block, OpLoad reads from the correct variable.
+// checkPostMergeLoad verifies that after the merge block, spvenums.OpLoad reads from the correct variable.
 func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint32]string,
 	selMerges []spirvInstruction, funcVars []spirvInstruction) {
 	t.Helper()
@@ -513,15 +514,15 @@ func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint3
 		// Find the merge label in the instruction stream
 		inMergeBlock := false
 		for _, inst := range instrs {
-			if inst.opcode == OpLabel && inst.words[1] == mergeLabel {
+			if inst.opcode == spvenums.OpLabel && inst.words[1] == mergeLabel {
 				inMergeBlock = true
 				continue
 			}
 			if !inMergeBlock {
 				continue
 			}
-			// Look for first OpLoad
-			if inst.opcode == OpLoad && inst.wordCount >= 4 {
+			// Look for first spvenums.OpLoad
+			if inst.opcode == spvenums.OpLoad && inst.wordCount >= 4 {
 				loadSource := inst.words[3]
 				t.Logf("    OpLoad at word %d: %s = load %s",
 					inst.offset, idStr(inst.words[2], names), idStr(loadSource, names))
@@ -534,9 +535,9 @@ func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint3
 				break
 			}
 			// Stop at terminator
-			if inst.opcode == OpBranch || inst.opcode == OpBranchConditional ||
-				inst.opcode == OpReturn || inst.opcode == OpReturnValue ||
-				inst.opcode == OpUnreachable {
+			if inst.opcode == spvenums.OpBranch || inst.opcode == spvenums.OpBranchConditional ||
+				inst.opcode == spvenums.OpReturn || inst.opcode == spvenums.OpReturnValue ||
+				inst.opcode == spvenums.OpUnreachable {
 				t.Logf("    No OpLoad found in merge block before terminator at word %d", inst.offset)
 				break
 			}
@@ -548,8 +549,8 @@ func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint3
 func compareInstructionCounts(t *testing.T, spirvA, spirvB []byte) {
 	t.Helper()
 
-	countOps := func(data []byte) map[OpCode]int {
-		counts := make(map[OpCode]int)
+	countOps := func(data []byte) map[spvenums.Op]int {
+		counts := make(map[spvenums.Op]int)
 		instrs := decodeSPIRVInstructions(data)
 		for _, inst := range instrs {
 			counts[inst.opcode]++
@@ -561,23 +562,23 @@ func compareInstructionCounts(t *testing.T, spirvA, spirvB []byte) {
 	countsB := countOps(spirvB)
 
 	keyOps := []struct {
-		op   OpCode
+		op   spvenums.Op
 		name string
 	}{
-		{OpVariable, "OpVariable"},
-		{OpStore, "OpStore"},
-		{OpLoad, "OpLoad"},
-		{OpSelectionMerge, "OpSelectionMerge"},
-		{OpBranchConditional, "OpBranchConditional"},
-		{OpBranch, "OpBranch"},
-		{OpLabel, "OpLabel"},
-		{OpReturn, "OpReturn"},
-		{OpUnreachable, "OpUnreachable"},
-		{OpConvertFToU, "OpConvertFToU"},
-		{OpFMul, "OpFMul"},
-		{OpIMul, "OpIMul"},
-		{OpAccessChain, "OpAccessChain"},
-		{OpFunctionCall, "OpFunctionCall"},
+		{spvenums.OpVariable, "OpVariable"},
+		{spvenums.OpStore, "OpStore"},
+		{spvenums.OpLoad, "OpLoad"},
+		{spvenums.OpSelectionMerge, "OpSelectionMerge"},
+		{spvenums.OpBranchConditional, "OpBranchConditional"},
+		{spvenums.OpBranch, "OpBranch"},
+		{spvenums.OpLabel, "OpLabel"},
+		{spvenums.OpReturn, "OpReturn"},
+		{spvenums.OpUnreachable, "OpUnreachable"},
+		{spvenums.OpConvertFToU, "OpConvertFToU"},
+		{spvenums.OpFMul, "OpFMul"},
+		{spvenums.OpIMul, "OpIMul"},
+		{spvenums.OpAccessChain, "OpAccessChain"},
+		{spvenums.OpFunctionCall, "OpFunctionCall"},
 	}
 
 	t.Logf("  %-25s  ShaderA(var+if/else)  ShaderB(no var)", "Instruction")
@@ -614,7 +615,7 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 	// Collect names
 	names := make(map[uint32]string)
 	for _, inst := range instrs {
-		if inst.opcode == OpName && inst.wordCount >= 3 {
+		if inst.opcode == spvenums.OpName && inst.wordCount >= 3 {
 			names[inst.words[1]] = decodeString(inst.words[2:])
 		}
 	}
@@ -623,11 +624,11 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 	typeInfo := make(map[uint32]string)
 	for _, inst := range instrs {
 		switch inst.opcode {
-		case OpTypeVoid:
+		case spvenums.OpTypeVoid:
 			typeInfo[inst.words[1]] = "void"
-		case OpTypeBool:
+		case spvenums.OpTypeBool:
 			typeInfo[inst.words[1]] = "bool"
-		case OpTypeInt:
+		case spvenums.OpTypeInt:
 			if inst.wordCount >= 4 {
 				sign := "u"
 				if inst.words[3] == 1 {
@@ -635,24 +636,24 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 				}
 				typeInfo[inst.words[1]] = fmt.Sprintf("%s%d", sign, inst.words[2])
 			}
-		case OpTypeFloat:
+		case spvenums.OpTypeFloat:
 			if inst.wordCount >= 3 {
 				typeInfo[inst.words[1]] = fmt.Sprintf("f%d", inst.words[2])
 			}
-		case OpTypeVector:
+		case spvenums.OpTypeVector:
 			if inst.wordCount >= 4 {
 				typeInfo[inst.words[1]] = fmt.Sprintf("vec%d<%s>", inst.words[3], typeInfo[inst.words[2]])
 			}
-		case OpTypePointer:
+		case spvenums.OpTypePointer:
 			if inst.wordCount >= 4 {
 				typeInfo[inst.words[1]] = fmt.Sprintf("ptr<%s,%s>",
 					storageClassName(inst.words[2]), typeInfo[inst.words[3]])
 			}
-		case OpTypeRuntimeArray:
+		case spvenums.OpTypeRuntimeArray:
 			if inst.wordCount >= 3 {
 				typeInfo[inst.words[1]] = fmt.Sprintf("rtarray<%s>", typeInfo[inst.words[2]])
 			}
-		case OpTypeStruct:
+		case spvenums.OpTypeStruct:
 			name := names[inst.words[1]]
 			if name == "" {
 				name = "struct"
@@ -669,7 +670,7 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 	blockNum := 0
 
 	for _, inst := range instrs {
-		if inst.opcode == OpFunction {
+		if inst.opcode == spvenums.OpFunction {
 			inFunction = true
 			blockNum = 0
 			if inst.wordCount >= 5 {
@@ -678,12 +679,12 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 			}
 			continue
 		}
-		if inst.opcode == OpFunctionEnd {
+		if inst.opcode == spvenums.OpFunctionEnd {
 			inFunction = false
 			t.Log("--- FUNCTION END ---")
 			continue
 		}
-		if inst.opcode == OpFunctionParameter {
+		if inst.opcode == spvenums.OpFunctionParameter {
 			if inst.wordCount >= 3 {
 				t.Logf("  PARAM: %s %s (type=%s)",
 					idStr(inst.words[2], names), typeInfo[inst.words[1]], idStr(inst.words[1], names))
@@ -695,7 +696,7 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 			continue
 		}
 
-		if inst.opcode == OpLabel {
+		if inst.opcode == spvenums.OpLabel {
 			blockNum++
 			t.Logf("\n  BLOCK %d (label %s):", blockNum, idStr(inst.words[1], names))
 			continue
@@ -703,25 +704,25 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 
 		// Print each instruction with type info
 		switch inst.opcode {
-		case OpVariable:
+		case spvenums.OpVariable:
 			if inst.wordCount >= 4 {
 				sc := storageClassName(inst.words[3])
 				t.Logf("    %4d: %s = OpVariable %s (type=%s/%s)",
 					inst.offset, idStr(inst.words[2], names), sc,
 					idStr(inst.words[1], names), typeInfo[inst.words[1]])
 			}
-		case OpLoad:
+		case spvenums.OpLoad:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %s = OpLoad %s (type=%s/%s)",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names),
 					idStr(inst.words[1], names), typeInfo[inst.words[1]])
 			}
-		case OpStore:
+		case spvenums.OpStore:
 			if inst.wordCount >= 3 {
 				t.Logf("    %4d: OpStore *%s = %s",
 					inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names))
 			}
-		case OpAccessChain:
+		case spvenums.OpAccessChain:
 			var indices []string
 			for i := 4; i < inst.wordCount; i++ {
 				indices = append(indices, idStr(inst.words[i], names))
@@ -729,56 +730,56 @@ func TestVarIfElse_DetailedBlockDump(t *testing.T) {
 			t.Logf("    %4d: %s = OpAccessChain base:%s [%s] (type=%s)",
 				inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names),
 				strings.Join(indices, ", "), typeInfo[inst.words[1]])
-		case OpSelectionMerge:
+		case spvenums.OpSelectionMerge:
 			t.Logf("    %4d: OpSelectionMerge merge:%s control:%d",
 				inst.offset, idStr(inst.words[1], names), inst.words[2])
-		case OpBranchConditional:
+		case spvenums.OpBranchConditional:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: OpBranchConditional cond:%s true:%s false:%s",
 					inst.offset, idStr(inst.words[1], names), idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpBranch:
+		case spvenums.OpBranch:
 			t.Logf("    %4d: OpBranch -> %s", inst.offset, idStr(inst.words[1], names))
-		case OpReturn:
+		case spvenums.OpReturn:
 			t.Logf("    %4d: OpReturn", inst.offset)
-		case OpUnreachable:
+		case spvenums.OpUnreachable:
 			t.Logf("    %4d: OpUnreachable", inst.offset)
-		case OpFMul:
+		case spvenums.OpFMul:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %s = OpFMul %s, %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), idStr(inst.words[4], names))
 			}
-		case OpIMul:
+		case spvenums.OpIMul:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %s = OpIMul %s, %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), idStr(inst.words[4], names))
 			}
-		case OpConvertFToU:
+		case spvenums.OpConvertFToU:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %s = OpConvertFToU %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpConvertUToF:
+		case spvenums.OpConvertUToF:
 			if inst.wordCount >= 4 {
 				t.Logf("    %4d: %s = OpConvertUToF %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names))
 			}
-		case OpCompositeExtract:
+		case spvenums.OpCompositeExtract:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %s = OpCompositeExtract %s [%d]",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), inst.words[4])
 			}
-		case OpINotEqual:
+		case spvenums.OpINotEqual:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %s = OpINotEqual %s, %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), idStr(inst.words[4], names))
 			}
-		case OpUGreaterThanEqual:
+		case spvenums.OpUGreaterThanEqual:
 			if inst.wordCount >= 5 {
 				t.Logf("    %4d: %s = OpUGreaterThanEqual %s, %s",
 					inst.offset, idStr(inst.words[2], names), idStr(inst.words[3], names), idStr(inst.words[4], names))
 			}
-		case OpConstant:
+		case spvenums.OpConstant:
 			// skip in function body
 		default:
 			// Generic display for other opcodes

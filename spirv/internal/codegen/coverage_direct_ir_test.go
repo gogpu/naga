@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // ---------------------------------------------------------------------------
@@ -60,13 +61,13 @@ func TestEmitLocalVarValueDirect(t *testing.T) {
 	}
 	assertValidSPIRV(t, spvBytes)
 
-	// Verify the local var is present (OpVariable) and the store happened.
-	// The auto-load through emitLocalVarValue produces an OpLoad or DCE'd result.
+	// Verify the local var is present (spvenums.OpVariable) and the store happened.
+	// The auto-load through emitLocalVarValue produces an spvenums.OpLoad or DCE'd result.
 	instrs := decodeSPIRVInstructions(spvBytes)
-	if !hasOpcodeInInstrs(instrs, OpVariable) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpVariable) {
 		t.Error("expected OpVariable for local variable")
 	}
-	if !hasOpcodeInInstrs(instrs, OpStore) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpStore) {
 		t.Error("expected OpStore for local variable initialization")
 	}
 }
@@ -128,8 +129,8 @@ func TestResolveAtomicScalarKindSint(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Signed max → OpAtomicSMax
-	if !hasOpcodeInInstrs(instrs, OpAtomicSMax) {
+	// Signed max → spvenums.OpAtomicSMax
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMax) {
 		t.Error("expected OpAtomicSMax for signed atomic max")
 	}
 }
@@ -220,8 +221,8 @@ func TestAtomicSubtractFloat(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Float atomic add → OpAtomicFAddEXT
-	if !hasOpcodeInInstrs(instrs, OpAtomicFAddEXT) {
+	// Float atomic add → spvenums.OpAtomicFAddEXT
+	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicFAddEXT) {
 		t.Error("expected OpAtomicFAddEXT for float atomic add")
 	}
 }
@@ -338,7 +339,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpImageQueryLevels) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpImageQueryLevels) {
 		t.Error("expected OpImageQueryLevels for textureNumLevels")
 	}
 }
@@ -357,7 +358,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpImageQuerySamples) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpImageQuerySamples) {
 		t.Error("expected OpImageQuerySamples for textureNumSamples")
 	}
 }

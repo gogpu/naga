@@ -3,6 +3,8 @@ package codegen
 import (
 	"slices"
 	"testing"
+
+	"github.com/gogpu/naga/spirv/internal/spvenums"
 )
 
 // SPIR-V opcode and capability of WGSL discard as demote-to-helper
@@ -10,8 +12,8 @@ import (
 // enumerants share both numbers with the core ones; checked against
 // spirv-as and spirv-val.
 const (
-	opDemoteToHelperInvocation  = OpCode(5380)
-	capDemoteToHelperInvocation = Capability(5379)
+	opDemoteToHelperInvocation  = spvenums.Op(5380)
+	capDemoteToHelperInvocation = spvenums.Capability(5379)
 	demoteToHelperExtension     = "SPV_EXT_demote_to_helper_invocation"
 )
 
@@ -26,7 +28,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 `
 
-// TestDiscardKeepsOpKillByDefault: the zero Options keeps OpKill, as Rust
+// TestDiscardKeepsOpKillByDefault: the zero Options keeps spvenums.OpKill, as Rust
 // naga always writes it (back/spv/block.rs, Statement::Kill), with no
 // demote capability or extension.
 func TestDiscardKeepsOpKillByDefault(t *testing.T) {
@@ -35,7 +37,7 @@ func TestDiscardKeepsOpKillByDefault(t *testing.T) {
 	validateWithVulkanSDK(t, spv)
 
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpKill) {
+	if !hasOpcodeInInstrs(instrs, spvenums.OpKill) {
 		t.Error("expected OpKill for WGSL discard with the default options")
 	}
 	if hasOpcodeInInstrs(instrs, opDemoteToHelperInvocation) {
@@ -78,7 +80,7 @@ func TestDiscardDemoteToHelperInvocation(t *testing.T) {
 			if !hasOpcodeInInstrs(instrs, opDemoteToHelperInvocation) {
 				t.Error("expected OpDemoteToHelperInvocation for WGSL discard")
 			}
-			if hasOpcodeInInstrs(instrs, OpKill) {
+			if hasOpcodeInInstrs(instrs, spvenums.OpKill) {
 				t.Error("OpKill written with DemoteToHelperInvocation")
 			}
 			if !extractCapabilities(spv)[uint32(capDemoteToHelperInvocation)] {

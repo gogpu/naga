@@ -1,5 +1,7 @@
 package codegen
 
+import "github.com/gogpu/naga/spirv/internal/spvenums"
+
 // Block represents a SPIR-V basic block under construction.
 // Instructions are appended via Push; the block is not yet terminated.
 type Block struct {
@@ -42,19 +44,19 @@ func (f *FunctionBuilder) Consume(block Block, terminator Instruction) {
 }
 
 // ToInstructions serializes all blocks into a flat instruction list suitable
-// for SPIR-V binary encoding. OpLabel is emitted from block.LabelID (NOT
+// for SPIR-V binary encoding. spvenums.OpLabel is emitted from block.LabelID (NOT
 // stored in Body). Local variables are emitted only in the first block.
 // This matches Rust naga's Function::to_words() layout:
 //
-//	OpFunction
-//	OpFunctionParameter...
-//	OpLabel (block 0)
-//	OpVariable... (locals)
+//	spvenums.OpFunction
+//	spvenums.OpFunctionParameter...
+//	spvenums.OpLabel (block 0)
+//	spvenums.OpVariable... (locals)
 //	body instructions...
-//	OpLabel (block 1)
+//	spvenums.OpLabel (block 1)
 //	body instructions...
 //	...
-//	OpFunctionEnd
+//	spvenums.OpFunctionEnd
 func (f *FunctionBuilder) ToInstructions() []Instruction {
 	// Pre-calculate capacity: signature + params + per-block(label+body) + variables + functionEnd.
 	capacity := 1 + len(f.Parameters) + len(f.Variables) + 1 // signature + params + vars + funcEnd
@@ -78,22 +80,22 @@ func (f *FunctionBuilder) ToInstructions() []Instruction {
 	return result
 }
 
-// makeLabelInstruction creates an OpLabel instruction with the given ID.
+// makeLabelInstruction creates an spvenums.OpLabel instruction with the given ID.
 // Unlike ModuleBuilder.AddLabelWithID, this returns the instruction without
 // appending it to any list.
 func makeLabelInstruction(labelID uint32) Instruction {
 	return Instruction{
-		Opcode: OpLabel,
+		Opcode: spvenums.OpLabel,
 		Words:  []uint32{labelID},
 	}
 }
 
-// makeFunctionEndInstruction creates an OpFunctionEnd instruction.
+// makeFunctionEndInstruction creates an spvenums.OpFunctionEnd instruction.
 // Unlike ModuleBuilder.AddFunctionEnd, this returns the instruction without
 // appending it to any list.
 func makeFunctionEndInstruction() Instruction {
 	return Instruction{
-		Opcode: OpFunctionEnd,
+		Opcode: spvenums.OpFunctionEnd,
 		Words:  nil,
 	}
 }
@@ -102,11 +104,11 @@ func makeFunctionEndInstruction() Instruction {
 type BlockExitKind int
 
 const (
-	// BlockExitReturn terminates with OpReturn or OpReturnValue.
+	// BlockExitReturn terminates with spvenums.OpReturn or spvenums.OpReturnValue.
 	BlockExitReturn BlockExitKind = iota
-	// BlockExitBranch terminates with OpBranch to a target label.
+	// BlockExitBranch terminates with spvenums.OpBranch to a target label.
 	BlockExitBranch
-	// BlockExitBreakIf terminates with OpBranchConditional (break-if pattern).
+	// BlockExitBreakIf terminates with spvenums.OpBranchConditional (break-if pattern).
 	BlockExitBreakIf
 )
 
