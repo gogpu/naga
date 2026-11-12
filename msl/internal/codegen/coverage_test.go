@@ -276,6 +276,11 @@ func TestBuiltinInputAttribute(t *testing.T) {
 		{"subgroup_size", ir.BuiltinSubgroupSize, ir.StageCompute, "[[threads_per_simdgroup]]"},
 		{"subgroup_id", ir.BuiltinSubgroupID, ir.StageCompute, "[[simdgroup_index_in_threadgroup]]"},
 		{"subgroup_invocation_id", ir.BuiltinSubgroupInvocationID, ir.StageCompute, "[[thread_index_in_simdgroup]]"},
+		{"base_instance", ir.BuiltinBaseInstance, ir.StageVertex, "[[base_instance]]"},
+		{"base_vertex", ir.BuiltinBaseVertex, ir.StageVertex, "[[base_vertex]]"},
+		{"point_coord", ir.BuiltinPointCoord, ir.StageFragment, "[[point_coord]]"},
+		{"workgroup_size", ir.BuiltinWorkGroupSize, ir.StageCompute, "[[dispatch_threads_per_threadgroup]]"},
+		{"cull_distance_unsupported", ir.BuiltinCullDistance, ir.StageVertex, mslBuiltinUnmapped},
 	}
 
 	for _, tt := range tests {
@@ -299,7 +304,8 @@ func TestBuiltinOutputAttribute(t *testing.T) {
 		{"frag_depth", ir.BuiltinBinding{Builtin: ir.BuiltinFragDepth}, "[[depth(any)]]"},
 		{"sample_mask", ir.BuiltinBinding{Builtin: ir.BuiltinSampleMask}, "[[sample_mask]]"},
 		{"point_size", ir.BuiltinBinding{Builtin: ir.BuiltinPointSize}, "[[point_size]]"},
-		{"unknown", ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}, ""},
+		{"unknown", ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}, mslBuiltinUnmapped},
+		{"cull_distance", ir.BuiltinBinding{Builtin: ir.BuiltinCullDistance}, mslBuiltinUnmapped},
 	}
 
 	for _, tt := range tests {
@@ -309,6 +315,61 @@ func TestBuiltinOutputAttribute(t *testing.T) {
 				t.Errorf("builtinOutputAttribute(%+v) = %q, want %q", tt.binding, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCheckBuiltinAttribute pins the refusal of a built-in MSL cannot
+// express: it must be an error naming the entry point, never an empty
+// attribute in the generated MSL.
+func TestCheckBuiltinAttribute(t *testing.T) {
+	one := uint32(1)
+	w := &Writer{module: &ir.Module{Types: []ir.Type{
+		{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                                  // 0
+		{Name: "array<f32, 1>", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &one}, Stride: 4}}, // 1
+	}}}
+	ep := &ir.EntryPoint{Name: "main", Stage: ir.StageVertex}
+
+	tests := []struct {
+		name    string
+		binding ir.BuiltinBinding
+		ty      ir.TypeHandle
+		output  bool
+		member  bool
+		wantErr bool
+	}{
+		{"position_output", ir.BuiltinBinding{Builtin: ir.BuiltinPosition}, 0, true, false, false},
+		{"clip_distance_member", ir.BuiltinBinding{Builtin: ir.BuiltinClipDistances}, 1, true, true, false},
+		{"clip_distance_direct_result", ir.BuiltinBinding{Builtin: ir.BuiltinClipDistances}, 1, true, false, true},
+		{"point_size_output", ir.BuiltinBinding{Builtin: ir.BuiltinPointSize}, 0, true, false, false},
+		{"cull_distance_output", ir.BuiltinBinding{Builtin: ir.BuiltinCullDistance}, 1, true, true, true},
+		{"vertex_index_output", ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}, 0, true, false, true},
+		{"base_instance_input", ir.BuiltinBinding{Builtin: ir.BuiltinBaseInstance}, 0, false, false, false},
+		{"base_vertex_input", ir.BuiltinBinding{Builtin: ir.BuiltinBaseVertex}, 0, false, false, false},
+		{"cull_distance_input", ir.BuiltinBinding{Builtin: ir.BuiltinCullDistance}, 0, false, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := w.checkBuiltinAttribute(ep, tt.binding, tt.ty, tt.output, tt.member)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkBuiltinAttribute(%+v, output=%v, member=%v) error = %v, wantErr %v",
+					tt.binding, tt.output, tt.member, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestBuiltinAttributeCoverage is the enum-completeness guard: every
+// ir.BuiltinValue gets an MSL attribute or the documented unmapped marker,
+// never the bare "" that used to mean "unknown". The one deliberate "" is
+// Position outside a fragment shader (pinned by TestBuiltinInputAttribute).
+func TestBuiltinAttributeCoverage(t *testing.T) {
+	for b := ir.BuiltinPosition; b <= ir.BuiltinWorkGroupSize; b++ {
+		if in := builtinInputAttribute(b, ir.StageVertex); in == "" && b != ir.BuiltinPosition {
+			t.Errorf("built-in %d: empty MSL input attribute; unsupported must be mslBuiltinUnmapped", b)
+		}
+		if out := builtinOutputAttribute(ir.BuiltinBinding{Builtin: b}); out == "" {
+			t.Errorf("built-in %d: empty MSL output attribute; unsupported must be mslBuiltinUnmapped", b)
+		}
 	}
 }
 

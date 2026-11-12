@@ -3256,10 +3256,29 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 		return "gl_SubgroupInvocationID"
 	case ir.BuiltinClipDistances:
 		return "gl_ClipDistance"
+	case ir.BuiltinCullDistance:
+		return "gl_CullDistance"
+	case ir.BuiltinBaseInstance:
+		// Rust naga maps both draw-parameter built-ins to the core Vulkan
+		// GLSL names even with options.draw_parameters set (conv.rs); only
+		// InstanceIndex takes the ARB spelling there.
+		return "uint(gl_BaseInstance)"
+	case ir.BuiltinBaseVertex:
+		return "uint(gl_BaseVertex)"
+	case ir.BuiltinPointCoord:
+		return "gl_PointCoord"
+	case ir.BuiltinWorkGroupSize:
+		return "gl_WorkGroupSize"
 	default:
-		return "gl_UNKNOWN"
+		// checkBuiltins refuses an entry point that reaches this value, so it
+		// never appears in the generated GLSL.
+		return glslBuiltInUnmapped
 	}
 }
+
+// glslBuiltInUnmapped is glslBuiltIn's result for a built-in it cannot name.
+// checkBuiltins refuses such an entry point before any output is written.
+const glslBuiltInUnmapped = "gl_UNKNOWN"
 
 // glslStorageFormat returns the GLSL format qualifier for a storage texture format.
 func glslStorageFormat(format ir.StorageFormat) string {

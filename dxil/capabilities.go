@@ -76,7 +76,7 @@ func checkSupported(irModule *ir.Module, ep *ir.EntryPoint) error {
 	if _, ok := ep.EarlyDepthTest.(ir.EarlyDepthForce); ok {
 		return unsupported.Errorf("dxil: entry point %q: @early_depth_test(force) is not supported", ep.Name)
 	}
-	if err := checkClipDistances(irModule, ep); err != nil {
+	if err := checkDistanceArrays(irModule, ep); err != nil {
 		return err
 	}
 	// The container holds only what the entry point reaches; irModule holds
@@ -84,21 +84,22 @@ func checkSupported(irModule *ir.Module, ep *ir.EntryPoint) error {
 	return unsupported.OutputCapabilities("dxil", irModule, unsupported.FilteredOutput(irModule, 0), SupportedCapabilities())
 }
 
-// maxClipDistancesPerElement is the most clip distances one SV_ClipDistance
-// signature element holds: one row of four components.
+// maxClipDistancesPerElement is the most distances one SV_ClipDistance or
+// SV_CullDistance signature element holds: one row of four components.
 const maxClipDistancesPerElement = 4
 
-// maxClipDistances is the most clip distances D3D can carry: two
-// SV_ClipDistance signature elements. WGSL caps clip_distances at the same
-// number, so a valid shader never exceeds it; the check keeps a shader that
-// slipped past the frontend from producing a container D3D rejects.
+// maxClipDistances is the most clip or cull distances D3D can carry: two
+// SV_ClipDistance or SV_CullDistance signature elements (D3D caps both at
+// eight). WGSL caps clip_distances at the same number, so a valid shader
+// never exceeds it; the check keeps a shader that slipped past the frontend
+// from producing a container D3D rejects.
 const maxClipDistances = 2 * maxClipDistancesPerElement
 
-// checkClipDistances refuses a clip_distances output of more than eight
-// elements. Distances 5 to 8 go to SV_ClipDistance1, which the emitter
-// writes as a second signature element (P1-DXIL-082); a ninth has no
-// element left.
-func checkClipDistances(irModule *ir.Module, ep *ir.EntryPoint) error {
+// checkDistanceArrays refuses a clip_distances or cull_distance output of
+// more than eight elements. Distances 5 to 8 go to a second signature element
+// (SV_ClipDistance1 / SV_CullDistance1, P1-DXIL-082); a ninth has no element
+// left.
+func checkDistanceArrays(irModule *ir.Module, ep *ir.EntryPoint) error {
 	res := ep.Function.Result
 	if res == nil {
 		return nil
@@ -107,15 +108,25 @@ func checkClipDistances(irModule *ir.Module, ep *ir.EntryPoint) error {
 		if b == nil || int(ty) >= len(irModule.Types) {
 			return nil
 		}
-		if bi, ok := (*b).(ir.BuiltinBinding); !ok || bi.Builtin != ir.BuiltinClipDistances {
+		bi, ok := (*b).(ir.BuiltinBinding)
+		if !ok {
+			return nil
+		}
+		var name string
+		switch bi.Builtin {
+		case ir.BuiltinClipDistances:
+			name = "@builtin(clip_distances)"
+		case ir.BuiltinCullDistance:
+			name = "@builtin(cull_distance)"
+		default:
 			return nil
 		}
 		arr, ok := irModule.Types[ty].Inner.(ir.ArrayType)
 		if !ok || arr.Size.Constant == nil || *arr.Size.Constant <= maxClipDistances {
 			return nil
 		}
-		return unsupported.Errorf("dxil: entry point %q: @builtin(clip_distances) array<f32, %d> is not supported (up to %d)",
-			ep.Name, *arr.Size.Constant, maxClipDistances)
+		return unsupported.Errorf("dxil: entry point %q: %s array<f32, %d> is not supported (up to %d)",
+			ep.Name, name, *arr.Size.Constant, maxClipDistances)
 	}
 	if err := check(res.Binding, res.Type); err != nil {
 		return err

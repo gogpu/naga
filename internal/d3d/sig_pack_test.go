@@ -324,6 +324,7 @@ func TestBuiltinInterpolation(t *testing.T) {
 		{"PS in SV_Position", ir.BuiltinPosition, ir.StageFragment, false, InterpLinearNoperspective},
 		{"VS out SV_Position", ir.BuiltinPosition, ir.StageVertex, true, InterpLinearNoperspective},
 		{"VS out SV_ClipDistance", ir.BuiltinClipDistances, ir.StageVertex, true, InterpLinear},
+		{"VS out SV_CullDistance", ir.BuiltinCullDistance, ir.StageVertex, true, InterpLinear},
 		{"PS in SV_IsFrontFace", ir.BuiltinFrontFacing, ir.StageFragment, false, InterpConstant},
 		{"PS in SV_PrimitiveID", ir.BuiltinPrimitiveIndex, ir.StageFragment, false, InterpConstant},
 		{"PS in SV_SampleIndex", ir.BuiltinSampleIndex, ir.StageFragment, false, InterpConstant},

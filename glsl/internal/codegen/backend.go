@@ -281,6 +281,55 @@ type TranslationInfo struct {
 	ClipDistanceCount uint32
 }
 
+// checkBuiltins refuses an entry point whose interface uses a built-in that
+// glslBuiltIn cannot name: before this check the writer silently wrote
+// gl_UNKNOWN into the shader. Rust naga refuses the same values with
+// UnsupportedBuiltIn (back/glsl/conv.rs). It walks the same bindings the
+// writer turns into declarations: arguments, result, and struct members.
+func checkBuiltins(module *ir.Module, ep *ir.EntryPoint) error {
+	check := func(b *ir.Binding, isOutput bool) error {
+		if b == nil {
+			return nil
+		}
+		if bi, ok := (*b).(ir.BuiltinBinding); ok && glslBuiltIn(bi.Builtin, isOutput) == glslBuiltInUnmapped {
+			return unsupported.Errorf("glsl: entry point %q: built-in %s is not supported", ep.Name, bi.Builtin)
+		}
+		return nil
+	}
+	checkStruct := func(typeHandle ir.TypeHandle, isOutput bool) error {
+		if int(typeHandle) >= len(module.Types) {
+			return nil
+		}
+		st, ok := module.Types[typeHandle].Inner.(ir.StructType)
+		if !ok {
+			return nil
+		}
+		for _, m := range st.Members {
+			if err := check(m.Binding, isOutput); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, arg := range ep.Function.Arguments {
+		if err := check(arg.Binding, false); err != nil {
+			return err
+		}
+		if err := checkStruct(arg.Type, false); err != nil {
+			return err
+		}
+	}
+	if res := ep.Function.Result; res != nil {
+		if err := check(res.Binding, true); err != nil {
+			return err
+		}
+		if err := checkStruct(res.Type, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Compile generates GLSL source code from an IR module.
 // Returns the GLSL source as a string, translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
@@ -317,6 +366,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	w.typifiers = types
 	if ep := w.getSelectedEntryPoint(); ep != nil {
 		if err := checkVaryingInterpolation(module, ep); err != nil {
+			return "", TranslationInfo{}, err
+		}
+		if err := checkBuiltins(module, ep); err != nil {
 			return "", TranslationInfo{}, err
 		}
 	}

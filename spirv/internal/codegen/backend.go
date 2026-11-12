@@ -2444,6 +2444,15 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		b.addExtension("SPV_KHR_shader_draw_parameters")
 	case ir.BuiltinClipDistances:
 		b.addCapability(CapabilityClipDistance)
+	case ir.BuiltinCullDistance:
+		b.addCapability(CapabilityCullDistance)
+	case ir.BuiltinBaseVertex, ir.BuiltinBaseInstance:
+		// DrawParameters comes from SPV_KHR_shader_draw_parameters (core in
+		// SPIR-V 1.3); declare the extension, as DrawIndex does. Rust naga
+		// maps these two without the extension call, but its module already
+		// targets a version where the capability is valid.
+		b.addCapability(CapabilityDrawParameters)
+		b.addExtension("SPV_KHR_shader_draw_parameters")
 	case ir.BuiltinPrimitiveIndex:
 		b.addCapability(CapabilityGeometry)
 	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID,
@@ -2500,6 +2509,14 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 		return BuiltInSubgroupLocalInvID
 	case ir.BuiltinClipDistances:
 		return BuiltInClipDistance
+	case ir.BuiltinCullDistance:
+		return BuiltInCullDistance
+	case ir.BuiltinPointCoord:
+		return BuiltInPointCoord
+	case ir.BuiltinBaseVertex:
+		return BuiltInBaseVertex
+	case ir.BuiltinBaseInstance:
+		return BuiltInBaseInstance
 	case ir.BuiltinPointSize:
 		return BuiltInPointSize
 	case ir.BuiltinPrimitiveIndex:
@@ -2531,8 +2548,17 @@ func (b *Backend) checkBuiltins() error {
 		if binding == nil {
 			return nil
 		}
-		if bi, ok := (*binding).(ir.BuiltinBinding); ok && builtinToSPIRV(bi.Builtin, sc) == builtInUnmapped {
-			return unsupported.Errorf("spirv: entry point %q: built-in %d is not supported", ep.Name, bi.Builtin)
+		if bi, ok := (*binding).(ir.BuiltinBinding); ok {
+			// SPIR-V decorates WorkgroupSize on a constant, never on an
+			// interface variable, which is all this backend writes. Rust naga
+			// writes the variable form, and spirv-val rejects it on every
+			// target environment.
+			if bi.Builtin == ir.BuiltinWorkGroupSize {
+				return unsupported.Errorf("spirv: entry point %q: @builtin(workgroup_size) is not supported: SPIR-V decorates the workgroup size on a constant, and this backend does not write that form", ep.Name)
+			}
+			if builtinToSPIRV(bi.Builtin, sc) == builtInUnmapped {
+				return unsupported.Errorf("spirv: entry point %q: built-in %s is not supported", ep.Name, bi.Builtin)
+			}
 		}
 		if loc, ok := (*binding).(ir.LocationBinding); ok && loc.PerPrimitive {
 			return unsupported.Errorf("spirv: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)

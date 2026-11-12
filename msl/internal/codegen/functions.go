@@ -1869,6 +1869,13 @@ func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage)
 	return ""
 }
 
+// mslBuiltinUnmapped is builtinInputAttribute's and builtinOutputAttribute's
+// result for a built-in MSL cannot express. checkBuiltinAttribute refuses
+// such an entry point before the attribute is written (Rust naga returns
+// Error::UnsupportedBuiltIn at the same point, back/msl/mod.rs), so the value
+// never reaches the generated MSL.
+const mslBuiltinUnmapped = "[[unmapped]]"
+
 // builtinInputAttribute returns the MSL attribute for a built-in input.
 func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string {
 	switch builtin {
@@ -1877,6 +1884,14 @@ func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string
 			return attrPosition
 		}
 		return ""
+	case ir.BuiltinBaseInstance:
+		return "[[base_instance]]"
+	case ir.BuiltinBaseVertex:
+		return "[[base_vertex]]"
+	case ir.BuiltinPointCoord:
+		return "[[point_coord]]"
+	case ir.BuiltinWorkGroupSize:
+		return "[[dispatch_threads_per_threadgroup]]"
 	case ir.BuiltinVertexIndex:
 		return "[[vertex_id]]"
 	case ir.BuiltinInstanceIndex:
@@ -1914,7 +1929,7 @@ func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string
 	case ir.BuiltinSubgroupInvocationID:
 		return "[[thread_index_in_simdgroup]]"
 	}
-	return ""
+	return mslBuiltinUnmapped
 }
 
 // builtinOutputAttribute returns the MSL attribute for a built-in output.
@@ -1950,7 +1965,42 @@ func builtinOutputAttribute(binding ir.BuiltinBinding) string {
 	case ir.BuiltinPointSize:
 		return "[[point_size]]"
 	}
-	return ""
+	return mslBuiltinUnmapped
+}
+
+// checkBuiltinAttribute refuses a built-in MSL cannot express, as Rust naga's
+// Error::UnsupportedBuiltIn does (back/msl/mod.rs, try_fmt). Before this
+// check a built-in without a mapping produced an empty attribute, which Metal
+// rejects with a message naming neither the built-in nor the entry point.
+func (w *Writer) checkBuiltinAttribute(ep *ir.EntryPoint, b ir.BuiltinBinding, ty ir.TypeHandle, output, member bool) error {
+	// A task or mesh entry point is refused by writeEntryPoint itself
+	// ("unsupported shader stage"), and its built-ins are the virtual ones a
+	// mesh wrapper would extract (Rust back/msl/mod.rs returns no attribute
+	// for them), so no MSL attribute is involved.
+	if ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask {
+		return nil
+	}
+	var attr string
+	if output {
+		// clip_distances is written as a raw [[clip_distance]] array only for
+		// an output struct member with a constant array type (the output
+		// struct path); a direct result has no such path.
+		if b.Builtin == ir.BuiltinClipDistances {
+			if member && int(ty) < len(w.module.Types) {
+				if arr, ok := w.module.Types[ty].Inner.(ir.ArrayType); ok && arr.Size.Constant != nil {
+					return nil
+				}
+			}
+			return unsupported.Errorf("msl: entry point %q: built-in %s is not supported as a direct result", ep.Name, b.Builtin)
+		}
+		attr = builtinOutputAttribute(b)
+	} else {
+		attr = builtinInputAttribute(b.Builtin, ep.Stage)
+	}
+	if attr == mslBuiltinUnmapped {
+		return unsupported.Errorf("msl: entry point %q: built-in %s is not supported", ep.Name, b.Builtin)
+	}
+	return nil
 }
 
 // locationInputAttribute returns the MSL attribute for a location input.

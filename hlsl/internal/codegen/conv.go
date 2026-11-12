@@ -117,6 +117,9 @@ func BuiltInToSemantic(b ir.BuiltinValue) (semantic string, supported bool) {
 		return "SV_InstanceID", true
 	case ir.BuiltinClipDistances:
 		return "SV_ClipDistance", true
+	case ir.BuiltinCullDistance:
+		// Rust naga's to_hlsl_str (back/hlsl/conv.rs): SV_CullDistance.
+		return "SV_CullDistance", true
 	// Fragment shader
 	case ir.BuiltinFrontFacing:
 		return "SV_IsFrontFace", true

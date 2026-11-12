@@ -2341,10 +2341,14 @@ func (e *Emitter) emitMeshSignatureMetadata(ep *ir.EntryPoint) *module.MetadataN
 				compType := int64(9)   // f32 = 9 in DXIL metadata
 
 				if bb, isBB := (*member.Binding).(ir.BuiltinBinding); isBB {
-					switch bb.Builtin {
-					case ir.BuiltinPosition:
-						semName = "SV_Position"
-						semKind = 3    // SV_Position
+					kind, name, ok := builtinToDXILSemantic(bb.Builtin)
+					if !ok {
+						// The container's mesh signature skips the same
+						// members; metadata and signature stay in step.
+						continue
+					}
+					semName, semKind = name, kind
+					if bb.Builtin == ir.BuiltinPosition {
 						interpMode = 4 // noperspective
 					}
 				} else if lb, isLB := (*member.Binding).(ir.LocationBinding); isLB {
@@ -2472,29 +2476,34 @@ func isSystemManagedOutputSemantic(semKind int64) bool {
 	return false
 }
 
-// builtinToDXILSemantic maps a naga BuiltinValue to (DXIL SemanticKind, semantic name).
-func builtinToDXILSemantic(b ir.BuiltinValue) (int64, string) {
+// builtinToDXILSemantic maps a naga BuiltinValue to (DXIL SemanticKind,
+// semantic name). ok is false for a built-in the emitter does not write as a
+// signature element; there is no arbitrary-name fallback, so a call site must
+// leave such a member out rather than invent a name.
+func builtinToDXILSemantic(b ir.BuiltinValue) (int64, string, bool) {
 	switch b {
 	case ir.BuiltinPosition:
-		return 3, "SV_Position"
+		return 3, "SV_Position", true
 	case ir.BuiltinVertexIndex:
-		return 1, "SV_VertexID"
+		return 1, "SV_VertexID", true
 	case ir.BuiltinInstanceIndex:
-		return 2, "SV_InstanceID"
+		return 2, "SV_InstanceID", true
 	case ir.BuiltinFrontFacing:
-		return 13, "SV_IsFrontFace"
+		return 13, "SV_IsFrontFace", true
 	case ir.BuiltinFragDepth:
-		return 17, "SV_Depth"
+		return 17, "SV_Depth", true
 	case ir.BuiltinSampleIndex:
-		return 12, "SV_SampleIndex"
+		return 12, "SV_SampleIndex", true
 	case ir.BuiltinSampleMask:
-		return 14, "SV_Coverage"
+		return 14, "SV_Coverage", true
 	case ir.BuiltinClipDistances:
-		return 6, "SV_ClipDistance"
+		return 6, "SV_ClipDistance", true
+	case ir.BuiltinCullDistance:
+		return 7, "SV_CullDistance", true
 	case ir.BuiltinPrimitiveIndex:
-		return 10, "SV_PrimitiveID"
+		return 10, "SV_PrimitiveID", true
 	default:
-		return 0, dxilArbitrarySemantic
+		return 0, "", false
 	}
 }
 
@@ -2624,6 +2633,9 @@ func interpolationModeForBinding(loc ir.LocationBinding, isFragment, isOutput bo
 }
 
 // makeSigInfo builds a dxilSigInfo from a naga binding and IR type.
+// makeSigInfo builds the signature element of one binding. A built-in
+// binding must already have passed skipGraphicsBuiltin: makeSigInfo itself
+// never invents a semantic for an unmapped built-in.
 func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle, isOutput, isFragment bool) dxilSigInfo {
 	info := dxilSigInfo{
 		id:         int64(id),
@@ -2638,7 +2650,14 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 
 	switch b := binding.(type) {
 	case ir.BuiltinBinding:
-		info.semKind, info.semName = builtinToDXILSemantic(b.Builtin)
+		kind, name, ok := builtinToDXILSemantic(b.Builtin)
+		if !ok {
+			// Precondition violated: the caller must filter with
+			// skipGraphicsBuiltin. No semantic is invented; the empty info
+			// carries no name.
+			return dxilSigInfo{}
+		}
+		info.semKind, info.semName = kind, name
 		// SV_Position is always F32 vec4.
 		if b.Builtin == ir.BuiltinPosition {
 			info.compType = 9
@@ -2712,21 +2731,27 @@ func makeSigInfo(irMod *ir.Module, id int, binding ir.Binding, th ir.TypeHandle,
 // BuiltinViewIndex is skipped — SV_ViewID is read via dx.op.viewID()
 // intrinsic, not via a signature element.
 //
-//nolint:gocognit,funlen // signature element collection iterates two parallel walks
+// skipGraphicsBuiltin reports whether a binding is left out of the graphics
+// signature: SV_ViewID is read through dx.op.viewID rather than a signature
+// element, and a built-in the emitter has no semantic for is not an element
+// either (the container's MapBuiltinToSemantic skips the same set).
+func skipGraphicsBuiltin(b ir.Binding) bool {
+	bb, ok := b.(ir.BuiltinBinding)
+	if !ok {
+		return false
+	}
+	if bb.Builtin == ir.BuiltinViewIndex {
+		return true
+	}
+	_, _, ok = builtinToDXILSemantic(bb.Builtin)
+	return !ok
+}
+
+//nolint:funlen // signature element collection iterates two parallel walks
 func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) (inputs, outputs []dxilSigInfo) {
 	fn := &ep.Function
 
-	skipBuiltin := func(b ir.Binding) bool {
-		bb, ok := b.(ir.BuiltinBinding)
-		if !ok {
-			return false
-		}
-		switch bb.Builtin {
-		case ir.BuiltinViewIndex:
-			return true
-		}
-		return false
-	}
+	skipBuiltin := skipGraphicsBuiltin
 
 	// skipInputBuiltin handles the additional input-only exclusions: the
 	// inputs read through their own dx.op (d3d.IntrinsicInput), such as
@@ -2829,9 +2854,9 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 	return inputs, outputs
 }
 
-// appendClipDistanceContinuation appends the SV_ClipDistance1 element of a
-// clip-distance output with its own register row (P1-DXIL-082): distances
-// 4..7 go there, while info describes SV_ClipDistance0. id is advanced so
+// appendClipDistanceContinuation appends the second element of a clip-distance
+// or cull-distance output with its own register row (P1-DXIL-082): distances
+// 4..7 go there, while info describes the first element. id is advanced so
 // the next member keeps matching its OSG1 element.
 func appendClipDistanceContinuation(outputs []dxilSigInfo, id *int, irMod *ir.Module, binding ir.Binding, th ir.TypeHandle, info dxilSigInfo, register uint32) []dxilSigInfo {
 	elements, ok := d3d.ClipDistanceElementsFor(irMod, binding, th)

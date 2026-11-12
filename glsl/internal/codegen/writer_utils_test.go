@@ -46,7 +46,12 @@ func TestGlslBuiltIn(t *testing.T) {
 		{"subgroup_size", ir.BuiltinSubgroupSize, false, "gl_SubgroupSize"},
 		{"subgroup_invocation_id", ir.BuiltinSubgroupInvocationID, false, "gl_SubgroupInvocationID"},
 		{"clip_distance", ir.BuiltinClipDistances, false, "gl_ClipDistance"},
-		{"unknown_builtin", ir.BuiltinValue(255), false, "gl_UNKNOWN"},
+		{"cull_distance", ir.BuiltinCullDistance, true, "gl_CullDistance"},
+		{"base_instance", ir.BuiltinBaseInstance, false, "uint(gl_BaseInstance)"},
+		{"base_vertex", ir.BuiltinBaseVertex, false, "uint(gl_BaseVertex)"},
+		{"point_coord", ir.BuiltinPointCoord, false, "gl_PointCoord"},
+		{"workgroup_size", ir.BuiltinWorkGroupSize, false, "gl_WorkGroupSize"},
+		{"unknown_builtin", ir.BuiltinValue(255), false, glslBuiltInUnmapped},
 	}
 
 	for _, tt := range tests {
@@ -57,6 +62,60 @@ func TestGlslBuiltIn(t *testing.T) {
 					tt.builtin, tt.isOutput, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestCheckBuiltins pins the refusal that keeps a silently wrong name out of
+// the output: before it, an unmapped built-in was written as gl_UNKNOWN.
+func TestCheckBuiltins(t *testing.T) {
+	binding := func(b ir.BuiltinValue) *ir.Binding {
+		var bind ir.Binding = ir.BuiltinBinding{Builtin: b}
+		return &bind
+	}
+	ep := &ir.EntryPoint{
+		Name:  "main",
+		Stage: ir.StageVertex,
+		Function: ir.Function{
+			Arguments: []ir.FunctionArgument{{Name: "x", Binding: binding(ir.BuiltinClipDistances)}},
+		},
+	}
+	if err := checkBuiltins(&ir.Module{}, ep); err != nil {
+		t.Fatalf("checkBuiltins refused a mapped built-in: %v", err)
+	}
+	ep.Function.Arguments[0].Binding = binding(ir.BuiltinMeshTaskSize)
+	if err := checkBuiltins(&ir.Module{}, ep); err == nil {
+		t.Fatal("checkBuiltins accepted an unmapped built-in")
+	}
+}
+
+// TestGlslBuiltInCoverage is the enum-completeness guard: every
+// ir.BuiltinValue must get a GLSL name or be refused by checkBuiltins, and
+// the two must agree for every member. No value may be named gl_UNKNOWN by
+// accident while the check lets it through.
+func TestGlslBuiltInCoverage(t *testing.T) {
+	binding := func(b ir.BuiltinValue) *ir.Binding {
+		var bind ir.Binding = ir.BuiltinBinding{Builtin: b}
+		return &bind
+	}
+	if glslBuiltInUnmapped == "" {
+		t.Fatal("glslBuiltInUnmapped must be non-empty: an empty string would reach the output silently")
+	}
+	for b := ir.BuiltinPosition; b <= ir.BuiltinWorkGroupSize; b++ {
+		name := glslBuiltIn(b, false)
+		ep := &ir.EntryPoint{
+			Name:  "main",
+			Stage: ir.StageVertex,
+			Function: ir.Function{
+				Arguments: []ir.FunctionArgument{{Name: "x", Binding: binding(b)}},
+			},
+		}
+		err := checkBuiltins(&ir.Module{}, ep)
+		if name == glslBuiltInUnmapped && err == nil {
+			t.Errorf("built-in %d is unmapped but checkBuiltins accepts it", b)
+		}
+		if name != glslBuiltInUnmapped && err != nil {
+			t.Errorf("built-in %d maps to %q but checkBuiltins refuses it: %v", b, name, err)
+		}
 	}
 }
 

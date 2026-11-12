@@ -7,8 +7,6 @@
 package container
 
 import (
-	"fmt"
-
 	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/ir"
 )
@@ -26,33 +24,39 @@ type SemanticMapping struct {
 	SystemValue   SystemValueKind
 }
 
-// MapBuiltinToSemantic converts a naga BuiltinValue to a DXIL semantic.
-func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
+// MapBuiltinToSemantic converts a naga BuiltinValue to a DXIL semantic. ok is
+// false for a built-in with no signature system value (the compute thread-id
+// family, the virtual mesh built-ins) and for one the emitter cannot express.
+// The default never invents an SV_Unknown name: callers decide what ok=false
+// means, and the entry-point check refuses the built-ins DXIL cannot write.
+func MapBuiltinToSemantic(builtin ir.BuiltinValue) (SemanticMapping, bool) {
 	switch builtin {
 	case ir.BuiltinPosition:
-		return SemanticMapping{semPosition, 0, SVPosition}
+		return SemanticMapping{semPosition, 0, SVPosition}, true
 	case ir.BuiltinVertexIndex:
-		return SemanticMapping{"SV_VertexID", 0, SVVertexID}
+		return SemanticMapping{"SV_VertexID", 0, SVVertexID}, true
 	case ir.BuiltinInstanceIndex:
-		return SemanticMapping{"SV_InstanceID", 0, SVInstanceID}
+		return SemanticMapping{"SV_InstanceID", 0, SVInstanceID}, true
 	case ir.BuiltinFrontFacing:
-		return SemanticMapping{"SV_IsFrontFace", 0, SVIsFrontFace}
+		return SemanticMapping{"SV_IsFrontFace", 0, SVIsFrontFace}, true
 	case ir.BuiltinFragDepth:
-		return SemanticMapping{"SV_Depth", 0, SVDepth}
+		return SemanticMapping{"SV_Depth", 0, SVDepth}, true
 	case ir.BuiltinSampleIndex:
-		return SemanticMapping{"SV_SampleIndex", 0, SVSampleIndex}
+		return SemanticMapping{"SV_SampleIndex", 0, SVSampleIndex}, true
 	case ir.BuiltinSampleMask:
 		// SV_Coverage is a pixel output only; on a pixel input it is not a
 		// signature element (callers leave it out).
-		return SemanticMapping{"SV_Coverage", 0, SVCoverage}
+		return SemanticMapping{"SV_Coverage", 0, SVCoverage}, true
 	case ir.BuiltinClipDistances:
-		return SemanticMapping{"SV_ClipDistance", 0, SVClipDistance}
+		return SemanticMapping{"SV_ClipDistance", 0, SVClipDistance}, true
+	case ir.BuiltinCullDistance:
+		return SemanticMapping{"SV_CullDistance", 0, SVCullDistance}, true
 	case ir.BuiltinPrimitiveIndex:
-		return SemanticMapping{"SV_PrimitiveID", 0, SVPrimitiveID}
+		return SemanticMapping{"SV_PrimitiveID", 0, SVPrimitiveID}, true
 	case ir.BuiltinCullPrimitive:
-		return SemanticMapping{"SV_CullPrimitive", 0, SVCullPrimitive}
+		return SemanticMapping{"SV_CullPrimitive", 0, SVCullPrimitive}, true
 	default:
-		return SemanticMapping{fmt.Sprintf("SV_Unknown%d", builtin), 0, SVArbitrary}
+		return SemanticMapping{}, false
 	}
 }
 
@@ -76,16 +80,17 @@ func MapLocationToOutputSemantic(loc uint32, isFragment bool) SemanticMapping {
 
 // MapBindingToSemantic converts any naga IR binding to a DXIL semantic.
 // isOutput and isFragment control the semantic mapping for LocationBindings.
-func MapBindingToSemantic(binding ir.Binding, isOutput bool, isFragment bool) SemanticMapping {
+// ok is false only for a built-in MapBuiltinToSemantic does not map.
+func MapBindingToSemantic(binding ir.Binding, isOutput bool, isFragment bool) (SemanticMapping, bool) {
 	switch b := binding.(type) {
 	case ir.BuiltinBinding:
 		return MapBuiltinToSemantic(b.Builtin)
 	case ir.LocationBinding:
 		if isOutput {
-			return MapLocationToOutputSemantic(b.Location, isFragment)
+			return MapLocationToOutputSemantic(b.Location, isFragment), true
 		}
-		return MapLocationToInputSemantic(b.Location)
+		return MapLocationToInputSemantic(b.Location), true
 	default:
-		return SemanticMapping{"UNKNOWN", 0, SVArbitrary}
+		return SemanticMapping{}, false
 	}
 }

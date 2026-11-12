@@ -322,6 +322,8 @@ func builtinCapability(b ir.BuiltinValue) Capabilities {
 	switch b {
 	case ir.BuiltinClipDistances:
 		return CapClipDistances
+	case ir.BuiltinCullDistance:
+		return CapCullDistances
 	case ir.BuiltinPrimitiveIndex:
 		return CapPrimitiveIndex
 	case ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective:

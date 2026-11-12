@@ -59,6 +59,11 @@ const (
 	// CLIP_DISTANCES).
 	CapClipDistances Capabilities = 1 << 7
 
+	// CapCullDistances enables @builtin(cull_distance), the SPIR-V frontend's
+	// cull distance (Rust CULL_DISTANCE). Bit 8 already carries the name in
+	// capabilityNames; this is its first exported constant.
+	CapCullDistances Capabilities = 1 << 8
+
 	// CapStorageTexture16BitNormFormats enables the r16unorm, r16snorm,
 	// rg16unorm, rg16snorm, rgba16unorm and rgba16snorm storage texture
 	// formats (Rust STORAGE_TEXTURE_16BIT_NORM_FORMATS).

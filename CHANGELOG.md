@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ir.BuiltinValue` gains the five built-ins the SPIR-V frontend produces** (P1-IR-031): `BuiltinBaseInstance`,
+  `BuiltinBaseVertex`, `BuiltinCullDistance`, `BuiltinPointCoord` and `BuiltinWorkGroupSize`, appended after
+  `BuiltinBarycentricNoPerspective` so every existing value is unchanged, with names for error messages
+  (`BuiltinValue.String`). WGSL cannot spell them; the SPIR-V frontend maps them from their `BuiltIn` decorations.
+  The validator checks their stage, direction and type as Rust naga does (BaseInstance/BaseVertex a vertex input
+  of u32, CullDistance a vertex or mesh output array of one to eight f32, PointCoord a fragment input of
+  vec2<f32>, WorkGroupSize a compute-like input of vec3<u32>). `valid.CapCullDistances` (bit 8, Rust's
+  `CULL_DISTANCE`) gates `@builtin(cull_distance)` the way `CapClipDistances` gates clip distances.
+  Backend support, each following Rust naga: SPIR-V maps BaseInstance/BaseVertex (BuiltIn 4425/4424 with
+  `DrawParameters` and `SPV_KHR_shader_draw_parameters`), CullDistance (4) and PointCoord (16); MSL names
+  BaseInstance (MSL 1.2), BaseVertex, PointCoord and WorkGroupSize and refuses cull distances as Rust does; HLSL
+  and DXIL map cull distances to `SV_CullDistance` (DXIL through the same two-element signature split as
+  `SV_ClipDistance`) and refuse the other four; GLSL names all five and requests `GL_EXT_clip_cull_distance` for
+  cull distances. Two limits, both deliberate: `@builtin(workgroup_size)` is refused by the SPIR-V backend,
+  because SPIR-V decorates it on a constant and the interface-variable form Rust writes is rejected by
+  spirv-val; and `@builtin(cull_distance)` is not reachable through any backend yet, because every backend's
+  capability gate refuses `CULL_DISTANCE`, as Rust's does — the writer mappings are in place for the SPIR-V
+  frontend phase, which enables the capability together with end-to-end tests. A built-in a backend cannot
+  express is refused with an error naming the entry point and the built-in; the old silent stand-ins (`""`,
+  `gl_UNKNOWN`, `SV_Unknown%d` and the arbitrary-semantic fallback) are gone.
+
 ### Fixed
 
 - **The SPIR-V capability table is regenerated from vendored headers and diffed in CI** (P2-SPV-020).

@@ -284,11 +284,12 @@ func checkLocation(ep *ir.EntryPoint, loc ir.LocationBinding) error {
 }
 
 // checkBuiltins refuses an entry point whose interface uses a built-in the
-// emitter has no signature element for. draw_index and point_size have no
-// D3D semantic (Rust naga's HLSL backend refuses them too); SV_Barycentrics is
-// not written yet (P2-DXIL-073). The semantic mapper's fallback would
-// otherwise name them SV_Unknown<N>. Location bindings go through
-// checkLocation.
+// emitter cannot express: draw_index and point_size have no D3D semantic
+// (Rust naga's HLSL backend refuses them too), SV_Barycentrics is not written
+// yet (P2-DXIL-073), and base_instance, base_vertex, point_coord and
+// workgroup_size are the SPIR-V-only built-ins HLSL refuses as well. The
+// emitter never invents a stand-in name for them. Location bindings go
+// through checkLocation.
 // errInt16 refuses 16-bit integers (enable wgpu_int16). Native i16/u16 is
 // DXC's -enable-16bit-types at shader model 6.2: NativeLowPrecision, 16-bit
 // dx.op overloads and 2-byte raw buffer access. The emitter implements that
@@ -362,20 +363,10 @@ func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 		if !ok {
 			return nil
 		}
-		var name string
-		switch bi.Builtin {
-		case ir.BuiltinDrawIndex:
-			name = "draw_index"
-		case ir.BuiltinPointSize:
-			name = "point_size"
-		case ir.BuiltinBarycentric:
-			name = "barycentric"
-		case ir.BuiltinBarycentricNoPerspective:
-			name = "barycentric_no_perspective"
-		default:
-			return nil
+		if unsupportedBuiltin(bi.Builtin) {
+			return unsupported.Errorf("dxil: entry point %q: built-in %s is not supported", ep.Name, bi.Builtin)
 		}
-		return unsupported.Errorf("dxil: entry point %q: built-in %s is not supported", ep.Name, name)
+		return nil
 	}
 	var bindings []*ir.Binding
 	for _, arg := range ep.Function.Arguments {
@@ -400,6 +391,22 @@ func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 		}
 	}
 	return nil
+}
+
+// unsupportedBuiltin reports whether the DXIL emitter cannot express a
+// built-in: draw_index, point_size and barycentrics have no DXIL semantic,
+// and the draw-parameter pair, point_coord and work_group_size are the
+// SPIR-V-only built-ins HLSL refuses too.
+func unsupportedBuiltin(b ir.BuiltinValue) bool {
+	switch b {
+	case ir.BuiltinDrawIndex, ir.BuiltinPointSize,
+		ir.BuiltinBarycentric, ir.BuiltinBarycentricNoPerspective,
+		ir.BuiltinBaseInstance, ir.BuiltinBaseVertex,
+		ir.BuiltinPointCoord, ir.BuiltinWorkGroupSize:
+		return true
+	default:
+		return false
+	}
 }
 
 // checkShaderModel refuses the entry point when a feature it uses needs a
@@ -1141,8 +1148,9 @@ func packBindingsForSignature(
 
 // buildSigElementsFromPacked builds the container.SignatureElements of one
 // packed binding using its pre-computed (Register, StartCol). A binding may
-// produce more than one element: @builtin(clip_distances) with five to
-// eight distances continues in SV_ClipDistance1. Returns ok=false if the
+// produce more than one element: @builtin(clip_distances) or
+// @builtin(cull_distance) with five to eight distances continues in
+// SV_ClipDistance1 or SV_CullDistance1. Returns ok=false if the
 // binding is not actually represented in the signature (e.g. SV_ViewID).
 func buildSigElementsFromPacked(
 	irMod *ir.Module,
@@ -1181,11 +1189,11 @@ func bindingToSignatureElements(irMod *ir.Module, binding ir.Binding, typeHandle
 			return nil
 		}
 	}
-	var sem container.SemanticMapping
-	if isOutput {
-		sem = container.MapBindingToSemantic(binding, true, isFragment)
-	} else {
-		sem = container.MapBindingToSemantic(binding, false, isFragment)
+	sem, semOK := container.MapBindingToSemantic(binding, isOutput, isFragment)
+	if !semOK {
+		// No signature system value: the compute thread-id family and the
+		// virtual mesh built-ins never become signature elements.
+		return nil
 	}
 	// Dual-source blending: WGSL encodes the second blend source as
 	// @location(0) @blend_src(1). DXC HLSL uses SV_Target0 + SV_Target1
@@ -1263,12 +1271,12 @@ func bindingToSignatureElements(irMod *ir.Module, binding ir.Binding, typeHandle
 	return []container.SignatureElement{elem}
 }
 
-// clipDistanceContinuation returns the SV_ClipDistance1 element that
-// carries distances 4..7 of a clip_distances array, one register row below
-// SV_ClipDistance0, as DXC writes a second SV_ClipDistance output
-// (P1-DXIL-082). first is the SV_ClipDistance0 element the packer
-// allocated at register. The first element fills all four lanes, so the
-// continuation's Mask names the lanes its own distances occupy.
+// clipDistanceContinuation returns the second element of a distance array:
+// the SV_ClipDistance1 or SV_CullDistance1 that carries distances 4..7, one
+// register row below the first element, as DXC writes a second SV_ClipDistance
+// or SV_CullDistance output (P1-DXIL-082). first is the first element the
+// packer allocated at register. The first element fills all four lanes, so
+// the continuation's Mask names the lanes its own distances occupy.
 func clipDistanceContinuation(
 	irMod *ir.Module,
 	binding ir.Binding,
@@ -1677,10 +1685,10 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	}
 
 	// addClipDistanceContinuation appends the second PSV element of a
-	// clip-distance output: SV_ClipDistance1 carries distances 4..7 in its
-	// own register row, which the packer reserved with pe.Rows = 2
-	// (P1-DXIL-082). The first element always fills all four lanes, so the
-	// continuation starts at column 0.
+	// clip-distance or cull-distance output: SV_ClipDistance1 or
+	// SV_CullDistance1 carries distances 4..7 in its own register row, which
+	// the packer reserved with pe.Rows = 2 (P1-DXIL-082). The first element
+	// always fills all four lanes, so the continuation starts at column 0.
 	addClipDistanceContinuation := func(binding ir.Binding, typeHandle ir.TypeHandle, pe d3d.PackedElement) {
 		elements, ok := d3d.ClipDistanceElementsFor(irMod, binding, typeHandle)
 		if !ok || len(elements) < 2 {
@@ -1821,6 +1829,9 @@ func psvSemanticForBuiltin(b ir.BuiltinValue) (psvSemantic, bool) {
 		return psvSemantic{Kind: 14, Name: "SV_Coverage"}, true
 	case ir.BuiltinClipDistances:
 		return psvSemantic{Kind: 6, Name: "SV_ClipDistance"}, true
+	case ir.BuiltinCullDistance:
+		// DXC SemanticKind 7 (DxilConstants.h enum class SemanticKind).
+		return psvSemantic{Kind: 7, Name: "SV_CullDistance"}, true
 	case ir.BuiltinPrimitiveIndex:
 		return psvSemantic{Kind: 10, Name: "SV_PrimitiveID"}, true
 	case ir.BuiltinViewIndex:
@@ -2085,7 +2096,10 @@ func buildSignaturesEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh b
 				if member.Binding == nil {
 					continue
 				}
-				elem := meshMemberToSignatureElement(irMod, *member.Binding, member.Type, outReg, false)
+				elem, ok := meshMemberToSignatureElement(irMod, *member.Binding, member.Type, outReg, false)
+				if !ok {
+					continue
+				}
 				outputs = append(outputs, elem)
 				outReg++
 			}
@@ -2108,7 +2122,10 @@ func buildSignaturesEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh b
 						continue
 					}
 				}
-				elem := meshMemberToSignatureElement(irMod, *member.Binding, member.Type, primReg, true)
+				elem, ok := meshMemberToSignatureElement(irMod, *member.Binding, member.Type, primReg, true)
+				if !ok {
+					continue
+				}
 				primOutputs = append(primOutputs, elem)
 				primReg++
 			}
@@ -2119,9 +2136,12 @@ func buildSignaturesEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh b
 }
 
 // meshMemberToSignatureElement converts a struct member binding to a signature element.
-func meshMemberToSignatureElement(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, isPrimitive bool) container.SignatureElement {
+func meshMemberToSignatureElement(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, isPrimitive bool) (container.SignatureElement, bool) {
 	_ = isPrimitive
-	sem := container.MapBindingToSemantic(binding, true, false)
+	sem, ok := container.MapBindingToSemantic(binding, true, false)
+	if !ok {
+		return container.SignatureElement{}, false
+	}
 
 	// Determine component type and mask from the actual type.
 	compType := container.CompTypeFloat32
@@ -2149,7 +2169,7 @@ func meshMemberToSignatureElement(irMod *ir.Module, binding ir.Binding, typeHand
 		Register:      register,
 		Mask:          mask,
 		RWMask:        0, // output: NeverWritesMask
-	}
+	}, true
 }
 
 // componentMask returns a component mask for the given number of components.
