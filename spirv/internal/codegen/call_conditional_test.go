@@ -26,8 +26,8 @@ import (
 //  1. StmtCall (produces result, cached in callResultIDs)
 //  2. StmtStore to result variable (stores immediately in same block)
 //
-// ...the result is stored to a Function-scope spvenums.OpVariable (in entry block)
-// before the block ends, so the merge block loads via spvenums.OpLoad from the variable.
+// ...the result is stored to a Function-scope OpVariable (in entry block)
+// before the block ends, so the merge block loads via OpLoad from the variable.
 // The call result ID itself is never used across block boundaries.
 func TestCallInConditional_FuncWithIfReturn(t *testing.T) {
 	const shader = `
@@ -68,17 +68,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	// The helper function should have: if/return pattern with SelectionMerge
 	verifyHelperFunction(t, instrs, names)
 
-	// Step 3: Verify the main function has spvenums.OpFunctionCall inside a conditional block
+	// Step 3: Verify the main function has OpFunctionCall inside a conditional block
 	verifyCallInConditionalBlock(t, instrs, names)
 
-	// Step 4: Verify spvenums.OpVariable for 'result' is in entry block
+	// Step 4: Verify OpVariable for 'result' is in entry block
 	resultVarID := findFunctionVariable(instrs, names, "result")
 	if resultVarID == 0 {
 		t.Fatal("BUG: Local variable 'result' not found in SPIR-V output")
 	}
 	t.Logf("Found result variable: %%%d", resultVarID)
 
-	// Step 5: Verify there's an spvenums.OpStore to 'result' inside the conditional block
+	// Step 5: Verify there's an OpStore to 'result' inside the conditional block
 	storeCount := countStoresToVar(instrs, resultVarID)
 	if storeCount < 2 {
 		// Expect at least 2 stores: init (0.0) + assignment from helper()
@@ -127,7 +127,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	t.Log("=== SPIR-V Disassembly ===")
 	dumpFunctionBlocks(t, instrs, names)
 
-	// Verify compilation succeeded and has both an spvenums.OpFunctionCall and spvenums.OpFMul
+	// Verify compilation succeeded and has both an OpFunctionCall and OpFMul
 	// in the conditional block
 	foundCall := false
 	foundMul := false
@@ -265,7 +265,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	t.Log("=== SPIR-V Disassembly ===")
 	dumpFunctionBlocks(t, instrs, names)
 
-	// Verify we have an spvenums.OpFunctionCall somewhere in the main function
+	// Verify we have an OpFunctionCall somewhere in the main function
 	foundCall := false
 	inMainFunc := false
 	funcCount := 0
@@ -335,7 +335,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	t.Log("=== SPIR-V Disassembly ===")
 	dumpFunctionBlocks(t, instrs, names)
 
-	// Verify both branches have spvenums.OpFunctionCall
+	// Verify both branches have OpFunctionCall
 	callCount := 0
 	inMainFunc := false
 	funcCount := 0
@@ -377,7 +377,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // --- Helper verification functions ---
 
 // verifyHelperFunction checks that the first function (helper) has proper
-// if/return control flow with spvenums.OpSelectionMerge.
+// if/return control flow with OpSelectionMerge.
 func verifyHelperFunction(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
@@ -426,7 +426,7 @@ func verifyHelperFunction(t *testing.T, instrs []spirvInstruction, names map[uin
 }
 
 // verifyCallInConditionalBlock checks that the main function has an
-// OpFunctionCall inside a conditional block (after spvenums.OpBranchConditional).
+// OpFunctionCall inside a conditional block (after OpBranchConditional).
 func verifyCallInConditionalBlock(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
@@ -485,7 +485,7 @@ func verifyCallInConditionalBlock(t *testing.T, instrs []spirvInstruction, names
 func verifyCallResultNotUsedCrossBlock(t *testing.T, instrs []spirvInstruction, names map[uint32]string, resultVarID uint32) {
 	t.Helper()
 
-	// Find spvenums.OpFunctionCall result IDs in main
+	// Find OpFunctionCall result IDs in main
 	funcCount := 0
 	inMainFunc := false
 	var callResultIDs []uint32
@@ -516,7 +516,7 @@ func verifyCallResultNotUsedCrossBlock(t *testing.T, instrs []spirvInstruction, 
 	}
 
 	// Check that after the merge block, the call result ID is NOT directly used
-	// (it should only appear in spvenums.OpStore within the conditional block)
+	// (it should only appear in OpStore within the conditional block)
 	callResultSet := make(map[uint32]bool)
 	for _, id := range callResultIDs {
 		callResultSet[id] = true
@@ -574,7 +574,7 @@ func verifyCallResultNotUsedCrossBlock(t *testing.T, instrs []spirvInstruction, 
 }
 
 // verifyMultipleSelectionsInHelper checks that the first function (callee)
-// has multiple spvenums.OpSelectionMerge instructions (for multiple if/return patterns).
+// has multiple OpSelectionMerge instructions (for multiple if/return patterns).
 func verifyMultipleSelectionsInHelper(t *testing.T, instrs []spirvInstruction) {
 	t.Helper()
 

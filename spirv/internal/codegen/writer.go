@@ -151,11 +151,11 @@ type ModuleBuilder struct {
 	entryPoints    []Instruction
 	executionModes []Instruction
 	debugStrings   []Instruction // OpString
-	debugNames     []Instruction // OpName, spvenums.OpMemberName
-	annotations    []Instruction // OpDecorate, spvenums.OpMemberDecorate
-	types          []Instruction // OpType*, spvenums.OpConstant*
+	debugNames     []Instruction // OpName, OpMemberName
+	annotations    []Instruction // OpDecorate, OpMemberDecorate
+	types          []Instruction // OpType*, OpConstant*
 	globalVars     []Instruction // OpVariable (global)
-	functions      []Instruction // OpFunction...spvenums.OpFunctionEnd
+	functions      []Instruction // OpFunction...OpFunctionEnd
 
 	// funcSink redirects function-body instruction emission. When non-nil,
 	// all Add* methods that normally append to `functions` append here instead.
@@ -173,13 +173,13 @@ type ModuleBuilder struct {
 	// Word arena for bulk allocation of instruction word slices.
 	arena wordArena
 
-	// constantCache deduplicates spvenums.OpConstant by (typeID, value) for single-word constants.
-	// Without this, identical constants get different IDs, making spvenums.OpTypeArray
+	// constantCache deduplicates OpConstant by (typeID, value) for single-word constants.
+	// Without this, identical constants get different IDs, making OpTypeArray
 	// with same element+length appear as different types to spirv-val.
 	// Key: (typeID << 32) | value. Only used for single-word constants (covers 99% of cases).
 	constantCache map[uint64]uint32
 
-	// compositeConstituents records each spvenums.OpConstantComposite's constituents,
+	// compositeConstituents records each OpConstantComposite's constituents,
 	// so that a constant can be written again with a layout-free type
 	// (Backend.layoutFreeConstant).
 	compositeConstituents map[uint32][]uint32
@@ -388,7 +388,7 @@ func (b *ModuleBuilder) AddMemberDecorate(structID, member uint32, decoration sp
 	b.annotations = append(b.annotations, b.ib.Build(spvenums.OpMemberDecorate))
 }
 
-// AddTypeVoid adds spvenums.OpTypeVoid.
+// AddTypeVoid adds OpTypeVoid.
 func (b *ModuleBuilder) AddTypeVoid() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -397,7 +397,7 @@ func (b *ModuleBuilder) AddTypeVoid() uint32 {
 	return id
 }
 
-// AddTypeBool adds spvenums.OpTypeBool.
+// AddTypeBool adds OpTypeBool.
 func (b *ModuleBuilder) AddTypeBool() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -411,11 +411,11 @@ func (b *ModuleBuilder) AddTypeSampler() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.types = append(b.types, b.ib.Build(OpTypeSampler))
+	b.types = append(b.types, b.ib.Build(spvenums.OpTypeSampler))
 	return id
 }
 
-// AddTypeFloat adds spvenums.OpTypeFloat.
+// AddTypeFloat adds OpTypeFloat.
 func (b *ModuleBuilder) AddTypeFloat(width uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -425,7 +425,7 @@ func (b *ModuleBuilder) AddTypeFloat(width uint32) uint32 {
 	return id
 }
 
-// AddTypeInt adds spvenums.OpTypeInt.
+// AddTypeInt adds OpTypeInt.
 func (b *ModuleBuilder) AddTypeInt(width uint32, signed bool) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -440,7 +440,7 @@ func (b *ModuleBuilder) AddTypeInt(width uint32, signed bool) uint32 {
 	return id
 }
 
-// AddTypeVector adds spvenums.OpTypeVector.
+// AddTypeVector adds OpTypeVector.
 func (b *ModuleBuilder) AddTypeVector(componentType uint32, count uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -451,7 +451,7 @@ func (b *ModuleBuilder) AddTypeVector(componentType uint32, count uint32) uint32
 	return id
 }
 
-// AddTypeMatrix adds spvenums.OpTypeMatrix.
+// AddTypeMatrix adds OpTypeMatrix.
 func (b *ModuleBuilder) AddTypeMatrix(columnType uint32, columnCount uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -462,7 +462,7 @@ func (b *ModuleBuilder) AddTypeMatrix(columnType uint32, columnCount uint32) uin
 	return id
 }
 
-// AddTypeArray adds spvenums.OpTypeArray.
+// AddTypeArray adds OpTypeArray.
 func (b *ModuleBuilder) AddTypeArray(elementType uint32, length uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -473,7 +473,7 @@ func (b *ModuleBuilder) AddTypeArray(elementType uint32, length uint32) uint32 {
 	return id
 }
 
-// AddTypeRuntimeArray adds spvenums.OpTypeRuntimeArray for storage buffer runtime-sized arrays.
+// AddTypeRuntimeArray adds OpTypeRuntimeArray for storage buffer runtime-sized arrays.
 func (b *ModuleBuilder) AddTypeRuntimeArray(elementType uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -483,7 +483,7 @@ func (b *ModuleBuilder) AddTypeRuntimeArray(elementType uint32) uint32 {
 	return id
 }
 
-// AddTypePointer adds spvenums.OpTypePointer.
+// AddTypePointer adds OpTypePointer.
 func (b *ModuleBuilder) AddTypePointer(storageClass spvenums.StorageClass, baseType uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -494,7 +494,7 @@ func (b *ModuleBuilder) AddTypePointer(storageClass spvenums.StorageClass, baseT
 	return id
 }
 
-// AddTypeFunction adds spvenums.OpTypeFunction.
+// AddTypeFunction adds OpTypeFunction.
 func (b *ModuleBuilder) AddTypeFunction(returnType uint32, paramTypes ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -507,7 +507,7 @@ func (b *ModuleBuilder) AddTypeFunction(returnType uint32, paramTypes ...uint32)
 	return id
 }
 
-// AddTypeStruct adds spvenums.OpTypeStruct.
+// AddTypeStruct adds OpTypeStruct.
 func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -519,11 +519,11 @@ func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 	return id
 }
 
-// AddConstant adds spvenums.OpConstant.
+// AddConstant adds OpConstant.
 func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 	// Deduplicate single-word constants (covers array lengths, integer literals).
 	// Without this, identical constants get different SPIR-V IDs, making
-	// layout-free and decorated spvenums.OpTypeArray appear as non-equivalent types
+	// layout-free and decorated OpTypeArray appear as non-equivalent types
 	// to spirv-val, which rejects OpCopyLogical (VUID-StandaloneSpirv-None-10684).
 	if len(values) == 1 {
 		key := uint64(typeID)<<32 | uint64(values[0])
@@ -563,7 +563,7 @@ func (b *ModuleBuilder) AddConstantFloat32(typeID uint32, value float32) uint32 
 	return b.AddConstant(typeID, bits)
 }
 
-// AddConstantNull adds spvenums.OpConstantNull for a given type (all zeros/false/null).
+// AddConstantNull adds OpConstantNull for a given type (all zeros/false/null).
 func (b *ModuleBuilder) AddConstantNull(typeID uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -581,7 +581,7 @@ func (b *ModuleBuilder) AddConstantFloat64(typeID uint32, value float64) uint32 
 	return b.AddConstant(typeID, lowBits, highBits)
 }
 
-// AddConstantComposite adds spvenums.OpConstantComposite.
+// AddConstantComposite adds OpConstantComposite.
 func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -598,7 +598,7 @@ func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint
 	return id
 }
 
-// AddVariable adds spvenums.OpVariable.
+// AddVariable adds OpVariable.
 func (b *ModuleBuilder) AddVariable(pointerType uint32, storageClass spvenums.StorageClass) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -609,7 +609,7 @@ func (b *ModuleBuilder) AddVariable(pointerType uint32, storageClass spvenums.St
 	return id
 }
 
-// AddVariableWithInit adds spvenums.OpVariable with initializer.
+// AddVariableWithInit adds OpVariable with initializer.
 func (b *ModuleBuilder) AddVariableWithInit(pointerType uint32, storageClass spvenums.StorageClass, initID uint32) uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
@@ -659,26 +659,26 @@ func (b *ModuleBuilder) AddLabelWithID(id uint32) {
 	b.funcAppend(b.ib.Build(spvenums.OpLabel))
 }
 
-// AddReturn adds spvenums.OpReturn.
+// AddReturn adds OpReturn.
 func (b *ModuleBuilder) AddReturn() {
 	b.ib.Reset()
 	b.funcAppend(b.ib.Build(spvenums.OpReturn))
 }
 
-// AddUnreachable adds spvenums.OpUnreachable (terminator for unreachable basic blocks).
+// AddUnreachable adds OpUnreachable (terminator for unreachable basic blocks).
 func (b *ModuleBuilder) AddUnreachable() {
 	b.ib.Reset()
 	b.funcAppend(b.ib.Build(spvenums.OpUnreachable))
 }
 
-// AddReturnValue adds spvenums.OpReturnValue.
+// AddReturnValue adds OpReturnValue.
 func (b *ModuleBuilder) AddReturnValue(valueID uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(valueID)
 	b.funcAppend(b.ib.Build(spvenums.OpReturnValue))
 }
 
-// AddFunctionEnd adds spvenums.OpFunctionEnd.
+// AddFunctionEnd adds OpFunctionEnd.
 func (b *ModuleBuilder) AddFunctionEnd() {
 	b.ib.Reset()
 	b.funcAppend(b.ib.Build(spvenums.OpFunctionEnd))
@@ -707,7 +707,7 @@ func (b *ModuleBuilder) AddUnaryOp(opcode spvenums.Op, resultType uint32, operan
 	return resultID
 }
 
-// AddLoad adds spvenums.OpLoad.
+// AddLoad adds OpLoad.
 func (b *ModuleBuilder) AddLoad(resultType uint32, pointer uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -718,7 +718,7 @@ func (b *ModuleBuilder) AddLoad(resultType uint32, pointer uint32) uint32 {
 	return resultID
 }
 
-// AddStore adds spvenums.OpStore.
+// AddStore adds OpStore.
 func (b *ModuleBuilder) AddStore(pointer uint32, value uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(pointer)
@@ -734,11 +734,11 @@ func (b *ModuleBuilder) AddCopyLogical(resultType uint32, operand uint32) uint32
 	b.ib.AddWord(resultType)
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(operand)
-	b.funcAppend(b.ib.Build(OpCopyLogical))
+	b.funcAppend(b.ib.Build(spvenums.OpCopyLogical))
 	return resultID
 }
 
-// AddAccessChain adds spvenums.OpAccessChain.
+// AddAccessChain adds OpAccessChain.
 func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -752,7 +752,7 @@ func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices .
 	return resultID
 }
 
-// AddCompositeConstruct adds spvenums.OpCompositeConstruct.
+// AddCompositeConstruct adds OpCompositeConstruct.
 func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -765,8 +765,8 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 	return resultID
 }
 
-// AddCompositeExtract adds spvenums.OpCompositeExtract to extract a member from a composite value.
-// Unlike spvenums.OpAccessChain, this operates on values (not pointers) and indexes are literals.
+// AddCompositeExtract adds OpCompositeExtract to extract a member from a composite value.
+// Unlike OpAccessChain, this operates on values (not pointers) and indexes are literals.
 func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32, indexes ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -780,8 +780,8 @@ func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32,
 	return resultID
 }
 
-// AddVectorExtractDynamic adds spvenums.OpVectorExtractDynamic to extract an element from a vector
-// using a dynamic (runtime) index. Unlike spvenums.OpCompositeExtract, the index is an ID not a literal.
+// AddVectorExtractDynamic adds OpVectorExtractDynamic to extract an element from a vector
+// using a dynamic (runtime) index. Unlike OpCompositeExtract, the index is an ID not a literal.
 func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32, index uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -793,7 +793,7 @@ func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32
 	return resultID
 }
 
-// AddVectorShuffle adds spvenums.OpVectorShuffle for vector swizzle operations.
+// AddVectorShuffle adds OpVectorShuffle for vector swizzle operations.
 func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 uint32, components []uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -808,7 +808,7 @@ func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 ui
 	return resultID
 }
 
-// AddSelect adds spvenums.OpSelect.
+// AddSelect adds OpSelect.
 func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept uint32, reject uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()
@@ -821,7 +821,7 @@ func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept ui
 	return resultID
 }
 
-// AddSelectionMerge adds spvenums.OpSelectionMerge.
+// AddSelectionMerge adds OpSelectionMerge.
 func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control spvenums.SelectionControl) {
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
@@ -829,7 +829,7 @@ func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control spvenums.Se
 	b.funcAppend(b.ib.Build(spvenums.OpSelectionMerge))
 }
 
-// AddLoopMerge adds spvenums.OpLoopMerge.
+// AddLoopMerge adds OpLoopMerge.
 func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, control spvenums.LoopControl) {
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
@@ -838,7 +838,7 @@ func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, co
 	b.funcAppend(b.ib.Build(spvenums.OpLoopMerge))
 }
 
-// AddBranchConditional adds spvenums.OpBranchConditional.
+// AddBranchConditional adds OpBranchConditional.
 func (b *ModuleBuilder) AddBranchConditional(condition uint32, trueLabel uint32, falseLabel uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(condition)
@@ -847,13 +847,13 @@ func (b *ModuleBuilder) AddBranchConditional(condition uint32, trueLabel uint32,
 	b.funcAppend(b.ib.Build(spvenums.OpBranchConditional))
 }
 
-// AddKill adds spvenums.OpKill (fragment shader discard).
+// AddKill adds OpKill (fragment shader discard).
 func (b *ModuleBuilder) AddKill() {
 	b.ib.Reset()
 	b.funcAppend(b.ib.Build(spvenums.OpKill))
 }
 
-// AddExtInst adds spvenums.OpExtInst (extended instruction).
+// AddExtInst adds OpExtInst (extended instruction).
 func (b *ModuleBuilder) AddExtInst(resultType uint32, extSet uint32, instruction uint32, operands ...uint32) uint32 {
 	resultID := b.AllocID()
 	b.ib.Reset()

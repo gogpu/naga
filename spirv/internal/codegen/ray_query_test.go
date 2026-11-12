@@ -35,24 +35,24 @@ fn main() {
 	// Must have RayQueryKHR capability
 	assertCapability(t, caps, spvenums.CapabilityRayQueryKHR)
 
-	// Should have multiple spvenums.OpFunction (entry point + helpers)
+	// Should have multiple OpFunction (entry point + helpers)
 	funcCount := countOpFunctions(spvBytes)
 	if funcCount < 4 {
 		t.Errorf("expected at least 4 OpFunction (2 user + 2+ ray query helpers), got %d", funcCount)
 	}
 
-	// Should have spvenums.OpFunctionCall (calling helper functions)
+	// Should have OpFunctionCall (calling helper functions)
 	calls := findOpFunctionCalls(spvBytes)
 	if len(calls) < 3 {
 		t.Errorf("expected at least 3 OpFunctionCall (init + proceed + getIntersection), got %d", len(calls))
 	}
 
-	// Should have spvenums.OpRayQueryInitializeKHR (inside helper)
+	// Should have OpRayQueryInitializeKHR (inside helper)
 	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryInitializeKHR) {
 		t.Error("ray query should emit OpRayQueryInitializeKHR")
 	}
 
-	// Should have spvenums.OpRayQueryProceedKHR (inside helper)
+	// Should have OpRayQueryProceedKHR (inside helper)
 	if !divmodHasOpcode(spvBytes, spvenums.OpRayQueryProceedKHR) {
 		t.Error("ray query should emit OpRayQueryProceedKHR")
 	}

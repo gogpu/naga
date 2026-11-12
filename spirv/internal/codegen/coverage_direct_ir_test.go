@@ -61,8 +61,8 @@ func TestEmitLocalVarValueDirect(t *testing.T) {
 	}
 	assertValidSPIRV(t, spvBytes)
 
-	// Verify the local var is present (spvenums.OpVariable) and the store happened.
-	// The auto-load through emitLocalVarValue produces an spvenums.OpLoad or DCE'd result.
+	// Verify the local var is present (OpVariable) and the store happened.
+	// The auto-load through emitLocalVarValue produces an OpLoad or DCE'd result.
 	instrs := decodeSPIRVInstructions(spvBytes)
 	if !hasOpcodeInInstrs(instrs, spvenums.OpVariable) {
 		t.Error("expected OpVariable for local variable")
@@ -129,7 +129,7 @@ func TestResolveAtomicScalarKindSint(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Signed max → spvenums.OpAtomicSMax
+	// Signed max → OpAtomicSMax
 	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMax) {
 		t.Error("expected OpAtomicSMax for signed atomic max")
 	}
@@ -221,7 +221,7 @@ func TestAtomicSubtractFloat(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Float atomic add → spvenums.OpAtomicFAddEXT
+	// Float atomic add → OpAtomicFAddEXT
 	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicFAddEXT) {
 		t.Error("expected OpAtomicFAddEXT for float atomic add")
 	}

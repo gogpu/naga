@@ -28,7 +28,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var xy0 = vec2<f32>(1.0, 2.0);
     let xy1 = vec2<f32>(5.0, 6.0);
 
-    // First read of xy0.x — goes through emitAccessIndex → spvenums.OpAccessChain + spvenums.OpLoad
+    // First read of xy0.x — goes through emitAccessIndex → OpAccessChain + OpLoad
     let first_x = xy0.x;
 
     // Conditional store — modifies xy0 inside if/else
@@ -91,8 +91,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		}
 	}
 
-	// Count spvenums.OpLoad instructions in the main function body (after merge)
-	// We need at least 2 separate spvenums.OpLoad of xy0's .x component
+	// Count OpLoad instructions in the main function body (after merge)
+	// We need at least 2 separate OpLoad of xy0's .x component
 	var loadCount, storeCount, accessChainCount int
 	for _, inst := range instrs {
 		switch inst.opcode {
@@ -264,7 +264,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		}
 	}
 
-	// Find the spvenums.OpStore for p0out and verify it comes AFTER the if/else merge.
+	// Find the OpStore for p0out and verify it comes AFTER the if/else merge.
 	// Collect key instruction positions.
 	var (
 		p0outStoreOffset = -1
@@ -306,7 +306,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 				lastXY0StoreInIf = inst.offset
 			}
 
-			// Find the first spvenums.OpStore to p0out (not the prologue init)
+			// Find the first OpStore to p0out (not the prologue init)
 			if inst.words[1] == p0outID && p0outStoreOffset == -1 {
 				p0outStoreOffset = inst.offset
 			}
@@ -460,7 +460,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		}
 	}
 
-	// Find the first spvenums.OpSelectionMerge to mark where body control flow begins
+	// Find the first OpSelectionMerge to mark where body control flow begins
 	var firstSelectionMergeOffset int
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpSelectionMerge {

@@ -19,6 +19,6 @@
 - Refresh: take a newer tag, fetch the four files from
   `https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/<commit>/…`, rewrite the manifest
   with
-  `go run ./internal/cmd/corpussync manifest -dir testdata/upstream/github.com/KhronosGroup/SPIRV-Headers -kind vendored -repo https://github.com/KhronosGroup/SPIRV-Headers -commit <sha> -commit-date <YYYY-MM-DD>`,
+  `go run ./internal/cmd/corpussync manifest -dir testdata/upstream/github.com/KhronosGroup/SPIRV-Headers -kind vendored -repo https://github.com/KhronosGroup/SPIRV-Headers -commit <sha> -commit-date <YYYY-MM-DD> -note "<what changed>"`
   then update `HeadersRevision` in `internal/spvnames/gen` and in `spirv/internal/spvenums/gen`, and
   run `go generate ./internal/spvnames ./spirv/internal/spvenums`.

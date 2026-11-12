@@ -176,7 +176,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 1. Find all spvenums.OpVariable with Function storage class
+	// 1. Find all OpVariable with Function storage class
 	// ---------------------------------------------------------------
 	t.Log("\n--- 1. Function-scope OpVariable instructions ---")
 	var funcVars []spirvInstruction
@@ -197,7 +197,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 			firstLabelSeen = true
 			entryBlockStarted = true
 		}
-		// Any non-spvenums.OpVariable, non-spvenums.OpLabel instruction after entry label ends the entry block variable section
+		// Any non-OpVariable, non-OpLabel instruction after entry label ends the entry block variable section
 		if entryBlockStarted && inst.opcode != spvenums.OpVariable && inst.opcode != spvenums.OpLabel {
 			entryBlockStarted = false
 		}
@@ -220,7 +220,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 2. Find spvenums.OpSelectionMerge and control flow structure
+	// 2. Find OpSelectionMerge and control flow structure
 	// ---------------------------------------------------------------
 	t.Log("\n--- 2. Selection merge and control flow ---")
 	var selMerges []spirvInstruction
@@ -234,7 +234,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 3. Find all spvenums.OpBranchConditional
+	// 3. Find all OpBranchConditional
 	// ---------------------------------------------------------------
 	t.Log("\n--- 3. OpBranchConditional instructions ---")
 	for _, inst := range instrs {
@@ -245,7 +245,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 4. Find all spvenums.OpStore instructions
+	// 4. Find all OpStore instructions
 	// ---------------------------------------------------------------
 	t.Log("\n--- 4. OpStore instructions ---")
 	for _, inst := range instrs {
@@ -256,7 +256,7 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 5. Find all spvenums.OpLoad instructions
+	// 5. Find all OpLoad instructions
 	// ---------------------------------------------------------------
 	t.Log("\n--- 5. OpLoad instructions ---")
 	for _, inst := range instrs {
@@ -330,25 +330,25 @@ func analyzeVarIfElse(t *testing.T, data []byte) {
 	}
 
 	// ---------------------------------------------------------------
-	// 7. Verify: spvenums.OpVariable for 'result' must be in entry block
+	// 7. Verify: OpVariable for 'result' must be in entry block
 	// ---------------------------------------------------------------
 	t.Log("\n--- 7. CRITICAL CHECK: Is OpVariable for 'result' in entry block? ---")
 	checkEntryBlockVariables(t, instrs, names)
 
 	// ---------------------------------------------------------------
-	// 8. Verify: spvenums.OpStore in both if/else branches target same variable
+	// 8. Verify: OpStore in both if/else branches target same variable
 	// ---------------------------------------------------------------
 	t.Log("\n--- 8. CRITICAL CHECK: Do both if/else branches store to the same variable? ---")
 	checkBranchStores(t, instrs, names, selMerges)
 
 	// ---------------------------------------------------------------
-	// 9. Verify: spvenums.OpLoad after merge loads from the var
+	// 9. Verify: OpLoad after merge loads from the var
 	// ---------------------------------------------------------------
 	t.Log("\n--- 9. CRITICAL CHECK: Does OpLoad after merge load from the correct variable? ---")
 	checkPostMergeLoad(t, instrs, names, selMerges, funcVars)
 }
 
-// checkEntryBlockVariables verifies all Function-scope spvenums.OpVariable are in the entry block.
+// checkEntryBlockVariables verifies all Function-scope OpVariable are in the entry block.
 func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
@@ -374,7 +374,7 @@ func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map
 			continue
 		}
 
-		// In entry block, spvenums.OpVariable is OK. Any other non-debug instruction ends the variable section.
+		// In entry block, OpVariable is OK. Any other non-debug instruction ends the variable section.
 		if entryBlock && inst.opcode != spvenums.OpVariable &&
 			inst.opcode != spvenums.OpName && inst.opcode != spvenums.OpMemberName {
 			entryBlock = false
@@ -396,7 +396,7 @@ func checkEntryBlockVariables(t *testing.T, instrs []spirvInstruction, names map
 	}
 }
 
-// checkBranchStores checks if spvenums.OpStore instructions exist in both branches of the if/else
+// checkBranchStores checks if OpStore instructions exist in both branches of the if/else
 // and whether they target the same pointer (the 'result' variable).
 func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32]string, selMerges []spirvInstruction) {
 	t.Helper()
@@ -411,7 +411,7 @@ func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32
 		mergeLabel := merge.words[1]
 		t.Logf("  Selection %d: merge label = %s", i, idStr(mergeLabel, names))
 
-		// Find the spvenums.OpBranchConditional that follows this merge
+		// Find the OpBranchConditional that follows this merge
 		mergeIdx := -1
 		for j, inst := range instrs {
 			if inst.offset == merge.offset {
@@ -466,7 +466,7 @@ func checkBranchStores(t *testing.T, instrs []spirvInstruction, names map[uint32
 	}
 }
 
-// collectStoresInBlock collects spvenums.OpStore instructions in a basic block starting at the given label ID.
+// collectStoresInBlock collects OpStore instructions in a basic block starting at the given label ID.
 func collectStoresInBlock(instrs []spirvInstruction, labelID uint32) []spirvInstruction {
 	var stores []spirvInstruction
 	inBlock := false
@@ -491,7 +491,7 @@ func collectStoresInBlock(instrs []spirvInstruction, labelID uint32) []spirvInst
 	return stores
 }
 
-// checkPostMergeLoad verifies that after the merge block, spvenums.OpLoad reads from the correct variable.
+// checkPostMergeLoad verifies that after the merge block, OpLoad reads from the correct variable.
 func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint32]string,
 	selMerges []spirvInstruction, funcVars []spirvInstruction) {
 	t.Helper()
@@ -521,7 +521,7 @@ func checkPostMergeLoad(t *testing.T, instrs []spirvInstruction, names map[uint3
 			if !inMergeBlock {
 				continue
 			}
-			// Look for first spvenums.OpLoad
+			// Look for first OpLoad
 			if inst.opcode == spvenums.OpLoad && inst.wordCount >= 4 {
 				loadSource := inst.words[3]
 				t.Logf("    OpLoad at word %d: %s = load %s",

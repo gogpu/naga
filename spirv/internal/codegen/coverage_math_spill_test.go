@@ -88,7 +88,7 @@ func TestFrexpStructTypeDirectVector(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestSplatScalarViaBinaryOp exercises splatScalar via an integer
-// vector * scalar operation that requires spvenums.OpCompositeConstruct splat.
+// vector * scalar operation that requires OpCompositeConstruct splat.
 func TestSplatScalarViaBinaryOp(t *testing.T) {
 	source := `
 @fragment
@@ -101,7 +101,7 @@ fn main(@location(0) @interpolate(flat) v: vec3<u32>) -> @location(0) vec4<f32> 
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Scalar*vec requires splat: spvenums.OpCompositeConstruct
+	// Scalar*vec requires splat: OpCompositeConstruct
 	if !hasOpcodeInInstrs(instrs, spvenums.OpCompositeConstruct) {
 		t.Error("expected OpCompositeConstruct for scalar-to-vector splat")
 	}
@@ -155,8 +155,8 @@ fn main() {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpArrayLength) {
-		t.Error("expected OpArrayLength for runtime-sized array")
+	if !hasOpcodeInInstrs(instrs, spvenums.OpArrayLength) {
+		t.Error("expected spvenums.OpArrayLength for runtime-sized array")
 	}
 }
 
@@ -266,7 +266,7 @@ func exprHandle(h ir.ExpressionHandle) *ir.ExpressionHandle {
 func TestSpillCompositeFieldAccessWithIndexChain(t *testing.T) {
 	// Build a module with a function that returns a struct, and the entry point
 	// accesses individual fields via AccessIndex. This triggers the spill path
-	// because the function call result is not a pointer but needs spvenums.OpAccessChain.
+	// because the function call result is not a pointer but needs OpAccessChain.
 	f32Handle := ir.TypeHandle(0)
 	structHandle := ir.TypeHandle(1)
 
@@ -520,7 +520,7 @@ fn main(@location(0) pos: vec4<f32>) -> @builtin(position) vec4<f32> {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Matrix multiply uses spvenums.OpMatrixTimesMatrix or spvenums.OpMatrixTimesVector
+	// Matrix multiply uses OpMatrixTimesMatrix or OpMatrixTimesVector
 	hasMMul := hasOpcodeInInstrs(instrs, spvenums.OpMatrixTimesMatrix)
 	hasMVMul := hasOpcodeInInstrs(instrs, spvenums.OpMatrixTimesVector)
 	if !hasMMul && !hasMVMul {

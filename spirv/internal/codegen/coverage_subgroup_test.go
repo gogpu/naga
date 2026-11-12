@@ -74,8 +74,8 @@ func TestSubgroupBallotNoPredicate(t *testing.T) {
 	if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformBallot) {
 		t.Error("expected CapabilityGroupNonUniformBallot")
 	}
-	if !hasOpcodeInInstrs(instrs, OpConstantTrue) {
-		t.Error("expected OpConstantTrue for default predicate")
+	if !hasOpcodeInInstrs(instrs, spvenums.OpConstantTrue) {
+		t.Error("expected spvenums.OpConstantTrue for default predicate")
 	}
 }
 
@@ -503,7 +503,7 @@ func TestSubgroupCollectiveWithVector(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 	instrs := decodeSPIRVInstructions(spvBytes)
 
-	// Float vector add → spvenums.OpGroupNonUniformFAdd
+	// Float vector add → OpGroupNonUniformFAdd
 	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformFAdd) {
 		t.Error("expected OpGroupNonUniformFAdd for float vector reduce")
 	}

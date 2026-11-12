@@ -26,12 +26,12 @@ import (
 //
 // Expected SPIR-V structure:
 //
-//	entry:          spvenums.OpBranch -> header
-//	header:         spvenums.OpLoopMerge(merge, continue) -> spvenums.OpBranch -> body
-//	body:           condition check -> spvenums.OpBranchConditional(true->break_body, false->loop_body)
-//	                break_body: spvenums.OpBranch -> merge
-//	                loop_body:  ... -> spvenums.OpBranch -> continue
-//	continue:       i = i + 1 -> spvenums.OpBranch -> header  (BACK-EDGE)
+//	entry:          OpBranch -> header
+//	header:         OpLoopMerge(merge, continue) -> OpBranch -> body
+//	body:           condition check -> OpBranchConditional(true->break_body, false->loop_body)
+//	                break_body: OpBranch -> merge
+//	                loop_body:  ... -> OpBranch -> continue
+//	continue:       i = i + 1 -> OpBranch -> header  (BACK-EDGE)
 //	merge:          (after loop)
 func TestForLoopCompilation(t *testing.T) {
 	const shader = `
@@ -109,7 +109,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	t.Log("=== SPIR-V Disassembly for NestedForLoop shader ===")
 	dumpFunctionBlocks(t, instrs, names)
 
-	// Should have exactly 2 spvenums.OpLoopMerge instructions (outer + inner loop)
+	// Should have exactly 2 OpLoopMerge instructions (outer + inner loop)
 	loopMergeCount := countOpcode(instrs, spvenums.OpLoopMerge)
 	if loopMergeCount != 2 {
 		t.Errorf("Expected 2 OpLoopMerge for nested loops, got %d", loopMergeCount)
@@ -200,14 +200,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // verifyLoopStructure validates the SPIR-V loop control flow structure.
 // It checks:
-// 1. spvenums.OpLoopMerge exists with valid merge and continue labels
+// 1. OpLoopMerge exists with valid merge and continue labels
 // 2. Back-edge: the continue block branches back to the header
-// 3. Break condition: spvenums.OpBranchConditional exists in the body that can branch to merge
-// 4. All referenced labels exist as spvenums.OpLabel instructions
+// 3. Break condition: OpBranchConditional exists in the body that can branch to merge
+// 4. All referenced labels exist as OpLabel instructions
 func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint32]string) {
 	t.Helper()
 
-	// Collect all labels (spvenums.OpLabel instruction result IDs)
+	// Collect all labels (OpLabel instruction result IDs)
 	labelSet := make(map[uint32]bool)
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpLabel && inst.wordCount >= 2 {
@@ -215,9 +215,9 @@ func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint
 		}
 	}
 
-	// Find spvenums.OpLoopMerge instructions
+	// Find OpLoopMerge instructions
 	type loopInfo struct {
-		headerLabel   uint32 // The label immediately before spvenums.OpLoopMerge
+		headerLabel   uint32 // The label immediately before OpLoopMerge
 		mergeLabel    uint32
 		continueLabel uint32
 	}
@@ -271,7 +271,7 @@ func verifyLoopStructure(t *testing.T, instrs []spirvInstruction, names map[uint
 }
 
 // verifyBackEdge checks that the continue block (identified by continueLabel) contains
-// an spvenums.OpBranch back to headerLabel. This is the critical back-edge that makes the loop iterate.
+// an OpBranch back to headerLabel. This is the critical back-edge that makes the loop iterate.
 func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, headerLabel uint32) bool {
 	t.Helper()
 
@@ -293,7 +293,7 @@ func verifyBackEdge(t *testing.T, instrs []spirvInstruction, continueLabel, head
 				// OpBranch to somewhere else means block ended
 				return false
 			case spvenums.OpBranchConditional:
-				// break_if: spvenums.OpBranchConditional with one target being header
+				// break_if: OpBranchConditional with one target being header
 				if inst.wordCount >= 4 {
 					if inst.words[2] == headerLabel || inst.words[3] == headerLabel {
 						t.Logf("  Back-edge found: continue block %%%d -> header %%%d (OpBranchConditional)",

@@ -64,7 +64,7 @@ func TestForceLoopBounding(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile: %v", err)
 		}
-		// Without force bounding, no spvenums.OpAll needed for loop counter
+		// Without force bounding, no OpAll needed for loop counter
 		if divmodHasOpcode(spvBytes, spvenums.OpAll) {
 			t.Error("ForceLoopBounding=false should not emit OpAll for loop counter")
 		}
@@ -96,7 +96,7 @@ fn main() {
 	assertNoCapability(t, caps, spvenums.CapabilityDotProduct)
 	assertNoCapability(t, caps, spvenums.CapabilityDotProductInput4x8BitPacked)
 
-	// Should have spvenums.OpBitFieldUExtract (part of polyfill)
+	// Should have OpBitFieldUExtract (part of polyfill)
 	if !divmodHasOpcode(spvBytes, spvenums.OpBitFieldUExtract) {
 		t.Error("dot4 polyfill should use OpBitFieldUExtract")
 	}

@@ -38,7 +38,7 @@ fn main() {
 }
 
 // barrierSemantics returns the memory semantics constant of every
-// OpControlBarrier (operand 3) and spvenums.OpMemoryBarrier (operand 2) of spv.
+// OpControlBarrier (operand 3) and OpMemoryBarrier (operand 2) of spv.
 func barrierSemantics(t *testing.T, spv []byte) (control, memory []uint32) {
 	t.Helper()
 	instrs := decodeSPIRVInstructions(spv)

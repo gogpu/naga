@@ -12,11 +12,11 @@ import (
 // atomicLoad lowers to Expression::Load and atomicStore to Statement::Store on a
 // pointer to TypeInner::Atomic. Rust naga's SPIR-V writer
 // (back/spv/block.rs write_checked_load and Statement::Store) checks the
-// pointee type and emits spvenums.OpAtomicLoad / spvenums.OpAtomicStore with the scope from
+// pointee type and emits OpAtomicLoad / OpAtomicStore with the scope from
 // AddressSpace::to_spirv_semantics_and_scope (Storage → Device,
 // WorkGroup → Workgroup) as an i32 constant (get_scope_constant) and empty
 // (relaxed) memory semantics as a u32 constant (get_index_constant). A plain
-// OpLoad/spvenums.OpStore there is a data race: SPIR-V has no atomic type, so
+// OpLoad/OpStore there is a data race: SPIR-V has no atomic type, so
 // spirv-val cannot catch it.
 
 // spvAccessKind classifies a memory access found in a SPIR-V module.
@@ -26,12 +26,12 @@ const (
 	accessAtomicLoad  spvAccessKind = "OpAtomicLoad"
 	accessAtomicStore spvAccessKind = "OpAtomicStore"
 	accessAtomicRMW   spvAccessKind = "OpAtomic(read-modify-write)"
-	// accessLoad is an spvenums.OpLoad whose result is used.
+	// accessLoad is an OpLoad whose result is used.
 	accessLoad spvAccessKind = "OpLoad"
-	// accessDeadLoad is an spvenums.OpLoad whose result is never used.
+	// accessDeadLoad is an OpLoad whose result is never used.
 	accessDeadLoad spvAccessKind = "OpLoad(dead)"
 	accessStore    spvAccessKind = "OpStore"
-	// accessZeroInit is a whole-variable spvenums.OpStore of spvenums.OpConstantNull: the
+	// accessZeroInit is a whole-variable OpStore of OpConstantNull: the
 	// workgroup zero-initialization polyfill, a plain store in Rust too
 	// (back/spv/writer.rs generate_workgroup_vars_init_block).
 	accessZeroInit spvAccessKind = "OpStore(zero-init)"
@@ -41,7 +41,7 @@ const (
 // variable at the root of its pointer operand.
 type spvMemAccess struct {
 	kind spvAccessKind
-	ptr  uint32 // pointer operand of an spvenums.OpLoad
+	ptr  uint32 // pointer operand of an OpLoad
 	op   spvenums.Op
 	root string
 	// Scope and semantics operands; set for atomic instructions only.
@@ -49,12 +49,12 @@ type spvMemAccess struct {
 	semantics []spvIntConstant // one entry; two for OpAtomicCompareExchange
 }
 
-// spvIntConstant is a 32-bit integer spvenums.OpConstant: its value and the
-// signedness of its spvenums.OpTypeInt.
+// spvIntConstant is a 32-bit integer OpConstant: its value and the
+// signedness of its OpTypeInt.
 type spvIntConstant struct {
 	value  uint32
 	signed bool
-	ok     bool // false when the operand is not a 32-bit integer spvenums.OpConstant
+	ok     bool // false when the operand is not a 32-bit integer OpConstant
 }
 
 func (c spvIntConstant) String() string {
@@ -93,14 +93,14 @@ var spvAtomicOperandLayout = map[spvenums.Op]struct{ ptr, scope, firstSem, nSem 
 var spvPureValueOps = map[spvenums.Op]bool{
 	spvenums.OpLoad:             true,
 	spvenums.OpAccessChain:      true,
-	OpCopyLogical:               true,
+	spvenums.OpCopyLogical:      true,
 	spvenums.OpCompositeExtract: true,
 	spvenums.OpBitcast:          true,
 }
 
-// collectMemAccesses decodes every spvenums.OpLoad, spvenums.OpStore and atomic instruction of a
-// module and resolves its pointer operand through spvenums.OpAccessChain to the root
-// OpVariable. Roots are named without relying on spvenums.OpName (the backend only
+// collectMemAccesses decodes every OpLoad, OpStore and atomic instruction of a
+// module and resolves its pointer operand through OpAccessChain to the root
+// OpVariable. Roots are named without relying on OpName (the backend only
 // emits names with Options.Debug): a resource by its binding ("binding3"), a
 // workgroup variable by its declaration order among workgroup variables
 // ("workgroup0"); globals are declared in module order.
@@ -293,9 +293,9 @@ func checkAtomicOperands(t *testing.T, accesses []spvMemAccess, root string, wan
 
 // TestAtomicLoadStoreEmitsAtomicInstructions pins BUG-SPV-ATOMIC-001: every
 // atomicLoad / atomicStore (and workgroupUniformLoad of an atomic) becomes
-// OpAtomicLoad / spvenums.OpAtomicStore with Rust's scope and semantics, for every
+// OpAtomicLoad / OpAtomicStore with Rust's scope and semantics, for every
 // atomic scalar type and every shape of atomic data, while plain stores of
-// non-atomic data stay spvenums.OpStore. No load of atomic data may be plain, not even
+// non-atomic data stay OpStore. No load of atomic data may be plain, not even
 // a dead one (BUG-SPV-PTR-EMIT-001): a dead non-atomic read still races with
 // the atomic writes.
 func TestAtomicLoadStoreEmitsAtomicInstructions(t *testing.T) {
@@ -309,7 +309,7 @@ func TestAtomicLoadStoreEmitsAtomicInstructions(t *testing.T) {
 		source string
 		// Roots are keyed as collectMemAccesses names them (binding/workgroup order).
 		atomic map[string]rootWant
-		// plainStores: non-atomic root → expected spvenums.OpStore count (no atomics).
+		// plainStores: non-atomic root → expected OpStore count (no atomics).
 		plainStores map[string]int
 	}{
 		{
@@ -380,7 +380,7 @@ fn main() {
 		},
 		{
 			// Rust: Statement::WorkGroupUniformLoad goes through
-			// write_checked_load, so an atomic pointee is spvenums.OpAtomicLoad.
+			// write_checked_load, so an atomic pointee is OpAtomicLoad.
 			name: "workgroup_uniform_load_atomic",
 			source: `
 var<workgroup> w_u32: atomic<u32>;

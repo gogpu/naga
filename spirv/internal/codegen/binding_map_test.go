@@ -22,7 +22,7 @@ func compileWGSLWithOpts(t *testing.T, source string, opts Options) ([]byte, err
 	return NewBackend(opts).Compile(module)
 }
 
-// decorations returns the literal of every spvenums.OpDecorate with the given
+// decorations returns the literal of every OpDecorate with the given
 // decoration, keyed by target id.
 func (v *spvView) decorations(d spvenums.Decoration) map[uint32]uint32 {
 	out := map[uint32]uint32{}
@@ -47,7 +47,7 @@ func (v *spvView) typeDef(id uint32) (spirvInstruction, bool) {
 	return spirvInstruction{}, false
 }
 
-// boundVariable returns the spvenums.OpVariable decorated with (set, binding).
+// boundVariable returns the OpVariable decorated with (set, binding).
 func (v *spvView) boundVariable(t *testing.T, set, binding uint32) spirvInstruction {
 	t.Helper()
 	sets := v.decorations(spvenums.DecorationDescriptorSet)

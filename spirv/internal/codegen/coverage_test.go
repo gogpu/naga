@@ -450,7 +450,7 @@ func TestModuleBuilder_AddKill(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestCompileSelectExpression exercises emitSelect (42.9%).
-// Verifies spvenums.OpSelect is emitted for WGSL select() built-in.
+// Verifies OpSelect is emitted for WGSL select() built-in.
 func TestCompileSelectExpression(t *testing.T) {
 	source := `
 @fragment
@@ -470,7 +470,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // TestCompileSelectVectorExpression exercises emitSelect with vector condition.
-// Verifies spvenums.OpSelect with vec4<bool> condition does not require scalar-to-vector splat.
+// Verifies OpSelect with vec4<bool> condition does not require scalar-to-vector splat.
 func TestCompileSelectVectorExpression(t *testing.T) {
 	source := `
 @fragment
@@ -575,7 +575,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // TestCompileComputeBarrier exercises emitBarrier (89.7%).
-// Verifies spvenums.OpControlBarrier is emitted for workgroupBarrier() and storageBarrier().
+// Verifies OpControlBarrier is emitted for workgroupBarrier() and storageBarrier().
 func TestCompileComputeBarrier(t *testing.T) {
 	source := `
 @group(0) @binding(0) var<storage, read_write> data: array<f32>;
@@ -590,7 +590,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// workgroupBarrier + storageBarrier = at least 2 spvenums.OpControlBarrier
+	// workgroupBarrier + storageBarrier = at least 2 OpControlBarrier
 	barrierCount := countOpcodeInInstrs(instrs, spvenums.OpControlBarrier)
 	if barrierCount < 2 {
 		t.Errorf("expected at least 2 OpControlBarrier, got %d", barrierCount)
@@ -686,7 +686,7 @@ fn main() {
 }
 
 // TestCompileDiscard exercises AddKill path through WGSL discard.
-// Verifies spvenums.OpKill terminator is emitted for WGSL discard statement.
+// Verifies OpKill terminator is emitted for WGSL discard statement.
 func TestCompileDiscard(t *testing.T) {
 	source := `
 @fragment
@@ -856,7 +856,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // TestCompileStorageTexture exercises emitImageStore / requestImageFormatCapabilities (50%/80%).
-// Verifies spvenums.OpImageWrite is emitted and StorageImageWriteWithoutFormat capability is declared.
+// Verifies OpImageWrite is emitted and StorageImageWriteWithoutFormat capability is declared.
 func TestCompileStorageTexture(t *testing.T) {
 	source := `
 @group(0) @binding(0) var output: texture_storage_2d<rgba8unorm, write>;
@@ -994,13 +994,13 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	assertValidSPIRV(t, spirvBytes)
 	instrs := decodeSPIRVInstructions(spirvBytes)
 
-	// Debug mode must emit spvenums.OpName instructions for functions, variables, and types
+	// Debug mode must emit OpName instructions for functions, variables, and types
 	nameCount := countOpcodeInInstrs(instrs, spvenums.OpName)
 	if nameCount == 0 {
 		t.Error("expected OpName instructions in debug mode, got 0")
 	}
 
-	// Also expect spvenums.OpMemberName for struct members
+	// Also expect OpMemberName for struct members
 	memberNameCount := countOpcodeInInstrs(instrs, spvenums.OpMemberName)
 	if memberNameCount == 0 {
 		t.Error("expected OpMemberName for struct member 'position' and 'color'")
@@ -1895,7 +1895,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Signed min/max should use spvenums.OpAtomicSMin/spvenums.OpAtomicSMax
+	// Signed min/max should use OpAtomicSMin/OpAtomicSMax
 	if !hasOpcodeInInstrs(instrs, spvenums.OpAtomicSMin) {
 		t.Error("expected OpAtomicSMin for signed atomicMin()")
 	}
@@ -1919,7 +1919,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Dynamic access needs spvenums.OpAccessChain
+	// Dynamic access needs OpAccessChain
 	if !hasOpcodeInInstrs(instrs, spvenums.OpAccessChain) {
 		t.Error("expected OpAccessChain for dynamic array access")
 	}
@@ -1947,8 +1947,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	if !hasOpcodeInInstrs(instrs, OpArrayLength) {
-		t.Error("expected OpArrayLength for arrayLength()")
+	if !hasOpcodeInInstrs(instrs, spvenums.OpArrayLength) {
+		t.Error("expected spvenums.OpArrayLength for arrayLength()")
 	}
 }
 
@@ -2003,7 +2003,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Nested loops require at least 2 spvenums.OpLoopMerge
+	// Nested loops require at least 2 OpLoopMerge
 	loopCount := countOpcodeInInstrs(instrs, spvenums.OpLoopMerge)
 	if loopCount < 2 {
 		t.Errorf("expected at least 2 OpLoopMerge for nested loops, got %d", loopCount)
@@ -2141,7 +2141,7 @@ fn main(input: VertexIn) -> VertexOut {
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Vertex shader should have spvenums.BuiltIn decorations for vertex_index and instance_index
+	// Vertex shader should have BuiltIn decorations for vertex_index and instance_index
 	builtInCount := 0
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpDecorate && len(inst.words) >= 3 {
@@ -2178,7 +2178,7 @@ fn main(
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
 
-	// Workgroup size 8,4,2 should be specified via spvenums.ExecutionMode
+	// Workgroup size 8,4,2 should be specified via ExecutionMode
 	foundWorkgroupSize := false
 	for _, inst := range instrs {
 		if inst.opcode == spvenums.OpExecutionMode && len(inst.words) >= 5 {
@@ -2382,7 +2382,7 @@ fn make_pair(x: f32, y: f32) -> Pair {
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let p = make_pair(uv.x, uv.y);
-    // Accessing p.a and p.b may trigger spill if the composite needs spvenums.OpAccessChain
+    // Accessing p.a and p.b may trigger spill if the composite needs OpAccessChain
     return vec4<f32>(p.a, p.b, p.a + p.b, 1.0);
 }
 `
@@ -2415,7 +2415,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	spv := compileWGSL(t, source)
 	assertValidSPIRV(t, spv)
 	instrs := decodeSPIRVInstructions(spv)
-	// Should have spvenums.OpFunctionCall
+	// Should have OpFunctionCall
 	if !hasOpcodeInInstrs(instrs, spvenums.OpFunctionCall) {
 		t.Error("expected OpFunctionCall for helper function calls")
 	}
@@ -2493,7 +2493,7 @@ func TestCompileModuleWithLocalVarValue(t *testing.T) {
 	assertValidSPIRV(t, spvBytes)
 
 	instrs := decodeSPIRVInstructions(spvBytes)
-	// Should have spvenums.OpVariable for local var, spvenums.OpStore, spvenums.OpLoad
+	// Should have OpVariable for local var, OpStore, OpLoad
 	if !hasOpcodeInInstrs(instrs, spvenums.OpVariable) {
 		t.Error("expected OpVariable for local variable")
 	}

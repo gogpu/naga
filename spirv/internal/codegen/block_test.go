@@ -84,20 +84,20 @@ func TestFunctionBuilder_ToInstructions(t *testing.T) {
 	result := fb.ToInstructions()
 
 	// Expected order:
-	// [0] spvenums.OpFunction (signature)
-	// [1] spvenums.OpFunctionParameter
-	// [2] spvenums.OpLabel 100 (block 0)
-	// [3] spvenums.OpVariable (local, first block only)
-	// [4] spvenums.OpStore (block 0 body)
-	// [5] spvenums.OpBranch (block 0 terminator)
-	// [6] spvenums.OpLabel 200 (block 1)
-	// [7] spvenums.OpLoad (block 1 body)
-	// [8] spvenums.OpReturn (block 1 terminator)
-	// [9] spvenums.OpFunctionEnd
+	// [0] OpFunction (signature)
+	// [1] OpFunctionParameter
+	// [2] OpLabel 100 (block 0)
+	// [3] OpVariable (local, first block only)
+	// [4] OpStore (block 0 body)
+	// [5] OpBranch (block 0 terminator)
+	// [6] OpLabel 200 (block 1)
+	// [7] OpLoad (block 1 body)
+	// [8] OpReturn (block 1 terminator)
+	// [9] OpFunctionEnd
 
 	expected := []struct {
 		opcode  spvenums.Op
-		labelID uint32 // only checked for spvenums.OpLabel
+		labelID uint32 // only checked for OpLabel
 	}{
 		{spvenums.OpFunction, 0},
 		{spvenums.OpFunctionParameter, 0},
@@ -155,7 +155,7 @@ func TestFunctionBuilder_VariablesInFirstBlock(t *testing.T) {
 
 	result := fb.ToInstructions()
 
-	// Count spvenums.OpVariable occurrences and verify they appear only after the first spvenums.OpLabel.
+	// Count OpVariable occurrences and verify they appear only after the first OpLabel.
 	variableCount := 0
 	firstLabelSeen := false
 	secondLabelSeen := false

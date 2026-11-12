@@ -10,9 +10,9 @@ import (
 // dereference were built.
 type spvChainShape struct {
 	// derefs is the number of loads, stores and atomic operations whose
-	// pointer is the result of an spvenums.OpAccessChain.
+	// pointer is the result of an OpAccessChain.
 	derefs int
-	// nested counts those whose spvenums.OpAccessChain is based on another
+	// nested counts those whose OpAccessChain is based on another
 	// OpAccessChain that is not a wrapper of a global (an access chain on a
 	// variable whose only index is the constant 0).
 	nested int
@@ -25,7 +25,7 @@ func spvAccessChainShape(t *testing.T, spv []byte) spvChainShape {
 	instrs := decodeSPIRVInstructions(spv)
 
 	chains := map[uint32][]uint32{} // result id -> [base, indices...]
-	variables := map[uint32]bool{}  // OpVariable and spvenums.OpFunctionParameter results
+	variables := map[uint32]bool{}  // OpVariable and OpFunctionParameter results
 	zero := map[uint32]bool{}       // integer constants with value 0
 	for _, in := range instrs {
 		switch in.opcode {
@@ -70,11 +70,11 @@ func spvAccessChainShape(t *testing.T, spv []byte) spvChainShape {
 }
 
 // TestAccessChainIsOneInstructionPerDereference: Rust naga's SPIR-V writer
-// builds the pointer a load, store or atomic dereferences as ONE spvenums.OpAccessChain
+// builds the pointer a load, store or atomic dereferences as ONE OpAccessChain
 // from the root variable, with every index of the Access/AccessIndex chain
 // (back/spv/block.rs write_access_chain). The access chain is then a single
 // instruction that a bounds check can place inside its in-bounds branch.
-// Building one spvenums.OpAccessChain per link, each on top of the previous one,
+// Building one OpAccessChain per link, each on top of the previous one,
 // produces equivalent pointers but more instructions and pointer types.
 func TestAccessChainIsOneInstructionPerDereference(t *testing.T) {
 	tests := []struct {

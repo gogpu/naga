@@ -40,7 +40,7 @@ type Options struct {
 	// 16-bit types; when false, a polyfill converts to/from f32.
 	UseStorageInputOutput16 bool
 
-	// ForcePointSize adds a spvenums.BuiltIn PointSize output variable with value 1.0
+	// ForcePointSize adds a BuiltIn PointSize output variable with value 1.0
 	// to every vertex shader entry point. Required by some Vulkan drivers.
 	ForcePointSize bool
 
@@ -54,8 +54,8 @@ type Options struct {
 	// (default true). The counter uses a vec2<u32> to simulate 64-bit range.
 	ForceLoopBounding bool
 
-	// SkipIntDivChecks writes integer division and remainder as raw spvenums.OpSDiv,
-	// OpUDiv and spvenums.OpUMod instead of calling the guard helpers (Rust naga's
+	// SkipIntDivChecks writes integer division and remainder as raw OpSDiv,
+	// OpUDiv and OpUMod instead of calling the guard helpers (Rust naga's
 	// emit_int_div_checks = false). Negative polarity so that a zero Options
 	// keeps the guards. Signed remainder keeps its helper either way.
 	SkipIntDivChecks bool
@@ -102,7 +102,7 @@ type Options struct {
 	ClampFragDepth *backend.ClampFragDepth
 
 	// DemoteToHelperInvocation writes WGSL discard as
-	// OpDemoteToHelperInvocation instead of spvenums.OpKill; see
+	// OpDemoteToHelperInvocation instead of OpKill; see
 	// spirv.Options.DemoteToHelperInvocation.
 	DemoteToHelperInvocation bool
 }

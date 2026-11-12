@@ -28,7 +28,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 `
 
-// TestDiscardKeepsOpKillByDefault: the zero Options keeps spvenums.OpKill, as Rust
+// TestDiscardKeepsOpKillByDefault: the zero Options keeps OpKill, as Rust
 // naga always writes it (back/spv/block.rs, Statement::Kill), with no
 // demote capability or extension.
 func TestDiscardKeepsOpKillByDefault(t *testing.T) {

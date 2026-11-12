@@ -532,14 +532,14 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	// Track types to understand pointer chains
 	typeInfo := make(map[uint32]string) // id -> description
 
-	// Track all spvenums.OpStore instructions
+	// Track all OpStore instructions
 	var stores []struct {
 		offset    int
 		pointerID uint32
 		valueID   uint32
 	}
 
-	// Track all spvenums.OpAccessChain instructions
+	// Track all OpAccessChain instructions
 	var accessChains []struct {
 		offset   int
 		resultID uint32
@@ -703,7 +703,7 @@ func analyzeSDFSPIRV(t *testing.T, data []byte) {
 	}
 
 	// KEY ANALYSIS: Check the final store to pixels[idx]
-	// The last spvenums.OpStore in the function body should be the store to pixels[idx]
+	// The last OpStore in the function body should be the store to pixels[idx]
 	// Its value should trace back through BitwiseOr chain
 	if len(stores) > 0 {
 		lastStore := stores[len(stores)-1]
