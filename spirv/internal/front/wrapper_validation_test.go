@@ -63,6 +63,48 @@ func TestUndefInBodyValidates(t *testing.T) {
 	}
 }
 
+// TestVectorSignedModuloValidates: OpSMod on a vector converts each operand
+// with the scalar width (4 for vec3<i32>). Deviation from Rust naga: its SMod
+// arm passes the type's byte size, `inner.size(..) as u8`, as the As convert
+// width (front/spv/next_block.rs, the SMod arm), which is 12 for vec3<i32>
+// and fails validation.
+func TestVectorSignedModuloValidates(t *testing.T) {
+	module := validateModule(t, Options{},
+		headerWords(),
+		instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+		instWords(spvenums.OpMemoryModel, 0, 1),
+		instWords(spvenums.OpTypeVoid, 10),
+		instWords(spvenums.OpTypeFunction, 11, 10),
+		instWords(spvenums.OpTypeInt, 12, 32, 1),
+		instWords(spvenums.OpTypeVector, 13, 12, 3),
+		instWords(spvenums.OpConstant, 12, 20, 7),
+		instWords(spvenums.OpConstant, 12, 21, 3),
+		instWords(spvenums.OpConstantComposite, 13, 22, 20, 20, 20),
+		instWords(spvenums.OpConstantComposite, 13, 23, 21, 21, 21),
+		voidFunctionBody(),
+		instWords(spvenums.OpLabel, 2),
+		instWords(spvenums.OpSMod, 13, 200, 22, 23),
+		instWords(spvenums.OpReturn),
+		instWords(spvenums.OpFunctionEnd),
+	)
+	conversions := 0
+	for _, fn := range module.Functions {
+		for _, expression := range fn.Expressions {
+			as, ok := expression.Kind.(ir.ExprAs)
+			if !ok || as.Convert == nil {
+				continue
+			}
+			conversions++
+			if *as.Convert != 4 {
+				t.Errorf("As convert width = %d, want 4", *as.Convert)
+			}
+		}
+	}
+	if conversions != 3 {
+		t.Errorf("converting As expressions = %d, want 3", conversions)
+	}
+}
+
 // TestMatrixStrideAlignment: the expected stride uses the row alignment, so a
 // vec3 row aligns like a vec4. A mat2x3<f16> member has a stride of 8.
 func TestMatrixStrideAlignment(t *testing.T) {
