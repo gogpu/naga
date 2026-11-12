@@ -90,31 +90,33 @@ func formatChanges(r Report) string {
 
 // inheritSource fills the source fields a flag did not set from the manifest
 // already recorded in the tree, so a regeneration (usually run with only -dir
-// and -kind) cannot erase the provenance of derived files. A missing manifest
-// leaves src untouched; an invalid one is an error, and so is a tree recorded
-// as another kind.
+// and -kind) cannot erase the provenance of derived files. It returns the
+// recorded manifest, or nil when the tree has none yet. An invalid manifest is
+// an error, and so is a tree recorded as another kind.
 //
 // The commit, date and note follow applyCommitMove: an explicit -commit that
 // differs from the recorded one moves the tree to a new upstream commit and
 // inherits none of the old facts about it.
-func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *testcorpus.Source) error {
+func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *testcorpus.Source) (*testcorpus.Manifest, error) {
 	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
 	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
-		return nil
+		// A tree without a manifest is the initial vendoring: nil prev is a
+		// valid result ("no recorded source"), never an error.
+		return nil, nil //nolint:nilnil // the caller checks the error first
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	prev, err := testcorpus.Load(dir)
 	if err != nil {
-		return fmt.Errorf("%s: %w", manifestPath, err)
+		return nil, fmt.Errorf("%s: %w", manifestPath, err)
 	}
 	if prev.Kind != kind {
-		return fmt.Errorf("%s is recorded as %s, not %s", dir, prev.Kind, kind)
+		return nil, fmt.Errorf("%s is recorded as %s, not %s", dir, prev.Kind, kind)
 	}
 	set := make(map[string]bool)
 	fl.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if err := applyCommitMove(set, &prev.Source, src); err != nil {
-		return err
+		return nil, err
 	}
 	if !set["repo"] {
 		src.Repository = prev.Source.Repository
@@ -122,7 +124,7 @@ func inheritSource(dir string, fl *flag.FlagSet, kind testcorpus.Kind, src *test
 	if !set["generator"] {
 		src.Generator = prev.Source.Generator
 	}
-	return nil
+	return prev, nil
 }
 
 // applyCommitMove fills the commit, date and note fields from the recorded
@@ -153,19 +155,10 @@ func applyCommitMove(set map[string]bool, prev *testcorpus.Source, src *testcorp
 // disappeared while the recorded upstream commit stays the same. Rewriting a
 // vendored manifest at one commit is legitimate as an extension — a file added
 // from that commit — but a changed file is a hand edit that sync would have
-// caught. An explicit new commit is a refresh and may rewrite everything.
-func checkVendoredRefresh(dir string, src *testcorpus.Source, files []testcorpus.File) error {
-	manifestPath := filepath.Join(dir, testcorpus.ManifestName)
-	if _, err := os.Stat(manifestPath); errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	prev, err := testcorpus.Load(dir)
-	if err != nil {
-		return fmt.Errorf("%s: %w", manifestPath, err)
-	}
-	if prev.Source.Commit == "" || src.Commit != prev.Source.Commit {
+// caught. An explicit new commit is a refresh and may rewrite everything, and
+// a tree recorded without a commit has no commit claim to protect.
+func checkVendoredRefresh(prev *testcorpus.Manifest, src *testcorpus.Source, files []testcorpus.File) error {
+	if prev == nil || prev.Source.Commit == "" || src.Commit != prev.Source.Commit {
 		return nil
 	}
 	current := make(map[string]string, len(files))
@@ -211,7 +204,8 @@ func runManifest(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("manifest: unknown kind %q (want vendored or derived)", *kind)
 	}
-	if err := inheritSource(*dir, fl, testcorpus.Kind(*kind), &src); err != nil {
+	prev, err := inheritSource(*dir, fl, testcorpus.Kind(*kind), &src)
+	if err != nil {
 		return fmt.Errorf("manifest: %w", err)
 	}
 	if src.Repository == "" {
@@ -223,7 +217,7 @@ func runManifest(args []string, stdout io.Writer) error {
 		return err
 	}
 	if testcorpus.Kind(*kind) == testcorpus.KindVendored {
-		if err := checkVendoredRefresh(*dir, &src, files); err != nil {
+		if err := checkVendoredRefresh(prev, &src, files); err != nil {
 			return fmt.Errorf("manifest: %w", err)
 		}
 	}

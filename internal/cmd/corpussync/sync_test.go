@@ -303,6 +303,29 @@ func TestManifestVendoredExtensionAndRefresh(t *testing.T) {
 	}
 }
 
+// TestManifestCreatesVendoredTree: a tree without a manifest is recorded from
+// scratch, and a vendored tree recorded without a commit may be rewritten —
+// there is no commit claim to protect.
+func TestManifestCreatesVendoredTree(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"spirv.h": "h\n"})
+	var out bytes.Buffer
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "vendored", "-repo", "https://example.com/x"}, &out); err != nil {
+		t.Fatalf("initial vendored manifest: %v", err)
+	}
+	writeFiles(t, dir, map[string]string{"spirv.h": "edited\n"})
+	if err := run([]string{"manifest", "-dir", dir, "-kind", "vendored"}, &out); err != nil {
+		t.Fatalf("vendored tree without a commit claim: %v", err)
+	}
+	m, err := testcorpus.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Files) != 1 || m.Kind != testcorpus.KindVendored {
+		t.Errorf("manifest = %d files of kind %s, want one vendored file", len(m.Files), m.Kind)
+	}
+}
+
 // TestManifestRefusesKindMismatch: a tree recorded as one kind is never
 // rewritten as the other.
 func TestManifestRefusesKindMismatch(t *testing.T) {
