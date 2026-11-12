@@ -55,3 +55,5 @@ tmp/
 
 # SPIR-V compiled binaries (test artifacts)
 *.spv
+# ...except the assembled SPIR-V input corpus, which is committed test data.
+!snapshot/testdata/rust-derived/spv/*.spv

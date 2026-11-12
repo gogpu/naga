@@ -23,25 +23,26 @@ at your option, as in the upstream repository.
 | Here | Upstream (`gfx-rs/wgpu`) |
 |---|---|
 | `in/wgsl/<name>.wgsl`, `<name>.toml` | `naga/tests/in/wgsl/` (shader + test parameters) |
+| `in/spv/<name>.spvasm`, `<name>.toml` | `naga/tests/in/spv/` (SPIR-V assembly + test parameters) |
 | `out/spv/wgsl-<name>.spvasm` | `naga/tests/out/spv/` (rspirv disassembly) |
-| `out/msl/wgsl-<name>.metal` | `naga/tests/out/msl/` |
-| `out/hlsl/wgsl-<name>.hlsl` | `naga/tests/out/hlsl/` |
-| `out/glsl/wgsl-<name>.<entry>.<Stage>.glsl` | `naga/tests/out/glsl/` |
-| `out/ir/wgsl-<name>{,.compact}.ron` | `naga/tests/out/ir/` |
+| `out/msl/wgsl-<name>.metal`, `out/msl/spv-<name>.metal` | `naga/tests/out/msl/` |
+| `out/hlsl/wgsl-<name>.hlsl`, `out/hlsl/spv-<name>.hlsl` | `naga/tests/out/hlsl/` |
+| `out/glsl/wgsl-<name>.<entry>.<Stage>.glsl`, `out/glsl/spv-<name>.*` | `naga/tests/out/glsl/` |
+| `out/ir/wgsl-<name>{,.compact}.ron`, `out/ir/spv-<name>.ron` | `naga/tests/out/ir/` |
 | `LICENSE.APACHE`, `LICENSE.MIT` | repository root |
 
-Upstream also writes `out/spv/*.spvasm.glsl` (SPIRV-Cross output of its SPIR-V,
-a review aid); a sync vendors them as well. Outputs of non-WGSL inputs are not
-vendored.
+The `spv-*` files in `out/{msl,hlsl,glsl,ir}/` are the goldens of the SPIR-V
+inputs. Upstream also writes `out/spv/*.spvasm.glsl` (SPIRV-Cross output of its
+SPIR-V, a review aid); a sync vendors them as well. Two kinds are not vendored:
+the SPIR-V backend's own output for an `spv` input (`out/spv/spv-*`, our own
+disassembly — the frontend reads the assembled binary) and the GLSL inputs
+(`in/glsl/`). The `.spvasm` inputs are assembled into `../rust-derived/spv/`.
 
 ## Provenance
 
-`MANIFEST.json` records the upstream commit. The current files predate the
-sync tool: they were imported from several upstream commits between 2026-02
-and 2026-04, and the manifest records no single commit. Each file's git blob id
-is listed, and every one of them exists in the upstream history, so the origin
-of every file can be traced with `git log --find-object=<gitBlob>` in a
-gfx-rs/wgpu clone. The license files are from 14328f49.
+`MANIFEST.json` records the upstream commit; a sync replaces the whole tree
+from that commit, and every file's SHA-256 and git blob id is listed. Any file
+can be traced with `git log --find-object=<gitBlob>` in a gfx-rs/wgpu clone.
 
 ## Updating
 

@@ -176,6 +176,19 @@ func TestRustReferenceInventory(t *testing.T) {
 		}
 	}
 
+	// SPIR-V input corpus: a vendored golden named spv-<name> belongs to the
+	// input in/spv/<name>.spvasm. No test compares them yet (that is the
+	// SPIR-V frontend, NAGA-FEAT-001), so they are allowed but not required;
+	// a golden whose input is missing is still a defect.
+	spvInputs, err := filepath.Glob(filepath.Join(rustCorpusDir, "in", "spv", "*.spvasm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spvNames := make([]string, 0, len(spvInputs))
+	for _, p := range spvInputs {
+		spvNames = append(spvNames, strings.TrimSuffix(filepath.Base(p), ".spvasm"))
+	}
+
 	present := map[location]bool{}
 	for _, tree := range []string{rustCorpusDir, rustDerivedDir} {
 		for _, kind := range []string{rustOutSPIRV, rustOutMSL, rustOutHLSL, rustOutGLSL, rustOutIR} {
@@ -213,6 +226,16 @@ func TestRustReferenceInventory(t *testing.T) {
 		required[p] = true
 	}
 	var problems []string
+	for loc := range present {
+		if loc.kind == rustOutSPIRV || !strings.HasPrefix(loc.file, "spv-") {
+			continue
+		}
+		if isSPVGolden(loc.file, spvNames) {
+			allowed[pathOf(loc)] = true
+		} else {
+			problems = append(problems, "unexpected "+pathOf(loc)+" (no in/spv input named after it)")
+		}
+	}
 	existing := map[string]bool{}
 	for loc := range present {
 		existing[pathOf(loc)] = true
@@ -235,6 +258,20 @@ func TestRustReferenceInventory(t *testing.T) {
 	for _, p := range problems {
 		t.Error(p)
 	}
+}
+
+// isSPVGolden reports whether the output file is named after a vendored
+// SPIR-V corpus input ("spv-<name>.<rest>").
+func isSPVGolden(file string, names []string) bool {
+	if !strings.HasPrefix(file, "spv-") {
+		return false
+	}
+	for _, name := range names {
+		if strings.HasPrefix(file, "spv-"+name+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // hasUnsupportedPrefix reports whether file belongs to an unsupported shader.

@@ -26,6 +26,7 @@ var licenseFiles = []string{"LICENSE.APACHE", "LICENSE.MIT"}
 
 const (
 	upstreamInWGSL = "naga/tests/in/wgsl/"
+	upstreamInSPV  = "naga/tests/in/spv/"
 	upstreamOut    = "naga/tests/out/"
 )
 
@@ -40,9 +41,26 @@ func vendoredPath(upstreamPath string) (string, bool) {
 	if rel, ok := strings.CutPrefix(upstreamPath, upstreamInWGSL); ok {
 		return "in/wgsl/" + rel, true
 	}
+	if rel, ok := strings.CutPrefix(upstreamPath, upstreamInSPV); ok {
+		// Only the assembly and its parameters: the directory also holds the
+		// .slang/.vert/.comp sources the assembly was produced from, which
+		// this corpus does not consume.
+		switch path.Ext(rel) {
+		case ".spvasm", ".toml":
+			return "in/spv/" + rel, true
+		}
+	}
 	for _, backend := range outputBackends {
 		rel, ok := strings.CutPrefix(upstreamPath, upstreamOut+backend+"/")
-		if ok && strings.HasPrefix(path.Base(rel), "wgsl-") {
+		if !ok {
+			continue
+		}
+		base := path.Base(rel)
+		// wgsl-* are the outputs of the WGSL inputs; spv-* are the goldens
+		// of the SPIR-V inputs. The SPIR-V backend's own output for an spv
+		// input (out/spv/spv-*) is not compared: the frontend reads the
+		// assembled binary, never our own disassembly.
+		if strings.HasPrefix(base, "wgsl-") || (backend != "spv" && strings.HasPrefix(base, "spv-")) {
 			return "out/" + backend + "/" + rel, true
 		}
 	}
@@ -108,7 +126,7 @@ func syncCorpus(upstreamDir, outDir string) (Report, error) {
 // readCorpus returns the selected files of HEAD keyed by vendored path. Every
 // blob is checked against its id, so the copy provably equals upstream.
 func readCorpus(repo gitRepo) (map[string][]byte, error) {
-	pathspecs := append([]string{upstreamInWGSL}, licenseFiles...)
+	pathspecs := append([]string{upstreamInWGSL, upstreamInSPV}, licenseFiles...)
 	for _, backend := range outputBackends {
 		pathspecs = append(pathspecs, upstreamOut+backend+"/")
 	}
@@ -155,12 +173,22 @@ func requireCorpusShape(files map[string][]byte) error {
 			return fmt.Errorf("upstream has no %s at the repository root", name)
 		}
 	}
-	for p := range files {
-		if strings.HasPrefix(p, "in/wgsl/") && strings.HasSuffix(p, ".wgsl") {
-			return nil
+	for _, want := range []struct{ dir, ext string }{
+		{"in/wgsl/", ".wgsl"},
+		{"in/spv/", ".spvasm"},
+	} {
+		found := false
+		for p := range files {
+			if strings.HasPrefix(p, want.dir) && strings.HasSuffix(p, want.ext) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("upstream has no %s inputs under %s", want.ext, want.dir)
 		}
 	}
-	return fmt.Errorf("upstream has no WGSL inputs under %s", upstreamInWGSL)
+	return nil
 }
 
 // checkOutputTree returns the current manifest of outDir (nil for a new or
