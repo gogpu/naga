@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 )
 
 // Shared type indices of builtinProbeTypes.
@@ -56,15 +57,12 @@ func builtinProbe(stage ir.ShaderStage, argType ir.TypeHandle, argBinding *ir.Bi
 	}
 	if resultType != 0 || resultBinding != nil {
 		fn.Result = &ir.FunctionResult{Type: resultType, Binding: resultBinding}
-		if resultBinding != nil {
-			// A zero value of the result type, so the writers have a return.
-			z := ir.ExpressionHandle(0)
-			fn.Expressions = []ir.Expression{{Kind: ir.ExprZeroValue{Type: resultType}}}
-			fn.Body = []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &z}},
-			}
-		}
+		// A zero value of the result type, so the module is valid IR and the
+		// only thing a backend can refuse is the built-in itself. The zero
+		// value is a pre-emit expression: it is in scope without an Emit.
+		z := ir.ExpressionHandle(0)
+		fn.Expressions = []ir.Expression{{Kind: ir.ExprZeroValue{Type: resultType}}}
+		fn.Body = []ir.Statement{{Kind: ir.StmtReturn{Value: &z}}}
 	}
 	return &ir.Module{
 		Types: builtinProbeTypes(),
@@ -106,6 +104,11 @@ func TestBackendBuiltinsAtCompile(t *testing.T) {
 	backends := compileBackends()
 
 	cull := builtinProbe(ir.StageVertex, 0, nil, tyVertexOut, nil, [3]uint32{})
+	// The probe must be valid IR once the capability is granted, so the
+	// refusals below prove the capability gate and nothing else.
+	if _, err := valid.Validate(cull, valid.Options{Capabilities: valid.CapAll}); err != nil {
+		t.Fatalf("the cull_distance probe is not valid IR: %v", err)
+	}
 	for _, bc := range backends {
 		t.Run(bc.name+"/cull_distance_gate", func(t *testing.T) {
 			err := bc.fn(cull)
@@ -159,6 +162,11 @@ func TestBackendBuiltinsAtCompile(t *testing.T) {
 		},
 	}
 	for _, probe := range probes {
+		// Each probe is valid IR with every capability on, so a backend's
+		// refusal names its own limit, not a defect of the probe.
+		if _, err := valid.Validate(probe.module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+			t.Fatalf("%s probe is not valid IR: %v", probe.name, err)
+		}
 		for _, bc := range backends {
 			t.Run(bc.name+"/"+probe.name, func(t *testing.T) {
 				want := probe.wantErr[bc.name]
