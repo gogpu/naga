@@ -39,9 +39,7 @@ func combinedSamplerModuleGroups(body ...[]uint32) [][]uint32 {
 		voidFunctionBody(),
 		instWords(spvenums.OpLabel, 2),
 	}
-	for _, instruction := range body {
-		groups = append(groups, instruction)
-	}
+	groups = append(groups, body...)
 	return append(groups,
 		instWords(spvenums.OpReturn),
 		instWords(spvenums.OpFunctionEnd),
@@ -60,11 +58,6 @@ var sampleCombined = [][]uint32{
 // of the same group; the load yields the pair, so the sample resolves.
 func TestCombinedSamplerSplit(t *testing.T) {
 	module, info, err := parseWords(t, Options{}, combinedSamplerModuleGroups(sampleCombined...)...)
-	if err != nil {
-		if pe, ok := err.(*Error); ok {
-			t.Logf("offset=%d", pe.Offset)
-		}
-	}
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}

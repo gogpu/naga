@@ -60,9 +60,7 @@ func imageModuleGroups(body ...[]uint32) [][]uint32 {
 		instWords(spvenums.OpLoad, 17, 31, 22),
 		instWords(spvenums.OpSampledImage, 18, 32, 30, 31),
 	}
-	for _, instruction := range body {
-		groups = append(groups, instruction)
-	}
+	groups = append(groups, body...)
 	groups = append(groups,
 		instWords(spvenums.OpReturn),
 		instWords(spvenums.OpFunctionEnd),

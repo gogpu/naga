@@ -33,9 +33,7 @@ func subgroupModuleGroups(body ...[]uint32) [][]uint32 {
 		voidFunctionBody(),
 		instWords(spvenums.OpLabel, 2),
 	}
-	for _, instruction := range body {
-		groups = append(groups, instruction)
-	}
+	groups = append(groups, body...)
 	return append(groups,
 		instWords(spvenums.OpReturn),
 		instWords(spvenums.OpFunctionEnd),
