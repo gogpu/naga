@@ -1656,6 +1656,8 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		return w.writeUnpack2x16unorm(e)
 	case ir.MathUnpack2x16float:
 		return w.writeUnpack2x16float(e)
+	case ir.MathAsinh, ir.MathAcosh, ir.MathAtanh:
+		return w.writeInverseHyperbolic(e)
 	}
 
 	// firstbithigh and firstbitlow return 0xFFFFFFFF for zero, so 31u minus
@@ -2091,6 +2093,33 @@ func (w *Writer) writeUnpack2x16float(e ir.ExprMath) error {
 	return nil
 }
 
+// writeInverseHyperbolic writes asinh, acosh and atanh, which HLSL lacks, as
+// their log forms, as Rust naga does (back/hlsl/writer.rs Function::Asincosh
+// and Function::Atanh). The argument appears more than once, so it is baked.
+func (w *Writer) writeInverseHyperbolic(e ir.ExprMath) error {
+	switch e.Fun {
+	case ir.MathAsinh:
+		return w.writeAroundArg(e.Arg, "log(", " + sqrt(", " * ", " + 1.0))")
+	case ir.MathAcosh:
+		return w.writeAroundArg(e.Arg, "log(", " + sqrt(", " * ", " - 1.0))")
+	default: // ir.MathAtanh
+		return w.writeAroundArg(e.Arg, "0.5 * log((1.0 + ", ") / (1.0 - ", "))")
+	}
+}
+
+// writeAroundArg writes parts with the argument expression between each pair
+// of consecutive parts: parts[0] arg parts[1] arg ... parts[n-1].
+func (w *Writer) writeAroundArg(arg ir.ExpressionHandle, parts ...string) error {
+	w.Out.WriteString(parts[0])
+	for _, part := range parts[1:] {
+		if err := w.writeExpression(arg); err != nil {
+			return err
+		}
+		w.Out.WriteString(part)
+	}
+	return nil
+}
+
 // mathFunctionToHLSL maps IR math functions to HLSL intrinsics.
 func mathFunctionToHLSL(fun ir.MathFunction) (string, error) {
 	switch fun {
@@ -2127,12 +2156,6 @@ func mathFunctionToHLSL(fun ir.MathFunction) (string, error) {
 		return "atan", nil
 	case ir.MathAtan2:
 		return "atan2", nil
-	case ir.MathAsinh:
-		return "asinh", nil // SM 6.0+ or emulated
-	case ir.MathAcosh:
-		return "acosh", nil // SM 6.0+ or emulated
-	case ir.MathAtanh:
-		return "atanh", nil // SM 6.0+ or emulated
 
 	// Angle conversion
 	case ir.MathRadians:
