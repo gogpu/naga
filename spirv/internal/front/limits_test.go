@@ -63,10 +63,23 @@ func TestStorageExpressionLimit(t *testing.T) {
 	})
 }
 
+// chainKind is the type typeChainModule wraps i32 in, level by level.
+type chainKind uint8
+
+const (
+	chainArrays chainKind = iota
+	chainStructs
+	chainPointers
+)
+
+// chainKindNames names each chainKind for subtest names.
+var chainKindNames = [...]string{chainArrays: "arrays", chainStructs: "structs", chainPointers: "pointers"}
+
 // typeChainModule assembles a module whose types nest levels deep: i32 (one
-// level) wrapped levels-1 times in a one-element array or a one-member struct,
-// then tail more constants, which a refusal at the chain must never read.
-func typeChainModule(levels int, structs bool, tail int) []byte {
+// level) wrapped levels-1 times in a one-element array, a one-member struct or
+// a Private pointer, then tail more constants, which a refusal at the chain
+// must never read.
+func typeChainModule(levels int, kind chainKind, tail int) []byte {
 	groups := [][]uint32{
 		headerWords(),
 		instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
@@ -78,10 +91,13 @@ func typeChainModule(levels int, structs bool, tail int) []byte {
 	id := uint32(10)
 	base := uint32(3)
 	for range levels - 1 {
-		if structs {
-			groups = append(groups, instWords(spvenums.OpTypeStruct, id, base))
-		} else {
+		switch kind {
+		case chainArrays:
 			groups = append(groups, instWords(spvenums.OpTypeArray, id, base, 5))
+		case chainStructs:
+			groups = append(groups, instWords(spvenums.OpTypeStruct, id, base))
+		case chainPointers:
+			groups = append(groups, instWords(spvenums.OpTypePointer, id, uint32(spvenums.StorageClassPrivate), base))
 		}
 		base = id
 		id++
@@ -97,23 +113,34 @@ func typeChainModule(levels int, structs bool, tail int) []byte {
 // recursive walk over the IR's types (the layouter, the validator, the
 // backends' type writers) is bounded. SPIR-V lets a chain of OpTypeArray or
 // OpTypeStruct grow with the module; Rust naga has no bound.
+//
+// A chain of OpTypePointer is one level per pointer as well. Rust naga's
+// frontend has no bound on it either; its validator rejects a pointer to a
+// pointer (InvalidPointerBase), ours does not yet, so a 20,000-pointer chain
+// once validated and took the MSL writer seconds (quadratic). The chain is
+// refused where it is declared.
 func TestTypeDepthLimit(t *testing.T) {
-	for _, structs := range []bool{false, true} {
-		name := map[bool]string{false: "arrays", true: "structs"}[structs]
+	for _, kind := range []chainKind{chainArrays, chainStructs, chainPointers} {
+		name := chainKindNames[kind]
 		t.Run(name+" at the limit", func(t *testing.T) {
-			module, _, err := Parse(typeChainModule(maxTypeDepth, structs, 0), Options{})
+			module, _, err := Parse(typeChainModule(maxTypeDepth, kind, 0), Options{})
 			if err != nil {
 				t.Fatalf("Parse at the limit: %v", err)
 			}
 			if len(module.Types) < maxTypeDepth {
 				t.Errorf("types = %d, want the whole chain", len(module.Types))
 			}
+			if kind == chainPointers {
+				// A pointer to a pointer is invalid IR (Rust's validator
+				// rejects it); only the depth is checked here.
+				return
+			}
 			if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Errorf("valid.Validate: %v", err)
 			}
 		})
 		t.Run(name+" over the limit", func(t *testing.T) {
-			_, _, err := Parse(typeChainModule(maxTypeDepth+1, structs, 0), Options{})
+			_, _, err := Parse(typeChainModule(maxTypeDepth+1, kind, 0), Options{})
 			if err == nil {
 				t.Fatal("Parse accepted a type nested over the limit")
 			}
@@ -129,24 +156,28 @@ func TestTypeDepthLimit(t *testing.T) {
 // refused where it is declared, so a module that goes on for a hundred times
 // longer allocates no more.
 func TestTypeDepthLimitCostIndependentOfInput(t *testing.T) {
-	measure := func(tail int) uint64 {
-		data := typeChainModule(maxTypeDepth+1, false, tail)
-		runtime.GC()
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		_, _, err := Parse(data, Options{})
-		runtime.ReadMemStats(&after)
-		if err == nil {
-			t.Fatalf("Parse with a tail of %d: expected the type depth limit", tail)
-		}
-		return after.TotalAlloc - before.TotalAlloc
-	}
-	small := measure(1000)
-	large := measure(100_000)
-	const noise = 1 << 20
-	if large > small+noise {
-		t.Fatalf("refusing with a tail of 100000 allocated %d bytes, with 1000 %d: the cost grows with the input",
-			large, small)
+	for _, kind := range []chainKind{chainArrays, chainPointers} {
+		t.Run(chainKindNames[kind], func(t *testing.T) {
+			measure := func(tail int) uint64 {
+				data := typeChainModule(maxTypeDepth+1, kind, tail)
+				runtime.GC()
+				var before, after runtime.MemStats
+				runtime.ReadMemStats(&before)
+				_, _, err := Parse(data, Options{})
+				runtime.ReadMemStats(&after)
+				if err == nil {
+					t.Fatalf("Parse with a tail of %d: expected the type depth limit", tail)
+				}
+				return after.TotalAlloc - before.TotalAlloc
+			}
+			small := measure(1000)
+			large := measure(100_000)
+			const noise = 1 << 20
+			if large > small+noise {
+				t.Fatalf("refusing with a tail of 100000 allocated %d bytes, with 1000 %d: the cost grows with the input",
+					large, small)
+			}
+		})
 	}
 }
 

@@ -379,8 +379,14 @@ func (p *parser) parseTypePointer(inst instruction) error {
 
 	lookup := base
 	if space != ir.SpaceHandle {
+		// A pointer is one level deeper than its base, so a chain of pointers
+		// is bounded like a chain of arrays.
+		pointer := ir.PointerType{Base: base.handle, Space: space}
+		if err := p.checkTypeDepth(pointer); err != nil {
+			return err
+		}
 		lookup = lookupType{
-			handle:  p.insertType(dec.name, ir.PointerType{Base: base.handle, Space: space}),
+			handle:  p.insertType(dec.name, pointer),
 			baseID:  typeID,
 			hasBase: true,
 		}
