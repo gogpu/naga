@@ -448,6 +448,236 @@ func TestControlFlowSwitchLiteralAtDefault(t *testing.T) {
 	}
 }
 
+// Labels and stores of the fall-through tests: the default target %102 stores
+// 1 (%26), case 5's target %103 stores 5 (%20), case 7's target %104 stores
+// -1 (%23); the switch merge is %110.
+const (
+	ftDefault uint32 = 102
+	ftCase5   uint32 = 103
+	ftCase7   uint32 = 104
+	ftMerge   uint32 = 110
+)
+
+// ftBlock is a case block that stores value into %60 and branches to next.
+func ftBlock(label, value, next uint32) [][]uint32 {
+	return [][]uint32{
+		instWords(spvenums.OpLabel, label),
+		instWords(spvenums.OpStore, 60, value),
+		instWords(spvenums.OpBranch, next),
+	}
+}
+
+// ftBody is the function body of a fall-through test: a variable %60, the
+// switch on %20 with the given case operands (default %102), the case blocks,
+// and the merge block.
+func ftBody(caseOps []uint32, blocks ...[][]uint32) [][]uint32 {
+	body := [][]uint32{
+		instWords(spvenums.OpVariable, 11, 60, fnSpace),
+		instWords(spvenums.OpSelectionMerge, ftMerge, 0),
+		instWords(spvenums.OpSwitch, append([]uint32{20, ftDefault}, caseOps...)...),
+	}
+	for _, b := range blocks {
+		body = append(body, b...)
+	}
+	return append(body, instWords(spvenums.OpLabel, ftMerge))
+}
+
+// TestControlFlowSwitchNonEmptyFallThrough: SPIR-V case constructs that branch
+// into another case construct, with statements on the way. The IR expresses
+// fall-through only into the next case, so the cases are ordered by their
+// fall-through edges: a default that falls into a case sits directly before
+// it (not last), a case that falls into the default directly before the
+// default. Each test runs the lowered switch per selector value.
+//
+// Deviation from Rust naga: it keeps the default last with no fall-through
+// and never reorders (next_block.rs:2128-2240), so a default that branches
+// into a case loses that case's statements, and a case that branches into the
+// default falls into whatever case follows it instead.
+func TestControlFlowSwitchNonEmptyFallThrough(t *testing.T) {
+	type run struct {
+		selector int32
+		want     []int32
+	}
+	cases := []struct {
+		name string
+		body [][]uint32
+		runs []run
+	}{
+		{
+			name: "default falls into case",
+			body: ftBody([]uint32{5, ftCase5},
+				ftBlock(ftDefault, 26, ftCase5),
+				ftBlock(ftCase5, 20, ftMerge)),
+			runs: []run{{5, []int32{5}}, {9, []int32{1, 5}}},
+		},
+		{
+			name: "default falls into a case that is not the first literal",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftDefault, 26, ftCase7),
+				ftBlock(ftCase5, 20, ftMerge),
+				ftBlock(ftCase7, 23, ftMerge)),
+			runs: []run{{5, []int32{5}}, {7, []int32{-1}}, {9, []int32{1, -1}}},
+		},
+		{
+			name: "case falls into default",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftCase5, 20, ftDefault),
+				ftBlock(ftDefault, 26, ftMerge),
+				ftBlock(ftCase7, 23, ftMerge)),
+			runs: []run{{5, []int32{5, 1}}, {7, []int32{-1}}, {9, []int32{1}}},
+		},
+		{
+			name: "case falls into default, which falls into a case",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftCase5, 20, ftDefault),
+				ftBlock(ftDefault, 26, ftCase7),
+				ftBlock(ftCase7, 23, ftMerge)),
+			runs: []run{{5, []int32{5, 1, -1}}, {7, []int32{-1}}, {9, []int32{1, -1}}},
+		},
+		{
+			name: "case falls into the next case",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftCase5, 20, ftCase7),
+				ftBlock(ftCase7, 23, ftMerge),
+				ftBlock(ftDefault, 26, ftMerge)),
+			runs: []run{{5, []int32{5, -1}}, {7, []int32{-1}}, {9, []int32{1}}},
+		},
+		{
+			name: "literal at the default target and a case falling into the default",
+			body: ftBody([]uint32{3, ftDefault, 5, ftCase5},
+				ftBlock(ftCase5, 20, ftDefault),
+				ftBlock(ftDefault, 26, ftMerge)),
+			runs: []run{{3, []int32{1}}, {5, []int32{5, 1}}, {9, []int32{1}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			module, _, err := Parse(newBodyModule().build(tc.body...), Options{})
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			fn := &module.Functions[0]
+			sw := stripEmits(fn.Body)[0].Kind.(ir.StmtSwitch)
+			if last := sw.Cases[len(sw.Cases)-1]; last.FallThrough {
+				t.Errorf("last case falls through (switch %s)", shape(fn.Body))
+			}
+			for _, r := range tc.runs {
+				if got := switchStores(t, module, fn, sw, r.selector); !slices.Equal(got, r.want) {
+					t.Errorf("selector %d stores %v, want %v (switch %s)", r.selector, got, r.want, shape(fn.Body))
+				}
+			}
+		})
+	}
+}
+
+// TestControlFlowSwitchConditionalFallThrough: a case construct whose
+// OpBranchConditional goes either to the next case or to the switch merge
+// (valid SPIR-V, spirv-val accepts it). The arm into the next case stays
+// empty and the case falls through; the other arm is a Break. Deviation from
+// Rust naga: its If arm takes the next case's block (next_block.rs
+// OpBranchConditional), so that case's own body is empty and selector 7 runs
+// nothing.
+func TestControlFlowSwitchConditionalFallThrough(t *testing.T) {
+	module, _, err := Parse(newBodyModule().build(ftBody([]uint32{5, ftCase5, 7, ftCase7},
+		[][]uint32{
+			instWords(spvenums.OpLabel, ftCase5),
+			instWords(spvenums.OpStore, 60, 20),
+			instWords(spvenums.OpBranchConditional, 24, ftCase7, ftMerge),
+		},
+		ftBlock(ftCase7, 23, ftMerge),
+		ftBlock(ftDefault, 26, ftMerge))...), Options{})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	fn := &module.Functions[0]
+	want := "switch{5+:{store;if{}else{break}} 7:{store;break} default:{store;break}};return"
+	if got := shape(fn.Body); got != want {
+		t.Errorf("shape = %s, want %s", got, want)
+	}
+	sw := stripEmits(fn.Body)[0].Kind.(ir.StmtSwitch)
+	if got := switchStores(t, module, fn, sw, 7); !slices.Equal(got, []int32{-1}) {
+		t.Errorf("selector 7 stores %v, want [-1]", got)
+	}
+}
+
+// TestControlFlowSwitchFallThroughRefused: fall-through shapes the IR cannot
+// express by case order are refused instead of miscompiled. spirv-val rejects
+// each of them too (multiple case constructs branching to one; a back edge to
+// a case that is not a loop header; a nested selection exiting to a case; a
+// switch whose default is the loop's continue target). Rust naga accepts them
+// and loses or misplaces case bodies.
+func TestControlFlowSwitchFallThroughRefused(t *testing.T) {
+	cases := []struct {
+		name string
+		body [][]uint32
+		want string
+	}{
+		{
+			name: "two cases fall into one",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftCase5, 20, ftCase7),
+				ftBlock(ftDefault, 26, ftCase7),
+				ftBlock(ftCase7, 23, ftMerge)),
+			want: "more than one switch case falls through into %104, which is not supported",
+		},
+		{
+			name: "cycle",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				ftBlock(ftCase5, 20, ftCase7),
+				ftBlock(ftCase7, 23, ftCase5),
+				ftBlock(ftDefault, 26, ftMerge)),
+			want: "the fall-through of switch case %103 forms a cycle, which is not supported",
+		},
+		{
+			name: "fall-through from a nested selection",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				[][]uint32{
+					instWords(spvenums.OpLabel, ftCase5),
+					instWords(spvenums.OpSelectionMerge, 105, 0),
+					instWords(spvenums.OpBranchConditional, 24, 106, 105),
+					instWords(spvenums.OpLabel, 106),
+					instWords(spvenums.OpBranch, ftCase7),
+					instWords(spvenums.OpLabel, 105),
+					instWords(spvenums.OpBranch, ftMerge),
+				},
+				ftBlock(ftCase7, 23, ftMerge),
+				ftBlock(ftDefault, 26, ftMerge)),
+			want: "a branch into switch case %104 from outside a case construct of its switch is not supported",
+		},
+		{
+			name: "conditional branch into two cases",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				[][]uint32{
+					instWords(spvenums.OpLabel, ftDefault),
+					instWords(spvenums.OpBranchConditional, 24, ftCase5, ftCase7),
+				},
+				ftBlock(ftCase5, 20, ftMerge),
+				ftBlock(ftCase7, 23, ftMerge)),
+			want: "a conditional branch into two switch cases %103 and %104 is not supported",
+		},
+		{
+			name: "default at the loop's continue target",
+			body: switchInLoop(103, []uint32{5, 107},
+				instWords(spvenums.OpLabel, 107),
+				instWords(spvenums.OpBranch, 106)),
+			want: "a switch default at the enclosing loop's continue target %103 is not supported",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := newBodyModule().parseError(t, tc.body...).Message; got != tc.want {
+				t.Errorf("message = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // switchInLoop builds a loop (header 102, merge 104, continue target 103)
 // whose body is a switch on %20 with merge 106; caseOps are the switch's case
 // operands and caseBlocks the blocks after it, before the switch merge.

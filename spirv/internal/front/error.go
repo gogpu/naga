@@ -186,6 +186,30 @@ var errNestingTooDeep = &Error{Message: fmt.Sprintf("control flow is nested deep
 // never exits.
 var errSwitchExitsLoop = &Error{Message: "a switch case that exits the enclosing loop is not supported"}
 
+// The switch fall-through errors refuse shapes the IR cannot express by case
+// order. spirv-val rejects each of them as well; Rust naga accepts them and
+// loses or misplaces case bodies.
+
+func errMultipleFallThrough(target uint32) *Error {
+	return &Error{Message: fmt.Sprintf("more than one switch case falls through into %%%d, which is not supported", target)}
+}
+
+func errFallThroughCycle(target uint32) *Error {
+	return &Error{Message: fmt.Sprintf("the fall-through of switch case %%%d forms a cycle, which is not supported", target)}
+}
+
+func errFallThroughFromOutside(target uint32) *Error {
+	return &Error{Message: fmt.Sprintf("a branch into switch case %%%d from outside a case construct of its switch is not supported", target)}
+}
+
+func errFallThroughIntoTwoCases(first, second uint32) *Error {
+	return &Error{Message: fmt.Sprintf("a conditional branch into two switch cases %%%d and %%%d is not supported", first, second)}
+}
+
+func errSwitchDefaultAtContinue(target uint32) *Error {
+	return &Error{Message: fmt.Sprintf("a switch default at the enclosing loop's continue target %%%d is not supported", target)}
+}
+
 // errLoopMergeBeforeContinue is valid SPIR-V too: a loop whose merge block
 // comes before its continue construct, which then ends in a conditional back
 // edge. Rust naga fails on it as well, in its validator.
