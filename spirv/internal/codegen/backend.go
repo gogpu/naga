@@ -3859,6 +3859,14 @@ type ExpressionEmitter struct {
 	// Passed by value to ensure nested loops get isolated copies.
 	loopCtx LoopContext
 
+	// switchMergeID is the merge label of the innermost switch being emitted
+	// (0 outside a switch), and switchMergeReached records whether a break
+	// has branched to it. A break in a switch case leaves only that switch,
+	// so its merge block is reachable and the statements after the switch
+	// run; Rust naga always continues writing in the merge block.
+	switchMergeID      uint32
+	switchMergeReached bool
+
 	// Cached call result IDs (set by emitCall, read by ExprCallResult)
 	callResultIDs map[ir.ExpressionHandle]uint32
 
@@ -6604,6 +6612,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		if e.loopCtx.BreakID == 0 {
 			return fmt.Errorf("break statement outside of loop or switch")
 		}
+		if e.loopCtx.BreakID == e.switchMergeID {
+			e.switchMergeReached = true
+		}
 		e.consumeBlock(makeBranchInstruction(e.loopCtx.BreakID))
 		return nil
 
@@ -7247,8 +7258,13 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 	// Save outer break target and set new one for this switch
 	outerLoopCtx := e.loopCtx
 	e.loopCtx.BreakID = mergeLabel
+	outerSwitchMergeID, outerSwitchMergeReached := e.switchMergeID, e.switchMergeReached
+	e.switchMergeID, e.switchMergeReached = mergeLabel, false
 
-	// Emit each case block
+	// Emit each case block. The merge block is reachable when a case falls
+	// off its end or breaks (Rust: back/spv/block.rs, Statement::Switch,
+	// which always continues in the merge block). Only when every case
+	// leaves through another construct (continue, return, kill) is it dead.
 	allCasesTerminated := true
 	for i, c := range stmt.Cases {
 		caseBlock := NewBlock(caseLabels[i])
@@ -7273,15 +7289,17 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 		}
 	}
 
-	// Restore outer loop context
+	// Restore outer loop and switch context
 	e.loopCtx = outerLoopCtx
+	mergeReachedByBreak := e.switchMergeReached
+	e.switchMergeID, e.switchMergeReached = outerSwitchMergeID, outerSwitchMergeReached
 
 	// Merge block
 	mergeBlock := NewBlock(mergeLabel)
 	e.setCurrentBlock(&mergeBlock)
 
-	// If all cases terminated, merge block is unreachable
-	if allCasesTerminated {
+	// If no case reaches the merge block, it is unreachable.
+	if allCasesTerminated && !mergeReachedByBreak {
 		e.consumeBlock(Instruction{Opcode: spvenums.OpUnreachable})
 	}
 

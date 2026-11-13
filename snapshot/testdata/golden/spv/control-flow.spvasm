@@ -139,7 +139,7 @@
          %_57 = OpLabel
                OpBranch %_56
          %_56 = OpLabel
-               OpUnreachable
+               OpReturn
                OpFunctionEnd
          %_58 = OpFunction %_2 None %_4
          %_59 = OpLabel
