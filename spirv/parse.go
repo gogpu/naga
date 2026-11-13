@@ -23,17 +23,16 @@ type ParseOptions struct {
 	// still be refused by valid.Validate unless the device supports them.
 	AllowUnknownCapabilities bool
 
-	// CombinedImageSampler selects the treatment of combined image samplers.
-	// The zero value splits them into an image and a sampler. The split
-	// itself lands with the image and sampling support (§12 of the design,
-	// phase 4): until then a module that declares a combined image sampler is
-	// refused with a *ParseError naming it, never read with the wrong shape.
+	// CombinedImageSampler selects the treatment of combined image samplers,
+	// the form glslc emits for `uniform sampler2D`. The zero value splits
+	// each such variable into an image global on its declared binding and a
+	// sampler global on a binding of its own (design §12);
+	// CombinedImageSamplerReject refuses the module, as Rust naga does.
 	CombinedImageSampler frontend.CombinedImageSamplerPolicy
 
 	// SamplerBindings places the sampler of each split combined image
 	// sampler; see frontend.SamplerBindings for the per-module resolution and
-	// the multi-module caveat. Ignored with CombinedImageSamplerReject, and
-	// inert until the split lands.
+	// the multi-module caveat. Ignored with CombinedImageSamplerReject.
 	SamplerBindings frontend.SamplerBindings
 }
 
@@ -46,7 +45,6 @@ type ParseInfo struct {
 
 	// CombinedSamplers lists the splits the parse applied, in source order. A
 	// caller that binds descriptors needs it to know where each sampler went.
-	// Empty until the split lands.
 	CombinedSamplers []frontend.CombinedSampler
 }
 

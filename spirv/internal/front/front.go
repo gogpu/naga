@@ -143,6 +143,10 @@ type parser struct {
 	// storageExpressions counts the global and constant expressions every
 	// function parsed so far got, bounded by maxStorageExpressions.
 	storageExpressions int
+	// compositeInsertExpressions counts the expressions OpCompositeInsert has
+	// built for the whole module so far, bounded by
+	// maxCompositeInsertExpressions.
+	compositeInsertExpressions int
 
 	// entryPoints holds the OpEntryPoint declarations by function id.
 	entryPoints map[uint32]*entryPointInfo
@@ -272,9 +276,18 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		}
 	}
 
+	// A sampled image or sampler passed to a helper decides how the caller's
+	// global is sampled: the flags travel back over the call graph now that
+	// every call target is known.
+	if err := p.propagateParameterSampling(); err != nil {
+		return nil, Info{}, err
+	}
+
 	// The sampler of every combined image sampler gets its binding now that
 	// every global of the module is known.
-	p.resolveCombinedSamplerBindings()
+	if err := p.resolveCombinedSamplerBindings(); err != nil {
+		return nil, Info{}, err
+	}
 
 	// The atomics the module accessed get their Atomic types before the
 	// wrappers are built, as Rust naga's parse does.

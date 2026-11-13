@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`spirv.Parse` reads images, sampling, atomics, subgroups and combined image samplers** (NAGA-FEAT-001,
+  Phase 3): `OpTypeImage`/`OpTypeSampler`/`OpTypeSampledImage` uses, the whole `OpImageSample*` family
+  (projection, depth reference, gather, bias, level, gradient and constant offset), `OpImageFetch`,
+  `OpImageRead`, `OpImageWrite`, the `OpImageQuery*` family, and sampling through a binding array; atomics on
+  plain integers, with Rust naga's atomic type upgrade — the globals and struct fields an atomic instruction
+  reaches get an `Atomic` leaf type after parsing, and compare-exchange builds the predeclared
+  `__atomic_compare_exchange_result<T>`; the `GroupNonUniform*` ballot, reduction, scan, broadcast, shuffle and
+  quad-swap operations; and the combined image sampler glslc emits, `ParseOptions.CombinedImageSampler` and
+  `ParseOptions.SamplerBindings` deciding how a variable of that type splits into an image and a sampler global
+  (design §12), with `ParseInfo.CombinedSamplers` reporting each split. A sampler or image used only for
+  comparison sampling gets the depth-comparison type, one used both ways is refused; a texture or sampler
+  passed to a helper function carries its sampling there and back to the caller's global, as Rust naga's
+  `parameter_sampling` does. All 33 modules of the Rust SPIR-V corpus now parse into IR that validates; the
+  WGSL corpus round trip through our own SPIR-V writer rises to 132 of 172 shaders. Where Rust naga builds IR its own typifier rejects, this frontend does not: an
+  `OpImageQuerySize` on an arrayed image recomposes the extended size SPIR-V asks for, a gather on a depth image
+  is not splatted, and a texture coordinate of neither scalar nor vector type is an error rather than a panic;
+  `OpCompositeInsert` is bounded (the IR rebuilds the composite, and a nested insert over a large one would
+  otherwise build an IR far larger than the module).
+- **Text reference for the SPIR-V corpus**: `TestSPVTextReference` writes MSL and HLSL for every module of the
+  Rust SPIR-V corpus and compares with Rust naga's goldens — 12 of 16 byte-identical after normalizing the
+  `_eN` expression names, which follow the frontend's expression arena; the 4 that differ do so for one recorded
+  reason (card P3-IR-033). Running the pinned Rust binary as the oracle reproduces the goldens byte for byte.
 - **`spirv.Parse` reads structured control flow, phis and function calls** (NAGA-FEAT-001, Phase 2):
   `OpSelectionMerge`, `OpLoopMerge`, `OpBranch`, `OpBranchConditional` and `OpSwitch` become `If`, `Loop` (with
   `break if` where the back edge is conditional), `Switch`, `Break` and `Continue`; `OpPhi` becomes a local
@@ -39,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MSL and HLSL: output for SPIR-V input now matches Rust naga's, found by the new text reference.** MSL wrote a
+  barrier's memory-space calls in its own order where Rust writes storage, workgroup, subgroup, texture (visible
+  only when one barrier names several memories, which WGSL never produces); MSL wrote an entry point's input
+  aliases before the private globals and local variables, where Rust writes private globals, aliases, locals;
+  both namers called an anonymous entry point result struct `type_N` instead of Rust's
+  `VertexOutput`/`FragmentOutput`/`ComputeOutput`; the HLSL namer numbered anonymous types and named unnamed
+  functions and globals by handle (`type_4`, `function_0_`, `global_0_`) where Rust numbers them by naming order
+  and falls back to `type`/`function`/`global`; a subgroup compute entry point's `SV_GroupIndex` member was
+  hardcoded `__local_invocation_index` instead of the namer's name; the HLSL writer appended a `return;` to a
+  void function whose IR has none, and left a blank line where a module has no named constants. WGSL output
+  changes in two places, both now matching Rust: an entry point that has private globals and varying inputs
+  declares the private globals before the input aliases, and the subgroup member is named by the namer.
 - **MSL and HLSL: a fall-through switch case with statements keeps them.** MSL wrote only the label of such a
   case and dropped its body; HLSL wrote C fall-through, which FXC does not support. Both now match Rust naga: MSL
   writes the body in braces without `break`, HLSL writes the case's body followed by the bodies of every case it

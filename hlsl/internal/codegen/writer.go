@@ -64,6 +64,11 @@ type entryPointBinding struct {
 	tyName  string
 	argName string
 	members []epStructMember
+	// localInvocationIndexName is the namer's name for this entry point's
+	// synthetic SV_GroupIndex member, set when its interface struct is
+	// written: each entry point has its own, because the namer numbers the
+	// second one (Rust naga names it per interface struct too).
+	localInvocationIndexName string
 }
 
 // epStructMember represents a flattened member of an EP I/O struct.
@@ -174,11 +179,6 @@ type Writer struct {
 	rayDescHelperWritten               bool
 	committedIntersectionHelperWritten bool
 	candidateIntersectionHelperWritten bool
-
-	// localInvocationIndexName is the namer's name for the synthetic
-	// SV_GroupIndex member a subgroup compute entry point carries, as Rust
-	// naga names it (back/hlsl/writer.rs, namer.call("local_invocation_index")).
-	localInvocationIndexName string
 
 	// Continue forwarding context for switch-in-loop workaround.
 	// Matches Rust naga's ContinueCtx.
@@ -2520,34 +2520,5 @@ func (w *Writer) writeEntryPoints() error {
 }
 
 // Output helpers
-
-// hlslBlockEndsWithReturn checks if a block's last statement terminates
-// all control flow paths with a return (or other terminator like kill).
-// Matches Rust naga behavior: Switch/If that terminate all paths count.
-func hlslBlockEndsWithReturn(block ir.Block) bool {
-	if len(block) == 0 {
-		return false
-	}
-	last := block[len(block)-1]
-	switch s := last.Kind.(type) {
-	case ir.StmtReturn, ir.StmtKill:
-		return true
-	case ir.StmtIf:
-		return hlslBlockEndsWithReturn(s.Accept) && hlslBlockEndsWithReturn(s.Reject)
-	case ir.StmtSwitch:
-		for i := range s.Cases {
-			if !s.Cases[i].FallThrough {
-				if !hlslBlockEndsWithReturn(s.Cases[i].Body) {
-					return false
-				}
-			}
-		}
-		return len(s.Cases) > 0 // at least one non-fall-through case returns
-	case ir.StmtBlock:
-		return hlslBlockEndsWithReturn(s.Block)
-	default:
-		return false
-	}
-}
 
 // NOTE: getTypeName, typeToHLSL, float32FromBits are implemented in types.go

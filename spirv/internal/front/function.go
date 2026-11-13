@@ -110,6 +110,7 @@ func (p *parser) parseFunction() error {
 		handle := appendExpression(&fn, ir.ExprFunctionArgument{Index: uint32(i)})
 		p.lookupExpression[param.id] = lookupExpression{handle: handle, typeID: param.typeID}
 	}
+	fs.parameterSampling = make([]samplingFlags, len(fn.Arguments))
 
 	// The function's blocks: OpLabel starts one, OpFunctionEnd closes the
 	// function.
@@ -187,7 +188,7 @@ parameters:
 
 	handle := ir.FunctionHandle(len(p.module.Functions))
 	p.module.Functions = append(p.module.Functions, fn)
-	p.lookupFunction[funID] = lookupFunction{handle: handle, typeID: funTypeID}
+	p.lookupFunction[funID] = lookupFunction{handle: handle, typeID: funTypeID, parameterSampling: fs.parameterSampling}
 	if _, ok := p.entryPoints[funID]; ok {
 		p.deferredEntryPoints = append(p.deferredEntryPoints, funID)
 	}
@@ -1022,8 +1023,7 @@ func (p *parser) compositeInsert(inst instruction, fs *functionState, consumer *
 	if err != nil {
 		return err
 	}
-	budget := maxCompositeInsertExpressions
-	handle, err := p.insertComposite(fs, root, resultTypeID, object, selections, &budget)
+	handle, err := p.insertComposite(fs, root, resultTypeID, object, selections)
 	if err != nil {
 		return err
 	}
@@ -1034,7 +1034,7 @@ func (p *parser) compositeInsert(inst instruction, fs *functionState, consumer *
 // insertComposite returns the composite root with object placed at the path
 // selections. Every level rebuilds its composite from its components, which is
 // what the IR has instead of an insert.
-func (p *parser) insertComposite(fs *functionState, root ir.ExpressionHandle, rootTypeID uint32, object ir.ExpressionHandle, selections []uint32, budget *int) (ir.ExpressionHandle, error) {
+func (p *parser) insertComposite(fs *functionState, root ir.ExpressionHandle, rootTypeID uint32, object ir.ExpressionHandle, selections []uint32) (ir.ExpressionHandle, error) {
 	if len(selections) == 0 {
 		return object, nil
 	}
@@ -1079,10 +1079,11 @@ func (p *parser) insertComposite(fs *functionState, root ir.ExpressionHandle, ro
 		return 0, errInvalidAccessType(rootTypeID)
 	}
 	// Untrusted input must not amplify: Rust naga rebuilds composites without
-	// a bound, and a nested insert of a large composite would otherwise be
-	// quadratic in the instruction count.
-	*budget -= count
-	if *budget < 0 {
+	// a bound, so every insert into a large composite costs its whole size.
+	// The budget is the module's, not the instruction's: many inserts into one
+	// shared composite would otherwise multiply.
+	p.compositeInsertExpressions += count
+	if p.compositeInsertExpressions > maxCompositeInsertExpressions {
 		return 0, errTooManyCompositeInsertComponents
 	}
 	if int(selection) >= count {
@@ -1092,7 +1093,7 @@ func (p *parser) insertComposite(fs *functionState, root ir.ExpressionHandle, ro
 	for index := range count {
 		components[index] = appendExpression(fs.fn, ir.ExprAccessIndex{Base: root, Index: uint32(index)})
 	}
-	element, err := p.insertComposite(fs, components[selection], childTypeID, object, selections[1:], budget)
+	element, err := p.insertComposite(fs, components[selection], childTypeID, object, selections[1:])
 	if err != nil {
 		return 0, err
 	}

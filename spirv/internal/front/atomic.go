@@ -366,7 +366,9 @@ func (p *parser) atomicCompareExchange(inst instruction, fs *functionState, cons
 	if err != nil {
 		return err
 	}
-	value, err := p.lookupExpr(valueID)
+	// Both operands go through get_expr_handle: Rust naga spills a value
+	// defined in a block that does not dominate this one.
+	value, err := p.handleOf(valueID, fs, consumer, block, bodyIdx)
 	if err != nil {
 		return err
 	}
@@ -388,7 +390,7 @@ func (p *parser) atomicCompareExchange(inst instruction, fs *functionState, cons
 	*block = append(*block, ir.Statement{Kind: ir.StmtAtomic{
 		Pointer: pointer,
 		Fun:     ir.AtomicExchange{Compare: &comparator},
-		Value:   value.handle,
+		Value:   value,
 		Result:  &result,
 	}})
 	_, err = p.recordAtomicAccess(fs, pointer)

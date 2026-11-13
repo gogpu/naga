@@ -41,6 +41,11 @@ type functionState struct {
 	// image sampler variable of the function, by the image global's handle: a
 	// load of the variable yields the pair.
 	combinedSamplerExpr map[ir.GlobalVariableHandle]ir.ExpressionHandle
+	// parameterSampling is how this function's arguments are sampled (Rust
+	// naga's parameter_sampling): an image or sampler passed as an argument is
+	// sampled through the caller's globals, so the flags travel back to them
+	// once every function is parsed.
+	parameterSampling []samplingFlags
 }
 
 // mergeBlockInformation is what a branch to a merge block or a continue
