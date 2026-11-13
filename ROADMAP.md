@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.21.10** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.21.11** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,9 +32,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.18.0)
+## Where We Are (v0.21.11)
 
-**~323K LOC, 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
+**~317K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
 172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
 
 | Backend | Rust comparison | Validation | Status |
@@ -96,6 +96,16 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | Shared optimization passes | P3 | DXIL-only now | Lift DCE/SROA/mem2reg to IR level for all backends |
 | Documentation finalization | P1 | In Progress | ARCHITECTURE.md, CONTRIBUTING.md and the migration table updated for v0.21.0; `go doc` audit next |
 
+### Input Frontends (in the v1.0 scope)
+
+**Goal: any input, any output — the frontends share one IR and one combined-sampler / binding model.**
+
+| Frontend | Priority | Status | Description |
+|----------|----------|--------|-------------|
+| SPIR-V input | P1 | Phase 1 in v0.21.11 | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, straight-line bodies, entry-point wrappers. Phases 2-4: structured control flow and calls, images and atomics, the combined image sampler split. Ported from Rust naga's `front/spv` |
+| GLSL input | P2 | Planned | Vulkan GLSL 440/450/460 and GL 3.30 / ES 3.00 with combined samplers (NAGA-FEAT-002) |
+| Slang input | P2 | Planned | HLSL subset ("HLSL with import"), a native Pure Go parser, no slangc dependency |
+
 ### v1.0.0 Release (December 2026)
 
 **Goal: stable, documented, 80%+ tested, production-proven shader compiler.**
@@ -119,9 +129,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Frontend | Priority | Description |
 |----------|----------|-------------|
-| **SPIR-V input** | Medium | SPIR-V → IR decompiler. Enables roundtrip testing and SPIR-V → MSL/GLSL/HLSL cross-compilation |
-| **GLSL input** | Low | GLSL → IR parser. Legacy OpenGL shader migration to modern backends |
 | **WGSL output** | Medium | IR → WGSL printer. Roundtrip testing, shader formatting/normalization |
+
+The SPIR-V and GLSL input frontends are in the v1.0 scope: see "Input frontends" above.
 
 ### Tooling & Developer Experience
 

@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Pure Go Shader Compiler</strong><br>
-  WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.
+  WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL; SPIR-V binaries into IR. Zero CGO.
 </p>
 
 <p align="center">
@@ -28,14 +28,14 @@
 
 ## Overview
 
-**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies.
+**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies, and reads SPIR-V binaries into its IR (`spirv.Parse`, the first phase of the SPIR-V input frontend).
 
 ### Key Features
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 185 of 199 corpus shaders pass IDxcValidator (experimental) |
+| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` (first phase: types, constants, bindings, straight-line bodies) |
+| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 238 of 267 entry points pass IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
 | **Compatibility** | Tested against Rust naga's WGSL snapshot corpus (172 shaders, gfx-rs/wgpu 14328f49): every output is compared, and each known difference is recorded with its reason — see [Rust Naga Compatibility](#rust-naga-compatibility) |
@@ -220,10 +220,11 @@ wrapping `ir.ErrUnresolvedOverride`.
 naga/
 ├── naga.go, overrides.go, compact.go   # Compile, CompileWithOptions, ProcessOverrides, Compact
 ├── wgsl/        # WGSL frontend: Parse → *ir.Module (lexer, parser, lowerer in wgsl/internal)
+├── spirv/       # SPIR-V backend (Vulkan) and input: Parse reads a binary into IR (frontend in spirv/internal/front)
+├── frontend/    # types the input frontends share: Diagnostic, Label, combined image sampler vocabulary
 ├── ir/          # the IR data model (Rust naga's naga::ir): Module, types, expressions, statements, Layouter
 ├── valid/       # validation (Rust naga's valid): Validate, Options, ModuleInfo, Capabilities
 ├── backend/     # what every backend shares: bounds-check policies, entry point selector, shader model, errors
-├── spirv/       # SPIR-V backend (Vulkan)
 ├── msl/         # Metal Shading Language backend
 ├── glsl/        # GLSL backend (OpenGL 3.3+, OpenGL ES 3.0+)
 ├── hlsl/        # HLSL backend (Direct3D through FXC or DXC)

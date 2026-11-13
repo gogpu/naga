@@ -61,6 +61,9 @@ dependencies.
 ```
 naga/
 ├── naga.go, overrides.go, compact.go  # Public API: Compile, CompileWithOptions, ProcessOverrides, Compact
+├── frontend/                      # Types the input frontends share: Diagnostic, Label, the combined image
+│                                  # sampler vocabulary (policy, SamplerBindings, CombinedSampler)
+│
 ├── wgsl/                          # WGSL frontend
 │   ├── wgsl.go                    # Public API: Parse, ParseOptions, ParseInfo, ParseError
 │   └── internal/
@@ -93,9 +96,13 @@ naga/
 │   ├── dxcvalidator/              # IDxcValidator through dxil.dll (Windows, tests and cmd/dxilval)
 │   └── readback/, testcorpus/, testtools/  # GPU readback corpus reader, test-data provenance, external-tool policy
 │
-├── spirv/                         # SPIR-V backend
-│   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo, SupportedCapabilities
-│   └── internal/codegen/          # ALL implementation
+├── spirv/                         # SPIR-V backend and input
+│   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo,
+│   │                              # SupportedCapabilities; Parse, ParseOptions, ParseInfo, ParseError
+│   ├── internal/codegen/          # Backend implementation
+│   └── internal/front/            # SPIR-V input frontend (Phase 1: types, constants, decorations, globals,
+│                                  # straight-line bodies, entry-point wrappers); limits in limits.go
+│
 │
 ├── msl/                           # MSL backend
 │   ├── msl.go                     # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
@@ -132,6 +139,10 @@ naga/
 ```
 
 ## Compilation Pipeline
+
+The stages below are the WGSL path. The SPIR-V input path (`spirv.Parse`) replaces stages 1-3: it reads the
+binary sections and builds the same IR directly, including Rust naga's entry-point wrapper (inputs copied from
+arguments, outputs loaded and returned, built-in outputs defaulted).
 
 ### Stage 1: Lexer
 
@@ -486,7 +497,7 @@ and eliminates redundant type definitions across all backends.
 | **Determinism** | every shader × backend | Each backend compiles every corpus and gg shader several times to the same bytes |
 | **DXIL** | corpus + gg | IDxcValidator, DXC roundtrip parity (`dxil-dxc` goldens) |
 | **GPU readback** | corpus in `testdata/readback` | WGSL cases with expected values, run by gogpu/wgpu on Vulkan, DX12 (FXC and DXIL), GLES and software |
-| **Unit and package tests** | ~4,100 test functions | Every frontend, validator and backend package; a fix ships with a test that failed before it |
+| **Unit and package tests** | ~4,500 test functions | Every frontend, validator and backend package; a fix ships with a test that failed before it |
 | **Golden tests** | corpus × backend | Our own output snapshots (`snapshot/testdata/golden`), regenerated only after a reviewed change |
 | **Benchmarks** | 46 | Throughput and allocations per package |
 
