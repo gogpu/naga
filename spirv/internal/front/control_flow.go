@@ -259,6 +259,16 @@ func (p *parser) branch(inst instruction, fs *functionState, bs *blockState) err
 		merger(&fs.bodies[bs.bodyIdx], info)
 		return nil
 	}
+	// A branch to another case of the switch around this case falls through
+	// into it; the cases are ordered by these edges when the switch is
+	// lowered.
+	if ref, ok := fs.caseLabels[targetID]; ok {
+		if err := fs.recordFallThrough(bs.bodyIdx, ref); err != nil {
+			return err
+		}
+		fs.finishBlock(bs, nil)
+		return nil
+	}
 	// Not a merge block, and not a switch case (the switch header names
 	// those): the only branch to the target, which the current block
 	// dominates, so it continues this body.
@@ -341,12 +351,36 @@ func (p *parser) branchConditional(inst instruction, fs *functionState, bs *bloc
 		}
 	}
 
+	// A target that is another case of the switch around this case is a
+	// fall-through: its arm stays empty, so the If ends the case body and the
+	// case falls through. Unlike Rust naga, whose arm takes that case's block
+	// and leaves the case itself empty.
+	var caseTarget [2]bool
+	for i, target := range targets {
+		if target.isMerge {
+			continue
+		}
+		ref, ok := fs.caseLabels[target.id]
+		if !ok {
+			continue
+		}
+		if i == 1 && caseTarget[0] && targets[0].id != target.id {
+			return errFallThroughIntoTwoCases(targets[0].id, target.id)
+		}
+		if err := fs.recordFallThrough(bs.bodyIdx, ref); err != nil {
+			return err
+		}
+		caseTarget[i] = true
+	}
+
 	fs.finishBlock(bs, nil)
 	accept, reject := targets[0], targets[1]
 	if accept.id == reject.id {
-		if accept.isMerge {
+		switch {
+		case accept.isMerge:
 			merger(&fs.bodies[bs.bodyIdx], accept.info)
-		} else {
+		case caseTarget[0]:
+		default:
 			fs.bodyForLabel[accept.id] = bs.bodyIdx
 		}
 		return nil
@@ -359,9 +393,11 @@ func (p *parser) branchConditional(inst instruction, fs *functionState, bs *bloc
 		if err != nil {
 			return err
 		}
-		if target.isMerge {
+		switch {
+		case target.isMerge:
 			merger(&fs.bodies[arm], target.info)
-		} else {
+		case caseTarget[i]:
+		default:
 			fs.bodyForLabel[target.id] = arm
 		}
 		arms[i] = arm
@@ -438,18 +474,13 @@ func (fs *functionState) misplacedLoop(bodyIdx int) *bodyFragment {
 	return nil
 }
 
-// switchCaseTarget is one distinct target of an OpSwitch: the body created
-// for it and the literals that branch to it, in instruction order.
-type switchCaseTarget struct {
-	body     int
-	literals []int32
-}
-
 // switchBranch parses OpSwitch: one body per distinct target, extra literals
 // of a shared target as empty fall-through cases before it, and a default
 // body, with the literals at the default target as empty fall-through cases
-// before it. The selector is bitcast to i32 when it is unsigned, as the IR switch
-// takes i32 values.
+// before it. The targets whose blocks go into their own bodies are registered
+// as cases, so a branch from one case into another records a fall-through
+// edge; the case order follows those edges (lowerSwitchCases). The selector is
+// bitcast to i32 when it is unsigned, as the IR switch takes i32 values.
 func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockState) error {
 	if _, err := inst.expectAtLeast(3); err != nil {
 		return err
@@ -479,13 +510,20 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 	if fs.mergers[defaultID] == mergeLoopMerge {
 		return errSwitchExitsLoop
 	}
+	// A default at the loop's continue target would need a Continue the
+	// default body never gets; spirv-val rejects the shape (the switch header
+	// does not dominate that case construct), and Rust naga breaks instead.
+	if fs.mergers[defaultID] == mergeLoopContinue {
+		return errSwitchDefaultAtContinue(defaultID)
+	}
 
 	depth := fs.bodies[bs.bodyIdx].depth + 1
 	defaultBody, err := fs.newSwitchCaseBody(bs.bodyIdx, depth)
 	if err != nil {
 		return err
 	}
-	if _, ok := fs.bodyForLabel[defaultID]; !ok {
+	_, defaultClaimed := fs.bodyForLabel[defaultID]
+	if !defaultClaimed {
 		fs.bodyForLabel[defaultID] = defaultBody
 	}
 
@@ -520,7 +558,7 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 	var defaultLiterals []int32
 
 	pairs := int(inst.wc-3) / 2
-	var targets []switchCaseTarget
+	sw := &switchInfo{targets: make([]switchTarget, 0, pairs+1)}
 	targetIndex := make(map[uint32]int)
 	seen := make(map[int32]bool, pairs)
 	for range pairs {
@@ -545,7 +583,7 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 		// Cases that share a target are grouped, so the target's body is
 		// built once and the other literals fall through into it.
 		if i, ok := targetIndex[targetID]; ok {
-			targets[i].literals = append(targets[i].literals, literal)
+			sw.targets[i].literals = append(sw.targets[i].literals, literal)
 			continue
 		}
 		if fs.mergers[targetID] == mergeLoopMerge {
@@ -555,46 +593,35 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 		if err != nil {
 			return err
 		}
-		if info, ok := fs.mergers[targetID]; ok {
-			merger(&fs.bodies[caseBody], info)
+		_, isMerger := fs.mergers[targetID]
+		if isMerger {
+			merger(&fs.bodies[caseBody], fs.mergers[targetID])
 		}
-		if _, ok := fs.bodyForLabel[targetID]; !ok {
+		_, claimed := fs.bodyForLabel[targetID]
+		if !claimed {
 			fs.bodyForLabel[targetID] = caseBody
 		}
-		targetIndex[targetID] = len(targets)
-		targets = append(targets, switchCaseTarget{body: caseBody, literals: []int32{literal}})
-	}
-
-	// One case per literal: the extra literals of a target come first as
-	// empty fall-through cases, then the first literal with the target's
-	// body. Targets keep the instruction's order, which is SPIR-V's
-	// fall-through order.
-	cases := make([]switchCaseBody, 0, pairs)
-	for _, target := range targets {
-		for _, literal := range target.literals[1:] {
-			empty, err := fs.newBody(bs.bodyIdx, depth)
-			if err != nil {
-				return err
-			}
-			cases = append(cases, switchCaseBody{value: literal, body: empty})
+		targetIndex[targetID] = len(sw.targets)
+		i := sw.addTarget(targetID, caseBody, []int32{literal}, false)
+		if !isMerger && !claimed {
+			fs.registerCase(targetID, caseRef{sw: sw, target: i})
 		}
-		cases = append(cases, switchCaseBody{value: target.literals[0], body: target.body})
 	}
-	// The default comes last, so the literals at it fall through into it.
-	for _, literal := range defaultLiterals {
-		empty, err := fs.newBody(bs.bodyIdx, depth)
-		if err != nil {
-			return err
-		}
-		cases = append(cases, switchCaseBody{value: literal, body: empty})
+	// One case per literal: the extra literals of a target become empty
+	// fall-through cases before the target's body, and the literals at the
+	// default target empty fall-through cases before the default
+	// (lowerSwitchCases). The default is the last target, so without
+	// fall-through edges it comes last.
+	i := sw.addTarget(defaultID, defaultBody, defaultLiterals, true)
+	if !defaultIsMerge && !defaultClaimed {
+		fs.registerCase(defaultID, caseRef{sw: sw, target: i})
 	}
 
 	fs.finishBlock(bs, nil)
 	fs.bodies[bs.bodyIdx].fragments = append(fs.bodies[bs.bodyIdx].fragments, bodyFragment{
-		kind:        fragmentSwitch,
-		condition:   selector,
-		cases:       cases,
-		defaultBody: defaultBody,
+		kind:      fragmentSwitch,
+		condition: selector,
+		sw:        sw,
 	})
 	return nil
 }

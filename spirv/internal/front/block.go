@@ -27,7 +27,13 @@ type functionState struct {
 	// mergers says what a branch to a merge block or a continue target
 	// means: the end of the construct that declared it.
 	mergers map[uint32]mergeBlockInformation
-	bodies  []body
+	// caseLabels are the switch case and default targets whose blocks the
+	// switch placed in their own bodies, and caseBodies the same targets keyed
+	// by body: a branch from one of these bodies to another's label is a
+	// fall-through. Both are created by the first OpSwitch.
+	caseLabels map[uint32]caseRef
+	caseBodies map[int]caseRef
+	bodies     []body
 	// phis are the local variables phi nodes and out-of-scope spills write
 	// into, with the values each is written from.
 	phis []phiExpression
@@ -87,15 +93,121 @@ type bodyFragment struct {
 	breakIf    *ir.ExpressionHandle
 	merge      uint32
 
-	// fragmentSwitch: the cases in order, and the default body.
-	cases       []switchCaseBody
-	defaultBody int
+	// fragmentSwitch: the targets and their fall-through edges.
+	sw *switchInfo
 }
 
-// switchCaseBody is one case of a switch fragment: its value and its body.
-type switchCaseBody struct {
-	value int32
-	body  int
+// switchInfo is the targets of one OpSwitch: the distinct literal targets in
+// instruction order, then the default. Fall-through edges between them are
+// recorded while the case blocks are parsed; the case order is chosen from
+// them when the switch is lowered.
+type switchInfo struct {
+	targets []switchTarget
+}
+
+// switchTarget is one distinct target of an OpSwitch: its label, the body
+// created for it and the literals that branch to it, in instruction order.
+// For the default, literals are the literals at the default target, which
+// all become empty fall-through cases before the default body. fallsInto and
+// fallsFrom are the indices of the targets this one falls through into and
+// from, -1 for none.
+type switchTarget struct {
+	label     uint32
+	body      int
+	literals  []int32
+	isDefault bool
+	fallsInto int
+	fallsFrom int
+}
+
+// caseRef names one target of one switch.
+type caseRef struct {
+	sw     *switchInfo
+	target int
+}
+
+// addTarget appends a target that falls through nowhere yet.
+func (sw *switchInfo) addTarget(label uint32, bodyIdx int, literals []int32, isDefault bool) int {
+	sw.targets = append(sw.targets, switchTarget{
+		label:     label,
+		body:      bodyIdx,
+		literals:  literals,
+		isDefault: isDefault,
+		fallsInto: -1,
+		fallsFrom: -1,
+	})
+	return len(sw.targets) - 1
+}
+
+// order returns the target indices in IR case order. The IR falls through
+// only into the next case, so every fall-through chain is placed contiguously;
+// chains start in target order, which keeps SPIR-V's own fall-through order
+// (spirv-val requires a literal target to immediately precede the literal
+// target it falls into) and a default without edges last, as Rust naga places
+// it. Each target falls from at most one other (recordFallThrough), so a chain
+// started at a target nothing falls into never meets a cycle; the targets left
+// over are on one.
+func (sw *switchInfo) order() ([]int, error) {
+	out := make([]int, 0, len(sw.targets))
+	for i := range sw.targets {
+		if sw.targets[i].fallsFrom >= 0 {
+			continue
+		}
+		for j := i; j >= 0; j = sw.targets[j].fallsInto {
+			out = append(out, j)
+		}
+	}
+	if len(out) == len(sw.targets) {
+		return out, nil
+	}
+	placed := make([]bool, len(sw.targets))
+	for _, i := range out {
+		placed[i] = true
+	}
+	for i := range sw.targets {
+		if !placed[i] {
+			return nil, errFallThroughCycle(sw.targets[i].label)
+		}
+	}
+	return out, nil
+}
+
+// recordFallThrough records that the case body fromBody, which ends with a
+// branch to the label of switch target to, falls through into it. The branch
+// must come from a body that is itself one of the same switch's targets: a
+// branch from inside a nested construct would leave statements after that
+// construct to run first. A target takes at most one fall-through in and out.
+func (fs *functionState) recordFallThrough(fromBody int, to caseRef) error {
+	sw := to.sw
+	label := sw.targets[to.target].label
+	from, ok := fs.caseBodies[fromBody]
+	if !ok || from.sw != sw {
+		return errFallThroughFromOutside(label)
+	}
+	src := &sw.targets[from.target]
+	if src.fallsInto == to.target {
+		return nil
+	}
+	if src.fallsInto >= 0 {
+		return errFallThroughIntoTwoCases(sw.targets[src.fallsInto].label, label)
+	}
+	if sw.targets[to.target].fallsFrom >= 0 {
+		return errMultipleFallThrough(label)
+	}
+	src.fallsInto = to.target
+	sw.targets[to.target].fallsFrom = from.target
+	return nil
+}
+
+// registerCase makes a switch target's label and body known as a case, so a
+// branch to the label from another case body is a fall-through.
+func (fs *functionState) registerCase(label uint32, ref caseRef) {
+	if fs.caseLabels == nil {
+		fs.caseLabels = make(map[uint32]caseRef)
+		fs.caseBodies = make(map[int]caseRef)
+	}
+	fs.caseLabels[label] = ref
+	fs.caseBodies[ref.sw.targets[ref.target].body] = ref
 }
 
 // body is one block of the final IR and the fragments that build it. Its
@@ -344,26 +456,10 @@ func (fs *functionState) lowerImpl(bodyIdx int, flow controlFlow) (ir.Block, err
 				BreakIf:    fragment.breakIf,
 			}})
 		case fragmentSwitch:
-			caseFlow := flow&(flowReturn|flowContinue) | flowBreak
-			cases := make([]ir.SwitchCase, 0, len(fragment.cases)+1)
-			for _, c := range fragment.cases {
-				caseBody, err := fs.lowerImpl(c.body, caseFlow)
-				if err != nil {
-					return nil, err
-				}
-				// A case whose body ends in a terminator would make the
-				// fall-through unreachable, as Rust naga notes.
-				cases = append(cases, ir.SwitchCase{
-					Value:       ir.SwitchValueI32(c.value),
-					Body:        caseBody,
-					FallThrough: len(caseBody) == 0 || !isTerminator(caseBody[len(caseBody)-1]),
-				})
-			}
-			defaultBody, err := fs.lowerImpl(fragment.defaultBody, caseFlow)
+			cases, err := fs.lowerSwitchCases(fragment.sw, flow&(flowReturn|flowContinue)|flowBreak)
 			if err != nil {
 				return nil, err
 			}
-			cases = append(cases, ir.SwitchCase{Value: ir.SwitchValueDefault{}, Body: defaultBody})
 			block = append(block, ir.Statement{Kind: ir.StmtSwitch{Selector: fragment.condition, Cases: cases}})
 		case fragmentBreak:
 			if flow&flowBreak == 0 {
@@ -378,6 +474,47 @@ func (fs *functionState) lowerImpl(bodyIdx int, flow controlFlow) (ir.Block, err
 		}
 	}
 	return block, nil
+}
+
+// lowerSwitchCases builds the IR cases of a switch in fall-through order
+// (switchInfo.order). Each target gives its extra literals as empty
+// fall-through cases, then its first literal (or the default) with its body,
+// which falls through exactly when the target has a fall-through edge. The
+// last case never does.
+//
+// Rust naga sets fall-through on every case whose body does not end in a
+// terminator and always puts the default last without it
+// (next_block.rs:2128-2240, function.rs lower_impl), so a default that
+// branches into a case, and a case that branches into the default, lose
+// statements or run the wrong case.
+func (fs *functionState) lowerSwitchCases(sw *switchInfo, caseFlow controlFlow) ([]ir.SwitchCase, error) {
+	order, err := sw.order()
+	if err != nil {
+		return nil, err
+	}
+	cases := make([]ir.SwitchCase, 0, len(sw.targets)+1)
+	for _, i := range order {
+		target := &sw.targets[i]
+		caseBody, err := fs.lowerImpl(target.body, caseFlow)
+		if err != nil {
+			return nil, err
+		}
+		var value ir.SwitchValue = ir.SwitchValueDefault{}
+		empty := target.literals
+		if !target.isDefault {
+			value = ir.SwitchValueI32(target.literals[0])
+			empty = target.literals[1:]
+		}
+		for _, literal := range empty {
+			cases = append(cases, ir.SwitchCase{Value: ir.SwitchValueI32(literal), FallThrough: true})
+		}
+		cases = append(cases, ir.SwitchCase{
+			Value:       value,
+			Body:        caseBody,
+			FallThrough: target.fallsInto >= 0,
+		})
+	}
+	return cases, nil
 }
 
 // isTerminator reports whether a statement ends its block, as Rust naga's
