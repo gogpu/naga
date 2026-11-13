@@ -91,8 +91,11 @@ type parser struct {
 	hasExtNonSemantic bool
 
 	// The SPIR-V id to IR handle tables (Rust naga's lookups).
-	types                    *registry.TypeRegistry
-	layouter                 ir.Layouter
+	types    *registry.TypeRegistry
+	layouter ir.Layouter
+	// typeDepths holds the nesting depth of every type in the arena, by
+	// handle, bounded by maxTypeDepth.
+	typeDepths               []int
 	lookupType               map[uint32]lookupType
 	voidTypeID               uint32
 	hasVoidType              bool

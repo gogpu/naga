@@ -180,6 +180,10 @@ var errInvalidTerminator = &Error{Message: "invalid terminator"}
 // invalid SPIR-V, refused while it is parsed.
 var errNestingTooDeep = &Error{Message: fmt.Sprintf("control flow is nested deeper than %d", maxNesting)}
 
+// errTypeTooDeep has no Rust naga counterpart either: Rust naga has no bound
+// on type nesting.
+var errTypeTooDeep = &Error{Message: fmt.Sprintf("type is nested deeper than %d", maxTypeDepth)}
+
 func errUndefinedLabel(id uint32) *Error {
 	return &Error{Message: fmt.Sprintf("undefined label %%%d", id)}
 }

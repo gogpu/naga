@@ -53,9 +53,50 @@ type extendedClass struct {
 // registry, which deduplicates by the full definition as Rust naga's
 // UniqueArena does.
 func (p *parser) insertType(name string, inner ir.TypeInner) ir.TypeHandle {
+	depth := p.typeDepth(inner)
 	handle := p.types.GetOrCreate(name, inner)
 	p.module.Types = p.types.GetTypes()
+	for len(p.typeDepths) < len(p.module.Types) {
+		p.typeDepths = append(p.typeDepths, depth)
+	}
 	return handle
+}
+
+// typeDepth returns how many levels a type with this definition nests: one
+// for a type without component types, one more than the deepest component
+// otherwise. The components are in the arena already, so this is no walk.
+func (p *parser) typeDepth(inner ir.TypeInner) int {
+	component := 0
+	switch t := inner.(type) {
+	case ir.ArrayType:
+		component = p.handleDepth(t.Base)
+	case ir.BindingArrayType:
+		component = p.handleDepth(t.Base)
+	case ir.PointerType:
+		component = p.handleDepth(t.Base)
+	case ir.StructType:
+		for _, member := range t.Members {
+			component = max(component, p.handleDepth(member.Type))
+		}
+	}
+	return component + 1
+}
+
+// handleDepth returns the depth recorded for a type of the arena.
+func (p *parser) handleDepth(handle ir.TypeHandle) int {
+	if int(handle) < len(p.typeDepths) {
+		return p.typeDepths[handle]
+	}
+	return 0
+}
+
+// checkTypeDepth refuses a type definition nested deeper than maxTypeDepth,
+// before it enters the arena.
+func (p *parser) checkTypeDepth(inner ir.TypeInner) error {
+	if p.typeDepth(inner) > maxTypeDepth {
+		return errTypeTooDeep
+	}
+	return nil
 }
 
 // typeLookup returns the table entry of a type id.
@@ -394,6 +435,9 @@ func (p *parser) parseTypeArray(inst instruction) error {
 		}
 		inner = ir.ArrayType{Base: base.handle, Size: ir.ArraySize{Constant: &length}, Stride: stride}
 	}
+	if err := p.checkTypeDepth(inner); err != nil {
+		return err
+	}
 	handle := p.insertType(dec.name, inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
 	return nil
@@ -435,6 +479,9 @@ func (p *parser) parseTypeRuntimeArray(inst instruction) error {
 			stride = p.strideOf(base.handle)
 		}
 		inner = ir.ArrayType{Base: base.handle, Stride: stride}
+	}
+	if err := p.checkTypeDepth(inner); err != nil {
+		return err
 	}
 	handle := p.insertType(dec.name, inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
@@ -510,7 +557,11 @@ func (p *parser) parseTypeStruct(inst instruction) error {
 	}
 	span = roundUp(span, alignment)
 
-	handle := p.insertType(parentDecor.name, ir.StructType{Members: members, Span: span})
+	inner := ir.StructType{Members: members, Span: span}
+	if err := p.checkTypeDepth(inner); err != nil {
+		return err
+	}
+	handle := p.insertType(parentDecor.name, inner)
 	if isStorageBuffer {
 		p.lookupStorageBufferTypes[handle] = storageAccess
 	}
