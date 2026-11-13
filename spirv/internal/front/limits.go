@@ -33,13 +33,14 @@ const (
 	maxNesting = 128
 
 	// maxTypeDepth caps how deeply types nest: a scalar, vector, matrix,
-	// image or sampler is one level, an array, binding array or struct one more
-	// than its deepest component. SPIR-V lets a chain of OpTypeArray or
-	// OpTypeStruct grow with the module, and every walk over the IR's types
-	// (the layouter, the validator, the backends' type writers) recurses once
-	// per level, so the depth is refused when the type is declared. A pointer
-	// and an entry point wrapper's result struct add one level to types within
-	// the limit, so no IR type the frontend builds is deeper than
+	// image or sampler is one level, an array, binding array, struct or
+	// pointer one more than its deepest component. SPIR-V lets a chain of
+	// OpTypeArray, OpTypeStruct or OpTypePointer grow with the module, and
+	// every walk over the IR's types (the layouter, the validator, the
+	// backends' type writers) recurses once per level, so the depth is refused
+	// when the type is declared. The one type built without that check is an
+	// entry point wrapper's result struct, one level above the result types it
+	// gathers, so no IR type the frontend builds is deeper than
 	// maxTypeDepth+1. The WGSL spec's own limit is 15 levels.
 	maxTypeDepth = 64
 )
