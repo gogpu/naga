@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.21.11** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.21.12** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,9 +32,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.21.11)
+## Where We Are (v0.21.12)
 
-**~317K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
+**~327K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
 172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
 
 | Backend | Rust comparison | Validation | Status |
@@ -102,7 +102,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Frontend | Priority | Status | Description |
 |----------|----------|--------|-------------|
-| SPIR-V input | P1 | Phase 1 in v0.21.11 | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, straight-line bodies, entry-point wrappers. Phases 2-4: structured control flow and calls, images and atomics, the combined image sampler split. Ported from Rust naga's `front/spv` |
+| SPIR-V input | P1 | Phases 1-3 in v0.21.12 | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split and entry-point wrappers. Row-major matrix access is refused and `nagac --from-spirv` is still to come. Ported from Rust naga's `front/spv` |
 | GLSL input | P2 | Planned | Vulkan GLSL 440/450/460 and GL 3.30 / ES 3.00 with combined samplers (NAGA-FEAT-002) |
 | Slang input | P2 | Planned | HLSL subset ("HLSL with import"), a native Pure Go parser, no slangc dependency |
 

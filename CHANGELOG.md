@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.12] - 2026-11-13
+
+A patch with the rest of the SPIR-V input frontend — structured control flow and calls, images and sampling,
+atomics, subgroups and the combined image sampler split — and the MSL/HLSL writer fixes the new text reference
+found. The frontend is not complete, and this release does not claim it is: row-major matrix access is refused,
+a projective sample of an arrayed image drops the projection term and the array layer, Coherent and Volatile are
+dropped (the IR has no memory decorations), an empty global name is indistinguishable
+from an absent one (P3-IR-033), and `nagac --from-spirv` is still to come; the MINOR release comes when those
+land. The writer fixes change generated MSL/HLSL text for existing WGSL input too — names and formatting as well
+as goldens.
 
 ### Added
 
@@ -30,7 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Text reference for the SPIR-V corpus**: `TestSPVTextReference` writes MSL and HLSL for every module of the
   Rust SPIR-V corpus and compares with Rust naga's goldens — 12 of 16 byte-identical after normalizing the
   `_eN` expression names, which follow the frontend's expression arena; the 4 that differ do so for one recorded
-  reason (card P3-IR-033). Running the pinned Rust binary as the oracle reproduces the goldens byte for byte.
+  reason (card P3-IR-033). The goldens are the pinned Rust naga corpus's own reference outputs, vendored with
+  their checksums.
+- **`backend.EntryPointResultStructName`** — the fallback name Rust naga's namer gives an anonymous entry point
+  result struct (`VertexOutput`, `FragmentOutput`, `ComputeOutput`; false for task and mesh, where Rust's namer
+  is unreachable). Exported so the MSL and HLSL writers share one implementation instead of duplicating the
+  table; it moves to an internal package with the next change that touches it.
 - **`spirv.Parse` reads structured control flow, phis and function calls** (NAGA-FEAT-001, Phase 2):
   `OpSelectionMerge`, `OpLoopMerge`, `OpBranch`, `OpBranchConditional` and `OpSwitch` become `If`, `Loop` (with
   `break if` where the back edge is conditional), `Switch`, `Break` and `Continue`; `OpPhi` becomes a local
@@ -55,9 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loop's continue target, each of which spirv-val rejects too; and
   `OpLogicalAnd`/`OpLogicalOr` on bool vectors become the componentwise `And`/`InclusiveOr` (Rust emits
   `LogicalAnd`/`LogicalOr`, which its own validator rejects). Control flow nests at most 128 levels and types,
-  pointers included, at most 64; both limits are checked where the input declares them. 16 of the 33 Rust
-  SPIR-V test modules parse and validate, and 91 of the WGSL test shaders round-trip through our SPIR-V writer
-  and back.
+  pointers included, at most 64; both limits are checked where the input declares them. When Phase 2 landed, 16
+  of the 33 Rust SPIR-V test modules parsed and validated, and 91 of the WGSL test shaders round-tripped through
+  our SPIR-V writer and back.
 
 ### Fixed
 
@@ -4118,7 +4132,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.10...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.12...HEAD
+[0.21.12]: https://github.com/gogpu/naga/compare/v0.21.11...v0.21.12
+[0.21.11]: https://github.com/gogpu/naga/compare/v0.21.10...v0.21.11
 [0.21.10]: https://github.com/gogpu/naga/compare/v0.21.9...v0.21.10
 [0.21.9]: https://github.com/gogpu/naga/compare/v0.21.8...v0.21.9
 [0.21.8]: https://github.com/gogpu/naga/compare/v0.21.7...v0.21.8
