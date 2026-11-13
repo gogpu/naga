@@ -65,6 +65,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V: a switch whose every case ends in `break` no longer drops the code after it.** A silent Vulkan/SPIR-V
+  miscompile, present since v0.15.0. The shape: a `switch` where no case, `default` included, falls off its end,
+  every case ends in `break`, `return`, `continue` or `discard`, and at least one ends in `break`, followed by any
+  statement:
+  `switch x { case 1: { b[1] = 20; break; } default: { b[1] = 40; break; } } b[1] = 50;`. The writer counted a
+  case ending in `break` as leaving the switch for good, so it made the switch's merge block `OpUnreachable` and
+  wrote nothing after the switch; here the store of 50 was missing, and inside a loop the rest of the loop body
+  after the switch was missing. spirv-val accepted the module. A `break` in a switch case leaves only that switch,
+  so the merge is now unreachable only when every case ends in `continue`, `return` or `discard`, and Rust naga's
+  output matches (it always continues in the merge block). A switch with a case that falls off its end without
+  `break` was not affected (WGSL cases may omit the final `break`), nor were the MSL, HLSL, GLSL and DXIL backends. The SPIR-V frontend ends every
+  case that does not fall through with `break`, so it hit this for any SPIR-V input with such a switch.
+- **MSL, HLSL and GLSL write an unnamed constant's value in place** (NAGA-FEAT-001, unreleased Phase 1): a SPIR-V
+  input that used an `OpConstant` without an `OpName` gave text that referred to a constant it never declared
+  (`use of undeclared identifier 'const_type_0_2'`). The writers now write the value, as Rust naga does for an
+  unnamed constant. WGSL constants are always named; their output is unchanged.
+- **HLSL: `asinh`, `acosh` and `atanh` compile.** HLSL has no such intrinsics, so a shader that called them gave
+  HLSL that dxc and FXC refuse. They are now written as `log(x + sqrt(x * x ± 1.0))` and
+  `0.5 * log((1.0 + x) / (1.0 - x))`, as Rust naga writes them. The DXIL backend still refuses these functions
+  with an `unsupported unary math function` error; that is tracked separately.
 - **WGSL: out-of-range integer literals, repeated attributes and unterminated block comments are errors**
   (P1-WGSL-113, P1-WGSL-114, P3-WGSL-115). Three inputs the WGSL spec makes shader-creation errors were accepted,
   two of them changing the program silently:
