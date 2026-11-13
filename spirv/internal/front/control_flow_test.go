@@ -534,6 +534,29 @@ func TestControlFlowSwitchExitsLoop(t *testing.T) {
 	})
 }
 
+// TestControlFlowLoopMergeBeforeContinue: a loop whose merge block comes
+// before its continue construct in the module, with a conditional back edge,
+// is refused with an error that says so. spirv-val accepts the order; Rust
+// naga fails on it too (its validator: "break used outside of a loop"). The
+// merge block's statements land after the Loop in the enclosing body, so the
+// back edge can no longer be matched to the loop as a break-if.
+func TestControlFlowLoopMergeBeforeContinue(t *testing.T) {
+	err := newBodyModule().parseError(t,
+		instWords(spvenums.OpBranch, 102),
+		instWords(spvenums.OpLabel, 102),
+		instWords(spvenums.OpLoopMerge, 104, 103, 0),
+		instWords(spvenums.OpBranchConditional, 24, 104, 103),
+		instWords(spvenums.OpLabel, 104),
+		instWords(spvenums.OpBranch, 106),
+		instWords(spvenums.OpLabel, 103),
+		instWords(spvenums.OpBranchConditional, 24, 104, 102),
+		instWords(spvenums.OpLabel, 106),
+	)
+	if want := "loop merge block %104 comes before the loop's continue construct, which is not supported"; err.Message != want {
+		t.Errorf("message = %q, want %q", err.Message, want)
+	}
+}
+
 func TestControlFlowPhi(t *testing.T) {
 	// %51 = phi [%50 from 102] [5 from 103]: a local variable named after the
 	// phi, stored at the end of each predecessor and loaded in the merge.

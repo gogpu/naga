@@ -80,11 +80,12 @@ type bodyFragment struct {
 	accept    int
 	reject    int
 
-	// fragmentLoop: the loop body, the continuing body and the optional
-	// break-if condition.
+	// fragmentLoop: the loop body, the continuing body, the optional
+	// break-if condition and the label of the loop's merge block.
 	loopBody   int
 	continuing int
 	breakIf    *ir.ExpressionHandle
+	merge      uint32
 
 	// fragmentSwitch: the cases in order, and the default body.
 	cases       []switchCaseBody
@@ -117,6 +118,8 @@ const (
 	bodyPlain bodyKind = iota
 	// bodyLoop is a loop body.
 	bodyLoop
+	// bodyContinuing is a loop's continuing body.
+	bodyContinuing
 	// bodySwitchCase is a switch case or default body.
 	bodySwitchCase
 )
