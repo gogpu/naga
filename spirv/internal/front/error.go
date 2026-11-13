@@ -186,6 +186,13 @@ var errNestingTooDeep = &Error{Message: fmt.Sprintf("control flow is nested deep
 // never exits.
 var errSwitchExitsLoop = &Error{Message: "a switch case that exits the enclosing loop is not supported"}
 
+// errLoopMergeBeforeContinue is valid SPIR-V too: a loop whose merge block
+// comes before its continue construct, which then ends in a conditional back
+// edge. Rust naga fails on it as well, in its validator.
+func errLoopMergeBeforeContinue(mergeID uint32) *Error {
+	return &Error{Message: fmt.Sprintf("loop merge block %%%d comes before the loop's continue construct, which is not supported", mergeID)}
+}
+
 // errTypeTooDeep has no Rust naga counterpart either: Rust naga has no bound
 // on type nesting.
 var errTypeTooDeep = &Error{Message: fmt.Sprintf("type is nested deeper than %d", maxTypeDepth)}

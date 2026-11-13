@@ -221,6 +221,7 @@ func (p *parser) loopMerge(inst instruction, fs *functionState, bs *blockState) 
 		return err
 	}
 	fs.bodies[loopBody].kind = bodyLoop
+	fs.bodies[continuing].kind = bodyContinuing
 	if _, ok := fs.bodyForLabel[continuingID]; !ok {
 		fs.bodyForLabel[continuingID] = continuing
 	}
@@ -232,6 +233,7 @@ func (p *parser) loopMerge(inst instruction, fs *functionState, bs *blockState) 
 		kind:       fragmentLoop,
 		loopBody:   loopBody,
 		continuing: continuing,
+		merge:      mergeID,
 	})
 	bs.bodyIdx = loopBody
 	return nil
@@ -332,6 +334,9 @@ func (p *parser) branchConditional(inst instruction, fs *functionState, bs *bloc
 			return errSwitchExitsLoop
 		}
 		if _, parsed := fs.blocks[target.id]; !target.isMerge && (parsed || target.id == bs.id) {
+			if loop := fs.misplacedLoop(bs.bodyIdx); loop != nil {
+				return errLoopMergeBeforeContinue(loop.merge)
+			}
 			return errInvalidBranchTarget(target.id)
 		}
 	}
@@ -412,6 +417,25 @@ func (p *parser) breakIf(fs *functionState, bs *blockState, condition ir.Express
 		return true
 	}
 	return false
+}
+
+// misplacedLoop returns the loop whose continuing body is bodyIdx when other
+// fragments follow it in its enclosing body: the loop's merge block came
+// before its continue construct, so breakIf could not find the loop as the
+// last fragment. It returns nil otherwise. It runs only on the way to an
+// error, so its walk over the fragments is paid once.
+func (fs *functionState) misplacedLoop(bodyIdx int) *bodyFragment {
+	if fs.bodies[bodyIdx].kind != bodyContinuing {
+		return nil
+	}
+	parent := fs.bodies[bodyIdx].parent
+	fragments := fs.bodies[fs.bodies[parent].parent].fragments
+	for i := len(fragments) - 2; i >= 0; i-- {
+		if fragments[i].kind == fragmentLoop && fragments[i].continuing == bodyIdx {
+			return &fragments[i]
+		}
+	}
+	return nil
 }
 
 // switchCaseTarget is one distinct target of an OpSwitch: the body created
