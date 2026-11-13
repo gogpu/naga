@@ -337,6 +337,52 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 	}
 }
 
+// TestSPVRoundTripCorpus sends every Rust WGSL corpus shader our SPIR-V
+// writer compiles back through the frontend: each module either parses into
+// IR that validates or is refused with a *ParseError, never a panic and never
+// invalid IR. minParsed only rises as the frontend phases land; Phase 2 (calls
+// and control flow) brought it from 55 to 91.
+func TestSPVRoundTripCorpus(t *testing.T) {
+	const minParsed = 91
+	sources, err := filepath.Glob(filepath.Join(rustInputDir, "*.wgsl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := 0
+	for _, path := range sources {
+		name := strings.TrimSuffix(filepath.Base(path), ".wgsl")
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		module, _, err := wgsl.Parse(string(source), wgsl.ParseOptions{})
+		if err != nil {
+			continue
+		}
+		binary, _, err := spirv.Compile(module, spirv.DefaultOptions())
+		if err != nil {
+			continue
+		}
+		back, _, err := spirv.Parse(binary, spirv.ParseOptions{})
+		if err != nil {
+			var parseErr *spirv.ParseError
+			if !errors.As(err, &parseErr) {
+				t.Errorf("%s: error %v (%T), want a *ParseError", name, err, err)
+			}
+			continue
+		}
+		if _, err := valid.Validate(back, valid.Options{Capabilities: valid.CapAll}); err != nil {
+			t.Errorf("%s: parses into invalid IR: %v", name, err)
+			continue
+		}
+		parsed++
+	}
+	if parsed < minParsed {
+		t.Errorf("parsed and validated %d modules, want at least %d", parsed, minParsed)
+	}
+	t.Logf("%d of %d shaders round-trip", parsed, len(sources))
+}
+
 // walkExpressions calls visit for every expression of the arena.
 func walkExpressions(expressions []ir.Expression, visit func(ir.Expression)) {
 	for _, expression := range expressions {
