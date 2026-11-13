@@ -206,6 +206,15 @@ func errFallThroughIntoTwoCases(first, second uint32) *Error {
 	return &Error{Message: fmt.Sprintf("a conditional branch into two switch cases %%%d and %%%d is not supported", first, second)}
 }
 
+// errMergeAtCase refuses a selection, switch or loop inside a switch case
+// whose merge block is another case of that switch: the branch to the merge
+// would end the construct, and the case's fall-through into the next case
+// would be lost. Its header does not dominate the case, so spirv-val rejects
+// it too.
+func errMergeAtCase(target uint32) *Error {
+	return &Error{Message: fmt.Sprintf("a construct inside a switch case merging at switch case %%%d is not supported", target)}
+}
+
 func errSwitchDefaultAtContinue(target uint32) *Error {
 	return &Error{Message: fmt.Sprintf("a switch default at the enclosing loop's continue target %%%d is not supported", target)}
 }
