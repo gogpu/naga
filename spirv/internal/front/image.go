@@ -860,10 +860,20 @@ func (p *parser) samplingImageType(fs *functionState, image ir.ExpressionHandle,
 			return ir.ImageType{}, errInvalidGlobalVar
 		}
 		return imageType, nil
+	case ir.ExprFunctionArgument:
+		// An image passed to a helper: the flags travel with the argument and
+		// reach the caller's global at the call (Rust naga's
+		// parameter_sampling, patched over the call graph in parse).
+		if int(kind.Index) >= len(fs.parameterSampling) || int(kind.Index) >= len(fs.fn.Arguments) {
+			return ir.ImageType{}, errInvalidGlobalVar
+		}
+		fs.parameterSampling[kind.Index] |= flags
+		imageType, ok := p.module.Types[fs.fn.Arguments[kind.Index].Type].Inner.(ir.ImageType)
+		if !ok {
+			return ir.ImageType{}, errInvalidGlobalVar
+		}
+		return imageType, nil
 	}
-	// Rust naga keeps a per-function sampling table for image arguments; the
-	// IR has no image-typed function argument to attach it to at a call, so
-	// this frontend refuses them.
 	return ir.ImageType{}, errInvalidGlobalVar
 }
 
@@ -890,8 +900,99 @@ func (p *parser) recordSampling(fs *functionState, sampler ir.ExpressionHandle, 
 			p.handleSampling[base.Variable] |= flags
 		}
 		return nil
+	case ir.ExprFunctionArgument:
+		if int(kind.Index) >= len(fs.parameterSampling) {
+			return errInvalidGlobalVar
+		}
+		fs.parameterSampling[kind.Index] |= flags
+		return nil
 	}
 	return errInvalidGlobalVar
+}
+
+// propagateParameterSampling carries a function's argument sampling flags to
+// the globals behind the arguments at every call site, as Rust naga's
+// patch_statements does for Call statements: an image or sampler passed to a
+// helper decides how the caller's global is sampled. Module.Functions is
+// ordered callees first, so one pass settles every function.
+func (p *parser) propagateParameterSampling() error {
+	calleeFlags := make([][]samplingFlags, len(p.module.Functions))
+	for _, function := range p.lookupFunction {
+		if int(function.handle) < len(calleeFlags) {
+			calleeFlags[function.handle] = function.parameterSampling
+		}
+	}
+	for index := range p.module.Functions {
+		fn := &p.module.Functions[index]
+		own := calleeFlags[index]
+		if err := p.propagateBlockSampling(fn, &own, calleeFlags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// propagateBlockSampling walks one function's statements for calls.
+func (p *parser) propagateBlockSampling(fn *ir.Function, own *[]samplingFlags, calleeFlags [][]samplingFlags) error {
+	var walk func(block ir.Block) error
+	walk = func(block ir.Block) error {
+		for _, statement := range block {
+			switch kind := statement.Kind.(type) {
+			case ir.StmtCall:
+				if int(kind.Function) >= len(calleeFlags) {
+					continue
+				}
+				callee := calleeFlags[kind.Function]
+				for argIndex, argument := range kind.Arguments {
+					if argIndex >= len(callee) || callee[argIndex] == 0 {
+						continue
+					}
+					if int(argument) >= len(fn.Expressions) {
+						return errInvalidGlobalVar
+					}
+					switch expr := fn.Expressions[argument].Kind.(type) {
+					case ir.ExprGlobalVariable:
+						if _, ok := p.handleSampling[expr.Variable]; ok {
+							p.handleSampling[expr.Variable] |= callee[argIndex]
+						}
+					case ir.ExprFunctionArgument:
+						if int(expr.Index) >= len(*own) {
+							return errInvalidGlobalVar
+						}
+						(*own)[expr.Index] |= callee[argIndex]
+					default:
+						return errInvalidGlobalVar
+					}
+				}
+			case ir.StmtBlock:
+				if err := walk(kind.Block); err != nil {
+					return err
+				}
+			case ir.StmtIf:
+				if err := walk(kind.Accept); err != nil {
+					return err
+				}
+				if err := walk(kind.Reject); err != nil {
+					return err
+				}
+			case ir.StmtLoop:
+				if err := walk(kind.Body); err != nil {
+					return err
+				}
+				if err := walk(kind.Continuing); err != nil {
+					return err
+				}
+			case ir.StmtSwitch:
+				for _, caseBlock := range kind.Cases {
+					if err := walk(caseBlock.Body); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}
+	return walk(fn.Body)
 }
 
 // parseImageQuerySize parses OpImageQuerySize and OpImageQuerySizeLod. The

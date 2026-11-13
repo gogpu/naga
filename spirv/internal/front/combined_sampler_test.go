@@ -113,6 +113,22 @@ func TestCombinedSamplerBindingMap(t *testing.T) {
 		}
 	})
 
+	t.Run("taken", func(t *testing.T) {
+		// The image itself already uses (0,0): the caller asked for two
+		// globals on one binding.
+		_, _, err := parseWords(t, Options{SamplerBindings: frontend.SamplerBindings{
+			{Group: 0, Binding: 0}: {Group: 0, Binding: 0},
+		}}, combinedSamplerModuleGroups(sampleCombined...)...)
+		if err == nil {
+			t.Fatal("Parse accepted a sampler binding another resource already uses")
+		}
+		parseErr := requireError(t, err)
+		want := errCombinedSamplerBindingTaken(ir.ResourceBinding{Group: 0, Binding: 0}, ir.ResourceBinding{Group: 0, Binding: 0}).Message
+		if parseErr.Message != want {
+			t.Errorf("error = %q, want %q", parseErr.Message, want)
+		}
+	})
+
 	t.Run("next free", func(t *testing.T) {
 		// A second handle global on (0,1) pushes the split sampler to (0,2).
 		groups := [][]uint32{

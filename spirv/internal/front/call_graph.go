@@ -9,6 +9,10 @@ import (
 type lookupFunction struct {
 	handle ir.FunctionHandle
 	typeID uint32
+	// parameterSampling is how each argument of the function is sampled, as
+	// Rust naga's LookupFunction::parameters_sampling: the flags its callers
+	// pass on to the globals behind the arguments.
+	parameterSampling []samplingFlags
 }
 
 // callNode is a node of the call graph: a function's id, or the wrapper of

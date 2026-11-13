@@ -28,13 +28,13 @@
 
 ## Overview
 
-**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies, and reads SPIR-V binaries into its IR (`spirv.Parse`, the first phase of the SPIR-V input frontend).
+**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies, and reads SPIR-V binaries into its IR (`spirv.Parse`).
 
 ### Key Features
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` (first phase: types, constants, bindings, straight-line bodies) |
+| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` — types, constants, bindings, control flow, calls, images and sampling, atomics, subgroups, combined image samplers |
 | **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 238 of 267 entry points pass IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |

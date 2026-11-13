@@ -400,9 +400,14 @@ func mapRonTypeInnerToIR(inner ronTypeInner) (ir.TypeInner, error) {
 			image.Multisampled = ronFieldStr(fields, "multi") == "true"
 		case "Storage":
 			image.Class = ir.ImageClassStorage
-			if format, err := mapRonStorageFormat(ronEnumName(fields["format"])); err == nil {
-				image.StorageFormat = format
+			// A format the table does not know must fail the comparison, not
+			// silently become StorageFormatUndefined: that would let a
+			// storage image whose format changed compare equal.
+			format, err := mapRonStorageFormat(ronEnumName(fields["format"]))
+			if err != nil {
+				return nil, err
 			}
+			image.StorageFormat = format
 		case "External":
 			image.Class = ir.ImageClassExternal
 		default:

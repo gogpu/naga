@@ -332,10 +332,12 @@ func (w *Writer) writeInterfaceStruct(
 		w.Out.WriteString(";\n")
 	}
 	// Add the local invocation index member if SubgroupId is used, under the
-	// name the namer gives it as Rust naga does.
+	// name the namer gives it as Rust naga does. The name belongs to this
+	// entry point's struct: a second subgroup entry point gets the numbered one.
+	localInvocationIndexName := ""
 	if hasSubgroupId {
-		w.localInvocationIndexName = w.namer.call("local_invocation_index")
-		fmt.Fprintf(&w.Out, "    uint %s : SV_GroupIndex;\n", w.localInvocationIndexName)
+		localInvocationIndexName = w.namer.call("local_invocation_index")
+		fmt.Fprintf(&w.Out, "    uint %s : SV_GroupIndex;\n", localInvocationIndexName)
 	}
 	w.Out.WriteString("};\n\n")
 
@@ -350,9 +352,10 @@ func (w *Writer) writeInterfaceStruct(
 	argName := w.namer.call(strings.ToLower(structName))
 
 	return &entryPointBinding{
-		tyName:  structName,
-		argName: argName,
-		members: members,
+		tyName:                   structName,
+		argName:                  argName,
+		members:                  members,
+		localInvocationIndexName: localInvocationIndexName,
 	}, nil
 }
 
@@ -644,7 +647,7 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 				fmt.Fprintf(&w.Out, "(%du + WaveGetLaneCount() - 1u) / WaveGetLaneCount()", total)
 				return
 			case ir.BuiltinSubgroupID:
-				fmt.Fprintf(&w.Out, "%s.%s / WaveGetLaneCount()", epInput.argName, w.localInvocationIndexName)
+				fmt.Fprintf(&w.Out, "%s.%s / WaveGetLaneCount()", epInput.argName, epInput.localInvocationIndexName)
 				return
 			}
 		}

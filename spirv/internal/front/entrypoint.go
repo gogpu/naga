@@ -220,7 +220,12 @@ func (p *parser) cullUnusedBuiltIns(handle ir.TypeHandle, structType ir.StructTy
 	}
 	name := p.module.Types[handle].Name
 	structType.Members = culled
-	p.types.Replace(handle, name, structType)
+	if !p.types.Replace(handle, name, structType) {
+		// The culled definition already exists in the arena (another output
+		// struct of the same shape): the wrapper builds from culled members
+		// either way, and the global keeps the definition it has.
+		return structType
+	}
 	p.module.Types = p.types.GetTypes()
 	return structType
 }

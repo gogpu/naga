@@ -63,10 +63,12 @@ func (p *parser) splitCombinedSampler(id, typeID uint32, dec *decoration, imageT
 // resolveCombinedSamplerBindings gives every split sampler its binding: the
 // one ParseOptions.SamplerBindings names for the declared binding, or the
 // lowest binding of the same group that no global of the module uses yet. It
-// fills ParseInfo.CombinedSamplers in source order.
-func (p *parser) resolveCombinedSamplerBindings() {
+// fills ParseInfo.CombinedSamplers in source order. A mapping onto a binding
+// another resource of the module already uses is an error: the caller asked
+// for two globals to share a slot.
+func (p *parser) resolveCombinedSamplerBindings() error {
 	if len(p.combinedSamplerSplits) == 0 {
-		return
+		return nil
 	}
 	used := make(map[uint32]map[uint32]struct{})
 	mark := func(binding ir.ResourceBinding) {
@@ -86,6 +88,9 @@ func (p *parser) resolveCombinedSamplerBindings() {
 	for _, split := range p.combinedSamplerSplits {
 		var samplerBinding ir.ResourceBinding
 		if mapped, ok := p.options.SamplerBindings[split.declared]; ok {
+			if _, taken := used[mapped.Group][mapped.Binding]; taken {
+				return errCombinedSamplerBindingTaken(split.declared, mapped)
+			}
 			samplerBinding = mapped
 		} else {
 			samplerBinding = ir.ResourceBinding{Group: split.declared.Group}
@@ -104,4 +109,5 @@ func (p *parser) resolveCombinedSamplerBindings() {
 			Split:   samplerBinding,
 		})
 	}
+	return nil
 }

@@ -363,14 +363,69 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 	}
 }
 
+// TestSPVRoundTripImageArguments: a texture and a sampler passed to helper
+// functions are sampled inside them, and the flags reach the caller's globals
+// as Rust naga's parameter_sampling does: the comparison sampler is patched to
+// its comparison type through the calls, the plain one is untouched. Passing a
+// texture to a helper is ordinary WGSL, and the round trip validates.
+func TestSPVRoundTripImageArguments(t *testing.T) {
+	const source = `
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var s: sampler;
+@group(0) @binding(2) var d: texture_depth_2d;
+@group(0) @binding(3) var cmp: sampler_comparison;
+
+fn sampleIt(tex: texture_2d<f32>, spl: sampler, uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(tex, spl, uv);
+}
+
+fn compareIt(tex: texture_depth_2d, spl: sampler_comparison, uv: vec2<f32>, ref: f32) -> f32 {
+    return textureSampleCompare(tex, spl, uv, ref);
+}
+
+@fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return sampleIt(t, s, uv) * compareIt(d, cmp, uv, 0.5);
+}
+`
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+	if err != nil {
+		t.Fatalf("wgsl.Parse: %v", err)
+	}
+	binary, _, err := spirv.Compile(module, spirv.DefaultOptions())
+	if err != nil {
+		t.Fatalf("spirv.Compile: %v", err)
+	}
+	parsed, _, err := spirv.Parse(binary, spirv.ParseOptions{})
+	if err != nil {
+		t.Fatalf("spirv.Parse: %v", err)
+	}
+	if _, err := valid.Validate(parsed, valid.Options{Capabilities: valid.CapAll}); err != nil {
+		t.Fatalf("valid.Validate: %v", err)
+	}
+	comparison := map[ir.ResourceBinding]bool{}
+	for _, global := range parsed.GlobalVariables {
+		sampler, ok := parsed.Types[global.Type].Inner.(ir.SamplerType)
+		if !ok || global.Binding == nil {
+			continue
+		}
+		comparison[*global.Binding] = sampler.Comparison
+	}
+	if !comparison[ir.ResourceBinding{Group: 0, Binding: 3}] {
+		t.Error("the comparison sampler passed to compareIt was not patched to its comparison type")
+	}
+	if comparison[ir.ResourceBinding{Group: 0, Binding: 1}] {
+		t.Error("the plain sampler passed to sampleIt was patched to a comparison type")
+	}
+}
+
 // TestSPVRoundTripCorpus sends every Rust WGSL corpus shader our SPIR-V
 // writer compiles back through the frontend: each module either parses into
 // IR that validates or is refused with a *ParseError, never a panic and never
 // invalid IR. minParsed only rises as the frontend phases land; Phase 2 (calls
-// and control flow) brought it from 55 to 91, Phase 3 (images, sampling and
-// atomics) to 130.
+// and control flow) brought it from 55 to 91, Phase 3 (images, sampling,
+// atomics and image arguments) to 132.
 func TestSPVRoundTripCorpus(t *testing.T) {
-	const minParsed = 130
+	const minParsed = 132
 	sources, err := filepath.Glob(filepath.Join(rustInputDir, "*.wgsl"))
 	if err != nil {
 		t.Fatal(err)

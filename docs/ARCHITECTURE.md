@@ -100,8 +100,9 @@ naga/
 │   ├── spirv.go                   # Public API: Compile, Options, Version, Capability, TranslationInfo,
 │   │                              # SupportedCapabilities; Parse, ParseOptions, ParseInfo, ParseError
 │   ├── internal/codegen/          # Backend implementation
-│   └── internal/front/            # SPIR-V input frontend (Phase 1: types, constants, decorations, globals,
-│                                  # straight-line bodies, entry-point wrappers); limits in limits.go
+│   └── internal/front/            # SPIR-V input frontend: types, constants, decorations, globals, control
+│                                  # flow, calls, images and sampling, atomics, subgroups, combined image
+│                                  # samplers, entry-point wrappers; limits in limits.go
 │
 │
 ├── msl/                           # MSL backend

@@ -532,30 +532,6 @@ fn f() -> i32 {
 }
 
 // =============================================================================
-// hlslBlockEndsWithReturn — covers the check function
-// =============================================================================
-
-func TestHLSLBlockEndsWithReturn(t *testing.T) {
-	retStmt := ir.StmtReturn{}
-	breakStmt := ir.StmtBreak{}
-
-	block := ir.Block{{Kind: retStmt}}
-	if !hlslBlockEndsWithReturn(block) {
-		t.Error("block ending with return should be detected")
-	}
-
-	block2 := ir.Block{{Kind: breakStmt}}
-	if hlslBlockEndsWithReturn(block2) {
-		t.Error("block ending with break should not be detected as return")
-	}
-
-	emptyBlock := ir.Block{}
-	if hlslBlockEndsWithReturn(emptyBlock) {
-		t.Error("empty block should not be detected as return")
-	}
-}
-
-// =============================================================================
 // formatSpecialFloat — covers Inf/NaN formatting
 // =============================================================================
 

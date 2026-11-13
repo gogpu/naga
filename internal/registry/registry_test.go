@@ -246,7 +246,9 @@ func TestTypeRegistry_Replace(t *testing.T) {
 	culled := original
 	culled.Members = []ir.StructMember{original.Members[0], original.Members[1]}
 	culled.Members[1].Binding = nil
-	registry.Replace(handle, "Vertex", culled)
+	if !registry.Replace(handle, "Vertex", culled) {
+		t.Fatal("Replace refused the culled definition")
+	}
 
 	if got := registry.GetOrCreate("Vertex", culled); got != handle {
 		t.Errorf("replaced definition maps to %d, want the rewritten handle %d", got, handle)
@@ -267,6 +269,27 @@ func TestTypeRegistry_Replace(t *testing.T) {
 	}
 	if registry.Count() != 3 {
 		t.Errorf("Expected 3 types, got %d", registry.Count())
+	}
+
+	// Rewriting the re-created original (handle 2) into the culled definition
+	// would share handle 1's dedup key, so it is refused and nothing changes:
+	// Rust naga's UniqueArena::replace panics here, and rewriting anyway would
+	// leave the culled type's key pointing at handle 2.
+	before := registry.Count()
+	if registry.Replace(2, "Vertex", culled) {
+		t.Error("Replace accepted a definition that equals another type")
+	}
+	if got := registry.GetOrCreate("Vertex", original); got != 2 {
+		t.Errorf("the original definition now maps to %d, want 2", got)
+	}
+	if got := registry.GetOrCreate("Vertex", culled); got != handle {
+		t.Errorf("the culled definition now maps to %d, want %d", got, handle)
+	}
+	if registry.Count() != before {
+		t.Errorf("Count changed from %d to %d", before, registry.Count())
+	}
+	if registry.Replace(999, "Vertex", culled) {
+		t.Error("Replace accepted an out-of-range handle")
 	}
 }
 
