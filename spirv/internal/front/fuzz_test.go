@@ -35,6 +35,29 @@ func FuzzParse(f *testing.F) {
 		instWords(spvenums.OpCompositeConstruct, 9, 200, 22, 22, 22, 22),
 		instWords(spvenums.OpVectorShuffle, 9, 201, 200, 200, 0, 1, 2, 3, 0),
 	))
+	// A call graph: an entry point calling forward, a call chain, a call
+	// nested in a selection, and a mutual recursion the mutations can open.
+	f.Add(callModule(true,
+		voidFunction(100, call(3, 50, 200, 20), call(3, 51, 300, 50)),
+		identityFunction(200),
+		[][]uint32{
+			instWords(spvenums.OpFunction, 1, 300, 0, 4),
+			instWords(spvenums.OpFunctionParameter, 3, 301),
+			instWords(spvenums.OpLabel, 302),
+			instWords(spvenums.OpSelectionMerge, 304, 0),
+			instWords(spvenums.OpBranchConditional, 70, 303, 304),
+			instWords(spvenums.OpLabel, 303),
+			call(3, 52, 200, 301),
+			instWords(spvenums.OpBranch, 304),
+			instWords(spvenums.OpLabel, 304),
+			instWords(spvenums.OpReturnValue, 301),
+			instWords(spvenums.OpFunctionEnd),
+		},
+	))
+	f.Add(callModule(false,
+		voidFunction(100, call(1, 50, 200)),
+		voidFunction(200, call(1, 51, 100)),
+	))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		module, _, err := Parse(data, Options{})
