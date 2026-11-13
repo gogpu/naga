@@ -2,6 +2,7 @@ package front
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -302,6 +303,53 @@ func TestAtomicGlobalInit(t *testing.T) {
 	if got := requireError(t, err).Message; got != errAtomicGlobalInitUnsupported.Message {
 		t.Errorf("message = %q, want %q", got, errAtomicGlobalInitUnsupported.Message)
 	}
+}
+
+// TestAtomicOperandErrors: the atomic instructions report an undefined
+// pointer, value or comparator id, and a pointer that is no pointer, with the
+// frontend's own errors.
+func TestAtomicOperandErrors(t *testing.T) {
+	const missing = 99
+	// The pointer the module defines: a chain into the struct's first member.
+	chain := instWords(spvenums.OpAccessChain, 15, 20, 18, 16)
+	for _, tc := range []struct {
+		name string
+		body [][]uint32
+	}{
+		{"load pointer", [][]uint32{instWords(spvenums.OpAtomicLoad, 14, 21, missing, 16, 16)}},
+		{"store pointer", [][]uint32{instWords(spvenums.OpAtomicStore, missing, 16, 16, 17)}},
+		{"store value", [][]uint32{chain, instWords(spvenums.OpAtomicStore, 20, 16, 16, missing)}},
+		{"exchange pointer", [][]uint32{instWords(spvenums.OpAtomicExchange, 14, 21, missing, 16, 16, 17)}},
+		{"exchange value", [][]uint32{chain, instWords(spvenums.OpAtomicExchange, 14, 21, 20, 16, 16, missing)}},
+		{"increment pointer", [][]uint32{instWords(spvenums.OpAtomicIIncrement, 14, 21, missing, 16, 16)}},
+		{"compare pointer", [][]uint32{instWords(spvenums.OpAtomicCompareExchange, 14, 21, missing, 16, 16, 16, 17, 17)}},
+		{"compare value", [][]uint32{chain, instWords(spvenums.OpAtomicCompareExchange, 14, 21, 20, 16, 16, 16, missing, 17)}},
+		{"compare comparator", [][]uint32{chain, instWords(spvenums.OpAtomicCompareExchange, 14, 21, 20, 16, 16, 16, 17, missing)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := parseWords(t, Options{}, atomicModuleGroups(tc.body...)...)
+			if err == nil {
+				t.Fatal("Parse accepted an undefined operand id")
+			}
+			if got := requireError(t, err).Message; got != errInvalidID(missing).Message {
+				t.Errorf("message = %q, want %q", got, errInvalidID(missing).Message)
+			}
+		})
+	}
+
+	t.Run("pointer that is no pointer", func(t *testing.T) {
+		// The zero constant as the atomic pointer: a value expression, no
+		// pointer type.
+		_, _, err := parseWords(t, Options{}, atomicModuleGroups(
+			instWords(spvenums.OpAtomicIAdd, 14, 21, 16, 16, 16, 17),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a constant as the atomic pointer")
+		}
+		if got := requireError(t, err).Message; !strings.HasPrefix(got, "invalid access type") {
+			t.Errorf("message = %q, want invalid access type", got)
+		}
+	})
 }
 
 // findStatement returns the first statement the predicate accepts.
