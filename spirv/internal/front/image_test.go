@@ -351,3 +351,66 @@ func TestImageGatherDepthNoSplat(t *testing.T) {
 		t.Error("the depth gather is splatted")
 	}
 }
+
+// TestImageSamplingArgumentCallerFirst: a comparison sample inside a helper
+// function patches the caller's sampler even when the entry point is declared
+// before the helper. The propagation walks the call graph after the call
+// targets are patched; before that the call still holds a placeholder, and a
+// caller declared first then reads the wrong function's flags (silently, both
+// modules validate).
+func TestImageSamplingArgumentCallerFirst(t *testing.T) {
+	module, _, err := parseWords(t, Options{},
+		headerWords(),
+		instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+		instWords(spvenums.OpMemoryModel, 0, 1),
+		entryPointOp(spvenums.ExecutionModelFragment, 24, 26),
+		instWords(spvenums.OpDecorate, 24, uint32(spvenums.DecorationDescriptorSet), 0),
+		instWords(spvenums.OpDecorate, 24, uint32(spvenums.DecorationBinding), 0),
+		instWords(spvenums.OpDecorate, 26, uint32(spvenums.DecorationDescriptorSet), 0),
+		instWords(spvenums.OpDecorate, 26, uint32(spvenums.DecorationBinding), 1),
+		instWords(spvenums.OpTypeVoid, 10),
+		instWords(spvenums.OpTypeFunction, 11, 10),
+		instWords(spvenums.OpTypeFloat, 13, 32),
+		instWords(spvenums.OpTypeVector, 14, 13, 2),
+		instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 1, 0),
+		instWords(spvenums.OpTypeSampler, 17),
+		instWords(spvenums.OpTypeSampledImage, 18, 16),
+		instWords(spvenums.OpTypePointer, 19, uint32(spvenums.StorageClassUniformConstant), 16),
+		instWords(spvenums.OpTypePointer, 20, uint32(spvenums.StorageClassUniformConstant), 17),
+		instWords(spvenums.OpTypeFunction, 27, 10, 16, 17, 14),
+		instWords(spvenums.OpConstant, 13, 21, 0x3f800000),
+		instWords(spvenums.OpConstantComposite, 14, 22, 21, 21),
+		instWords(spvenums.OpConstant, 13, 23, 0x3f000000),
+		instWords(spvenums.OpVariable, 19, 24, uint32(spvenums.StorageClassUniformConstant)),
+		instWords(spvenums.OpVariable, 20, 26, uint32(spvenums.StorageClassUniformConstant)),
+		// The entry point is declared first, the helper it calls after it.
+		instWords(spvenums.OpFunction, 10, 1, 0, 11),
+		instWords(spvenums.OpLabel, 3),
+		instWords(spvenums.OpLoad, 16, 30, 24),
+		instWords(spvenums.OpLoad, 17, 31, 26),
+		instWords(spvenums.OpFunctionCall, 10, 32, 2, 30, 31, 22),
+		instWords(spvenums.OpReturn),
+		instWords(spvenums.OpFunctionEnd),
+		instWords(spvenums.OpFunction, 10, 2, 0, 27),
+		instWords(spvenums.OpFunctionParameter, 16, 40),
+		instWords(spvenums.OpFunctionParameter, 17, 41),
+		instWords(spvenums.OpFunctionParameter, 14, 42),
+		instWords(spvenums.OpLabel, 4),
+		instWords(spvenums.OpSampledImage, 18, 50, 40, 41),
+		instWords(spvenums.OpImageSampleDrefImplicitLod, 13, 51, 50, 42, 23),
+		instWords(spvenums.OpReturn),
+		instWords(spvenums.OpFunctionEnd),
+	)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	patched := false
+	for _, global := range module.GlobalVariables {
+		if sampler, ok := module.Types[global.Type].Inner.(ir.SamplerType); ok && sampler.Comparison {
+			patched = true
+		}
+	}
+	if !patched {
+		t.Error("the sampler sampled through the helper was not patched to its comparison type")
+	}
+}
