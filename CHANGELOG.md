@@ -22,6 +22,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validates and every backend accepts it as parsed. The remaining phases — structured control flow and calls,
   images, sampling and atomics, the combined image sampler split, `nagac --from-spirv` and fuzz — follow as their
   own changes; an instruction outside the implemented set is a `*ParseError` that names it, never silent output.
+- **`spirv.Parse` reads structured control flow, phis and function calls** (NAGA-FEAT-001, Phase 2):
+  `OpSelectionMerge`, `OpLoopMerge`, `OpBranch`, `OpBranchConditional` and `OpSwitch` become `If`, `Loop` (with
+  `break if` where the back edge is conditional), `Switch`, `Break` and `Continue`; `OpPhi` becomes a local
+  variable stored on each incoming edge; `OpFunctionCall` becomes a `Call`. Functions are ordered callees first
+  by the same topological sort of the call graph Rust naga uses, so the IR's function order matches Rust's, and
+  a recursive call is refused as in Rust. Input Rust naga panics on or turns into IR its validator rejects is a
+  `*ParseError` here: an undefined label or callee, a call that does not match the callee's type, a function
+  defined twice, a conditional branch back to a block already placed, a branch to a loop's merge block from
+  outside the loop, a return inside a continuing block. Two valid shapes the IR cannot express are refused with
+  a `*ParseError` that names them, where Rust naga builds wrong IR or fails: a switch case that branches to the
+  merge block of the loop around the switch (Rust makes it a switch `break`, so the loop never exits), and a
+  loop whose merge block comes before its continue construct. Where Rust naga miscompiles, we do not: a switch
+  literal that shares the default's target runs the default body (Rust runs the next case); a case or the default
+  that branches into another case, with statements on the way, falls through into it, because the cases are
+  ordered by their fall-through edges and the default moves before the case it falls into (Rust keeps the default
+  last, so the statements of the case it falls into, or of the default a case falls into, are lost or the wrong
+  case runs); a conditional branch from a case into the next case falls through too (Rust's `if` arm takes that
+  case's block). A case or the default that is a loop header keeps its loop: the back edge to the header is not a
+  fall-through. Fall-through the IR cannot express by case order is a `*ParseError`: two cases falling into one,
+  a cycle, a branch into another case from inside a construct nested in a case, a selection, switch or loop nested
+  in a case that merges at another case, a conditional branch into two cases, and a default at the enclosing
+  loop's continue target, each of which spirv-val rejects too; and
+  `OpLogicalAnd`/`OpLogicalOr` on bool vectors become the componentwise `And`/`InclusiveOr` (Rust emits
+  `LogicalAnd`/`LogicalOr`, which its own validator rejects). Control flow nests at most 128 levels and types,
+  pointers included, at most 64; both limits are checked where the input declares them. 16 of the 33 Rust
+  SPIR-V test modules parse and validate, and 91 of the WGSL test shaders round-trip through our SPIR-V writer
+  and back.
 - **`ir.BuiltinValue` gains the five built-ins the SPIR-V frontend produces** (P1-IR-031): `BuiltinBaseInstance`,
   `BuiltinBaseVertex`, `BuiltinCullDistance`, `BuiltinPointCoord` and `BuiltinWorkGroupSize`, appended after
   `BuiltinBarycentricNoPerspective` so every existing value is unchanged, with names for error messages
@@ -89,6 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HLSL that dxc and FXC refuse. They are now written as `log(x + sqrt(x * x ± 1.0))` and
   `0.5 * log((1.0 + x) / (1.0 - x))`, as Rust naga writes them. The DXIL backend still refuses these functions
   with an `unsupported unary math function` error; that is tracked separately.
+- **MSL and HLSL: a fall-through switch case with statements keeps them.** MSL wrote only the label of such a
+  case and dropped its body; HLSL wrote C fall-through, which FXC does not support. Both now match Rust naga: MSL
+  writes the body in braces without `break`, HLSL writes the case's body followed by the bodies of every case it
+  falls into, each in its own scope, then one `break`. WGSL never produces such a case (its fall-through cases are
+  empty), so WGSL output is unchanged; the SPIR-V frontend does.
 - **WGSL: out-of-range integer literals, repeated attributes and unterminated block comments are errors**
   (P1-WGSL-113, P1-WGSL-114, P3-WGSL-115). Three inputs the WGSL spec makes shader-creation errors were accepted,
   two of them changing the program silently:
