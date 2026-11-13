@@ -446,6 +446,36 @@ func TestImageUncouple(t *testing.T) {
 	}
 }
 
+// TestImageOperandErrors: an operand id the module never defined is the id
+// error of the lookup that reads it, for the couple, sample and load
+// instructions.
+func TestImageOperandErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body []uint32
+	}{
+		{"couple image", instWords(spvenums.OpSampledImage, 18, 50, 99, 31)},
+		{"couple sampler", instWords(spvenums.OpSampledImage, 18, 50, 30, 99)},
+		{"sample sampled image", instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 99, 24)},
+		{"sample coordinate", instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 99)},
+		{"sample level", instWords(spvenums.OpImageSampleExplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsLod), 99)},
+		{"fetch image", instWords(spvenums.OpImageFetch, 15, 40, 99, 24)},
+		{"fetch coordinate", instWords(spvenums.OpImageFetch, 15, 40, 30, 99)},
+		{"fetch level", instWords(spvenums.OpImageFetch, 15, 40, 30, 24, uint32(spvenums.ImageOperandsLod), 99)},
+		{"fetch sample", instWords(spvenums.OpImageFetch, 15, 40, 30, 24, uint32(spvenums.ImageOperandsSample), 99)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := parseWords(t, Options{}, imageModuleGroups(tc.body)...)
+			if err == nil {
+				t.Fatal("Parse accepted an undefined operand id")
+			}
+			if got := requireError(t, err).Message; got != errInvalidID(99).Message {
+				t.Errorf("message = %q, want %q", got, errInvalidID(99).Message)
+			}
+		})
+	}
+}
+
 // imageStore parses a module whose first body instruction is an OpImageWrite
 // the caller gives and returns the ImageStore statement it produced.
 func imageStore(t *testing.T, imageType []uint32, extra [][]uint32, body ...[]uint32) (*ir.Function, ir.StmtImageStore) {
@@ -741,6 +771,40 @@ func TestImageSampleOperands(t *testing.T) {
 		}
 		if got := requireError(t, err).Message; got != errInvalidOperand.Message {
 			t.Errorf("message = %q, want %q", got, errInvalidOperand.Message)
+		}
+	})
+
+	t.Run("coordinate cut to the image size", func(t *testing.T) {
+		// A 2D image sampled with a vec3 coordinate: the third component is
+		// dropped with a swizzle to the two components the image takes.
+		fn, sample := imageSample(t, plain, vec3Float(),
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 29))
+		if _, ok := fn.Expressions[sample.Coordinate].Kind.(ir.ExprSwizzle); !ok {
+			t.Errorf("coordinate = %T, want the cut swizzle", fn.Expressions[sample.Coordinate].Kind)
+		}
+	})
+
+	t.Run("1D arrayed layer from a vec2", func(t *testing.T) {
+		// A 1D image has no spatial vector to cut: the first component is the
+		// coordinate, the second the layer.
+		arrayed1D := instWords(spvenums.OpTypeImage, 16, 13, 0, 0, 1, 0, 1, 0)
+		fn, sample := imageSample(t, arrayed1D, nil,
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24))
+		if sample.ArrayIndex == nil {
+			t.Fatal("the 1D arrayed sample has no array index")
+		}
+		access, ok := fn.Expressions[sample.Coordinate].Kind.(ir.ExprAccessIndex)
+		if !ok || access.Index != 0 {
+			t.Errorf("coordinate = %T, want the first component", fn.Expressions[sample.Coordinate].Kind)
+		}
+	})
+
+	t.Run("1D projection divides by the second component", func(t *testing.T) {
+		fn, sample := imageSample(t, instWords(spvenums.OpTypeImage, 16, 13, 0, 0, 0, 0, 1, 0), nil,
+			instWords(spvenums.OpImageSampleProjImplicitLod, 15, 40, 32, 24))
+		divide, ok := fn.Expressions[sample.Coordinate].Kind.(ir.ExprBinary)
+		if !ok || divide.Op != ir.BinaryDivide {
+			t.Errorf("coordinate = %T, want a division", fn.Expressions[sample.Coordinate].Kind)
 		}
 	})
 }
