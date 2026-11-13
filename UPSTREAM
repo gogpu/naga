@@ -24,7 +24,16 @@ Test corpus
   snapshot/rust_deviations_test.go.
 
 Current scope
-  Frontend: WGSL.
+  Frontends: WGSL; SPIR-V input (Phase 1 of the design, ported from Rust naga's
+  front/spv: types, constants, decorations, globals, straight-line bodies and
+  the entry-point wrapper. Structured control flow, calls, images and atomics
+  follow as phases 2-4).
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
-  Rust naga's SPIR-V and GLSL frontends and its WGSL and DOT outputs are not
-  implemented.
+  Rust naga's GLSL frontend and its WGSL and DOT outputs are not implemented.
+
+Vendored SPIR-V grammar
+  testdata/upstream/github.com/KhronosGroup/SPIRV-Headers/ vendors four files
+  of Khronos SPIRV-Headers at tag vulkan-sdk-1.4.341.0 (commit
+  04f10f650d514df88b76d25e83db360142c7b174, 2026-01-21), with LICENSE and
+  PROVENANCE; internal/spvnames and spirv/internal/spvenums are generated from
+  the grammar and a drift test holds them to it.
