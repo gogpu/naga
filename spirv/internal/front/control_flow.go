@@ -416,7 +416,8 @@ type switchCaseTarget struct {
 
 // switchBranch parses OpSwitch: one body per distinct target, extra literals
 // of a shared target as empty fall-through cases before it, and a default
-// body. The selector is bitcast to i32 when it is unsigned, as the IR switch
+// body, with the literals at the default target as empty fall-through cases
+// before it. The selector is bitcast to i32 when it is unsigned, as the IR switch
 // takes i32 values.
 func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockState) error {
 	if _, err := inst.expectAtLeast(3); err != nil {
@@ -472,6 +473,15 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 		selector = appendExpression(fs.fn, ir.ExprAs{Expr: selector, Kind: ir.ScalarSint})
 	}
 
+	// A literal whose target is the default target (glslang's `case 3:
+	// default:`) runs the default body. Rust naga gives such a literal an
+	// empty fall-through case among the others, so it runs whatever case
+	// follows; here it becomes an empty fall-through case directly before the
+	// default. A default that is a merge block has an empty body, and a
+	// literal at it keeps the case that breaks, as in Rust naga.
+	_, defaultIsMerge := fs.mergers[defaultID]
+	var defaultLiterals []int32
+
 	pairs := int(inst.wc-3) / 2
 	var targets []switchCaseTarget
 	targetIndex := make(map[uint32]int)
@@ -491,6 +501,10 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 			return errRepeatedSwitchCase(literal)
 		}
 		seen[literal] = true
+		if targetID == defaultID && !defaultIsMerge {
+			defaultLiterals = append(defaultLiterals, literal)
+			continue
+		}
 		// Cases that share a target are grouped, so the target's body is
 		// built once and the other literals fall through into it.
 		if i, ok := targetIndex[targetID]; ok {
@@ -525,6 +539,14 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 			cases = append(cases, switchCaseBody{value: literal, body: empty})
 		}
 		cases = append(cases, switchCaseBody{value: target.literals[0], body: target.body})
+	}
+	// The default comes last, so the literals at it fall through into it.
+	for _, literal := range defaultLiterals {
+		empty, err := fs.newBody(bs.bodyIdx, depth)
+		if err != nil {
+			return err
+		}
+		cases = append(cases, switchCaseBody{value: literal, body: empty})
 	}
 
 	fs.finishBlock(bs, nil)

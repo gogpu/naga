@@ -1,6 +1,7 @@
 package front
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -347,6 +348,103 @@ func TestControlFlowSwitchFallThroughToNextCase(t *testing.T) {
 	)
 	if got, want := shape(fn.Body), "switch{1+:{} 2:{break} default:{}};return"; got != want {
 		t.Errorf("shape = %s, want %s", got, want)
+	}
+}
+
+// switchStores runs a switch on one selector value as the IR defines it: the
+// case whose value matches (the default when none does), then each next case
+// while the one before falls through. It returns the i32 constants the cases
+// store, in order, up to the first Break or other terminator.
+func switchStores(t *testing.T, module *ir.Module, fn *ir.Function, sw ir.StmtSwitch, selector int32) []int32 {
+	t.Helper()
+	start := -1
+	for i, c := range sw.Cases {
+		if v, ok := c.Value.(ir.SwitchValueI32); ok && int32(v) == selector {
+			start = i
+		}
+	}
+	if start < 0 {
+		for i, c := range sw.Cases {
+			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
+				start = i
+			}
+		}
+	}
+	var stores []int32
+	for i := start; i < len(sw.Cases); i++ {
+		for _, statement := range sw.Cases[i].Body {
+			if isTerminator(statement) {
+				return stores
+			}
+			if store, ok := statement.Kind.(ir.StmtStore); ok {
+				stores = append(stores, i32Constant(t, module, fn, store.Value))
+			}
+		}
+		if !sw.Cases[i].FallThrough {
+			return stores
+		}
+	}
+	return stores
+}
+
+// i32Constant reads the i32 constant a function expression stands for.
+func i32Constant(t *testing.T, module *ir.Module, fn *ir.Function, handle ir.ExpressionHandle) int32 {
+	t.Helper()
+	kind := fn.Expressions[handle].Kind
+	if c, ok := kind.(ir.ExprConstant); ok {
+		kind = module.GlobalExpressions[module.Constants[c.Constant].Init].Kind
+	}
+	if literal, ok := kind.(ir.Literal); ok {
+		if v, ok := literal.Value.(ir.LiteralI32); ok {
+			return int32(v)
+		}
+	}
+	t.Fatalf("stored value %#v is not an i32 constant", kind)
+	return 0
+}
+
+// TestControlFlowSwitchLiteralAtDefault: a literal whose target is the
+// default target runs the default body. glslang emits this for
+// `case 3: default: …`. Deviation from Rust naga, which miscompiles it
+// (next_block.rs:2140-2142 and 2187-2199): the default body takes the block
+// first, the literal's case stays empty with fall-through set and falls into
+// whatever case follows it, so x == 3 ran case 5's body.
+func TestControlFlowSwitchLiteralAtDefault(t *testing.T) {
+	// OpSwitch %x default:%102 3:%102 5:%103 7:%102. %102 stores 1, %103
+	// stores 5; both break.
+	m := newBodyModule()
+	module, _, err := Parse(m.build(
+		instWords(spvenums.OpVariable, 11, 60, fnSpace),
+		instWords(spvenums.OpSelectionMerge, 110, 0),
+		instWords(spvenums.OpSwitch, 20, 102, 3, 102, 5, 103, 7, 102),
+		instWords(spvenums.OpLabel, 102),
+		instWords(spvenums.OpStore, 60, 26),
+		instWords(spvenums.OpBranch, 110),
+		instWords(spvenums.OpLabel, 103),
+		instWords(spvenums.OpStore, 60, 20),
+		instWords(spvenums.OpBranch, 110),
+		instWords(spvenums.OpLabel, 110),
+	), Options{})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	fn := &module.Functions[0]
+	sw := stripEmits(fn.Body)[0].Kind.(ir.StmtSwitch)
+	for _, tc := range []struct {
+		selector int32
+		want     []int32
+	}{
+		{selector: 3, want: []int32{1}},
+		{selector: 5, want: []int32{5}},
+		{selector: 7, want: []int32{1}},
+		{selector: 9, want: []int32{1}},
+	} {
+		if got := switchStores(t, module, fn, sw, tc.selector); !slices.Equal(got, tc.want) {
+			t.Errorf("selector %d stores %v, want %v (switch %s)", tc.selector, got, tc.want, shape(fn.Body))
+		}
 	}
 }
 
