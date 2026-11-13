@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a switch whose every case ends in break continues after the switch: 20, 50 and 14 (the SPIR-V writer made the merge unreachable and dropped dst[1] and dst[2] from v0.15.0 to v0.21.10)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [1], "type": "i32"},
+    {"binding": 1, "kind": "storage-rw", "len": 4, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[20, 50, 14, "fill"]]}
+  ]
+}
