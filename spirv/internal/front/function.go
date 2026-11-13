@@ -20,6 +20,9 @@ func (p *parser) parseFunction() error {
 	if err != nil {
 		return err
 	}
+	if _, ok := p.lookupFunction[funID]; ok {
+		return errDuplicateFunction(funID)
+	}
 	// The function control word is not carried into the IR.
 	if _, err := p.next(); err != nil {
 		return err
@@ -75,6 +78,10 @@ func (p *parser) parseFunction() error {
 		argumentDec := p.takeDecoration(id)
 		fn.Arguments = append(fn.Arguments, ir.FunctionArgument{Name: argumentDec.name, Type: ty.handle})
 	}
+
+	// The function is a node of the call graph before its body adds edges,
+	// as in Rust naga: the node order decides the order of Module.Functions.
+	p.callGraph.addNode(callNode{id: funID})
 
 	fs := &functionState{
 		id:           funID,
@@ -164,7 +171,7 @@ parameters:
 
 	handle := ir.FunctionHandle(len(p.module.Functions))
 	p.module.Functions = append(p.module.Functions, fn)
-	p.lookupFunction[funID] = handle
+	p.lookupFunction[funID] = lookupFunction{handle: handle, typeID: funTypeID}
 	if _, ok := p.entryPoints[funID]; ok {
 		p.deferredEntryPoints = append(p.deferredEntryPoints, funID)
 	}
@@ -497,6 +504,8 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 		return false, nil, p.derivative(inst, fs, consumer, block, bodyIdx, blockID, ir.DerivativeY, ir.DerivativeNone)
 	case spvenums.OpFwidth:
 		return false, nil, p.derivative(inst, fs, consumer, block, bodyIdx, blockID, ir.DerivativeWidth, ir.DerivativeNone)
+	case spvenums.OpFunctionCall:
+		return false, nil, p.functionCall(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpControlBarrier:
 		return false, nil, p.controlBarrier(inst, fs, consumer, block)
 	case spvenums.OpMemoryBarrier:
@@ -1612,6 +1621,68 @@ func (p *parser) derivative(inst instruction, fs *functionState, consumer *emitt
 	}
 	expression := ir.ExprDerivative{Axis: axis, Control: control, Expr: argument}
 	p.storeExpression(resultID, resultTypeID, blockID, appendExpression(fs.fn, expression))
+	return nil
+}
+
+// functionCall parses OpFunctionCall (Rust naga's next_block.rs arm). The
+// callee may not be parsed yet, so the call and its result hold a placeholder
+// handle that patchCalls replaces once every function is parsed.
+func (p *parser) functionCall(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	argumentCount, err := inst.expectAtLeast(4)
+	if err != nil {
+		return err
+	}
+	offset := uint32(p.instOffset)
+	resultTypeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	resultID, err := p.next()
+	if err != nil {
+		return err
+	}
+	calleeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	arguments := make([]ir.ExpressionHandle, 0, argumentCount)
+	argumentTypeIDs := make([]uint32, 0, argumentCount)
+	for range argumentCount {
+		argumentID, err := p.next()
+		if err != nil {
+			return err
+		}
+		lookup, err := p.lookupExpr(argumentID)
+		if err != nil {
+			return err
+		}
+		handle, err := p.getExprHandle(argumentID, lookup, fs, consumer, block, bodyIdx)
+		if err != nil {
+			return err
+		}
+		arguments = append(arguments, handle)
+		argumentTypeIDs = append(argumentTypeIDs, lookup.typeID)
+	}
+
+	flushBeforeStatement(consumer, fs.fn.Expressions, block)
+	function := p.addCall(callNode{id: fs.id}, deferredCall{
+		callee:          calleeID,
+		argumentTypeIDs: argumentTypeIDs,
+		resultTypeID:    resultTypeID,
+		offset:          offset,
+	})
+	var result *ir.ExpressionHandle
+	if !(p.hasVoidType && p.voidTypeID == resultTypeID) {
+		handle := appendExpression(fs.fn, ir.ExprCallResult{Function: function})
+		p.storeExpression(resultID, resultTypeID, blockID, handle)
+		result = &handle
+	}
+	*block = append(*block, ir.Statement{Kind: ir.StmtCall{
+		Function:  function,
+		Arguments: arguments,
+		Result:    result,
+	}})
+	consumer.startWith(fs.fn.Expressions)
 	return nil
 }
 

@@ -216,6 +216,21 @@ func errWrongFunctionArgumentType(id uint32) *Error {
 	return &Error{Message: fmt.Sprintf("wrong function argument type %%%d", id)}
 }
 
+func errFunctionCallCycle(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("recursive function call %%%d", id)}
+}
+
+// errWrongArgumentCount and errDuplicateFunction have no Rust naga
+// counterpart: Rust naga builds IR its validator rejects for the first and
+// drops the earlier function silently for the second.
+func errWrongArgumentCount(id uint32, want, got int) *Error {
+	return &Error{Message: fmt.Sprintf("function %%%d takes %d arguments, the call passes %d", id, want, got)}
+}
+
+func errDuplicateFunction(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("function %%%d is defined twice", id)}
+}
+
 func errInvalidParameter(op spvenums.Op) *Error {
 	return &Error{Message: fmt.Sprintf("invalid parameter %s", bareName(op.String(), "Op"))}
 }
