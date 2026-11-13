@@ -220,6 +220,7 @@ func (p *parser) loopMerge(inst instruction, fs *functionState, bs *blockState) 
 	if err != nil {
 		return err
 	}
+	fs.bodies[loopBody].kind = bodyLoop
 	if _, ok := fs.bodyForLabel[continuingID]; !ok {
 		fs.bodyForLabel[continuingID] = continuing
 	}
@@ -249,6 +250,9 @@ func (p *parser) branch(inst instruction, fs *functionState, bs *blockState) err
 		return err
 	}
 	if info, ok := fs.mergers[targetID]; ok {
+		if info == mergeLoopMerge && fs.breakLeavesSwitch(bs.bodyIdx) {
+			return errSwitchExitsLoop
+		}
 		fs.finishBlock(bs, nil)
 		merger(&fs.bodies[bs.bodyIdx], info)
 		return nil
@@ -324,6 +328,9 @@ func (p *parser) branchConditional(inst instruction, fs *functionState, bs *bloc
 	// a branch back to a block already placed, which Rust naga would move
 	// into a new body.
 	for _, target := range targets {
+		if target.isMerge && target.info == mergeLoopMerge && fs.breakLeavesSwitch(bs.bodyIdx) {
+			return errSwitchExitsLoop
+		}
 		if _, parsed := fs.blocks[target.id]; !target.isMerge && (parsed || target.id == bs.id) {
 			return errInvalidBranchTarget(target.id)
 		}
@@ -443,8 +450,14 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 		fs.mergers[bs.selectionMerge] = mergeSwitchMerge
 	}
 
+	// A case or the default at the loop's merge block would be a Break that
+	// leaves only the switch (errSwitchExitsLoop).
+	if fs.mergers[defaultID] == mergeLoopMerge {
+		return errSwitchExitsLoop
+	}
+
 	depth := fs.bodies[bs.bodyIdx].depth + 1
-	defaultBody, err := fs.newBody(bs.bodyIdx, depth)
+	defaultBody, err := fs.newSwitchCaseBody(bs.bodyIdx, depth)
 	if err != nil {
 		return err
 	}
@@ -511,7 +524,10 @@ func (p *parser) switchBranch(inst instruction, fs *functionState, bs *blockStat
 			targets[i].literals = append(targets[i].literals, literal)
 			continue
 		}
-		caseBody, err := fs.newBody(bs.bodyIdx, depth)
+		if fs.mergers[targetID] == mergeLoopMerge {
+			return errSwitchExitsLoop
+		}
+		caseBody, err := fs.newSwitchCaseBody(bs.bodyIdx, depth)
 		if err != nil {
 			return err
 		}
