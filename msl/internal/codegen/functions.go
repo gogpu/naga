@@ -901,8 +901,6 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		}
 	}
 
-	emitInputAliases()
-
 	// Note: output struct variable is NOT pre-declared here.
 	// For struct results, writeEntryPointOutputReturn uses the Rust naga pattern:
 	//   const auto _tmp = <expr>;
@@ -946,7 +944,14 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	// Local variables — after private globals, matching Rust naga order.
+	// Reconstruct the entry point's flattened arguments from the stage_in
+	// struct: Rust naga writes the private globals as locals first, then these
+	// aliases, then the function's own local variables (back/msl/writer.rs,
+	// the private-global block, the argument reconstruction, put_locals).
+	emitInputAliases()
+
+	// Local variables — after the private globals and the input aliases,
+	// matching Rust naga order.
 	if err := w.writeLocalVars(fn); err != nil {
 		return err
 	}

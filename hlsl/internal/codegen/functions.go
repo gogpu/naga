@@ -331,9 +331,11 @@ func (w *Writer) writeInterfaceStruct(
 		}
 		w.Out.WriteString(";\n")
 	}
-	// Add __local_invocation_index if SubgroupId is used
+	// Add the local invocation index member if SubgroupId is used, under the
+	// name the namer gives it as Rust naga does.
 	if hasSubgroupId {
-		w.Out.WriteString("    uint __local_invocation_index : SV_GroupIndex;\n")
+		w.localInvocationIndexName = w.namer.call("local_invocation_index")
+		fmt.Fprintf(&w.Out, "    uint %s : SV_GroupIndex;\n", w.localInvocationIndexName)
 	}
 	w.Out.WriteString("};\n\n")
 
@@ -557,10 +559,9 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	// Add implicit return for void entry points
-	if fn.Result == nil && !hlslBlockEndsWithReturn(fn.Body) {
-		w.WriteLine("return;")
-	}
+	// No implicit return: Rust naga writes a void function's body as the IR
+	// has it, and the IR's blocks end in their own terminators. A wrapper
+	// with no outputs has none, and Rust's HLSL output has no `return;` there.
 
 	w.PopIndent()
 	w.WriteLine("}")
@@ -643,7 +644,7 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 				fmt.Fprintf(&w.Out, "(%du + WaveGetLaneCount() - 1u) / WaveGetLaneCount()", total)
 				return
 			case ir.BuiltinSubgroupID:
-				fmt.Fprintf(&w.Out, "%s.__local_invocation_index / WaveGetLaneCount()", epInput.argName)
+				fmt.Fprintf(&w.Out, "%s.%s / WaveGetLaneCount()", epInput.argName, w.localInvocationIndexName)
 				return
 			}
 		}

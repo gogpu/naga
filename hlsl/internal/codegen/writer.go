@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
@@ -173,6 +174,11 @@ type Writer struct {
 	rayDescHelperWritten               bool
 	committedIntersectionHelperWritten bool
 	candidateIntersectionHelperWritten bool
+
+	// localInvocationIndexName is the namer's name for the synthetic
+	// SV_GroupIndex member a subgroup compute entry point carries, as Rust
+	// naga names it (back/hlsl/writer.rs, namer.call("local_invocation_index")).
+	localInvocationIndexName string
 
 	// Continue forwarding context for switch-in-loop workaround.
 	// Matches Rust naga's ContinueCtx.
@@ -404,14 +410,38 @@ func (w *Writer) writeHeader() {
 
 // registerNames assigns unique names to all IR entities.
 func (w *Writer) registerNames() error {
-	// Register type names
+	// Register type names. An anonymous type takes Rust naga's "type" base,
+	// numbered by the namer in arena order (proc/namer.rs, name_types); an
+	// anonymous entry point result struct takes the per-stage fallback name
+	// (VertexOutput and the like), which SPIR-V input reaches.
+	entryPointResultNames := make(map[ir.TypeHandle]string)
+	for index := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[index]
+		if ep.Function.Result == nil {
+			continue
+		}
+		ty := ep.Function.Result.Type
+		if int(ty) >= len(w.module.Types) || w.module.Types[ty].Name != "" {
+			continue
+		}
+		fallback, ok := backend.EntryPointResultStructName(ep.Stage)
+		if !ok {
+			continue
+		}
+		if _, isStruct := w.module.Types[ty].Inner.(ir.StructType); isStruct {
+			entryPointResultNames[ty] = fallback
+		}
+	}
 	for handle := range w.module.Types {
 		typ := &w.module.Types[handle]
 		var baseName string
-		if typ.Name != "" {
+		switch {
+		case typ.Name != "":
 			baseName = typ.Name
-		} else {
-			baseName = fmt.Sprintf("type_%d", handle)
+		case entryPointResultNames[ir.TypeHandle(handle)] != "":
+			baseName = entryPointResultNames[ir.TypeHandle(handle)]
+		default:
+			baseName = "type"
 		}
 		name := w.namer.call(baseName)
 		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name
@@ -461,13 +491,9 @@ func (w *Writer) registerNames() error {
 	// 3. Register function names + func args + func locals
 	for handle := range w.module.Functions {
 		fn := &w.module.Functions[handle]
-		var baseName string
-		if fn.Name != "" {
-			baseName = fn.Name
-		} else {
-			baseName = fmt.Sprintf("function_%d", handle)
-		}
-		name := w.namer.call(baseName)
+		// An unnamed function takes Rust naga's "function" fallback
+		// (proc/namer.rs, name_functions); the namer numbers the rest.
+		name := w.namer.callOr(fn.Name, "function")
 		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		for argIdx, arg := range fn.Arguments {
@@ -483,13 +509,9 @@ func (w *Writer) registerNames() error {
 	// 4. Register global variable names
 	for handle := range w.module.GlobalVariables {
 		global := &w.module.GlobalVariables[handle]
-		var baseName string
-		if global.Name != "" {
-			baseName = global.Name
-		} else {
-			baseName = fmt.Sprintf("global_%d", handle)
-		}
-		name := w.namer.call(baseName)
+		// An unnamed global takes Rust naga's "global" fallback
+		// (proc/namer.rs, name_globals); the namer numbers the rest.
+		name := w.namer.callOr(global.Name, "global")
 		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name
 	}
 

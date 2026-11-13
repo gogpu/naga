@@ -32,67 +32,22 @@ func parseSPVCorpus(t *testing.T, name string) *ir.Module {
 }
 
 // TestSPVCorpusParseValidate is the corpus-wide gate: every module of the
-// derived corpus either parses into IR that validates or is refused with a
-// *ParseError (never a panic, never invalid IR). The modules the implemented
-// phases cover must parse and validate, so a regression in the decoder, the
-// control flow or the wrapper shows here even when a hand-built test misses
-// it.
+// derived corpus parses into IR that validates — Phase 3's acceptance is all
+// 33 — never a panic and never invalid IR. A module that starts to be refused
+// fails here even when a hand-built test misses it.
 func TestSPVCorpusParseValidate(t *testing.T) {
-	mustParse := map[string]bool{
-		"barrier":               true,
-		"degrees":               true,
-		"empty-global-name":     true,
-		"non-semantic-debug":    true,
-		"unnamed-gl-per-vertex": true,
-		"f16-spv":               true,
-		// Phase 1 decodes these as well; they were not pinned before.
-		"dual-source-blending":          true,
-		"inv-hyperbolic-trig-functions": true,
-		"quad-vert":                     true,
-		"spec-constants":                true,
-		"subgroup-barrier":              true,
-		// Phase 2, structured control flow: selections, loops, phis.
-		"8151-barrier-reorder":      true,
-		"per-vertex":                true,
-		"spec-constants-issue-5598": true,
-		// Phase 2, function calls and the call graph.
-		"builtin-accessed-outside-entrypoint": true,
-		"do-while":                            true,
-		// Phase 3, subgroup operations.
-		"subgroup-operations-s":      true,
-		"subgroup-reduce-issue-8389": true,
-		// Phase 3, atomics and the atomic type upgrade.
-		"atomic_compare_exchange":           true,
-		"atomic_exchange":                   true,
-		"atomic_global_struct_field_vertex": true,
-		"atomic_i_add_sub":                  true,
-		"atomic_i_decrement":                true,
-		"atomic_i_increment":                true,
-		"atomic_load_and_store":             true,
-		// Phase 3, images and sampling.
-		"binding-arrays.dynamic": true,
-		"binding-arrays.runtime": true,
-		"binding-arrays.static":  true,
-		"fetch_depth":            true,
-		"gather":                 true,
-		"gather-cmp":             true,
-		"load-ms-texture":        true,
-		"shadow":                 true,
-	}
 	binaries, err := filepath.Glob(filepath.Join(rustDerivedDir, "spv", "*.spv"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The corpus is pinned; a module that disappears must fail its pin, not
-	// silently leave the sweep.
+	// The corpus is pinned; a module that disappears must fail, not silently
+	// leave the sweep.
 	const corpusSize = 33
 	if len(binaries) != corpusSize {
 		t.Fatalf("binaries = %d, want %d: a corpus change updates this test", len(binaries), corpusSize)
 	}
-	seen := make(map[string]bool, len(binaries))
 	for _, path := range binaries {
 		name := strings.TrimSuffix(filepath.Base(path), ".spv")
-		seen[name] = true
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -103,19 +58,11 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 			if !errors.As(err, &parseErr) {
 				t.Errorf("%s: error %v (%T), want a *ParseError", name, err, err)
 			}
-			if mustParse[name] {
-				t.Errorf("%s: an implemented phase must parse it: %v", name, err)
-			}
-			t.Logf("%s: refused: %v", name, err)
+			t.Errorf("%s: refused: %v", name, err)
 			continue
 		}
 		if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
 			t.Errorf("%s: parses but does not validate: %v", name, err)
-		}
-	}
-	for name := range mustParse {
-		if !seen[name] {
-			t.Errorf("%s: the pinned module is missing from the corpus", name)
 		}
 	}
 }

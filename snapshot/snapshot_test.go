@@ -261,6 +261,12 @@ func backendBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPo
 // rustHLSLOptions returns the HLSL options Rust's driver uses for a shader:
 // default_for_testing() plus the shader's TOML settings.
 func rustHLSLOptions(shaderName string) (hlsl.Options, error) {
+	return rustHLSLOptionsFrom(rustParamsPath(shaderName))
+}
+
+// rustHLSLOptionsFrom is rustHLSLOptions for a TOML path, for the SPIR-V
+// corpus whose parameters live beside its binaries.
+func rustHLSLOptionsFrom(tomlPath string) (hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
 	// Rust's binding_map is always present (empty by default) and
 	// fake_missing_bindings defaults to true.
@@ -274,7 +280,7 @@ func rustHLSLOptions(shaderName string) (hlsl.Options, error) {
 		ImageLoad:    backend.BoundsCheckUnchecked,
 		BindingArray: backend.BoundsCheckUnchecked,
 	}
-	if err := readHLSLConfig(&opts, shaderName); err != nil {
+	if err := readHLSLConfig(&opts, tomlPath); err != nil {
 		return hlsl.Options{}, err
 	}
 	return opts, nil
@@ -282,8 +288,7 @@ func rustHLSLOptions(shaderName string) (hlsl.Options, error) {
 
 // readHLSLConfig reads HLSL options from a Rust naga test TOML config file.
 // A shader without a TOML file uses the defaults.
-func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
-	tomlPath := rustParamsPath(shaderName)
+func readHLSLConfig(opts *hlsl.Options, tomlPath string) error {
 	data, err := os.ReadFile(tomlPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -2363,6 +2368,12 @@ var spvFunctionControls = map[uint32]string{1: "Inline", 2: "DontInline", 4: "Pu
 // and per_entry_point_map with resource bindings.
 // Returns default options if no TOML file exists.
 func readRustMSLConfig(shaderName string) (msl.Options, error) {
+	return readRustMSLConfigFrom(rustParamsPath(shaderName))
+}
+
+// readRustMSLConfigFrom reads MSL options from a naga-test TOML file, for the
+// WGSL corpus and for the SPIR-V one alike.
+func readRustMSLConfigFrom(tomlPath string) (msl.Options, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
 	opts.FakeMissingBindings = true // default for tests without explicit config
@@ -2374,7 +2385,6 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
 	opts.BoundsCheckPolicies = backendBoundsCheckPolicies(rustBoundsCheckPolicies{})
 
-	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return opts, nil // no parameters: Rust's defaults

@@ -64,8 +64,8 @@ fragment fs_mainOutput fs_main(
 , metal::float4 gl_pos [[position]]
 , constant gl_Light& gl_light [[user(fake0)]]
 ) {
-    const gl_VertexOut gl_v = { gl_pos, varyings_1.gl_uv };
     int gl_counter = {};
+    const gl_VertexOut gl_v = { gl_pos, varyings_1.gl_uv };
     int _e2 = gl_counter;
     gl_counter = as_type<int>(as_type<uint>(_e2) + as_type<uint>(1));
     int _e6 = gl_counter;
