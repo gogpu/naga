@@ -137,6 +137,20 @@ func errInconsistentComparisonSampling(handle ir.GlobalVariableHandle) *Error {
 	return &Error{Message: fmt.Sprintf("inconsistent comparison sampling [%d]", handle)}
 }
 
+// The atomic upgrade errors keep Rust naga's atomic_upgrade::Error texts under
+// their wrapper ("atomic upgrade error: ..."), as Rust's Display does.
+var (
+	errAtomicUnsupportedExpression      = &Error{Message: "atomic upgrade error: encountered an unsupported expression"}
+	errAtomicGlobalVariableMissing      = &Error{Message: "atomic upgrade error: expected to find a global variable"}
+	errAtomicGlobalInitUnsupported      = &Error{Message: "atomic upgrade error: encountered unsupported global initializer in an atomic variable"}
+	errAtomicCompareExchangeNonScalar   = &Error{Message: "atomic upgrade error: atomic compare exchange requires a scalar base type"}
+	errTooManyCompositeInsertComponents = &Error{Message: "the composite an OpCompositeInsert builds is larger than this frontend accepts"}
+)
+
+func errInvalidIndexType(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("invalid index type %%%d", id)}
+}
+
 var (
 	errInvalidImageDepthStorage            = &Error{Message: "cannot create a OpTypeImage as both a depth and storage image"}
 	errInvalidStorageImageWithoutFormat    = &Error{Message: "image read/write without format is not currently supported. See https://github.com/gfx-rs/wgpu/issues/6797"}
