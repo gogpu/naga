@@ -844,6 +844,54 @@ func TestControlFlowSwitchFallThroughRefused(t *testing.T) {
 			want: "a branch into switch case %104 from outside a case construct of its switch is not supported",
 		},
 		{
+			// The reviewer's A7.
+			name: "nested selection merging at the next case",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				[][]uint32{
+					instWords(spvenums.OpLabel, ftCase5),
+					instWords(spvenums.OpSelectionMerge, ftCase7, 0),
+					instWords(spvenums.OpBranchConditional, 24, 106, ftCase7),
+					instWords(spvenums.OpLabel, 106),
+					instWords(spvenums.OpStore, 60, 26),
+					instWords(spvenums.OpBranch, ftCase7),
+				},
+				ftBlock(ftCase7, 23, ftMerge),
+				ftBlock(ftDefault, 26, ftMerge)),
+			want: "a construct inside a switch case merging at switch case %104 is not supported",
+		},
+		{
+			// The reviewer's A25.
+			name: "nested switch merging at the next case",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				[][]uint32{
+					instWords(spvenums.OpLabel, ftCase5),
+					instWords(spvenums.OpSelectionMerge, ftCase7, 0),
+					instWords(spvenums.OpSwitch, 20, 106),
+					instWords(spvenums.OpLabel, 106),
+					instWords(spvenums.OpStore, 60, 26),
+					instWords(spvenums.OpBranch, ftCase7),
+				},
+				ftBlock(ftCase7, 23, ftMerge),
+				ftBlock(ftDefault, 26, ftMerge)),
+			want: "a construct inside a switch case merging at switch case %104 is not supported",
+		},
+		{
+			name: "nested loop merging at the next case",
+			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
+				[][]uint32{
+					instWords(spvenums.OpLabel, ftCase5),
+					instWords(spvenums.OpLoopMerge, ftCase7, 107, 0),
+					instWords(spvenums.OpBranch, 106),
+					instWords(spvenums.OpLabel, 106),
+					instWords(spvenums.OpBranch, ftCase7),
+					instWords(spvenums.OpLabel, 107),
+					instWords(spvenums.OpBranch, ftCase5),
+				},
+				ftBlock(ftCase7, 23, ftMerge),
+				ftBlock(ftDefault, 26, ftMerge)),
+			want: "a construct inside a switch case merging at switch case %104 is not supported",
+		},
+		{
 			name: "conditional branch into two cases",
 			body: ftBody([]uint32{5, ftCase5, 7, ftCase7},
 				[][]uint32{

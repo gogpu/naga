@@ -167,6 +167,12 @@ func (p *parser) selectionMerge(inst instruction, fs *functionState, bs *blockSt
 	if info, ok := fs.mergers[mergeID]; ok && info != mergeLoopContinue {
 		return errDuplicateMerge(mergeID)
 	}
+	// A switch's own case targets are registered only at its OpSwitch, after
+	// this instruction, so a registered case here belongs to a switch around
+	// the construct.
+	if _, ok := fs.caseLabels[mergeID]; ok {
+		return errMergeAtCase(mergeID)
+	}
 	if _, ok := fs.bodyForLabel[mergeID]; !ok {
 		fs.bodyForLabel[mergeID] = bs.bodyIdx
 	}
@@ -202,6 +208,9 @@ func (p *parser) loopMerge(inst instruction, fs *functionState, bs *blockState) 
 	}
 	if _, ok := fs.mergers[continuingID]; ok {
 		return errDuplicateMerge(continuingID)
+	}
+	if _, ok := fs.caseLabels[mergeID]; ok {
+		return errMergeAtCase(mergeID)
 	}
 
 	if _, ok := fs.bodyForLabel[mergeID]; !ok {
