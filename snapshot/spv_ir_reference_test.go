@@ -17,10 +17,7 @@ import (
 // spvIRAwaitingPhase lists the Rust IR snapshots of SPIR-V input whose module
 // the frontend still refuses, with the refusal it gives. A module that starts
 // to parse fails here until its entry is removed and its IR is compared.
-var spvIRAwaitingPhase = map[string]string{
-	"fetch_depth": "unsupported instruction ImageFetch",   // Phase 3: images
-	"shadow":      "unsupported instruction SampledImage", // Phase 3: combined samplers
-}
+var spvIRAwaitingPhase = map[string]string{}
 
 // spvIRDeviations records the known differences from one Rust IR snapshot of
 // SPIR-V input, pinned by the fingerprint of the reported differences as
@@ -28,14 +25,27 @@ var spvIRAwaitingPhase = map[string]string{
 // fails until the entry is reviewed again.
 var spvIRDeviations = map[string]irDeviation{
 	"spec-constants": {
-		Card: "deliberate deviation: expression storage order",
-		Reason: "the global and constant expressions every function starts with are in ascending id order here, " +
-			"in FxHashMap iteration order in Rust naga (make_expression_storage): the same expressions, other " +
-			"handles, so the references between them shift with the order; the types, the constants and the " +
-			"wrapper (after P1-SPVIN-003 ported gl_PerVertex culling) match Rust",
+		Card:        "deliberate deviation: expression storage order",
+		Reason:      spvReasonStorageOrder,
 		Fingerprint: "10dc02444320277a35fd669e25c6dfc1704c17ed7df1ca1aff5e93fa4343eb14", // 16 differences
 	},
+	"fetch_depth": {
+		Card:        "deliberate deviation: expression storage order",
+		Reason:      spvReasonStorageOrder,
+		Fingerprint: "7281ee990ac2999a54c878e23febe6968d4334878c3f9dc2d7eb5c367cff7927", // 5 differences
+	},
+	"shadow": {
+		Card:        "deliberate deviation: expression storage order",
+		Reason:      spvReasonStorageOrder,
+		Fingerprint: "80d67c843da132fb2bc44af12c0e2dd764464eaa62e19b327e5c0fe5453ff9d9", // 40 differences
+	},
 }
+
+// spvReasonStorageOrder is the one difference the SPIR-V IR snapshots share.
+const spvReasonStorageOrder = "the global and constant expressions every function starts with are in " +
+	"ascending id order here, in FxHashMap iteration order in Rust naga (make_expression_storage): the same " +
+	"expressions, other handles, so the references between them shift with the order; the types, the " +
+	"constants, the statements and the wrapper match Rust"
 
 // TestSPVIRReference compares the IR the SPIR-V frontend builds with Rust
 // naga's IR snapshots of the same modules (tests/out/ir/spv-*.ron, the
@@ -44,11 +54,11 @@ var spvIRDeviations = map[string]irDeviation{
 // point's expressions and statements, the structural counts and the global
 // expressions.
 //
-// It covers no control flow yet: the one module it compares, spec-constants,
-// has no branch. The evidence for structured control flow and calls is the
-// hand-built tests of spirv/internal/front and the WGSL corpus round trip.
-// Of the snapshots awaiting Phase 3, shadow (combined samplers) brings
-// control flow (two Ifs and a Loop in Rust's IR); fetch_depth has none.
+// The three uncompacted snapshots cover straight-line code (spec-constants,
+// fetch_depth: image fetch and depth sampling) and control flow (shadow: two
+// Ifs and a Loop around comparison sampling, plus a helper function). The rest
+// of the frontend's evidence is the hand-built tests of spirv/internal/front
+// and the WGSL corpus round trip.
 func TestSPVIRReference(t *testing.T) {
 	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
 		return strings.HasPrefix(name, "spv-") && strings.HasSuffix(name, ".ron") && !strings.HasSuffix(name, ".compact.ron")

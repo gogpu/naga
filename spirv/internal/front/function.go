@@ -50,7 +50,12 @@ func (p *parser) parseFunction() error {
 		fn.Result = &ir.FunctionResult{Type: result.handle}
 	}
 
-	for i, parameterTypeID := range funType.parameterTypeIDs {
+	type parameter struct {
+		id     uint32
+		typeID uint32
+	}
+	parameters := make([]parameter, 0, len(funType.parameterTypeIDs))
+	for _, parameterTypeID := range funType.parameterTypeIDs {
 		inst, err := p.nextInstruction()
 		if err != nil {
 			return err
@@ -66,8 +71,6 @@ func (p *parser) parseFunction() error {
 		if err != nil {
 			return err
 		}
-		handle := appendExpression(&fn, ir.ExprFunctionArgument{Index: uint32(i)})
-		p.lookupExpression[id] = lookupExpression{handle: handle, typeID: typeID}
 		if typeID != parameterTypeID {
 			return errWrongFunctionArgumentType(typeID)
 		}
@@ -77,6 +80,7 @@ func (p *parser) parseFunction() error {
 		}
 		argumentDec := p.takeDecoration(id)
 		fn.Arguments = append(fn.Arguments, ir.FunctionArgument{Name: argumentDec.name, Type: ty.handle})
+		parameters = append(parameters, parameter{id: id, typeID: typeID})
 	}
 
 	// The function is a node of the call graph before its body adds edges,
@@ -93,6 +97,13 @@ func (p *parser) parseFunction() error {
 	}
 	if err := p.makeExpressionStorage(fs); err != nil {
 		return err
+	}
+	// Rust naga appends a function's argument expressions after the module's
+	// globals and constants (make_expression_storage, then parse_function); the
+	// IR reference comparison sees that order.
+	for i, param := range parameters {
+		handle := appendExpression(&fn, ir.ExprFunctionArgument{Index: uint32(i)})
+		p.lookupExpression[param.id] = lookupExpression{handle: handle, typeID: param.typeID}
 	}
 
 	// The function's blocks: OpLabel starts one, OpFunctionEnd closes the
@@ -504,6 +515,67 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 		return false, nil, p.derivative(inst, fs, consumer, block, bodyIdx, blockID, ir.DerivativeY, ir.DerivativeNone)
 	case spvenums.OpFwidth:
 		return false, nil, p.derivative(inst, fs, consumer, block, bodyIdx, blockID, ir.DerivativeWidth, ir.DerivativeNone)
+	case spvenums.OpSampledImage:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageCouple(inst)
+	case spvenums.OpImage:
+		if err := inst.expect(4); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageUncouple(inst, fs, blockID)
+	case spvenums.OpImageWrite:
+		return false, nil, p.parseImageWrite(inst, fs, consumer, block, bodyIdx)
+	case spvenums.OpImageFetch, spvenums.OpImageRead:
+		if _, err := inst.expectAtLeast(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageLoad(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageSampleImplicitLod, spvenums.OpImageSampleExplicitLod:
+		if _, err := inst.expectAtLeast(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageSampleProjImplicitLod, spvenums.OpImageSampleProjExplicitLod:
+		if _, err := inst.expectAtLeast(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{project: true}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageSampleDrefImplicitLod, spvenums.OpImageSampleDrefExplicitLod:
+		if _, err := inst.expectAtLeast(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{compare: true}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageSampleProjDrefImplicitLod, spvenums.OpImageSampleProjDrefExplicitLod:
+		if _, err := inst.expectAtLeast(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{compare: true, project: true}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageGather:
+		if _, err := inst.expectAtLeast(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{gather: true}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageDrefGather:
+		if _, err := inst.expectAtLeast(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageSample(inst, samplingOptions{gather: true, compare: true}, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageQuerySize:
+		if err := inst.expect(4); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageQuerySize(inst, false, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageQuerySizeLod:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.parseImageQuerySize(inst, true, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpImageQueryLevels:
+		return false, nil, p.parseImageQueryOther(inst, ir.ImageQueryNumLevels{}, fs, blockID)
+	case spvenums.OpImageQuerySamples:
+		return false, nil, p.parseImageQueryOther(inst, ir.ImageQueryNumSamples{}, fs, blockID)
 	case spvenums.OpFunctionCall:
 		return false, nil, p.functionCall(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpControlBarrier:

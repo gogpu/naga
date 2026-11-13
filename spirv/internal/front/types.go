@@ -661,6 +661,12 @@ func (p *parser) parseTypeImage(inst instruction) error {
 		return errInvalidStorageImageWithoutFormat
 	case format != 0 && (isSampled == 0 || isSampled == 2):
 		image.Class = ir.ImageClassStorage
+		// A SPIR-V image type carries no access; the variable's NonReadable /
+		// NonWritable decorations do, and parseGlobalVariable copies the type
+		// with them applied. The declared type is never used as it stands, and
+		// the IR's validator rejects an unset access (ADR-010 E2), so it says
+		// what SPIR-V means: either.
+		image.StorageAccess = ir.StorageAccessLoad | ir.StorageAccessStore
 		if image.StorageFormat, err = mapImageFormat(format); err != nil {
 			return err
 		}

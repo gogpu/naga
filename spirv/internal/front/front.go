@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sort"
 	"unicode/utf8"
 
 	"github.com/gogpu/naga/frontend"
@@ -62,6 +63,8 @@ func newParser(data []byte, options Options) *parser {
 		lookupConstant:           make(map[uint32]lookupConstant),
 		lookupVariable:           make(map[uint32]lookupVariable),
 		lookupFunction:           make(map[uint32]lookupFunction),
+		lookupSampledImage:       make(map[uint32]lookupSampledImage),
+		handleSampling:           make(map[ir.GlobalVariableHandle]samplingFlags),
 		glPerVertexBuiltinAccess: make(map[ir.BuiltinValue]struct{}),
 	}
 }
@@ -106,6 +109,13 @@ type parser struct {
 	lookupConstant           map[uint32]lookupConstant
 	lookupVariable           map[uint32]lookupVariable
 	lookupFunction           map[uint32]lookupFunction
+	// lookupSampledImage holds the image and sampler an OpSampledImage coupled,
+	// by result id (Rust naga's lookup_sampled_image).
+	lookupSampledImage map[uint32]lookupSampledImage
+	// handleSampling records how each image or sampler global of the module is
+	// sampled, so that a handle used only for comparison sampling gets the
+	// depth-comparison type (Rust naga's handle_sampling).
+	handleSampling map[ir.GlobalVariableHandle]samplingFlags
 	// glPerVertexBuiltinAccess holds the built-ins an OpAccessChain reaches
 	// through a struct member, as Rust naga's set of the same name. glslang
 	// declares the gl_PerVertex built-ins a shader never writes, and the
@@ -263,6 +273,20 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		return nil, Info{}, err
 	}
 	p.patchCalls()
+
+	// An image or sampler sampled only as a depth comparison gets the
+	// depth-comparison type; one sampled both ways is refused. The handles are
+	// visited in arena order so the types it inserts are reproducible.
+	handles := make([]ir.GlobalVariableHandle, 0, len(p.handleSampling))
+	for handle := range p.handleSampling {
+		handles = append(handles, handle)
+	}
+	sort.Slice(handles, func(i, j int) bool { return handles[i] < handles[j] })
+	for _, handle := range handles {
+		if err := p.patchComparisonType(handle, p.handleSampling[handle]); err != nil {
+			return nil, Info{}, err
+		}
+	}
 	return p.module, p.info, nil
 }
 

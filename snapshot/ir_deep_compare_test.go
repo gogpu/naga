@@ -38,6 +38,55 @@ func mapRonVecSize(s string) (ir.VectorSize, error) {
 	}
 }
 
+// mapRonImageDim maps a RON image dimension to ir.ImageDimension.
+func mapRonImageDim(s string) (ir.ImageDimension, error) {
+	switch s {
+	case "D1":
+		return ir.Dim1D, nil
+	case "D2":
+		return ir.Dim2D, nil
+	case "D3":
+		return ir.Dim3D, nil
+	case "Cube":
+		return ir.DimCube, nil
+	default:
+		return 0, fmt.Errorf("unknown image dimension %q", s)
+	}
+}
+
+// storageFormatNames lists ir.StorageFormat's RON spellings in constant order,
+// offset by StorageFormatUndefined: the RON writes Rust's variant name, which
+// is the Go constant's name without the StorageFormat prefix.
+var storageFormatNames = []string{
+	"Undefined",
+	"R8Unorm", "R8Snorm", "R8Uint", "R8Sint",
+	"R16Uint", "R16Sint", "R16Float",
+	"Rg8Unorm", "Rg8Snorm", "Rg8Uint", "Rg8Sint",
+	"R32Uint", "R32Sint", "R32Float",
+	"Rg16Uint", "Rg16Sint", "Rg16Float",
+	"Rgba8Unorm", "Rgba8Snorm", "Rgba8Uint", "Rgba8Sint",
+	"Bgra8Unorm",
+	"Rgb10a2Uint", "Rgb10a2Unorm",
+	"Rg11b10Ufloat",
+	"Rg32Uint", "Rg32Sint", "Rg32Float",
+	"Rgba16Uint", "Rgba16Sint", "Rgba16Float",
+	"Rgba32Uint", "Rgba32Sint", "Rgba32Float",
+	"R16Unorm", "R16Snorm",
+	"Rg16Unorm", "Rg16Snorm",
+	"Rgba16Unorm", "Rgba16Snorm",
+	"R64Uint", "R64Sint",
+}
+
+// mapRonStorageFormat maps a RON storage format name to ir.StorageFormat.
+func mapRonStorageFormat(s string) (ir.StorageFormat, error) {
+	for index, name := range storageFormatNames {
+		if name == s {
+			return ir.StorageFormat(index), nil
+		}
+	}
+	return 0, fmt.Errorf("unknown storage format %q", s)
+}
+
 // mapRonAddressSpace maps RON address space string to ir.AddressSpace.
 func mapRonAddressSpace(s string) (ir.AddressSpace, error) {
 	switch s {
@@ -59,6 +108,20 @@ func mapRonAddressSpace(s string) (ir.AddressSpace, error) {
 		// Storage has access flags — handled separately
 		return 0, fmt.Errorf("unknown address space %q", s)
 	}
+}
+
+// ronEnumName returns the name of an enum value written as a plain identifier
+// or as a variant with fields: "Storage" for both `space: Storage` and
+// `space: Storage(access: ...)`.
+func ronEnumName(v interface{}) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case map[string]interface{}:
+		tag, _ := value["_tag"].(string)
+		return tag
+	}
+	return ""
 }
 
 // ronFieldStr gets a string field from RON Fields map.
@@ -289,7 +352,9 @@ func mapRonTypeInnerToIR(inner ronTypeInner) (ir.TypeInner, error) {
 
 	case "Pointer":
 		base, _ := ronFieldUint(f, "base")
-		spaceStr := ronFieldStr(f, "space")
+		// The space is a plain identifier for most spaces and a variant with
+		// fields for Storage(access: ...).
+		spaceStr := ronEnumName(f["space"])
 		var space ir.AddressSpace
 		if spaceStr == "Storage" {
 			space = ir.SpaceStorage
@@ -309,6 +374,42 @@ func mapRonTypeInnerToIR(inner ronTypeInner) (ir.TypeInner, error) {
 		comparison := ronFieldStr(f, "comparison") == "true"
 		return ir.SamplerType{Comparison: comparison}, nil
 
+	case "Image":
+		dim, err := mapRonImageDim(ronEnumName(f["dim"]))
+		if err != nil {
+			return nil, err
+		}
+		image := ir.ImageType{Dim: dim, Arrayed: ronFieldStr(f, "arrayed") == "true"}
+		class := f["class"]
+		classTag := ronEnumName(class)
+		var fields map[string]interface{}
+		if m, ok := class.(map[string]interface{}); ok {
+			fields, _ = m["_inner"].(map[string]interface{})
+		}
+		switch classTag {
+		case "Sampled":
+			image.Class = ir.ImageClassSampled
+			image.Multisampled = ronFieldStr(fields, "multi") == "true"
+			kind, err := mapRonScalarKind(ronFieldStr(fields, "kind"))
+			if err != nil {
+				return nil, err
+			}
+			image.SampledKind = kind
+		case "Depth":
+			image.Class = ir.ImageClassDepth
+			image.Multisampled = ronFieldStr(fields, "multi") == "true"
+		case "Storage":
+			image.Class = ir.ImageClassStorage
+			if format, err := mapRonStorageFormat(ronEnumName(fields["format"])); err == nil {
+				image.StorageFormat = format
+			}
+		case "External":
+			image.Class = ir.ImageClassExternal
+		default:
+			return nil, fmt.Errorf("unknown image class %q", classTag)
+		}
+		return image, nil
+
 	case "Atomic":
 		kind, err := mapRonScalarKind(ronFieldStr(f, "kind"))
 		if err != nil {
@@ -316,10 +417,6 @@ func mapRonTypeInnerToIR(inner ronTypeInner) (ir.TypeInner, error) {
 		}
 		width, _ := ronFieldUint(f, "width")
 		return ir.AtomicType{Scalar: ir.ScalarType{Kind: kind, Width: uint8(width)}}, nil
-
-	case "Image":
-		// Complex — return minimal ImageType, deep fields compared by tag only
-		return ir.ImageType{}, nil
 
 	case "AccelerationStructure":
 		return ir.AccelerationStructureType{}, nil
@@ -693,6 +790,27 @@ func deepCompareTypeInner(idx int, rust, ours ir.TypeInner) []string {
 		o := ours.(ir.SamplerType)
 		if r.Comparison != o.Comparison {
 			diffs = append(diffs, fmt.Sprintf("%s.Sampler.Comparison: rust=%v go=%v", prefix, r.Comparison, o.Comparison))
+		}
+
+	case ir.ImageType:
+		o := ours.(ir.ImageType)
+		if r.Dim != o.Dim {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.Dim: rust=%d go=%d", prefix, r.Dim, o.Dim))
+		}
+		if r.Arrayed != o.Arrayed {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.Arrayed: rust=%v go=%v", prefix, r.Arrayed, o.Arrayed))
+		}
+		if r.Class != o.Class {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.Class: rust=%d go=%d", prefix, r.Class, o.Class))
+		}
+		if r.Multisampled != o.Multisampled {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.Multisampled: rust=%v go=%v", prefix, r.Multisampled, o.Multisampled))
+		}
+		if r.Class == ir.ImageClassSampled && r.SampledKind != o.SampledKind {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.SampledKind: rust=%d go=%d", prefix, r.SampledKind, o.SampledKind))
+		}
+		if r.Class == ir.ImageClassStorage && r.StorageFormat != o.StorageFormat {
+			diffs = append(diffs, fmt.Sprintf("%s.Image.StorageFormat: rust=%d go=%d", prefix, r.StorageFormat, o.StorageFormat))
 		}
 
 	case ir.BindingArrayType:
