@@ -255,6 +255,26 @@ func (fs *functionState) breakLeavesSwitch(bodyIdx int) bool {
 	}
 }
 
+// isBackEdge reports whether a branch from bodyIdx to targetID is a loop's
+// back edge: the target is the header of a loop (the header belongs to the
+// loop body) and the branch comes from that loop's continuing body. A loop
+// header can also be a switch case target, so this is checked before a
+// branch to a case label is taken for a fall-through.
+func (fs *functionState) isBackEdge(bodyIdx int, targetID uint32) bool {
+	loopBody, ok := fs.bodyForLabel[targetID]
+	if !ok || fs.bodies[loopBody].kind != bodyLoop {
+		return false
+	}
+	for b := bodyIdx; ; b = fs.bodies[b].parent {
+		if fs.bodies[b].kind == bodyContinuing && fs.bodies[b].parent == loopBody {
+			return true
+		}
+		if b == 0 {
+			return false
+		}
+	}
+}
+
 // newBody appends a body nested in parent at the given depth and returns its
 // index. A body deeper than maxNesting is refused before it is created.
 func (fs *functionState) newBody(parent, depth int) (int, error) {
