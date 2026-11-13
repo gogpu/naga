@@ -168,10 +168,13 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 	case ir.ExprConstant:
 		// A constant of an abstract type (an untyped `const one = 1;`) is
 		// removed by compaction, so writeConstants never declares it; should
-		// one be referred to, its value is written in place.
+		// one be referred to, its value is written in place. An unnamed
+		// constant (the SPIR-V frontend makes them) is never declared either,
+		// and Rust naga writes its init in place (back/msl/writer.rs,
+		// put_possibly_const_expression, Expression::Constant).
 		if int(k.Constant) < len(w.module.Constants) {
 			c := &w.module.Constants[k.Constant]
-			if int(c.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[c.Type].Inner, w.module.Types) {
+			if c.Name == "" || int(c.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[c.Type].Inner, w.module.Types) {
 				return w.writeGlobalExpression(c.Init)
 			}
 		}

@@ -206,8 +206,15 @@ func (w *Writer) writeLiteral(lit ir.Literal) (string, error) {
 	}
 }
 
-// writeConstant writes a constant reference.
+// writeConstant writes a constant reference. An unnamed constant (the SPIR-V
+// frontend makes them) is never declared, so its init is written in place,
+// as Rust naga does (back/glsl/writer.rs, write_expr, Expression::Constant).
 func (w *Writer) writeConstant(c ir.ExprConstant) (string, error) {
+	if int(c.Constant) < len(w.module.Constants) {
+		if constant := &w.module.Constants[c.Constant]; constant.Name == "" {
+			return w.writeConstExpr(constant.Init)
+		}
+	}
 	name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(c.Constant)}]
 	return name, nil
 }

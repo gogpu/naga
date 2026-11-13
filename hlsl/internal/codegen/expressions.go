@@ -428,8 +428,16 @@ func (w *Writer) writeGlobalSplatExpression(e ir.ExprSplat) error {
 // Constant and Zero Value Expressions
 // =============================================================================
 
-// writeConstantExpression writes a reference to a module constant.
+// writeConstantExpression writes a reference to a module constant. An
+// unnamed constant (the SPIR-V frontend makes them) is never declared, so its
+// init is written in place, as Rust naga does (back/hlsl/writer.rs,
+// write_possibly_const_expression, Expression::Constant).
 func (w *Writer) writeConstantExpression(e ir.ExprConstant) error {
+	if int(e.Constant) < len(w.module.Constants) {
+		if c := &w.module.Constants[e.Constant]; c.Name == "" {
+			return w.writeGlobalConstExpression(c.Init)
+		}
+	}
 	name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(e.Constant)}]
 	if name == "" {
 		name = fmt.Sprintf("const_%d", e.Constant)
