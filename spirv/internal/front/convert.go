@@ -101,6 +101,30 @@ func mapBinaryOperator(op spvenums.Op) (ir.BinaryOperator, error) {
 	return 0, errUnknownBinaryOperator(op)
 }
 
+// mapAtomicFunction maps the opcode of an atomic instruction that takes one
+// value operand to its IR function, as Rust naga's next_block does.
+func mapAtomicFunction(op spvenums.Op) (ir.AtomicFunction, error) {
+	switch op {
+	case spvenums.OpAtomicExchange:
+		return ir.AtomicExchange{}, nil
+	case spvenums.OpAtomicIAdd, spvenums.OpAtomicFAddEXT:
+		return ir.AtomicAdd{}, nil
+	case spvenums.OpAtomicISub:
+		return ir.AtomicSubtract{}, nil
+	case spvenums.OpAtomicSMin, spvenums.OpAtomicUMin:
+		return ir.AtomicMin{}, nil
+	case spvenums.OpAtomicSMax, spvenums.OpAtomicUMax:
+		return ir.AtomicMax{}, nil
+	case spvenums.OpAtomicAnd:
+		return ir.AtomicAnd{}, nil
+	case spvenums.OpAtomicOr:
+		return ir.AtomicInclusiveOr{}, nil
+	case spvenums.OpAtomicXor:
+		return ir.AtomicExclusiveOr{}, nil
+	}
+	return nil, errUnsupportedInstruction(stateFunction, op)
+}
+
 // mapRelationalFunction maps OpAny, OpAll, OpIsNan and OpIsInf.
 func mapRelationalFunction(op spvenums.Op) (ir.RelationalFunction, error) {
 	switch op {

@@ -32,6 +32,14 @@ const (
 	// caps brace nesting at 127, so every module it produces fits.
 	maxNesting = 128
 
+	// maxCompositeInsertExpressions caps the expressions one OpCompositeInsert
+	// may add. The IR has no insert expression, so the frontend rebuilds the
+	// composite from its components at every level of the selection path, as
+	// Rust naga does; without a bound a module with a few large composites and
+	// many inserts would build an IR far larger than itself. Real shaders
+	// insert into small structs and vectors.
+	maxCompositeInsertExpressions = 1 << 16
+
 	// maxTypeDepth caps how deeply types nest: a scalar, vector, matrix,
 	// image or sampler is one level, an array, binding array, struct or
 	// pointer one more than its deepest component. SPIR-V lets a chain of

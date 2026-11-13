@@ -66,6 +66,10 @@ func newParser(data []byte, options Options) *parser {
 		lookupSampledImage:       make(map[uint32]lookupSampledImage),
 		handleSampling:           make(map[ir.GlobalVariableHandle]samplingFlags),
 		glPerVertexBuiltinAccess: make(map[ir.BuiltinValue]struct{}),
+		atomicUpgrades: atomicAccess{
+			globals: make(map[ir.GlobalVariableHandle]struct{}),
+			fields:  make(map[ir.TypeHandle]map[uint32]struct{}),
+		},
 	}
 }
 
@@ -116,6 +120,10 @@ type parser struct {
 	// sampled, so that a handle used only for comparison sampling gets the
 	// depth-comparison type (Rust naga's handle_sampling).
 	handleSampling map[ir.GlobalVariableHandle]samplingFlags
+	// atomicUpgrades records the globals and struct fields the module accesses
+	// atomically; their scalar types are upgraded to Atomic after parsing
+	// (Rust naga's atomic_upgrade::Upgrades).
+	atomicUpgrades atomicAccess
 	// glPerVertexBuiltinAccess holds the built-ins an OpAccessChain reaches
 	// through a struct member, as Rust naga's set of the same name. glslang
 	// declares the gl_PerVertex built-ins a shader never writes, and the
@@ -254,6 +262,12 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		if err := p.handle(inst); err != nil {
 			return nil, Info{}, p.at(err)
 		}
+	}
+
+	// The atomics the module accessed get their Atomic types before the
+	// wrappers are built, as Rust naga's parse does.
+	if err := p.upgradeAtomics(); err != nil {
+		return nil, Info{}, err
 	}
 
 	// The entry point wrappers are built after every function is parsed, so

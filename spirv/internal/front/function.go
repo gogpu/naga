@@ -576,6 +576,47 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 		return false, nil, p.parseImageQueryOther(inst, ir.ImageQueryNumLevels{}, fs, blockID)
 	case spvenums.OpImageQuerySamples:
 		return false, nil, p.parseImageQueryOther(inst, ir.ImageQueryNumSamples{}, fs, blockID)
+	case spvenums.OpAtomicLoad:
+		if err := inst.expect(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.atomicLoad(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpAtomicStore:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.atomicStore(inst, fs, consumer, block, bodyIdx)
+	case spvenums.OpAtomicIIncrement, spvenums.OpAtomicIDecrement:
+		if err := inst.expect(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.atomicIncrement(inst, inst.op == spvenums.OpAtomicIDecrement, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpAtomicCompareExchange:
+		if err := inst.expect(9); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.atomicCompareExchange(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpAtomicExchange, spvenums.OpAtomicIAdd, spvenums.OpAtomicISub,
+		spvenums.OpAtomicSMin, spvenums.OpAtomicUMin, spvenums.OpAtomicSMax, spvenums.OpAtomicUMax,
+		spvenums.OpAtomicAnd, spvenums.OpAtomicOr, spvenums.OpAtomicXor, spvenums.OpAtomicFAddEXT:
+		if err := inst.expect(7); err != nil {
+			return false, nil, err
+		}
+		fun, err := mapAtomicFunction(inst.op)
+		if err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.atomicValue(inst, fun, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpArrayLength:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.arrayLength(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpCompositeInsert:
+		if _, err := inst.expectAtLeast(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.compositeInsert(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpFunctionCall:
 		return false, nil, p.functionCall(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpControlBarrier:
@@ -867,6 +908,149 @@ func (p *parser) compositeExtract(inst instruction, fs *functionState, consumer 
 	}
 	p.storeExpression(resultID, resultTypeID, blockID, handle)
 	return nil
+}
+
+// arrayLength parses OpArrayLength: the length of a runtime-sized array at a
+// member of a storage buffer, Rust naga's next_block arm.
+func (p *parser) arrayLength(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	resultTypeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	resultID, err := p.next()
+	if err != nil {
+		return err
+	}
+	structureID, err := p.next()
+	if err != nil {
+		return err
+	}
+	memberIndex, err := p.next()
+	if err != nil {
+		return err
+	}
+	structure, err := p.handleOf(structureID, fs, consumer, block, bodyIdx)
+	if err != nil {
+		return err
+	}
+	member := appendExpression(fs.fn, ir.ExprAccessIndex{Base: structure, Index: memberIndex})
+	length := appendExpression(fs.fn, ir.ExprArrayLength{Array: member})
+	p.storeExpression(resultID, resultTypeID, blockID, length)
+	return nil
+}
+
+// compositeInsert parses OpCompositeInsert: the IR has no insert expression,
+// so the value is composed anew with the object in place, Rust naga's
+// insert_composite.
+func (p *parser) compositeInsert(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	resultTypeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	id, err := p.next()
+	if err != nil {
+		return err
+	}
+	objectID, err := p.next()
+	if err != nil {
+		return err
+	}
+	compositeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	selections := make([]uint32, 0, int(inst.wc)-5)
+	for range int(inst.wc) - 5 {
+		index, err := p.next()
+		if err != nil {
+			return err
+		}
+		selections = append(selections, index)
+	}
+	object, err := p.handleOf(objectID, fs, consumer, block, bodyIdx)
+	if err != nil {
+		return err
+	}
+	root, err := p.handleOf(compositeID, fs, consumer, block, bodyIdx)
+	if err != nil {
+		return err
+	}
+	budget := maxCompositeInsertExpressions
+	handle, err := p.insertComposite(fs, root, resultTypeID, object, selections, &budget)
+	if err != nil {
+		return err
+	}
+	p.storeExpression(id, resultTypeID, blockID, handle)
+	return nil
+}
+
+// insertComposite returns the composite root with object placed at the path
+// selections. Every level rebuilds its composite from its components, which is
+// what the IR has instead of an insert.
+func (p *parser) insertComposite(fs *functionState, root ir.ExpressionHandle, rootTypeID uint32, object ir.ExpressionHandle, selections []uint32, budget *int) (ir.ExpressionHandle, error) {
+	if len(selections) == 0 {
+		return object, nil
+	}
+	selection := selections[0]
+	rootLookup, err := p.typeLookup(rootTypeID)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	var childTypeID uint32
+	switch t := p.module.Types[rootLookup.handle].Inner.(type) {
+	case ir.StructType:
+		member, ok := p.lookupMember[lookupMemberKey{handle: rootLookup.handle, member: selection}]
+		if !ok {
+			return 0, errInvalidAccessType(rootTypeID)
+		}
+		count = len(t.Members)
+		childTypeID = member.typeID
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			// A runtime-sized array is not a composite type (Rust).
+			return 0, errInvalidAccessType(rootTypeID)
+		}
+		if !rootLookup.hasBase {
+			return 0, errInvalidAccessType(rootTypeID)
+		}
+		count = int(*t.Size.Constant)
+		childTypeID = rootLookup.baseID
+	case ir.VectorType:
+		if !rootLookup.hasBase {
+			return 0, errInvalidAccessType(rootTypeID)
+		}
+		count = int(t.Size)
+		childTypeID = rootLookup.baseID
+	case ir.MatrixType:
+		if !rootLookup.hasBase {
+			return 0, errInvalidAccessType(rootTypeID)
+		}
+		count = int(t.Columns)
+		childTypeID = rootLookup.baseID
+	default:
+		return 0, errInvalidAccessType(rootTypeID)
+	}
+	// Untrusted input must not amplify: Rust naga rebuilds composites without
+	// a bound, and a nested insert of a large composite would otherwise be
+	// quadratic in the instruction count.
+	*budget -= count
+	if *budget < 0 {
+		return 0, errTooManyCompositeInsertComponents
+	}
+	if int(selection) >= count {
+		return 0, errInvalidAccessIndex(selection)
+	}
+	components := make([]ir.ExpressionHandle, count)
+	for index := range count {
+		components[index] = appendExpression(fs.fn, ir.ExprAccessIndex{Base: root, Index: uint32(index)})
+	}
+	element, err := p.insertComposite(fs, components[selection], childTypeID, object, selections[1:], budget)
+	if err != nil {
+		return 0, err
+	}
+	components[selection] = element
+	return appendExpression(fs.fn, ir.ExprCompose{Type: rootLookup.handle, Components: components}), nil
 }
 
 // compositeConstruct parses OpCompositeConstruct, detecting the splat form.

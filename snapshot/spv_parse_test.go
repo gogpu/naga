@@ -58,6 +58,14 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		// Phase 2, function calls and the call graph.
 		"builtin-accessed-outside-entrypoint": true,
 		"do-while":                            true,
+		// Phase 3, atomics and the atomic type upgrade.
+		"atomic_compare_exchange":           true,
+		"atomic_exchange":                   true,
+		"atomic_global_struct_field_vertex": true,
+		"atomic_i_add_sub":                  true,
+		"atomic_i_decrement":                true,
+		"atomic_i_increment":                true,
+		"atomic_load_and_store":             true,
 		// Phase 3, images and sampling.
 		"binding-arrays.dynamic": true,
 		"binding-arrays.runtime": true,
@@ -409,10 +417,10 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 // writer compiles back through the frontend: each module either parses into
 // IR that validates or is refused with a *ParseError, never a panic and never
 // invalid IR. minParsed only rises as the frontend phases land; Phase 2 (calls
-// and control flow) brought it from 55 to 91, Phase 3 (images and sampling) to
-// 107.
+// and control flow) brought it from 55 to 91, Phase 3 (images, sampling and
+// atomics) to 130.
 func TestSPVRoundTripCorpus(t *testing.T) {
-	const minParsed = 107
+	const minParsed = 130
 	sources, err := filepath.Glob(filepath.Join(rustInputDir, "*.wgsl"))
 	if err != nil {
 		t.Fatal(err)
