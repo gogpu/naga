@@ -265,26 +265,118 @@ func TestCallWithPointerArgument(t *testing.T) {
 	}
 }
 
-// TestCallInsideControlFlow: a call nested in a selection is patched too.
+// TestCallInsideControlFlow: a call to a later function nested in any block
+// of a construct is patched, as Rust naga's patch_statements walks every
+// block: both arms of an If, every switch case and the default, a loop's body
+// and its continuing block. The call and its CallResult must name the callee.
 func TestCallInsideControlFlow(t *testing.T) {
-	module := parseCalls(t, false,
-		[][]uint32{
-			instWords(spvenums.OpFunction, 1, 100, 0, 2),
-			instWords(spvenums.OpLabel, 101),
-			instWords(spvenums.OpSelectionMerge, 103, 0),
-			instWords(spvenums.OpBranchConditional, 70, 102, 103),
-			instWords(spvenums.OpLabel, 102),
-			call(3, 50, 200, 20),
-			instWords(spvenums.OpBranch, 103),
-			instWords(spvenums.OpLabel, 103),
-			instWords(spvenums.OpReturn),
-			instWords(spvenums.OpFunctionEnd),
+	cases := []struct {
+		name string
+		body [][]uint32
+	}{
+		{
+			name: "if accept",
+			body: [][]uint32{
+				instWords(spvenums.OpSelectionMerge, 103, 0),
+				instWords(spvenums.OpBranchConditional, 70, 102, 103),
+				instWords(spvenums.OpLabel, 102),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranch, 103),
+				instWords(spvenums.OpLabel, 103),
+			},
 		},
-		identityFunction(200),
-	)
-	got := calls(module.Functions[functionHandle(t, module, "f100")].Body)
-	if len(got) != 1 || got[0].Function != functionHandle(t, module, "f200") {
-		t.Fatalf("calls = %#v, want one call of f200", got)
+		{
+			name: "if reject",
+			body: [][]uint32{
+				instWords(spvenums.OpSelectionMerge, 103, 0),
+				instWords(spvenums.OpBranchConditional, 70, 103, 102),
+				instWords(spvenums.OpLabel, 102),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranch, 103),
+				instWords(spvenums.OpLabel, 103),
+			},
+		},
+		{
+			name: "switch case",
+			body: [][]uint32{
+				instWords(spvenums.OpSelectionMerge, 110, 0),
+				instWords(spvenums.OpSwitch, 20, 110, 5, 102),
+				instWords(spvenums.OpLabel, 102),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranch, 110),
+				instWords(spvenums.OpLabel, 110),
+			},
+		},
+		{
+			name: "switch default",
+			body: [][]uint32{
+				instWords(spvenums.OpSelectionMerge, 110, 0),
+				instWords(spvenums.OpSwitch, 20, 102, 5, 110),
+				instWords(spvenums.OpLabel, 102),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranch, 110),
+				instWords(spvenums.OpLabel, 110),
+			},
+		},
+		{
+			name: "loop body",
+			body: [][]uint32{
+				instWords(spvenums.OpBranch, 102),
+				instWords(spvenums.OpLabel, 102),
+				instWords(spvenums.OpLoopMerge, 104, 103, 0),
+				instWords(spvenums.OpBranch, 105),
+				instWords(spvenums.OpLabel, 105),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranchConditional, 70, 103, 104),
+				instWords(spvenums.OpLabel, 103),
+				instWords(spvenums.OpBranch, 102),
+				instWords(spvenums.OpLabel, 104),
+			},
+		},
+		{
+			name: "loop continuing",
+			body: [][]uint32{
+				instWords(spvenums.OpBranch, 102),
+				instWords(spvenums.OpLabel, 102),
+				instWords(spvenums.OpLoopMerge, 104, 103, 0),
+				instWords(spvenums.OpBranchConditional, 70, 103, 104),
+				instWords(spvenums.OpLabel, 103),
+				call(3, 50, 200, 20),
+				instWords(spvenums.OpBranch, 102),
+				instWords(spvenums.OpLabel, 104),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A call of f300 comes first, so the nested call's placeholder (1)
+			// differs from f200's final handle (0: the toposort puts the second
+			// callee first) and an unpatched call would name f300.
+			caller := [][]uint32{
+				instWords(spvenums.OpFunction, 1, 100, 0, 2),
+				instWords(spvenums.OpLabel, 101),
+				call(1, 49, 300),
+			}
+			caller = append(caller, tc.body...)
+			caller = append(caller, instWords(spvenums.OpReturn), instWords(spvenums.OpFunctionEnd))
+			module := parseCalls(t, false, caller, identityFunction(200), voidFunction(300))
+			callee := functionHandle(t, module, "f200")
+			other := functionHandle(t, module, "f300")
+			if callee == 1 {
+				t.Fatalf("f200 has handle 1, the nested call's placeholder: the test cannot tell a patched call")
+			}
+			fn := &module.Functions[functionHandle(t, module, "f100")]
+			got := calls(fn.Body)
+			if len(got) != 2 || got[0].Function != other || got[1].Function != callee {
+				t.Fatalf("calls = %#v, want f300 (%d) then f200 (%d)", got, other, callee)
+			}
+			if got[1].Result == nil {
+				t.Fatal("the nested call has no result")
+			}
+			if result, ok := fn.Expressions[*got[1].Result].Kind.(ir.ExprCallResult); !ok || result.Function != callee {
+				t.Errorf("result = %#v, want CallResult(%d)", fn.Expressions[*got[1].Result].Kind, callee)
+			}
+		})
 	}
 }
 
