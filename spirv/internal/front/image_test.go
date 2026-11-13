@@ -40,7 +40,7 @@ func imageModuleGroups(body ...[]uint32) [][]uint32 {
 		instWords(spvenums.OpTypeFloat, 13, 32),
 		instWords(spvenums.OpTypeVector, 14, 13, 2),
 		instWords(spvenums.OpTypeVector, 15, 13, 4),
-		instWords(spvenums.OpTypeImage, 16, 13, 0, 0, 0, 0, 1, 0),
+		instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 1, 0),
 		instWords(spvenums.OpTypeSampler, 17),
 		instWords(spvenums.OpTypeSampledImage, 18, 16),
 		instWords(spvenums.OpTypePointer, 19, uint32(spvenums.StorageClassUniformConstant), 16),

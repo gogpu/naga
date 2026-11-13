@@ -64,6 +64,7 @@ func newParser(data []byte, options Options) *parser {
 		lookupVariable:           make(map[uint32]lookupVariable),
 		lookupFunction:           make(map[uint32]lookupFunction),
 		lookupSampledImage:       make(map[uint32]lookupSampledImage),
+		sampledImageTypes:        make(map[uint32]struct{}),
 		handleSampling:           make(map[ir.GlobalVariableHandle]samplingFlags),
 		glPerVertexBuiltinAccess: make(map[ir.BuiltinValue]struct{}),
 		atomicUpgrades: atomicAccess{
@@ -116,6 +117,13 @@ type parser struct {
 	// lookupSampledImage holds the image and sampler an OpSampledImage coupled,
 	// by result id (Rust naga's lookup_sampled_image).
 	lookupSampledImage map[uint32]lookupSampledImage
+	// sampledImageTypes holds the ids of the module's OpTypeSampledImage
+	// types, which tell a combined image sampler variable from an image one.
+	sampledImageTypes map[uint32]struct{}
+	// combinedSamplerSplits lists the combined image samplers the module
+	// declares, in source order; their sampler bindings are resolved once
+	// every global is parsed (design §12).
+	combinedSamplerSplits []combinedSamplerSplit
 	// handleSampling records how each image or sampler global of the module is
 	// sampled, so that a handle used only for comparison sampling gets the
 	// depth-comparison type (Rust naga's handle_sampling).
@@ -263,6 +271,10 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 			return nil, Info{}, p.at(err)
 		}
 	}
+
+	// The sampler of every combined image sampler gets its binding now that
+	// every global of the module is known.
+	p.resolveCombinedSamplerBindings()
 
 	// The atomics the module accessed get their Atomic types before the
 	// wrappers are built, as Rust naga's parse does.

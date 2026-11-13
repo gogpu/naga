@@ -37,6 +37,10 @@ type functionState struct {
 	// phis are the local variables phi nodes and out-of-scope spills write
 	// into, with the values each is written from.
 	phis []phiExpression
+	// combinedSamplerExpr is the sampler global's expression for each combined
+	// image sampler variable of the function, by the image global's handle: a
+	// load of the variable yields the pair.
+	combinedSamplerExpr map[ir.GlobalVariableHandle]ir.ExpressionHandle
 }
 
 // mergeBlockInformation is what a branch to a merge block or a continue

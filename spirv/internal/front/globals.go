@@ -15,6 +15,9 @@ type lookupVariable struct {
 	argument ir.FunctionArgument
 	// result is the entry point result an Output variable becomes.
 	result ir.FunctionResult
+	// sampler is the second global a combined image sampler variable splits
+	// into (design §12); handle is the image global.
+	sampler *ir.GlobalVariableHandle
 }
 
 // parseGlobalVariable parses OpVariable. An Input or Output variable becomes a
@@ -61,6 +64,7 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 	if err != nil {
 		return err
 	}
+	combinedSampler := original.combinedSampler
 	ty := original.handle
 
 	originalInner := p.module.Types[original.handle].Inner
@@ -137,6 +141,9 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 			lookup.result.Binding = &binding
 		}
 	default:
+		if combinedSampler {
+			return p.splitCombinedSampler(id, typeID, dec, ty)
+		}
 		space := extClass.space
 		var access ir.StorageAccess
 		if space == ir.SpaceStorage {
