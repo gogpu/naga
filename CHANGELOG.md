@@ -5,23 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.21.11] - 2026-11-13
+## [Unreleased]
 
 ### Added
 
-- **`spirv.Parse` reads a SPIR-V binary and lowers it to IR** (NAGA-FEAT-001, Phase 1): the second input path after
-  WGSL, ported from Rust naga's `front::spv` on the generated `spvenums` package. This phase reads the header and
-  the module sections, every type the IR has (scalars, vectors, matrices, arrays, runtime arrays, structs, images,
-  samplers), constants and overrides, decorations (resource bindings, built-ins, locations, layout, storage
-  access), global variables, and straight-line function bodies: loads and stores, access chains, the arithmetic,
-  comparison, logical and conversion instructions, the `GLSL.std.450` math functions and derivatives. Each entry
-  point gets Rust's wrapper: inputs are copied from the arguments into the private globals the parsed function
-  reads, outputs are loaded and returned, unwritten built-in outputs get Rust's default values, and the Y of a
-  `Position` output is negated unless `ParseOptions.KeepCoordinateSpace` is set. `ParseOptions` also carries
-  `AllowUnknownCapabilities`; `ParseInfo` reports warnings. Modules are not compacted, as in Rust: the result
-  validates and every backend accepts it as parsed. The remaining phases — structured control flow and calls,
-  images, sampling and atomics, the combined image sampler split, `nagac --from-spirv` and fuzz — follow as their
-  own changes; an instruction outside the implemented set is a `*ParseError` that names it, never silent output.
 - **`spirv.Parse` reads structured control flow, phis and function calls** (NAGA-FEAT-001, Phase 2):
   `OpSelectionMerge`, `OpLoopMerge`, `OpBranch`, `OpBranchConditional` and `OpSwitch` become `If`, `Loop` (with
   `break if` where the back edge is conditional), `Switch`, `Break` and `Continue`; `OpPhi` becomes a local
@@ -49,6 +36,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pointers included, at most 64; both limits are checked where the input declares them. 16 of the 33 Rust
   SPIR-V test modules parse and validate, and 91 of the WGSL test shaders round-trip through our SPIR-V writer
   and back.
+
+### Fixed
+
+- **MSL and HLSL: a fall-through switch case with statements keeps them.** MSL wrote only the label of such a
+  case and dropped its body; HLSL wrote C fall-through, which FXC does not support. Both now match Rust naga: MSL
+  writes the body in braces without `break`, HLSL writes the case's body followed by the bodies of every case it
+  falls into, each in its own scope, then one `break`. WGSL never produces such a case (its fall-through cases are
+  empty), so WGSL output is unchanged; the SPIR-V frontend does.
+
+## [0.21.11] - 2026-11-13
+
+### Added
+
+- **`spirv.Parse` reads a SPIR-V binary and lowers it to IR** (NAGA-FEAT-001, Phase 1): the second input path after
+  WGSL, ported from Rust naga's `front::spv` on the generated `spvenums` package. This phase reads the header and
+  the module sections, every type the IR has (scalars, vectors, matrices, arrays, runtime arrays, structs, images,
+  samplers), constants and overrides, decorations (resource bindings, built-ins, locations, layout, storage
+  access), global variables, and straight-line function bodies: loads and stores, access chains, the arithmetic,
+  comparison, logical and conversion instructions, the `GLSL.std.450` math functions and derivatives. Each entry
+  point gets Rust's wrapper: inputs are copied from the arguments into the private globals the parsed function
+  reads, outputs are loaded and returned, unwritten built-in outputs get Rust's default values, and the Y of a
+  `Position` output is negated unless `ParseOptions.KeepCoordinateSpace` is set. `ParseOptions` also carries
+  `AllowUnknownCapabilities`; `ParseInfo` reports warnings. Modules are not compacted, as in Rust: the result
+  validates and every backend accepts it as parsed. The remaining phases — structured control flow and calls,
+  images, sampling and atomics, the combined image sampler split, `nagac --from-spirv` and fuzz — follow as their
+  own changes; an instruction outside the implemented set is a `*ParseError` that names it, never silent output.
 - **`ir.BuiltinValue` gains the five built-ins the SPIR-V frontend produces** (P1-IR-031): `BuiltinBaseInstance`,
   `BuiltinBaseVertex`, `BuiltinCullDistance`, `BuiltinPointCoord` and `BuiltinWorkGroupSize`, appended after
   `BuiltinBarycentricNoPerspective` so every existing value is unchanged, with names for error messages
@@ -116,11 +129,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HLSL that dxc and FXC refuse. They are now written as `log(x + sqrt(x * x ± 1.0))` and
   `0.5 * log((1.0 + x) / (1.0 - x))`, as Rust naga writes them. The DXIL backend still refuses these functions
   with an `unsupported unary math function` error; that is tracked separately.
-- **MSL and HLSL: a fall-through switch case with statements keeps them.** MSL wrote only the label of such a
-  case and dropped its body; HLSL wrote C fall-through, which FXC does not support. Both now match Rust naga: MSL
-  writes the body in braces without `break`, HLSL writes the case's body followed by the bodies of every case it
-  falls into, each in its own scope, then one `break`. WGSL never produces such a case (its fall-through cases are
-  empty), so WGSL output is unchanged; the SPIR-V frontend does.
 - **WGSL: out-of-range integer literals, repeated attributes and unterminated block comments are errors**
   (P1-WGSL-113, P1-WGSL-114, P3-WGSL-115). Three inputs the WGSL spec makes shader-creation errors were accepted,
   two of them changing the program silently:
