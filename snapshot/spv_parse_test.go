@@ -58,6 +58,9 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		// Phase 2, function calls and the call graph.
 		"builtin-accessed-outside-entrypoint": true,
 		"do-while":                            true,
+		// Phase 3, subgroup operations.
+		"subgroup-operations-s":      true,
+		"subgroup-reduce-issue-8389": true,
 		// Phase 3, atomics and the atomic type upgrade.
 		"atomic_compare_exchange":           true,
 		"atomic_exchange":                   true,

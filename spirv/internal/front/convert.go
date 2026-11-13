@@ -125,6 +125,32 @@ func mapAtomicFunction(op spvenums.Op) (ir.AtomicFunction, error) {
 	return nil, errUnsupportedInstruction(stateFunction, op)
 }
 
+// mapSubgroupOperation maps the opcode of a subgroup collective instruction to
+// the IR operation, as Rust naga's next_block.
+func mapSubgroupOperation(op spvenums.Op) (ir.SubgroupOperation, error) {
+	switch op {
+	case spvenums.OpGroupNonUniformAll:
+		return ir.SubgroupOperationAll, nil
+	case spvenums.OpGroupNonUniformAny:
+		return ir.SubgroupOperationAny, nil
+	case spvenums.OpGroupNonUniformIAdd, spvenums.OpGroupNonUniformFAdd:
+		return ir.SubgroupOperationAdd, nil
+	case spvenums.OpGroupNonUniformIMul, spvenums.OpGroupNonUniformFMul:
+		return ir.SubgroupOperationMul, nil
+	case spvenums.OpGroupNonUniformSMin, spvenums.OpGroupNonUniformUMin, spvenums.OpGroupNonUniformFMin:
+		return ir.SubgroupOperationMin, nil
+	case spvenums.OpGroupNonUniformSMax, spvenums.OpGroupNonUniformUMax, spvenums.OpGroupNonUniformFMax:
+		return ir.SubgroupOperationMax, nil
+	case spvenums.OpGroupNonUniformBitwiseAnd, spvenums.OpGroupNonUniformLogicalAnd:
+		return ir.SubgroupOperationAnd, nil
+	case spvenums.OpGroupNonUniformBitwiseOr, spvenums.OpGroupNonUniformLogicalOr:
+		return ir.SubgroupOperationOr, nil
+	case spvenums.OpGroupNonUniformBitwiseXor, spvenums.OpGroupNonUniformLogicalXor:
+		return ir.SubgroupOperationXor, nil
+	}
+	return 0, errUnsupportedInstruction(stateFunction, op)
+}
+
 // mapRelationalFunction maps OpAny, OpAll, OpIsNan and OpIsInf.
 func mapRelationalFunction(op spvenums.Op) (ir.RelationalFunction, error) {
 	switch op {
