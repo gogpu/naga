@@ -674,6 +674,14 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 			if member.rowMajor {
 				return errUnsupportedRowMajorMatrix
 			}
+			// Rust naga records the built-ins an access chain reaches so the
+			// wrapper can drop the gl_PerVertex members a shader never writes
+			// (front/spv/next_block.rs, gl_per_vertex_builtin_access).
+			if binding := inner.Members[indexValue].Binding; binding != nil {
+				if builtin, ok := (*binding).(ir.BuiltinBinding); ok {
+					p.glPerVertexBuiltinAccess[builtin.Builtin] = struct{}{}
+				}
+			}
 			handle = appendExpression(fs.fn, ir.ExprAccessIndex{Base: handle, Index: indexValue})
 			currentTypeID = member.typeID
 		case ir.MatrixType:

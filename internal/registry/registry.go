@@ -114,6 +114,24 @@ func (r *TypeRegistry) SetName(handle ir.TypeHandle, name string) {
 	r.typeMap[string(r.keyBuf)] = handle
 }
 
+// Replace rewrites the type at handle, keeping its position in the arena, as
+// Rust naga's UniqueArena::replace does. The dedup keys are updated with it.
+// The new definition must not equal another type of the arena; a caller
+// passes a definition that differs from the old one (Rust naga panics there).
+func (r *TypeRegistry) Replace(handle ir.TypeHandle, name string, inner ir.TypeInner) {
+	if int(handle) >= len(r.types) {
+		return
+	}
+	oldName, oldInner := r.types[handle].Name, r.types[handle].Inner
+	r.buildKey(oldName, oldInner)
+	if r.typeMap[string(r.keyBuf)] == handle {
+		delete(r.typeMap, string(r.keyBuf))
+	}
+	r.types[handle] = ir.Type{Name: name, Inner: inner}
+	r.buildKey(name, inner)
+	r.typeMap[string(r.keyBuf)] = handle
+}
+
 // Append adds a type without deduplication, always creating a new entry.
 // This matches Rust naga's Arena behavior where each append() creates a new
 // entry even for structurally identical types. Use this for array types that

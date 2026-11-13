@@ -28,14 +28,12 @@ var spvIRAwaitingPhase = map[string]string{
 // fails until the entry is reviewed again.
 var spvIRDeviations = map[string]irDeviation{
 	"spec-constants": {
-		Card: "P1-SPVIN-003 (gl_PerVertex culling; the storage order is a deliberate deviation)",
-		Reason: "(1) gl_PerVertex culling is not ported: Rust naga records the built-ins an OpAccessChain " +
-			"reaches through a gl_PerVertex member (front/spv/next_block.rs, gl_per_vertex_builtin_access) and " +
-			"drops the binding of every other built-in member of an output struct in the wrapper " +
-			"(front/spv/function.rs, process_entry_point), so its wrapper returns 2 members where ours returns 5; " +
-			"(2) the global and constant expressions every function starts with are in ascending id order here, " +
-			"in FxHashMap iteration order in Rust naga (make_expression_storage): the same expressions, other handles",
-		Fingerprint: "fc37ec00322875bbcb0b3c2106c8e2e578a507ae935e59178843d5d210e9de33", // 27 differences
+		Card: "deliberate deviation: expression storage order",
+		Reason: "the global and constant expressions every function starts with are in ascending id order here, " +
+			"in FxHashMap iteration order in Rust naga (make_expression_storage): the same expressions, other " +
+			"handles, so the references between them shift with the order; the types, the constants and the " +
+			"wrapper (after P1-SPVIN-003 ported gl_PerVertex culling) match Rust",
+		Fingerprint: "10dc02444320277a35fd669e25c6dfc1704c17ed7df1ca1aff5e93fa4343eb14", // 16 differences
 	},
 }
 

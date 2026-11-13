@@ -62,6 +62,7 @@ func newParser(data []byte, options Options) *parser {
 		lookupConstant:           make(map[uint32]lookupConstant),
 		lookupVariable:           make(map[uint32]lookupVariable),
 		lookupFunction:           make(map[uint32]lookupFunction),
+		glPerVertexBuiltinAccess: make(map[ir.BuiltinValue]struct{}),
 	}
 }
 
@@ -105,6 +106,11 @@ type parser struct {
 	lookupConstant           map[uint32]lookupConstant
 	lookupVariable           map[uint32]lookupVariable
 	lookupFunction           map[uint32]lookupFunction
+	// glPerVertexBuiltinAccess holds the built-ins an OpAccessChain reaches
+	// through a struct member, as Rust naga's set of the same name. glslang
+	// declares the gl_PerVertex built-ins a shader never writes, and the
+	// wrapper drops the binding of those in its result.
+	glPerVertexBuiltinAccess map[ir.BuiltinValue]struct{}
 	// lookupExpression is the table of the function being parsed; it is
 	// cleared when the next function starts.
 	lookupExpression map[uint32]lookupExpression

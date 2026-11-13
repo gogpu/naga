@@ -225,6 +225,65 @@ func TestSPVParseEmptyGlobalName(t *testing.T) {
 	}
 }
 
+// TestSPVParsePerVertexCulling: glslang declares gl_PointSize, gl_ClipDistance
+// and gl_CullDistance on gl_PerVertex even when a shader never writes them.
+// Rust naga records the built-in members an OpAccessChain reaches and drops
+// the binding of every other one in the wrapper result (front/spv/function.rs,
+// process_entry_point, and next_block.rs, gl_per_vertex_builtin_access), so the
+// spec-constants wrapper returns 2 members where the module declares 5.
+func TestSPVParsePerVertexCulling(t *testing.T) {
+	module := parseSPVCorpus(t, "spec-constants")
+	if len(module.EntryPoints) != 1 {
+		t.Fatalf("entry points = %d, want 1", len(module.EntryPoints))
+	}
+	result := module.EntryPoints[0].Function.Result
+	if result == nil {
+		t.Fatal("the vertex entry point has no result")
+	}
+	structType, ok := module.Types[result.Type].Inner.(ir.StructType)
+	if !ok {
+		t.Fatalf("result type = %T, want a struct", module.Types[result.Type].Inner)
+	}
+	if len(structType.Members) != 2 {
+		t.Fatalf("result members = %d, want 2 (v_Uv and gl_Position)", len(structType.Members))
+	}
+	location, ok := (*structType.Members[0].Binding).(ir.LocationBinding)
+	if !ok || location.Location != 0 {
+		t.Errorf("member 0 binding = %#v, want location 0", structType.Members[0].Binding)
+	}
+	builtin, ok := (*structType.Members[1].Binding).(ir.BuiltinBinding)
+	if !ok || builtin.Builtin != ir.BuiltinPosition {
+		t.Errorf("member 1 binding = %#v, want the position built-in", structType.Members[1].Binding)
+	}
+	// The module's gl_PerVertex type keeps every member; the culled ones lose
+	// their binding, as Rust naga rewrites the type in place.
+	perVertex := 0
+	for _, ty := range module.Types {
+		inner, ok := ty.Inner.(ir.StructType)
+		if !ok || ty.Name != "gl_PerVertex" {
+			continue
+		}
+		perVertex++
+		for index, want := range []ir.BuiltinValue{
+			ir.BuiltinPosition, ir.BuiltinPointSize, ir.BuiltinClipDistances, ir.BuiltinCullDistance,
+		} {
+			binding := inner.Members[index].Binding
+			if want == ir.BuiltinPosition {
+				if binding == nil {
+					t.Errorf("gl_PerVertex member %d lost its binding", index)
+				}
+				continue
+			}
+			if binding != nil {
+				t.Errorf("gl_PerVertex member %d keeps binding %#v, want none", index, binding)
+			}
+		}
+	}
+	if perVertex != 1 {
+		t.Fatalf("gl_PerVertex types = %d, want 1", perVertex)
+	}
+}
+
 // TestSPVParseDegrees: the GLSL.std.450 Radians and Degrees instructions
 // become the IR's math functions.
 func TestSPVParseDegrees(t *testing.T) {

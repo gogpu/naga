@@ -227,6 +227,49 @@ func TestTypeRegistry_StructDeduplication(t *testing.T) {
 	}
 }
 
+func TestTypeRegistry_Replace(t *testing.T) {
+	registry := NewTypeRegistry()
+
+	f32 := registry.GetOrCreate("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	sizeBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPointSize})
+	original := ir.StructType{
+		Members: []ir.StructMember{
+			{Name: "position", Type: f32, Offset: 0},
+			{Name: "size", Type: f32, Offset: 16, Binding: &sizeBinding},
+		},
+		Span: 32,
+	}
+	handle := registry.GetOrCreate("Vertex", original)
+
+	// The rewritten definition keeps the member list and drops a binding,
+	// the shape the SPIR-V frontend's gl_PerVertex culling produces.
+	culled := original
+	culled.Members = []ir.StructMember{original.Members[0], original.Members[1]}
+	culled.Members[1].Binding = nil
+	registry.Replace(handle, "Vertex", culled)
+
+	if got := registry.GetOrCreate("Vertex", culled); got != handle {
+		t.Errorf("replaced definition maps to %d, want the rewritten handle %d", got, handle)
+	}
+	if got, ok := registry.Lookup(handle); !ok {
+		t.Errorf("Lookup(%d) missing", handle)
+	} else if gotStruct, ok := got.Inner.(ir.StructType); !ok || gotStruct.Members[1].Binding != nil {
+		t.Errorf("Lookup(%d) = %#v, want the rewritten type", handle, got.Inner)
+	}
+	if registry.Count() != 2 {
+		t.Errorf("Expected 2 types, got %d", registry.Count())
+	}
+
+	// The old definition is no longer in the arena: creating it again appends
+	// a new type rather than returning the rewritten one.
+	if got := registry.GetOrCreate("Vertex", original); got == handle {
+		t.Error("the old definition still maps to the rewritten handle")
+	}
+	if registry.Count() != 3 {
+		t.Errorf("Expected 3 types, got %d", registry.Count())
+	}
+}
+
 func TestTypeRegistry_DifferentStructs(t *testing.T) {
 	registry := NewTypeRegistry()
 

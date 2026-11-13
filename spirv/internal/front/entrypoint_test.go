@@ -190,9 +190,18 @@ func TestWrapperOutputs(t *testing.T) {
 			instWords(spvenums.OpTypeVector, 14, 13, 4),
 			instWords(spvenums.OpTypeStruct, 12, 14, 13),
 			instWords(spvenums.OpTypePointer, 15, uint32(spvenums.StorageClassOutput), 12),
+			instWords(spvenums.OpTypeInt, 16, 32, 1),
+			instWords(spvenums.OpConstant, 16, 17, 0),
+			instWords(spvenums.OpConstant, 16, 18, 1),
+			instWords(spvenums.OpTypePointer, 19, uint32(spvenums.StorageClassOutput), 14),
+			instWords(spvenums.OpTypePointer, 20, uint32(spvenums.StorageClassOutput), 13),
 			instWords(spvenums.OpVariable, 15, 3, uint32(spvenums.StorageClassOutput)),
 			voidFunctionBody(),
+			// Both built-in members are accessed: the wrapper keeps them
+			// (unreached gl_PerVertex built-ins are culled).
 			instWords(spvenums.OpLabel, 2),
+			instWords(spvenums.OpAccessChain, 19, 21, 3, 17),
+			instWords(spvenums.OpAccessChain, 20, 22, 3, 18),
 			instWords(spvenums.OpReturn),
 			instWords(spvenums.OpFunctionEnd),
 		)
@@ -306,9 +315,16 @@ func TestDefaultInterpolationDoesNotLeak(t *testing.T) {
 			instWords(spvenums.OpTypeVector, 14, 13, 4),
 			instWords(spvenums.OpTypeStruct, 12, 14, 14),
 			instWords(spvenums.OpTypePointer, 15, uint32(spvenums.StorageClassOutput), 12),
+			instWords(spvenums.OpTypeInt, 16, 32, 1),
+			instWords(spvenums.OpConstant, 16, 17, 0),
+			instWords(spvenums.OpConstant, 16, 18, 1),
+			instWords(spvenums.OpTypePointer, 19, uint32(spvenums.StorageClassOutput), 14),
 			instWords(spvenums.OpVariable, 15, 3, uint32(spvenums.StorageClassOutput)),
 			voidFunctionBody(),
+			// The built-in member is accessed, so the wrapper keeps it.
 			instWords(spvenums.OpLabel, 2),
+			instWords(spvenums.OpAccessChain, 19, 21, 3, 17),
+			instWords(spvenums.OpAccessChain, 19, 22, 3, 18),
 			instWords(spvenums.OpReturn),
 			instWords(spvenums.OpFunctionEnd),
 		)
