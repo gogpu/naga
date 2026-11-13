@@ -617,6 +617,39 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 			return false, nil, err
 		}
 		return false, nil, p.compositeInsert(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformBallot:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupBallot(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformAll, spvenums.OpGroupNonUniformAny:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupCollective(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformIAdd, spvenums.OpGroupNonUniformFAdd,
+		spvenums.OpGroupNonUniformIMul, spvenums.OpGroupNonUniformFMul,
+		spvenums.OpGroupNonUniformSMax, spvenums.OpGroupNonUniformUMax, spvenums.OpGroupNonUniformFMax,
+		spvenums.OpGroupNonUniformSMin, spvenums.OpGroupNonUniformUMin, spvenums.OpGroupNonUniformFMin,
+		spvenums.OpGroupNonUniformBitwiseAnd, spvenums.OpGroupNonUniformBitwiseOr, spvenums.OpGroupNonUniformBitwiseXor,
+		spvenums.OpGroupNonUniformLogicalAnd, spvenums.OpGroupNonUniformLogicalOr, spvenums.OpGroupNonUniformLogicalXor:
+		if err := inst.expect(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupCollective(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformBroadcastFirst:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupGather(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformBroadcast, spvenums.OpGroupNonUniformShuffle,
+		spvenums.OpGroupNonUniformShuffleDown, spvenums.OpGroupNonUniformShuffleUp,
+		spvenums.OpGroupNonUniformShuffleXor, spvenums.OpGroupNonUniformQuadBroadcast,
+		spvenums.OpGroupNonUniformQuadSwap:
+		if err := inst.expect(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupGather(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpFunctionCall:
 		return false, nil, p.functionCall(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpControlBarrier:

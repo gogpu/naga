@@ -151,6 +151,10 @@ func errInvalidIndexType(id uint32) *Error {
 	return &Error{Message: fmt.Sprintf("invalid index type %%%d", id)}
 }
 
+func errUnsupportedGroupOperation(op uint32) *Error {
+	return &Error{Message: fmt.Sprintf("unsupported group operation %%%d", op)}
+}
+
 var (
 	errInvalidImageDepthStorage            = &Error{Message: "cannot create a OpTypeImage as both a depth and storage image"}
 	errInvalidStorageImageWithoutFormat    = &Error{Message: "image read/write without format is not currently supported. See https://github.com/gfx-rs/wgpu/issues/6797"}
