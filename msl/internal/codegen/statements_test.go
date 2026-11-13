@@ -101,9 +101,9 @@ func TestMSL_Switch(t *testing.T) {
 	// Rust naga uses switch(x) without space before paren
 	mustContainMSL(t, result, "switch(")
 	// Case bodies are wrapped in braces with break inside (Rust naga style).
-	// Fallthrough case (case 1) has label only, no braces.
+	// Fallthrough case 1 has a body, so it keeps braces and writes no break.
 	mustContainMSL(t, result, "case 0: {")
-	mustContainMSL(t, result, "case 1:") // fallthrough: label only, no braces
+	mustContainMSL(t, result, "case 1: {")
 	mustContainMSL(t, result, "default: {")
 	// Cases that end with a terminator (Return, Break, Continue, Kill) do NOT get
 	// an extra break; appended. Since all non-fallthrough cases end with StmtReturn,
@@ -117,6 +117,74 @@ func TestMSL_Switch(t *testing.T) {
 	}
 	if breakCount != 0 {
 		t.Errorf("Expected 0 break statements (cases end with return), got %d", breakCount)
+	}
+}
+
+// nonEmptyFallThroughSwitchModule builds a function whose switch has
+// fall-through cases with non-empty bodies, including a non-last default:
+//
+//	case 1 (falls through):  v = 10
+//	default (falls through): v = 20
+//	case 2:                  v = 30
+//
+// WGSL never produces this shape (its fall-through cases are always empty);
+// the SPIR-V frontend does, for OpSwitch targets that branch into the next case.
+func nonEmptyFallThroughSwitchModule() *ir.Module {
+	i32 := ir.TypeHandle(0)
+	store := func(value ir.ExpressionHandle) []ir.Statement {
+		return []ir.Statement{{Kind: ir.StmtStore{Pointer: 1, Value: value}}}
+	}
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+		},
+		Functions: []ir.Function{
+			{
+				Name:      "test_fn",
+				LocalVars: []ir.LocalVariable{{Name: "v", Type: i32}},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},  // 0: selector
+					{Kind: ir.ExprLocalVariable{Variable: 0}},    // 1
+					{Kind: ir.Literal{Value: ir.LiteralI32(10)}}, // 2
+					{Kind: ir.Literal{Value: ir.LiteralI32(20)}}, // 3
+					{Kind: ir.Literal{Value: ir.LiteralI32(30)}}, // 4
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSwitch{
+						Selector: 0,
+						Cases: []ir.SwitchCase{
+							{Value: ir.SwitchValueI32(1), Body: store(2), FallThrough: true},
+							{Value: ir.SwitchValueDefault{}, Body: store(3), FallThrough: true},
+							{Value: ir.SwitchValueI32(2), Body: store(4)},
+						},
+					}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		},
+	}
+}
+
+// TestMSL_SwitchNonEmptyFallThrough pins the MSL text of a fall-through case
+// with a body. Rust back/msl/writer.rs:4052-4066 writes such a case in braces
+// with its body and no break (`write_block_braces = !(fall_through &&
+// body.is_empty())`), so the body runs and control falls into the next case.
+func TestMSL_SwitchNonEmptyFallThrough(t *testing.T) {
+	result := compileModule(t, nonEmptyFallThroughSwitchModule())
+	want := "    switch(0) {\n" +
+		"        case 1: {\n" +
+		"            v = 10;\n" +
+		"        }\n" +
+		"        default: {\n" +
+		"            v = 20;\n" +
+		"        }\n" +
+		"        case 2: {\n" +
+		"            v = 30;\n" +
+		"            break;\n" +
+		"        }\n" +
+		"    }\n"
+	if !strings.Contains(result, want) {
+		t.Errorf("switch text mismatch.\nwant:\n%s\ngot:\n%s", want, result)
 	}
 }
 

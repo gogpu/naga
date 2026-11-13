@@ -907,13 +907,15 @@ func (w *Writer) writeIf(ifStmt ir.StmtIf) error {
 // writeSwitch writes a switch statement.
 // Matches Rust naga's MSL output: no space before paren, case bodies wrapped
 // in braces with break inside.
-// Fallthrough cases emit label only (no braces), matching Rust's pattern:
+// Empty fallthrough cases emit the label only (no braces), matching Rust's pattern:
 //
 //	case 3:
 //	case 4: {
 //	    body...
 //	    break;
 //	}
+//
+// A fallthrough case with a body keeps braces and body but writes no break.
 func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 	w.WriteIndent()
 	w.write("switch(")
@@ -924,41 +926,37 @@ func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 	w.PushIndent()
 
 	for _, switchCase := range switchStmt.Cases {
-		if switchCase.FallThrough {
-			// Fallthrough: emit label only, no braces, no body.
-			// Rust naga emits "case N:" on its own line for fallthrough.
-			switch v := switchCase.Value.(type) {
-			case ir.SwitchValueI32:
-				w.WriteLine("case %d:", int32(v))
-			case ir.SwitchValueU32:
-				w.WriteLine("case %du:", uint32(v))
-			case ir.SwitchValueDefault:
-				w.WriteLine("default:")
-			}
-			continue
-		}
-
-		// Non-fallthrough: emit label with opening brace, body, break, closing brace.
+		// Rust back/msl/writer.rs:4052-4066: braces unless the case is an
+		// empty fall-through; the body is always written; break only for a
+		// non-fall-through case whose body does not end in a terminator.
+		// A non-empty fall-through case (SPIR-V input) keeps its body.
+		writeBraces := !switchCase.FallThrough || len(switchCase.Body) != 0
+		label := ""
 		switch v := switchCase.Value.(type) {
 		case ir.SwitchValueI32:
-			w.WriteLine("case %d: {", int32(v))
+			label = fmt.Sprintf("case %d:", int32(v))
 		case ir.SwitchValueU32:
-			w.WriteLine("case %du: {", uint32(v))
+			label = fmt.Sprintf("case %du:", uint32(v))
 		case ir.SwitchValueDefault:
-			w.WriteLine("default: {")
+			label = "default:"
+		}
+		if writeBraces {
+			w.WriteLine("%s {", label)
+		} else {
+			w.WriteLine("%s", label)
 		}
 
 		w.PushIndent()
 		if err := w.writeBlock(switchCase.Body); err != nil {
 			return err
 		}
-		// Only emit break if the last statement is not a terminator (Return, Break, Continue, Kill).
-		// This matches Rust naga's MSL writer (writer.rs:3697).
-		if !blockEndsWithTerminator(switchCase.Body) {
+		if !switchCase.FallThrough && !blockEndsWithTerminator(switchCase.Body) {
 			w.WriteLine("break;")
 		}
 		w.PopIndent()
-		w.WriteLine("}")
+		if writeBraces {
+			w.WriteLine("}")
+		}
 	}
 
 	w.PopIndent()
