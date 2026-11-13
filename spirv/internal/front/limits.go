@@ -31,6 +31,17 @@ const (
 	// refused when a body is created, before either grows. The WGSL frontend
 	// caps brace nesting at 127, so every module it produces fits.
 	maxNesting = 128
+
+	// maxTypeDepth caps how deeply types nest: a scalar, vector, matrix,
+	// image or sampler is one level, an array, binding array or struct one more
+	// than its deepest component. SPIR-V lets a chain of OpTypeArray or
+	// OpTypeStruct grow with the module, and every walk over the IR's types
+	// (the layouter, the validator, the backends' type writers) recurses once
+	// per level, so the depth is refused when the type is declared. A pointer
+	// and an entry point wrapper's result struct add one level to types within
+	// the limit, so no IR type the frontend builds is deeper than
+	// maxTypeDepth+1. The WGSL spec's own limit is 15 levels.
+	maxTypeDepth = 64
 )
 
 // checkModuleSize reports whether a module of n bytes is within
