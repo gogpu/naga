@@ -1,6 +1,7 @@
 package front
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gogpu/naga/spirv/internal/spvenums"
@@ -127,6 +128,167 @@ func TestOperandCountChecks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			groups := append(append([][]uint32{}, prelude...), tc.inst)
 			_, _, err := parseWords(t, Options{}, groups...)
+			if got := requireError(t, err).Message; got != tc.want {
+				t.Errorf("message = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestImageAtomicSubgroupTruncation: every operand read of the image, atomic
+// and subgroup instructions fails cleanly when the input ends inside the
+// instruction. Each instruction is truncated at each of its operand positions
+// in turn, so the error arm behind every read is exercised: untrusted input
+// may end anywhere. Operands are constants of the shared body module (id 20;
+// 31 is the subgroup scope), so a handler that resolves an id between two
+// reads gets that far and the next read is the one that fails.
+func TestImageAtomicSubgroupTruncation(t *testing.T) {
+	const (
+		expr = 20 // the i32 constant 5: a valid expression id
+		sub  = 31 // the u32 constant 3: ScopeSubgroup
+	)
+	cases := []struct {
+		op       spvenums.Op
+		operands []uint32 // the full operand list, truncated in turn
+	}{
+		{spvenums.OpSampledImage, []uint32{expr, expr, expr, expr}},
+		{spvenums.OpImage, []uint32{expr, expr, expr}},
+		{spvenums.OpImageWrite, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageFetch, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageRead, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleImplicitLod, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleExplicitLod, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleProjImplicitLod, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleDrefImplicitLod, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleDrefExplicitLod, []uint32{expr, expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpImageSampleProjDrefImplicitLod, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpImageGather, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpImageDrefGather, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpImageQuerySize, []uint32{expr, expr, expr}},
+		{spvenums.OpImageQuerySizeLod, []uint32{expr, expr, expr, expr}},
+		{spvenums.OpImageQueryLevels, []uint32{expr, expr, expr}},
+		{spvenums.OpImageQuerySamples, []uint32{expr, expr, expr}},
+		{spvenums.OpAtomicLoad, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicStore, []uint32{expr, expr, expr, expr}},
+		{spvenums.OpAtomicIIncrement, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicIDecrement, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicExchange, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicIAdd, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicISub, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicSMin, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicUMax, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicAnd, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicOr, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicXor, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicFAddEXT, []uint32{expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpAtomicCompareExchange, []uint32{expr, expr, expr, expr, expr, expr, expr, expr}},
+		{spvenums.OpArrayLength, []uint32{expr, expr, expr, expr}},
+		{spvenums.OpCompositeInsert, []uint32{expr, expr, expr, expr, expr}},
+		{spvenums.OpGroupNonUniformBallot, []uint32{expr, expr, sub, expr}},
+		{spvenums.OpGroupNonUniformAll, []uint32{expr, expr, sub, expr}},
+		{spvenums.OpGroupNonUniformAny, []uint32{expr, expr, sub, expr}},
+		{spvenums.OpGroupNonUniformIAdd, []uint32{expr, expr, sub, 0, expr}},
+		{spvenums.OpGroupNonUniformFAdd, []uint32{expr, expr, sub, 0, expr}},
+		{spvenums.OpGroupNonUniformBitwiseAnd, []uint32{expr, expr, sub, 0, expr}},
+		{spvenums.OpGroupNonUniformLogicalOr, []uint32{expr, expr, sub, 0, expr}},
+		{spvenums.OpGroupNonUniformBroadcastFirst, []uint32{expr, expr, sub, expr}},
+		{spvenums.OpGroupNonUniformBroadcast, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformShuffle, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformShuffleDown, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformShuffleUp, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformShuffleXor, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformQuadBroadcast, []uint32{expr, expr, sub, expr, expr}},
+		{spvenums.OpGroupNonUniformQuadSwap, []uint32{expr, expr, sub, expr, expr}},
+	}
+	for _, tc := range cases {
+		for words := 0; words < len(tc.operands); words++ {
+			t.Run(fmt.Sprintf("%s/%d words", tc.op, words), func(t *testing.T) {
+				inst := make([]uint32, 0, words+1)
+				inst = append(inst, uint32(len(tc.operands)+1)<<16|uint32(tc.op))
+				inst = append(inst, tc.operands[:words]...)
+				m := newBodyModule()
+				_, _, err := Parse(m.buildRaw(inst), Options{})
+				if got := requireError(t, err).Message; got != "incomplete data" {
+					t.Errorf("message = %q, want incomplete data", got)
+				}
+			})
+		}
+	}
+}
+
+// TestImageOperandMaskTruncation: an image-operands mask that names an operand
+// the input does not provide fails at that operand's read, for every operand
+// the IR reads.
+func TestImageOperandMaskTruncation(t *testing.T) {
+	const expr = 20 // the i32 constant 5: a valid expression id
+	cases := []struct {
+		name string
+		op   spvenums.Op
+		mask spvenums.ImageOperands
+	}{
+		{"bias", spvenums.OpImageSampleImplicitLod, spvenums.ImageOperandsBias},
+		{"level", spvenums.OpImageSampleExplicitLod, spvenums.ImageOperandsLod},
+		{"gradient", spvenums.OpImageSampleExplicitLod, spvenums.ImageOperandsGrad},
+		{"const offset", spvenums.OpImageSampleImplicitLod, spvenums.ImageOperandsConstOffset},
+		{"fetch sample", spvenums.OpImageFetch, spvenums.ImageOperandsSample},
+		{"read level", spvenums.OpImageRead, spvenums.ImageOperandsLod},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The instruction claims room for the mask and its operand; the
+			// module ends right after the mask word.
+			inst := []uint32{
+				7<<16 | uint32(tc.op),
+				expr, expr, expr, expr, uint32(tc.mask),
+			}
+			m := newBodyModule()
+			_, _, err := Parse(m.buildRaw(inst), Options{})
+			if got := requireError(t, err).Message; got != "incomplete data" {
+				t.Errorf("message = %q, want incomplete data", got)
+			}
+		})
+	}
+}
+
+// TestImageAtomicSubgroupOperandCounts: the image, atomic and subgroup
+// instructions refuse a word count they do not handle before reading any
+// operand, as Rust naga's Instruction::expect does.
+func TestImageAtomicSubgroupOperandCounts(t *testing.T) {
+	cases := []struct {
+		inst []uint32
+		want string
+	}{
+		// The instruction's own word count is consistent with the words
+		// given; it is the count the handler does not accept.
+		{instWords(spvenums.OpSampledImage, 1, 2, 3), "invalid operand count 4 for SampledImage"},
+		{instWords(spvenums.OpImage, 1, 2), "invalid operand count 3 for Image"},
+		{instWords(spvenums.OpImageWrite, 1, 2), "invalid operand count 3 for ImageWrite"},
+		{instWords(spvenums.OpImageFetch, 1, 2, 3), "invalid operand count 4 for ImageFetch"},
+		{instWords(spvenums.OpImageRead, 1, 2, 3), "invalid operand count 4 for ImageRead"},
+		{instWords(spvenums.OpImageSampleImplicitLod, 1, 2, 3), "invalid operand count 4 for ImageSampleImplicitLod"},
+		{instWords(spvenums.OpImageSampleDrefImplicitLod, 1, 2, 3, 4), "invalid operand count 5 for ImageSampleDrefImplicitLod"},
+		{instWords(spvenums.OpImageSampleProjDrefExplicitLod, 1, 2, 3, 4), "invalid operand count 5 for ImageSampleProjDrefExplicitLod"},
+		{instWords(spvenums.OpImageGather, 1, 2, 3, 4), "invalid operand count 5 for ImageGather"},
+		{instWords(spvenums.OpImageDrefGather, 1, 2, 3, 4), "invalid operand count 5 for ImageDrefGather"},
+		{instWords(spvenums.OpImageQuerySize, 1, 2, 3, 4), "invalid operand count 5 for ImageQuerySize"},
+		{instWords(spvenums.OpImageQuerySizeLod, 1, 2, 3), "invalid operand count 4 for ImageQuerySizeLod"},
+		{instWords(spvenums.OpImageQueryLevels, 1, 2, 3, 4), "invalid operand count 5 for ImageQueryLevels"},
+		{instWords(spvenums.OpAtomicLoad, 1, 2, 3, 4), "invalid operand count 5 for AtomicLoad"},
+		{instWords(spvenums.OpAtomicStore, 1, 2, 3, 4, 5), "invalid operand count 6 for AtomicStore"},
+		{instWords(spvenums.OpAtomicIIncrement, 1, 2, 3, 4), "invalid operand count 5 for AtomicIIncrement"},
+		{instWords(spvenums.OpAtomicIAdd, 1, 2, 3, 4, 5), "invalid operand count 6 for AtomicIAdd"},
+		{instWords(spvenums.OpAtomicCompareExchange, 1, 2, 3, 4, 5, 6, 7), "invalid operand count 8 for AtomicCompareExchange"},
+		{instWords(spvenums.OpGroupNonUniformBallot, 1, 2, 3), "invalid operand count 4 for GroupNonUniformBallot"},
+		{instWords(spvenums.OpGroupNonUniformAll, 1, 2, 3), "invalid operand count 4 for GroupNonUniformAll"},
+		{instWords(spvenums.OpGroupNonUniformIAdd, 1, 2, 3, 4), "invalid operand count 5 for GroupNonUniformIAdd"},
+		{instWords(spvenums.OpGroupNonUniformBroadcastFirst, 1, 2, 3), "invalid operand count 4 for GroupNonUniformBroadcastFirst"},
+		{instWords(spvenums.OpGroupNonUniformShuffle, 1, 2, 3, 4), "invalid operand count 5 for GroupNonUniformShuffle"},
+		{instWords(spvenums.OpGroupNonUniformQuadSwap, 1, 2, 3, 4), "invalid operand count 5 for GroupNonUniformQuadSwap"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			m := newBodyModule()
+			_, _, err := Parse(m.build(tc.inst), Options{})
 			if got := requireError(t, err).Message; got != tc.want {
 				t.Errorf("message = %q, want %q", got, tc.want)
 			}

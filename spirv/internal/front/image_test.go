@@ -2,6 +2,7 @@ package front
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -412,5 +413,566 @@ func TestImageSamplingArgumentCallerFirst(t *testing.T) {
 	}
 	if !patched {
 		t.Error("the sampler sampled through the helper was not patched to its comparison type")
+	}
+}
+
+// TestImageUncouple: OpImage takes the image half of a sampled-image pair, and
+// an id that is not such a pair is refused.
+func TestImageUncouple(t *testing.T) {
+	fn := parseImageModule(t,
+		instWords(spvenums.OpImage, 16, 40, 32),
+		instWords(spvenums.OpImageQuerySize, 27, 41, 40),
+	)
+	kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+		_, ok := k.(ir.ExprImageQuery)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageQuery expression")
+	}
+	global, ok := fn.Expressions[kind.(ir.ExprImageQuery).Image].Kind.(ir.ExprGlobalVariable)
+	if !ok || global.Variable != 0 {
+		t.Fatalf("query image = %T, want the image global", fn.Expressions[kind.(ir.ExprImageQuery).Image].Kind)
+	}
+
+	_, _, err := parseWords(t, Options{}, imageModuleGroups(
+		instWords(spvenums.OpImage, 16, 40, 99),
+	)...)
+	if err == nil {
+		t.Fatal("Parse accepted OpImage on an id that is not a sampled image")
+	}
+	if want := errInvalidID(99).Message; requireError(t, err).Message != want {
+		t.Errorf("error = %v, want %q", err, want)
+	}
+}
+
+// imageStore parses a module whose first body instruction is an OpImageWrite
+// the caller gives and returns the ImageStore statement it produced.
+func imageStore(t *testing.T, imageType []uint32, extra [][]uint32, body ...[]uint32) (*ir.Function, ir.StmtImageStore) {
+	t.Helper()
+	fn := imageVariant(t, imageType, extra, body...)
+	statement, ok := findStatement(fn, func(k ir.StatementKind) bool {
+		_, ok := k.(ir.StmtImageStore)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageStore statement")
+	}
+	return fn, statement.(ir.StmtImageStore)
+}
+
+// TestImageWrite: OpImageWrite widens the stored value to four components the
+// way Rust naga's expanded_value does: a scalar is splatted, vec2 and vec3 get
+// their last component repeated, vec4 is stored as is, and any other type is
+// refused.
+func TestImageWrite(t *testing.T) {
+	storage := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 2, uint32(spvenums.ImageFormatRgba32f))
+	vec4Constant := instWords(spvenums.OpConstantComposite, 15, 35, 23, 23, 23, 23)
+
+	// valueKind returns the kind of the store's value expression.
+	valueKind := func(t *testing.T, fn *ir.Function, store ir.StmtImageStore) ir.ExpressionKind {
+		t.Helper()
+		return fn.Expressions[store.Value].Kind
+	}
+
+	t.Run("scalar splat", func(t *testing.T) {
+		fn, store := imageStore(t, storage, nil, instWords(spvenums.OpImageWrite, 30, 24, 23))
+		splat, ok := valueKind(t, fn, store).(ir.ExprSplat)
+		if !ok || splat.Size != ir.Vec4 {
+			t.Fatalf("value = %T, want a vec4 splat", valueKind(t, fn, store))
+		}
+	})
+
+	t.Run("vec2 repeats y", func(t *testing.T) {
+		fn, store := imageStore(t, storage, nil, instWords(spvenums.OpImageWrite, 30, 24, 24))
+		swizzle, ok := valueKind(t, fn, store).(ir.ExprSwizzle)
+		if !ok {
+			t.Fatalf("value = %T, want a swizzle", valueKind(t, fn, store))
+		}
+		want := [4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleY, ir.SwizzleY, ir.SwizzleY}
+		if swizzle.Size != ir.Vec4 || swizzle.Pattern != want {
+			t.Errorf("swizzle = %v %v, want %v", swizzle.Size, swizzle.Pattern, want)
+		}
+	})
+
+	t.Run("vec3 repeats z", func(t *testing.T) {
+		fn, store := imageStore(t, storage, vec3Float(), instWords(spvenums.OpImageWrite, 30, 24, 29))
+		swizzle, ok := valueKind(t, fn, store).(ir.ExprSwizzle)
+		if !ok {
+			t.Fatalf("value = %T, want a swizzle", valueKind(t, fn, store))
+		}
+		want := [4]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleY, ir.SwizzleZ, ir.SwizzleZ}
+		if swizzle.Pattern != want {
+			t.Errorf("pattern = %v, want %v", swizzle.Pattern, want)
+		}
+	})
+
+	t.Run("vec4 as is", func(t *testing.T) {
+		fn, store := imageStore(t, storage, [][]uint32{vec4Constant},
+			instWords(spvenums.OpImageWrite, 30, 24, 35))
+		if _, ok := valueKind(t, fn, store).(ir.ExprConstant); !ok {
+			t.Errorf("value = %T, want the constant itself", valueKind(t, fn, store))
+		}
+	})
+
+	t.Run("arrayed", func(t *testing.T) {
+		arrayed := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 1, 0, 2, uint32(spvenums.ImageFormatRgba32f))
+		_, store := imageStore(t, arrayed, vec3Float(),
+			instWords(spvenums.OpImageWrite, 30, 29, 23))
+		if store.ArrayIndex == nil {
+			t.Error("the write to an arrayed image has no array index")
+		}
+	})
+
+	t.Run("operands skipped", func(t *testing.T) {
+		fn, store := imageStore(t, storage, nil,
+			instWords(spvenums.OpImageWrite, 30, 24, 23, uint32(spvenums.ImageOperandsLod), 26))
+		// The image operands are not carried into the IR, as in Rust naga.
+		if _, ok := valueKind(t, fn, store).(ir.ExprSplat); !ok {
+			t.Errorf("value = %T, want the scalar splat", valueKind(t, fn, store))
+		}
+	})
+
+	t.Run("invalid value type", func(t *testing.T) {
+		extra := [][]uint32{
+			instWords(spvenums.OpTypeStruct, 35, 13),
+			instWords(spvenums.OpConstantNull, 35, 36),
+		}
+		_, _, err := parseWords(t, Options{}, imageVariantGroups(storage, extra,
+			instWords(spvenums.OpImageWrite, 30, 24, 36))...)
+		if err == nil {
+			t.Fatal("Parse accepted a struct as a stored value")
+		}
+		if got := requireError(t, err).Message; !strings.HasPrefix(got, "invalid vector type") {
+			t.Errorf("message = %q, want invalid vector type", got)
+		}
+	})
+
+	t.Run("image expression is no image", func(t *testing.T) {
+		// The sampler half used as the image: a valid expression, no image
+		// type.
+		_, _, err := parseWords(t, Options{}, imageVariantGroups(storage, nil,
+			instWords(spvenums.OpImageWrite, 31, 24, 23))...)
+		if err == nil {
+			t.Fatal("Parse accepted a sampler as the image of a write")
+		}
+		if got := requireError(t, err).Message; !strings.HasPrefix(got, "invalid image") {
+			t.Errorf("message = %q, want invalid image", got)
+		}
+	})
+
+	t.Run("coordinate of no vector type", func(t *testing.T) {
+		extra := [][]uint32{
+			instWords(spvenums.OpTypeStruct, 35, 13),
+			instWords(spvenums.OpConstantNull, 35, 36),
+		}
+		_, _, err := parseWords(t, Options{}, imageVariantGroups(storage, extra,
+			instWords(spvenums.OpImageWrite, 30, 36, 23))...)
+		if err == nil {
+			t.Fatal("Parse accepted a struct coordinate of a write")
+		}
+		if got := requireError(t, err).Message; !strings.HasPrefix(got, "invalid image coordinate type") {
+			t.Errorf("message = %q, want invalid image coordinate type", got)
+		}
+	})
+
+	t.Run("unknown operands", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			body []uint32
+		}{
+			{"image", instWords(spvenums.OpImageWrite, 99, 24, 23)},
+			{"coordinate", instWords(spvenums.OpImageWrite, 30, 99, 23)},
+			{"value", instWords(spvenums.OpImageWrite, 30, 24, 99)},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, _, err := parseWords(t, Options{}, imageVariantGroups(storage, nil, tc.body)...)
+				if err == nil {
+					t.Fatalf("Parse accepted an unknown %s id", tc.name)
+				}
+				if got := requireError(t, err).Message; got != errInvalidID(99).Message {
+					t.Errorf("message = %q, want %q", got, errInvalidID(99).Message)
+				}
+			})
+		}
+	})
+}
+
+// imageSample parses a module and returns the function and its first
+// ImageSample expression.
+func imageSample(t *testing.T, imageType []uint32, extra [][]uint32, body ...[]uint32) (*ir.Function, ir.ExprImageSample) {
+	t.Helper()
+	fn := imageVariant(t, imageType, extra, body...)
+	kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+		_, ok := k.(ir.ExprImageSample)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageSample expression")
+	}
+	return fn, kind.(ir.ExprImageSample)
+}
+
+// TestImageSampleOperands: the image operands of the sample family select the
+// IR's level: bias, explicit level (an integer level when the image is a
+// depth image), gradient, and a constant offset; a comparison sample's level
+// is zero whatever the instruction names, an operand the IR has no field for
+// is skipped, and a projected comparison divides the reference by the
+// projection component.
+func TestImageSampleOperands(t *testing.T) {
+	plain := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 1, 0)
+	depth := instWords(spvenums.OpTypeImage, 16, 13, 1, 1, 0, 0, 1, 0)
+
+	t.Run("bias", func(t *testing.T) {
+		_, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsBias), 23))
+		if _, ok := sample.Level.(ir.SampleLevelBias); !ok {
+			t.Errorf("level = %T, want a bias", sample.Level)
+		}
+	})
+
+	t.Run("lod", func(t *testing.T) {
+		fn, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleExplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsLod), 23))
+		level, ok := sample.Level.(ir.SampleLevelExact)
+		if !ok {
+			t.Fatalf("level = %T, want exact", sample.Level)
+		}
+		if _, ok := fn.Expressions[level.Level].Kind.(ir.ExprConstant); !ok {
+			t.Errorf("level expression = %T, want the constant", fn.Expressions[level.Level].Kind)
+		}
+	})
+
+	t.Run("lod on a depth image casts", func(t *testing.T) {
+		fn, sample := imageSample(t, depth, nil,
+			instWords(spvenums.OpImageSampleExplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsLod), 23))
+		level, ok := sample.Level.(ir.SampleLevelExact)
+		if !ok {
+			t.Fatalf("level = %T, want exact", sample.Level)
+		}
+		cast, ok := fn.Expressions[level.Level].Kind.(ir.ExprAs)
+		if !ok || cast.Kind != ir.ScalarSint {
+			t.Errorf("level expression = %T, want the i32 cast", fn.Expressions[level.Level].Kind)
+		}
+	})
+
+	t.Run("gradient", func(t *testing.T) {
+		_, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleExplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsGrad), 23, 23))
+		if _, ok := sample.Level.(ir.SampleLevelGradient); !ok {
+			t.Errorf("level = %T, want a gradient", sample.Level)
+		}
+	})
+
+	t.Run("constant offset", func(t *testing.T) {
+		_, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsConstOffset), 26))
+		if sample.Offset == nil {
+			t.Error("the constant offset was dropped")
+		}
+	})
+
+	t.Run("unknown operand skipped", func(t *testing.T) {
+		_, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24, uint32(spvenums.ImageOperandsMakeTexelAvailable), 26))
+		if _, ok := sample.Level.(ir.SampleLevelAuto); !ok {
+			t.Errorf("level = %T, want automatic", sample.Level)
+		}
+	})
+
+	t.Run("comparison lod is zero", func(t *testing.T) {
+		_, sample := imageSample(t, plain, nil,
+			instWords(spvenums.OpImageSampleDrefExplicitLod, 13, 40, 32, 24, 23, uint32(spvenums.ImageOperandsLod), 23))
+		if _, ok := sample.Level.(ir.SampleLevelZero); !ok {
+			t.Errorf("level = %T, want zero", sample.Level)
+		}
+	})
+
+	t.Run("projected comparison divides", func(t *testing.T) {
+		fn, sample := imageSample(t, plain, vec3Float(),
+			instWords(spvenums.OpImageSampleProjDrefImplicitLod, 13, 40, 32, 29, 23))
+		if sample.DepthRef == nil {
+			t.Fatal("the projected comparison has no depth reference")
+		}
+		divide, ok := fn.Expressions[*sample.DepthRef].Kind.(ir.ExprBinary)
+		if !ok || divide.Op != ir.BinaryDivide {
+			t.Errorf("depth reference = %T, want the division", fn.Expressions[*sample.DepthRef].Kind)
+		}
+	})
+
+	t.Run("gather components", func(t *testing.T) {
+		extra := [][]uint32{
+			instWords(spvenums.OpConstant, 25, 35, 1),
+			instWords(spvenums.OpConstant, 25, 36, 3),
+		}
+		for _, tc := range []struct {
+			id   uint32
+			want ir.SwizzleComponent
+		}{
+			{35, ir.SwizzleY},
+			{36, ir.SwizzleW},
+		} {
+			_, sample := imageSample(t, plain, extra,
+				instWords(spvenums.OpImageGather, 15, 40, 32, 24, tc.id))
+			if sample.Gather == nil || *sample.Gather != tc.want {
+				t.Errorf("component %d: gather = %v, want %v", tc.id, sample.Gather, tc.want)
+			}
+		}
+	})
+
+	t.Run("gather component errors", func(t *testing.T) {
+		// A component that is not a constant expression, and a constant
+		// outside 0-3.
+		_, _, err := parseWords(t, Options{}, imageModuleGroups(
+			instWords(spvenums.OpImageGather, 15, 40, 32, 24, 24),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a non-constant gather component")
+		}
+		if got := requireError(t, err).Message; got != errInvalidOperand.Message {
+			t.Errorf("message = %q, want %q", got, errInvalidOperand.Message)
+		}
+
+		extra := [][]uint32{instWords(spvenums.OpConstant, 25, 35, 4)}
+		_, _, err = parseWords(t, Options{}, imageVariantGroups(plain, extra,
+			instWords(spvenums.OpImageGather, 15, 40, 32, 24, 35))...)
+		if err == nil {
+			t.Fatal("Parse accepted a gather component of 4")
+		}
+		if got := requireError(t, err).Message; got != errInvalidOperand.Message {
+			t.Errorf("message = %q, want %q", got, errInvalidOperand.Message)
+		}
+	})
+}
+
+// imageLoad parses a module and returns the function and its first ImageLoad
+// expression.
+func imageLoad(t *testing.T, imageType []uint32, extra [][]uint32, body ...[]uint32) (*ir.Function, ir.ExprImageLoad) {
+	t.Helper()
+	fn := imageVariant(t, imageType, extra, body...)
+	kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+		_, ok := k.(ir.ExprImageLoad)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageLoad expression")
+	}
+	return fn, kind.(ir.ExprImageLoad)
+}
+
+// TestImageLoadOperands: OpImageFetch and OpImageRead carry the sample index
+// or the level they name into the ImageLoad, and skip an operand the IR has
+// no field for.
+func TestImageLoadOperands(t *testing.T) {
+	plain := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 1, 0)
+
+	t.Run("sample", func(t *testing.T) {
+		_, load := imageLoad(t, plain, nil,
+			instWords(spvenums.OpImageFetch, 15, 40, 30, 24, uint32(spvenums.ImageOperandsSample), 26))
+		if load.Sample == nil {
+			t.Error("the sample index was dropped")
+		}
+		if load.Level != nil {
+			t.Error("the fetch has a level")
+		}
+	})
+
+	t.Run("level", func(t *testing.T) {
+		_, load := imageLoad(t, plain, nil,
+			instWords(spvenums.OpImageRead, 15, 40, 30, 24, uint32(spvenums.ImageOperandsLod), 23))
+		if load.Level == nil {
+			t.Error("the level was dropped")
+		}
+		if load.Sample != nil {
+			t.Error("the read has a sample index")
+		}
+	})
+
+	t.Run("unknown operand skipped", func(t *testing.T) {
+		_, load := imageLoad(t, plain, nil,
+			instWords(spvenums.OpImageFetch, 15, 40, 30, 24, uint32(spvenums.ImageOperandsMakeTexelAvailable), 26))
+		if load.Sample != nil || load.Level != nil {
+			t.Error("an operand the IR has no field for was carried into the load")
+		}
+	})
+}
+
+// TestImageQueryOther: OpImageQueryLevels and OpImageQuerySamples are the
+// ImageQuery expressions the IR has for them.
+func TestImageQueryOther(t *testing.T) {
+	queryExpr := func(t *testing.T, body ...[]uint32) ir.ExprImageQuery {
+		t.Helper()
+		fn := parseImageModule(t, body...)
+		kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+			_, ok := k.(ir.ExprImageQuery)
+			return ok
+		})
+		if !ok {
+			t.Fatal("no ImageQuery expression")
+		}
+		return kind.(ir.ExprImageQuery)
+	}
+
+	if query := queryExpr(t, instWords(spvenums.OpImageQueryLevels, 25, 40, 30)); query.Query != (ir.ImageQueryNumLevels{}) {
+		t.Errorf("query = %T, want the level count", query.Query)
+	}
+	if query := queryExpr(t, instWords(spvenums.OpImageQuerySamples, 25, 40, 30)); query.Query != (ir.ImageQueryNumSamples{}) {
+		t.Errorf("query = %T, want the sample count", query.Query)
+	}
+}
+
+// TestImageQuerySizeArrayShapes: a 1D arrayed image's query result is the
+// spatial size plus the layer count, and a result type that does not have the
+// extended size stays the spatial size alone.
+func TestImageQuerySizeArrayShapes(t *testing.T) {
+	t.Run("1D arrayed", func(t *testing.T) {
+		arrayed1D := instWords(spvenums.OpTypeImage, 16, 13, 0, 0, 1, 0, 1, 0)
+		fn := imageVariant(t, arrayed1D, nil,
+			instWords(spvenums.OpImageQuerySizeLod, 27, 40, 30, 23),
+		)
+		found := false
+		for _, expression := range fn.Expressions {
+			compose, ok := expression.Kind.(ir.ExprCompose)
+			if !ok || len(compose.Components) != 2 {
+				continue
+			}
+			if _, ok := fn.Expressions[compose.Components[1]].Kind.(ir.ExprImageQuery); ok {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("no vec2 whose last component is the layer count")
+		}
+	})
+
+	t.Run("result without the layers", func(t *testing.T) {
+		arrayed2D := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 1, 0, 1, 0)
+		fn := imageVariant(t, arrayed2D, nil,
+			instWords(spvenums.OpImageQuerySizeLod, 27, 40, 30, 23),
+		)
+		for _, expression := range fn.Expressions {
+			if query, ok := expression.Kind.(ir.ExprImageQuery); ok {
+				if _, ok := query.Query.(ir.ImageQueryNumLayers); ok {
+					t.Error("the layers were composed into a result that did not ask for them")
+				}
+			}
+		}
+	})
+}
+
+// TestImageExpressionErrors: an operand that is not an image is an error with
+// a message, never a panic: the image operand of a load, the image half of a
+// sample, and a coordinate of neither scalar nor vector type.
+func TestImageExpressionErrors(t *testing.T) {
+	plain := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 0, 0, 1, 0)
+
+	t.Run("fetch of a non-image", func(t *testing.T) {
+		_, _, err := parseWords(t, Options{}, imageModuleGroups(
+			instWords(spvenums.OpImageFetch, 15, 40, 24, 24),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a fetch of a vector")
+		}
+		if got := requireError(t, err).Message; got != errInvalidImageExpression.Message {
+			t.Errorf("message = %q, want %q", got, errInvalidImageExpression.Message)
+		}
+	})
+
+	t.Run("sample of a non-image pair", func(t *testing.T) {
+		_, _, err := parseWords(t, Options{}, imageModuleGroups(
+			instWords(spvenums.OpSampledImage, 18, 50, 24, 31),
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 50, 24),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a sample whose image half is a vector")
+		}
+		if got := requireError(t, err).Message; got != errInvalidGlobalVar.Message {
+			t.Errorf("message = %q, want %q", got, errInvalidGlobalVar.Message)
+		}
+	})
+
+	t.Run("coordinate of no vector type", func(t *testing.T) {
+		extra := [][]uint32{
+			instWords(spvenums.OpTypeStruct, 35, 13),
+			instWords(spvenums.OpConstantNull, 35, 36),
+		}
+		_, _, err := parseWords(t, Options{}, imageVariantGroups(plain, extra,
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 36))...)
+		if err == nil {
+			t.Fatal("Parse accepted a struct coordinate")
+		}
+		if got := requireError(t, err).Message; !strings.HasPrefix(got, "invalid image coordinate type") {
+			t.Errorf("message = %q, want invalid image coordinate type", got)
+		}
+	})
+}
+
+// TestParameterSamplingWalk: the flags a callee samples its arguments with
+// travel to the caller's global variables and to its own arguments through
+// every statement kind, and a call the walk cannot resolve is an error rather
+// than a silent drop.
+func TestParameterSamplingWalk(t *testing.T) {
+	globalCall := ir.Statement{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{0}}}
+	argumentCall := ir.Statement{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{1}}}
+	// A call with more arguments than the callee's flags cover, and a call to
+	// a function with no flags at all, pass through.
+	extraArguments := ir.Statement{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{0, 0, 0}}}
+	unknownFunction := ir.Statement{Kind: ir.StmtCall{Function: 7, Arguments: []ir.ExpressionHandle{0}}}
+	block := ir.Block{
+		globalCall,
+		{Kind: ir.StmtBlock{Block: ir.Block{argumentCall}}},
+		{Kind: ir.StmtIf{Accept: ir.Block{argumentCall}, Reject: ir.Block{globalCall}}},
+		{Kind: ir.StmtLoop{Body: ir.Block{globalCall}, Continuing: ir.Block{argumentCall}}},
+		{Kind: ir.StmtSwitch{Cases: []ir.SwitchCase{
+			{Value: ir.SwitchValueDefault{}, Body: ir.Block{argumentCall}},
+		}}},
+		extraArguments,
+		unknownFunction,
+	}
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+		},
+		Body: block,
+	}
+	p := &parser{handleSampling: map[ir.GlobalVariableHandle]samplingFlags{0: 0}}
+	own := make([]samplingFlags, 1)
+	callee := [][]samplingFlags{{samplingComparison}}
+	if err := p.propagateBlockSampling(fn, &own, callee); err != nil {
+		t.Fatalf("propagate: %v", err)
+	}
+	if p.handleSampling[0] != samplingComparison {
+		t.Errorf("global flags = %v, want comparison sampling", p.handleSampling[0])
+	}
+	if own[0] != samplingComparison {
+		t.Errorf("argument flags = %v, want comparison sampling", own[0])
+	}
+
+	for _, tc := range []struct {
+		name       string
+		expression ir.ExpressionKind
+		arguments  []ir.ExpressionHandle
+	}{
+		{"expression out of range", ir.ExprGlobalVariable{Variable: 0}, []ir.ExpressionHandle{99}},
+		{"argument out of range", ir.ExprFunctionArgument{Index: 1}, []ir.ExpressionHandle{0}},
+		{"unsupported expression", ir.Literal{Value: ir.LiteralI32(1)}, []ir.ExpressionHandle{0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := &ir.Function{
+				Expressions: []ir.Expression{{Kind: tc.expression}},
+				Body:        ir.Block{{Kind: ir.StmtCall{Function: 0, Arguments: tc.arguments}}},
+			}
+			p := &parser{handleSampling: map[ir.GlobalVariableHandle]samplingFlags{0: 0}}
+			own := make([]samplingFlags, 1)
+			err := p.propagateBlockSampling(fn, &own, [][]samplingFlags{{samplingComparison}})
+			if err == nil {
+				t.Fatal("the walk accepted the call")
+			}
+			if got := requireError(t, err).Message; got != errInvalidGlobalVar.Message {
+				t.Errorf("message = %q, want %q", got, errInvalidGlobalVar.Message)
+			}
+		})
 	}
 }
