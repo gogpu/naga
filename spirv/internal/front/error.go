@@ -180,6 +180,12 @@ var errInvalidTerminator = &Error{Message: "invalid terminator"}
 // invalid SPIR-V, refused while it is parsed.
 var errNestingTooDeep = &Error{Message: fmt.Sprintf("control flow is nested deeper than %d", maxNesting)}
 
+// errSwitchExitsLoop is valid SPIR-V the IR cannot express without a flag
+// variable: a switch case that branches to the merge block of the loop around
+// the switch. Rust naga turns the branch into a switch Break, so the loop
+// never exits.
+var errSwitchExitsLoop = &Error{Message: "a switch case that exits the enclosing loop is not supported"}
+
 // errTypeTooDeep has no Rust naga counterpart either: Rust naga has no bound
 // on type nesting.
 var errTypeTooDeep = &Error{Message: fmt.Sprintf("type is nested deeper than %d", maxTypeDepth)}

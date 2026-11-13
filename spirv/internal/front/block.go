@@ -104,7 +104,40 @@ type switchCaseBody struct {
 type body struct {
 	parent    int
 	depth     int
+	kind      bodyKind
 	fragments []bodyFragment
+}
+
+// bodyKind is the construct a body is the inside of, where that matters for
+// what a branch out of it may stand for.
+type bodyKind uint8
+
+const (
+	// bodyPlain is the function's top level or an If arm.
+	bodyPlain bodyKind = iota
+	// bodyLoop is a loop body.
+	bodyLoop
+	// bodySwitchCase is a switch case or default body.
+	bodySwitchCase
+)
+
+// breakLeavesSwitch reports whether a Break placed in bodyIdx would end a
+// switch rather than the innermost loop around it: the IR's Break ends the
+// innermost loop or switch, so a branch from a switch case to the loop's
+// merge block cannot be expressed as one. The walk follows the parent chain,
+// as isParent does.
+func (fs *functionState) breakLeavesSwitch(bodyIdx int) bool {
+	for b := bodyIdx; ; b = fs.bodies[b].parent {
+		switch fs.bodies[b].kind {
+		case bodySwitchCase:
+			return true
+		case bodyLoop:
+			return false
+		}
+		if b == 0 {
+			return false
+		}
+	}
 }
 
 // newBody appends a body nested in parent at the given depth and returns its
@@ -115,6 +148,17 @@ func (fs *functionState) newBody(parent, depth int) (int, error) {
 	}
 	fs.bodies = append(fs.bodies, body{parent: parent, depth: depth})
 	return len(fs.bodies) - 1, nil
+}
+
+// newSwitchCaseBody is newBody for a switch case or default whose target
+// block will be placed in it.
+func (fs *functionState) newSwitchCaseBody(parent, depth int) (int, error) {
+	idx, err := fs.newBody(parent, depth)
+	if err != nil {
+		return 0, err
+	}
+	fs.bodies[idx].kind = bodySwitchCase
+	return idx, nil
 }
 
 // merger extends a body with the statement a branch to a merge block or a

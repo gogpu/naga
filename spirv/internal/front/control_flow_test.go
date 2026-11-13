@@ -448,6 +448,92 @@ func TestControlFlowSwitchLiteralAtDefault(t *testing.T) {
 	}
 }
 
+// switchInLoop builds a loop (header 102, merge 104, continue target 103)
+// whose body is a switch on %20 with merge 106; caseOps are the switch's case
+// operands and caseBlocks the blocks after it, before the switch merge.
+func switchInLoop(defaultTarget uint32, caseOps []uint32, caseBlocks ...[]uint32) [][]uint32 {
+	body := [][]uint32{
+		instWords(spvenums.OpBranch, 102),
+		instWords(spvenums.OpLabel, 102),
+		instWords(spvenums.OpLoopMerge, 104, 103, 0),
+		instWords(spvenums.OpBranch, 105),
+		instWords(spvenums.OpLabel, 105),
+		instWords(spvenums.OpSelectionMerge, 106, 0),
+		instWords(spvenums.OpSwitch, append([]uint32{20, defaultTarget}, caseOps...)...),
+	}
+	body = append(body, caseBlocks...)
+	return append(body,
+		instWords(spvenums.OpLabel, 106),
+		instWords(spvenums.OpBranch, 103),
+		instWords(spvenums.OpLabel, 103),
+		instWords(spvenums.OpBranch, 102),
+		instWords(spvenums.OpLabel, 104),
+	)
+}
+
+// TestControlFlowSwitchExitsLoop: a switch case that branches to the merge
+// block of the loop around the switch leaves the loop. The IR's Break inside
+// a Switch leaves only the switch, so the shape cannot be expressed without
+// a flag variable and is refused at the branch. Deviation from Rust naga:
+// its merger turns the branch into a switch Break (next_block.rs merger),
+// so the loop never exits. A case that branches to the loop's continue
+// target stays a Continue, which the IR allows inside a switch.
+func TestControlFlowSwitchExitsLoop(t *testing.T) {
+	const want = "a switch case that exits the enclosing loop is not supported"
+	cases := []struct {
+		name string
+		body [][]uint32
+	}{
+		{
+			name: "a case block branches to the loop merge",
+			body: switchInLoop(106, []uint32{1, 107},
+				instWords(spvenums.OpLabel, 107),
+				instWords(spvenums.OpBranch, 104)),
+		},
+		{
+			name: "a case target is the loop merge",
+			body: switchInLoop(106, []uint32{1, 104}),
+		},
+		{
+			name: "the default target is the loop merge",
+			body: switchInLoop(104, []uint32{1, 106}),
+		},
+		{
+			name: "a conditional branch in a case to the loop merge",
+			body: switchInLoop(106, []uint32{1, 107},
+				instWords(spvenums.OpLabel, 107),
+				instWords(spvenums.OpBranchConditional, 24, 104, 106)),
+		},
+		{
+			name: "an if arm inside a case branches to the loop merge",
+			body: switchInLoop(106, []uint32{1, 107},
+				instWords(spvenums.OpLabel, 107),
+				instWords(spvenums.OpSelectionMerge, 108, 0),
+				instWords(spvenums.OpBranchConditional, 24, 109, 108),
+				instWords(spvenums.OpLabel, 109),
+				instWords(spvenums.OpBranch, 104),
+				instWords(spvenums.OpLabel, 108),
+				instWords(spvenums.OpBranch, 106)),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := newBodyModule().parseError(t, tc.body...).Message; got != want {
+				t.Errorf("message = %q, want %q", got, want)
+			}
+		})
+	}
+
+	t.Run("a case branches to the loop's continue target", func(t *testing.T) {
+		fn := parseValid(t, newBodyModule(), switchInLoop(106, []uint32{1, 107},
+			instWords(spvenums.OpLabel, 107),
+			instWords(spvenums.OpBranch, 103))...)
+		if got, want := shape(fn.Body), "loop{switch{1:{continue} default:{}};continue}continuing{};return"; got != want {
+			t.Errorf("shape = %s, want %s", got, want)
+		}
+	})
+}
+
 func TestControlFlowPhi(t *testing.T) {
 	// %51 = phi [%50 from 102] [5 from 103]: a local variable named after the
 	// phi, stored at the end of each predecessor and loaded in the merge.
