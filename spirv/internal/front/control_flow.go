@@ -261,8 +261,10 @@ func (p *parser) branch(inst instruction, fs *functionState, bs *blockState) err
 	}
 	// A branch to another case of the switch around this case falls through
 	// into it; the cases are ordered by these edges when the switch is
-	// lowered.
-	if ref, ok := fs.caseLabels[targetID]; ok {
+	// lowered. A case target that is a loop header is also the target of
+	// that loop's back edge, which is not a fall-through (Rust naga checks
+	// only the merge blocks here, next_block.rs OpBranch).
+	if ref, ok := fs.caseLabels[targetID]; ok && !fs.isBackEdge(bs.bodyIdx, targetID) {
 		if err := fs.recordFallThrough(bs.bodyIdx, ref); err != nil {
 			return err
 		}

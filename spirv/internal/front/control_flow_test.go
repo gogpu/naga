@@ -543,6 +543,15 @@ func TestControlFlowSwitchNonEmptyFallThrough(t *testing.T) {
 			runs: []run{{5, []int32{5, -1}}, {7, []int32{-1}}, {9, []int32{1}}},
 		},
 		{
+			// The case block is placed before the default that falls into it,
+			// so the branch goes back to a block already parsed.
+			name: "default placed after the case it falls into",
+			body: ftBody([]uint32{5, ftCase5},
+				ftBlock(ftCase5, 20, ftMerge),
+				ftBlock(ftDefault, 26, ftCase5)),
+			runs: []run{{5, []int32{5}}, {9, []int32{1, 5}}},
+		},
+		{
 			name: "literal at the default target and a case falling into the default",
 			body: ftBody([]uint32{3, ftDefault, 5, ftCase5},
 				ftBlock(ftCase5, 20, ftDefault),
@@ -571,6 +580,190 @@ func TestControlFlowSwitchNonEmptyFallThrough(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestControlFlowSwitchCaseIsLoopHeader: a case or default target that is a
+// loop header whose continue construct ends in an unconditional back edge
+// (valid SPIR-V, spirv-val accepts it). The back edge is a branch to the case
+// label, but from the loop's continuing body: it repeats the loop and is not a
+// fall-through. Rust naga handles it the same way (next_block.rs OpBranch
+// checks only the merge blocks).
+func TestControlFlowSwitchCaseIsLoopHeader(t *testing.T) {
+	// loopCase is a loop with header label whose body stores value and breaks
+	// (the condition is the constant true), and whose merge block stores after
+	// before it branches to the switch merge.
+	loopCase := func(label, value uint32, after []uint32) [][]uint32 {
+		const body, cont, merge, selMerge = 120, 121, 122, 123
+		out := [][]uint32{
+			instWords(spvenums.OpLabel, label),
+			instWords(spvenums.OpLoopMerge, merge, cont, 0),
+			instWords(spvenums.OpBranch, body),
+			instWords(spvenums.OpLabel, body),
+			instWords(spvenums.OpStore, 60, value),
+			instWords(spvenums.OpSelectionMerge, selMerge, 0),
+			instWords(spvenums.OpBranchConditional, 24, merge, selMerge),
+			instWords(spvenums.OpLabel, selMerge),
+			instWords(spvenums.OpBranch, cont),
+			instWords(spvenums.OpLabel, cont),
+			instWords(spvenums.OpBranch, label),
+			instWords(spvenums.OpLabel, merge),
+		}
+		if after != nil {
+			out = append(out, after)
+		}
+		return append(out, instWords(spvenums.OpBranch, ftMerge))
+	}
+	type run struct {
+		selector int32
+		want     []int32
+	}
+	cases := []struct {
+		name string
+		body [][]uint32
+		runs []run
+	}{
+		{
+			// The reviewer's A12b: case 5 is the loop header.
+			name: "case",
+			body: ftBody([]uint32{5, ftCase5},
+				loopCase(ftCase5, 26, instWords(spvenums.OpStore, 60, 23)),
+				ftBlock(ftDefault, 20, ftMerge)),
+			runs: []run{{5, []int32{1, -1}}, {9, []int32{5}}},
+		},
+		{
+			// The reviewer's B13: the default is the loop header.
+			name: "default",
+			body: ftBody([]uint32{5, ftCase5},
+				ftBlock(ftCase5, 26, ftMerge),
+				loopCase(ftDefault, 20, nil)),
+			runs: []run{{5, []int32{1}}, {9, []int32{5}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			module, _, err := Parse(newBodyModule().build(tc.body...), Options{})
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			fn := &module.Functions[0]
+			sw := stripEmits(fn.Body)[0].Kind.(ir.StmtSwitch)
+			for _, r := range tc.runs {
+				if got := runSwitch(t, module, fn, sw, r.selector); !slices.Equal(got, r.want) {
+					t.Errorf("selector %d stores %v, want %v (switch %s)", r.selector, got, r.want, shape(fn.Body))
+				}
+			}
+		})
+	}
+}
+
+// exit is how running a block of statements ended.
+type exit uint8
+
+const (
+	exitNone exit = iota
+	exitBreak
+	exitContinue
+	exitReturn
+)
+
+// runSwitch is switchStores for case bodies with control flow: it runs the
+// switch on one selector value with runBlock, following fall-through, and
+// returns the i32 constants stored, in order.
+func runSwitch(t *testing.T, module *ir.Module, fn *ir.Function, sw ir.StmtSwitch, selector int32) []int32 {
+	t.Helper()
+	start := -1
+	for i, c := range sw.Cases {
+		if v, ok := c.Value.(ir.SwitchValueI32); ok && int32(v) == selector {
+			start = i
+		}
+	}
+	if start < 0 {
+		for i, c := range sw.Cases {
+			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
+				start = i
+			}
+		}
+	}
+	var stores []int32
+	for i := start; i < len(sw.Cases); i++ {
+		if runBlock(t, module, fn, sw.Cases[i].Body, &stores) != exitNone || !sw.Cases[i].FallThrough {
+			break
+		}
+	}
+	return stores
+}
+
+// runBlock runs stores, Ifs and Loops whose conditions are bool constants,
+// appending each stored i32 constant to stores. A loop runs at most 8
+// iterations, so a test that loops forever fails instead of hanging.
+func runBlock(t *testing.T, module *ir.Module, fn *ir.Function, block ir.Block, stores *[]int32) exit {
+	t.Helper()
+	for _, statement := range block {
+		switch kind := statement.Kind.(type) {
+		case ir.StmtStore:
+			*stores = append(*stores, i32Constant(t, module, fn, kind.Value))
+		case ir.StmtIf:
+			arm := kind.Reject
+			if boolConstant(t, module, fn, kind.Condition) {
+				arm = kind.Accept
+			}
+			if e := runBlock(t, module, fn, arm, stores); e != exitNone {
+				return e
+			}
+		case ir.StmtLoop:
+			if e := runLoop(t, module, fn, kind, stores); e != exitNone {
+				return e
+			}
+		case ir.StmtBreak:
+			return exitBreak
+		case ir.StmtContinue:
+			return exitContinue
+		case ir.StmtReturn, ir.StmtKill:
+			return exitReturn
+		}
+	}
+	return exitNone
+}
+
+// runLoop runs one Loop for runBlock; it returns exitReturn when the loop
+// body returns and exitNone when the loop ends.
+func runLoop(t *testing.T, module *ir.Module, fn *ir.Function, loop ir.StmtLoop, stores *[]int32) exit {
+	t.Helper()
+	for range 8 {
+		switch runBlock(t, module, fn, loop.Body, stores) {
+		case exitBreak:
+			return exitNone
+		case exitReturn:
+			return exitReturn
+		}
+		if e := runBlock(t, module, fn, loop.Continuing, stores); e == exitReturn {
+			return e
+		}
+		if loop.BreakIf != nil && boolConstant(t, module, fn, *loop.BreakIf) {
+			return exitNone
+		}
+	}
+	t.Fatalf("loop did not end after 8 iterations")
+	return exitReturn
+}
+
+// boolConstant reads the bool constant a function expression stands for.
+func boolConstant(t *testing.T, module *ir.Module, fn *ir.Function, handle ir.ExpressionHandle) bool {
+	t.Helper()
+	kind := fn.Expressions[handle].Kind
+	if c, ok := kind.(ir.ExprConstant); ok {
+		kind = module.GlobalExpressions[module.Constants[c.Constant].Init].Kind
+	}
+	if literal, ok := kind.(ir.Literal); ok {
+		if v, ok := literal.Value.(ir.LiteralBool); ok {
+			return bool(v)
+		}
+	}
+	t.Fatalf("condition %#v is not a bool constant", kind)
+	return false
 }
 
 // TestControlFlowSwitchConditionalFallThrough: a case construct whose
