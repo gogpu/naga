@@ -715,6 +715,10 @@ func (w *Writer) writeConstants() error {
 		return nil
 	}
 
+	// Only named constants are written, and only a written one is followed by
+	// the section's blank line: a module whose constants are all folded into
+	// expressions (SPIR-V input) must not leave an empty line behind.
+	written := 0
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
 		// Skip unnamed constants (only named constants are written, matching Rust naga)
@@ -734,8 +738,11 @@ func (w *Writer) writeConstants() error {
 			return fmt.Errorf("constant %q: %w", constant.Name, err)
 		}
 		w.Out.WriteString(";\n")
+		written++
 	}
-	w.WriteLine("")
+	if written > 0 {
+		w.WriteLine("")
+	}
 	return nil
 }
 

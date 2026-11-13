@@ -93,7 +93,7 @@ func TestSPVUnnamedConstantWrittenInPlace(t *testing.T) {
 	}
 	for _, tc := range []struct{ backend, src, want string }{
 		{"msl", mslSrc, "global.member_1 = 10;"},
-		{"hlsl", hlslSrc, "global_0_.Store(4, asuint(int(10)));"},
+		{"hlsl", hlslSrc, "global.Store(4, asuint(int(10)));"},
 		{"glsl", glslSrc, "_group_0_binding_0_cs.member_1 = 10;"},
 	} {
 		if !strings.Contains(tc.src, tc.want) {

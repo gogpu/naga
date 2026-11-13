@@ -1569,12 +1569,36 @@ func (w *Writer) registerNames() error {
 	// 1. Register type names.
 	// Types with built-in MSL names (scalars, vectors, matrices) use "type" as
 	// their base name, matching Rust naga where these types are unnamed in the
-	// arena. Named struct/array types use their WGSL name.
+	// arena. Named struct/array types use their WGSL name. An anonymous entry
+	// point result struct takes Rust naga's per-stage fallback name
+	// (proc/namer.rs, name_types), so SPIR-V input that returns a wrapper
+	// struct names it VertexOutput and the like.
+	entryPointResultNames := make(map[ir.TypeHandle]string)
+	for index := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[index]
+		if ep.Function.Result == nil {
+			continue
+		}
+		ty := ep.Function.Result.Type
+		if int(ty) >= len(w.module.Types) || w.module.Types[ty].Name != "" {
+			continue
+		}
+		fallback, ok := backend.EntryPointResultStructName(ep.Stage)
+		if !ok {
+			continue
+		}
+		if _, isStruct := w.module.Types[ty].Inner.(ir.StructType); isStruct {
+			entryPointResultNames[ty] = fallback
+		}
+	}
 	for handle, typ := range w.module.Types {
 		var baseName string
-		if typ.Name != "" {
+		switch {
+		case typ.Name != "":
 			baseName = typ.Name
-		} else {
+		case entryPointResultNames[ir.TypeHandle(handle)] != "":
+			baseName = entryPointResultNames[ir.TypeHandle(handle)]
+		default:
 			baseName = "type"
 		}
 		name := w.namer.call(baseName)

@@ -398,6 +398,32 @@ func TestMSL_Barrier(t *testing.T) {
 	}
 }
 
+// TestMSL_BarrierOrder pins the order of the calls a barrier that names
+// several memories emits: Rust naga writes storage, workgroup, subgroup and
+// texture in that order (back/msl/writer.rs, write_barrier), and a SPIR-V
+// OpControlBarrier with multi-memory semantics shows it.
+func TestMSL_BarrierOrder(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{},
+		Functions: []ir.Function{
+			{
+				Name: "test_fn",
+				Body: []ir.Statement{
+					{Kind: ir.StmtControlBarrier{Flags: ir.BarrierStorage | ir.BarrierWorkGroup | ir.BarrierTexture}},
+				},
+			},
+		},
+	}
+	result := compileModule(t, module)
+	device := strings.Index(result, "mem_flags::mem_device")
+	threadgroup := strings.Index(result, "mem_flags::mem_threadgroup")
+	texture := strings.Index(result, "mem_flags::mem_texture")
+	if device < 0 || threadgroup < 0 || texture < 0 || device > threadgroup || threadgroup > texture {
+		t.Fatalf("barrier calls out of Rust naga's order (device=%d threadgroup=%d texture=%d):\n%s",
+			device, threadgroup, texture, result)
+	}
+}
+
 // =============================================================================
 // Test: Store statement generation
 // =============================================================================

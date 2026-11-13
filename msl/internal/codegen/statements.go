@@ -1175,15 +1175,18 @@ func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 func (w *Writer) writeBarrier(barrier ir.StmtControlBarrier) error {
 	// Metal uses different barrier functions based on the memory being synchronized.
 	// Both the function and mem_flags must be fully qualified with the metal:: namespace.
-	if barrier.Flags&ir.BarrierSubGroup != 0 {
-		// Subgroup barrier uses simdgroup_barrier instead of threadgroup_barrier.
-		w.WriteLine("%ssimdgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+	// The order is Rust naga's (back/msl/writer.rs, write_barrier): storage,
+	// workgroup, subgroup, texture. A barrier that names several memories emits
+	// one call per memory, so the order is visible in the output.
+	if barrier.Flags&ir.BarrierStorage != 0 {
+		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_device);", Namespace, Namespace)
 	}
 	if barrier.Flags&ir.BarrierWorkGroup != 0 {
 		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	}
-	if barrier.Flags&ir.BarrierStorage != 0 {
-		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_device);", Namespace, Namespace)
+	if barrier.Flags&ir.BarrierSubGroup != 0 {
+		// Subgroup barrier uses simdgroup_barrier instead of threadgroup_barrier.
+		w.WriteLine("%ssimdgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	}
 	if barrier.Flags&ir.BarrierTexture != 0 {
 		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_texture);", Namespace, Namespace)
