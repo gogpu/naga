@@ -38,7 +38,7 @@ func parseSPVCorpus(t *testing.T, name string) *ir.Module {
 // control flow or the wrapper shows here even when a hand-built test misses
 // it.
 func TestSPVCorpusParseValidate(t *testing.T) {
-	phaseOne := map[string]bool{
+	mustParse := map[string]bool{
 		"barrier":               true,
 		"degrees":               true,
 		"empty-global-name":     true,
@@ -58,6 +58,15 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		// Phase 2, function calls and the call graph.
 		"builtin-accessed-outside-entrypoint": true,
 		"do-while":                            true,
+		// Phase 3, images and sampling.
+		"binding-arrays.dynamic": true,
+		"binding-arrays.runtime": true,
+		"binding-arrays.static":  true,
+		"fetch_depth":            true,
+		"gather":                 true,
+		"gather-cmp":             true,
+		"load-ms-texture":        true,
+		"shadow":                 true,
 	}
 	binaries, err := filepath.Glob(filepath.Join(rustDerivedDir, "spv", "*.spv"))
 	if err != nil {
@@ -83,7 +92,7 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 			if !errors.As(err, &parseErr) {
 				t.Errorf("%s: error %v (%T), want a *ParseError", name, err, err)
 			}
-			if phaseOne[name] {
+			if mustParse[name] {
 				t.Errorf("%s: an implemented phase must parse it: %v", name, err)
 			}
 			t.Logf("%s: refused: %v", name, err)
@@ -93,9 +102,9 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 			t.Errorf("%s: parses but does not validate: %v", name, err)
 		}
 	}
-	for name := range phaseOne {
+	for name := range mustParse {
 		if !seen[name] {
-			t.Errorf("%s: the Phase 1 module is missing from the corpus", name)
+			t.Errorf("%s: the pinned module is missing from the corpus", name)
 		}
 	}
 }
@@ -400,9 +409,10 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 // writer compiles back through the frontend: each module either parses into
 // IR that validates or is refused with a *ParseError, never a panic and never
 // invalid IR. minParsed only rises as the frontend phases land; Phase 2 (calls
-// and control flow) brought it from 55 to 91.
+// and control flow) brought it from 55 to 91, Phase 3 (images and sampling) to
+// 107.
 func TestSPVRoundTripCorpus(t *testing.T) {
-	const minParsed = 91
+	const minParsed = 107
 	sources, err := filepath.Glob(filepath.Join(rustInputDir, "*.wgsl"))
 	if err != nil {
 		t.Fatal(err)

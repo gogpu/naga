@@ -155,6 +155,11 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 
 	lookup.handle = ir.GlobalVariableHandle(len(p.module.GlobalVariables))
 	p.module.GlobalVariables = append(p.module.GlobalVariables, global)
+	if p.canComparisonSample(ty) {
+		// The module may sample it as a depth comparison; that is known only
+		// after every function is parsed (Rust naga's handle_sampling).
+		p.handleSampling[lookup.handle] = 0
+	}
 	p.lookupVariable[id] = lookup
 	return nil
 }

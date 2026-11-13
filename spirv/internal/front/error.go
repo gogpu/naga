@@ -110,6 +110,33 @@ func errInvalidImageBaseType(ty ir.TypeHandle) *Error {
 	return &Error{Message: fmt.Sprintf("invalid image base type [%d]", ty)}
 }
 
+// errInvalidGlobalVar and errInvalidImageExpression are Rust naga's
+// InvalidGlobalVar and InvalidImageExpression without the expression dump:
+// the IR has no Debug rendering, as with errInvalidAccess.
+var (
+	errInvalidGlobalVar       = &Error{Message: "invalid global var"}
+	errInvalidImageExpression = &Error{Message: "invalid image/sampler expression"}
+)
+
+func errInvalidImage(ty ir.TypeHandle) *Error {
+	return &Error{Message: fmt.Sprintf("invalid image [%d]", ty)}
+}
+
+// errInvalidImageCoordinate replaces a Rust naga panic (unreachable!) with an
+// error: a texture coordinate of neither scalar nor vector type is untrusted
+// input, not an internal invariant.
+func errInvalidImageCoordinate(ty ir.TypeHandle) *Error {
+	return &Error{Message: fmt.Sprintf("invalid image coordinate type [%d]", ty)}
+}
+
+func errInvalidVectorType(ty ir.TypeHandle) *Error {
+	return &Error{Message: fmt.Sprintf("invalid vector type [%d]", ty)}
+}
+
+func errInconsistentComparisonSampling(handle ir.GlobalVariableHandle) *Error {
+	return &Error{Message: fmt.Sprintf("inconsistent comparison sampling [%d]", handle)}
+}
+
 var (
 	errInvalidImageDepthStorage            = &Error{Message: "cannot create a OpTypeImage as both a depth and storage image"}
 	errInvalidStorageImageWithoutFormat    = &Error{Message: "image read/write without format is not currently supported. See https://github.com/gfx-rs/wgpu/issues/6797"}
