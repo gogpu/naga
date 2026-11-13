@@ -156,7 +156,10 @@ func (w *Writer) updateExpressionsToBake(fn *ir.Function) {
 				ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm,
 				ir.MathUnpack4xI8, ir.MathUnpack4xU8,
 				ir.MathUnpack2x16float, ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm,
-				ir.MathPack2x16float, ir.MathPack2x16snorm, ir.MathPack2x16unorm:
+				ir.MathPack2x16float, ir.MathPack2x16snorm, ir.MathPack2x16unorm,
+				// Written as log forms that repeat the argument (Rust
+				// back/hlsl/writer.rs need_bake_expressions).
+				ir.MathAsinh, ir.MathAcosh, ir.MathAtanh:
 				w.needBakeExpressions[m.Arg] = struct{}{}
 			case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
 				w.needBakeExpressions[m.Arg] = struct{}{}

@@ -232,10 +232,6 @@ func compileGLSL(t *testing.T, label string, stage ir.ShaderStage, src string) {
 // reason other than the one these tests guard, keyed "<input>.<entry> <tool>".
 // An entry that starts compiling fails the test, so the list cannot go stale.
 var knownTextCompileFailures = map[string]string{
-	// Our HLSL writer prints asinh/acosh/atanh, which HLSL does not have;
-	// Rust writes them as log() expressions (back/hlsl/writer.rs,
-	// Function::Asincosh and Function::Atanh). A separate bug.
-	"inv-hyperbolic-trig-functions.main dxc": "HLSL has no asinh, acosh, atanh",
 	// subgroupMemoryBarrier needs GL_KHR_shader_subgroup_basic, which is not
 	// requested. Rust's reference output
 	// (spv-subgroup-barrier.main.Compute.glsl) omits it too.
