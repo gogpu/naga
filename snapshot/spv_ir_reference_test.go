@@ -45,6 +45,12 @@ var spvIRDeviations = map[string]irDeviation{
 // one TestIRReference makes for WGSL: types, every function's and entry
 // point's expressions and statements, the structural counts and the global
 // expressions.
+//
+// It covers no control flow yet: the one module it compares, spec-constants,
+// has no branch. The evidence for structured control flow and calls is the
+// hand-built tests of spirv/internal/front and the WGSL corpus round trip.
+// Of the snapshots awaiting Phase 3, shadow (combined samplers) brings
+// control flow (two Ifs and a Loop in Rust's IR); fetch_depth has none.
 func TestSPVIRReference(t *testing.T) {
 	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
 		return strings.HasPrefix(name, "spv-") && strings.HasSuffix(name, ".ron") && !strings.HasSuffix(name, ".compact.ron")
