@@ -636,6 +636,87 @@ func TestWriteStatement_Switch(t *testing.T) {
 	mustContain(t, got, []string{"switch(", "case 0:", "case 1:", "default:"})
 }
 
+// TestCompile_SwitchNonEmptyFallThrough pins the HLSL text of fall-through
+// cases with bodies, including a non-last default. FXC does not support
+// fall-through from a non-empty case, so Rust back/hlsl/writer.rs:2109-2140
+// writes each such case as its own body followed by the bodies of every case
+// it falls into, each in its own scope, then one break. Named expressions
+// baked inside a copied body are forgotten after it (Rust truncates
+// named_expressions), so each copy declares its own temporary: case 2's `t`
+// is declared three times under fresh names.
+func TestCompile_SwitchNonEmptyFallThrough(t *testing.T) {
+	i32 := ir.TypeHandle(0)
+	store := func(value ir.ExpressionHandle) ir.Block {
+		return ir.Block{{Kind: ir.StmtStore{Pointer: 1, Value: value}}}
+	}
+	module := &ir.Module{
+		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		Functions: []ir.Function{{
+			Name:      "test_fn",
+			LocalVars: []ir.LocalVariable{{Name: "v", Type: i32}},
+			Expressions: []ir.Expression{
+				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},  // 0: selector
+				{Kind: ir.ExprLocalVariable{Variable: 0}},    // 1
+				{Kind: ir.Literal{Value: ir.LiteralI32(10)}}, // 2
+				{Kind: ir.Literal{Value: ir.LiteralI32(20)}}, // 3
+				{Kind: ir.ExprLoad{Pointer: 1}},              // 4: named "t"
+			},
+			NamedExpressions: map[ir.ExpressionHandle]string{4: "t"},
+			Body: ir.Block{
+				{Kind: ir.StmtSwitch{
+					Selector: 0,
+					Cases: []ir.SwitchCase{
+						{Value: ir.SwitchValueI32(1), Body: store(2), FallThrough: true},
+						{Value: ir.SwitchValueDefault{}, Body: store(3), FallThrough: true},
+						{Value: ir.SwitchValueI32(2), Body: ir.Block{
+							{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 5}}},
+							{Kind: ir.StmtStore{Pointer: 1, Value: 4}},
+						}},
+					},
+				}},
+				{Kind: ir.StmtReturn{}},
+			},
+		}},
+	}
+	code, _, err := Compile(module, nil)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	want := "    switch(int(0)) {\n" +
+		"        case 1: {\n" +
+		"            {\n" +
+		"                v = int(10);\n" +
+		"            }\n" +
+		"            {\n" +
+		"                v = int(20);\n" +
+		"            }\n" +
+		"            {\n" +
+		"                int t = v;\n" +
+		"                v = t;\n" +
+		"            }\n" +
+		"            break;\n" +
+		"        }\n" +
+		"        default: {\n" +
+		"            {\n" +
+		"                v = int(20);\n" +
+		"            }\n" +
+		"            {\n" +
+		"                int t_1 = v;\n" +
+		"                v = t_1;\n" +
+		"            }\n" +
+		"            break;\n" +
+		"        }\n" +
+		"        case 2: {\n" +
+		"            int t_2 = v;\n" +
+		"            v = t_2;\n" +
+		"            break;\n" +
+		"        }\n" +
+		"    }\n"
+	if !strings.Contains(code, want) {
+		t.Errorf("switch text mismatch.\nwant:\n%s\ngot:\n%s", want, code)
+	}
+}
+
 // =============================================================================
 // writeLoop unit test — covers writeLoopStatement
 // =============================================================================

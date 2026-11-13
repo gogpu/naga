@@ -584,8 +584,7 @@ func (w *Writer) writeSwitchStatement(s ir.StmtSwitch) error {
 		w.Out.WriteString(") {\n")
 
 		for i := range s.Cases {
-			c := &s.Cases[i]
-			if err := w.writeSwitchCase(c); err != nil {
+			if err := w.writeSwitchCase(s.Cases, i); err != nil {
 				return fmt.Errorf("switch case %d: %w", i, err)
 			}
 		}
@@ -629,10 +628,11 @@ func blockEndsWithTerminator(block ir.Block) bool {
 	return false
 }
 
-// writeSwitchCase writes a single switch case.
+// writeSwitchCase writes cases[i].
 // Matches Rust naga: each non-empty case body is wrapped in `{ }` braces.
 // Fall-through cases with empty bodies don't get braces.
-func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
+func (w *Writer) writeSwitchCase(cases []ir.SwitchCase, i int) error {
+	c := &cases[i]
 	// Write case label at current indent + 1
 	w.PushIndent()
 	switch v := c.Value.(type) {
@@ -660,15 +660,20 @@ func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
 
 	// Write case body
 	w.PushIndent()
-	if err := w.writeBlock(c.Body); err != nil {
+	var err error
+	if c.FallThrough && len(c.Body) != 0 {
+		err = w.writeFallThroughCaseBodies(cases, i)
+	} else {
+		err = w.writeBlock(c.Body)
+		// Write break unless fallthrough or body already ends with a terminator.
+		if err == nil && !c.FallThrough && !blockEndsWithTerminator(c.Body) {
+			w.WriteLine("break;")
+		}
+	}
+	if err != nil {
 		w.PopIndent()
 		w.PopIndent()
 		return err
-	}
-
-	// Write break unless fallthrough or body already ends with a terminator.
-	if !c.FallThrough && !blockEndsWithTerminator(c.Body) {
-		w.WriteLine("break;")
 	}
 	w.PopIndent()
 
@@ -678,6 +683,53 @@ func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
 	}
 
 	w.PopIndent()
+	return nil
+}
+
+// writeFallThroughCaseBodies writes the body of the fall-through case
+// cases[i], which is non-empty, followed by the bodies of every case control
+// falls into, up to and including the first case that does not fall through,
+// then one break unless that last body ends in a terminator.
+//
+// FXC supports a run of case labels before one block but not fall-through
+// from a non-empty case block into the next, so Rust back/hlsl/writer.rs:
+// 2109-2140 emulates it by duplicating the following bodies. Each copy gets
+// its own scope, and the named expressions it bakes are forgotten afterwards
+// (Rust truncates named_expressions), so a later copy declares its own
+// temporaries instead of referring to an out-of-scope one.
+func (w *Writer) writeFallThroughCaseBodies(cases []ir.SwitchCase, i int) error {
+	end := -1
+	for j := i + 1; j < len(cases); j++ {
+		if !cases[j].FallThrough {
+			end = j
+			break
+		}
+	}
+	if end < 0 {
+		return fmt.Errorf("switch case %d falls through past the last case", i)
+	}
+	for j := i; j <= end; j++ {
+		w.WriteLine("{")
+		w.PushIndent()
+		before := make(map[ir.ExpressionHandle]struct{}, len(w.namedExpressions))
+		for h := range w.namedExpressions {
+			before[h] = struct{}{}
+		}
+		err := w.writeBlock(cases[j].Body)
+		for h := range w.namedExpressions {
+			if _, ok := before[h]; !ok {
+				delete(w.namedExpressions, h)
+			}
+		}
+		w.PopIndent()
+		if err != nil {
+			return err
+		}
+		w.WriteLine("}")
+	}
+	if !blockEndsWithTerminator(cases[end].Body) {
+		w.WriteLine("break;")
+	}
 	return nil
 }
 
