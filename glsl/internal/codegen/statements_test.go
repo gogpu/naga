@@ -519,6 +519,66 @@ func TestWriteSwitch_FallthroughCase(t *testing.T) {
 	}
 }
 
+// TestCompile_SwitchNonEmptyFallThrough pins the GLSL text of fall-through
+// cases with bodies, including a non-last default. GLSL has C fall-through,
+// so Rust back/glsl/writer.rs:1794-1812 writes the body in braces and simply
+// omits the break; this backend must do the same.
+func TestCompile_SwitchNonEmptyFallThrough(t *testing.T) {
+	i32 := ir.TypeHandle(0)
+	store := func(value ir.ExpressionHandle) ir.Block {
+		return ir.Block{{Kind: ir.StmtStore{Pointer: 1, Value: value}}}
+	}
+	module := &ir.Module{
+		Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		EntryPoints: []ir.EntryPoint{{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Workgroup: [3]uint32{1, 1, 1},
+			Function: ir.Function{
+				Name:      "main",
+				LocalVars: []ir.LocalVariable{{Name: "v", Type: i32}},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},  // 0: selector
+					{Kind: ir.ExprLocalVariable{Variable: 0}},    // 1
+					{Kind: ir.Literal{Value: ir.LiteralI32(10)}}, // 2
+					{Kind: ir.Literal{Value: ir.LiteralI32(20)}}, // 3
+					{Kind: ir.Literal{Value: ir.LiteralI32(30)}}, // 4
+				},
+				Body: ir.Block{
+					{Kind: ir.StmtSwitch{
+						Selector: 0,
+						Cases: []ir.SwitchCase{
+							{Value: ir.SwitchValueI32(1), Body: store(2), FallThrough: true},
+							{Value: ir.SwitchValueDefault{}, Body: store(3), FallThrough: true},
+							{Value: ir.SwitchValueI32(2), Body: store(4)},
+						},
+					}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+	output, _, err := Compile(module, Options{LangVersion: Version430})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	want := "    switch(0) {\n" +
+		"        case 1: {\n" +
+		"            v = 10;\n" +
+		"        }\n" +
+		"        default: {\n" +
+		"            v = 20;\n" +
+		"        }\n" +
+		"        case 2: {\n" +
+		"            v = 30;\n" +
+		"            break;\n" +
+		"        }\n" +
+		"    }\n"
+	if !strings.Contains(output, want) {
+		t.Errorf("switch text mismatch.\nwant:\n%s\ngot:\n%s", want, output)
+	}
+}
+
 // =============================================================================
 // writeReturn Tests
 // =============================================================================
