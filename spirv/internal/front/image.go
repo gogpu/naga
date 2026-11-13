@@ -929,6 +929,16 @@ func (p *parser) propagateParameterSampling() error {
 			return err
 		}
 	}
+	// The entry point wrappers call their function with no arguments (the
+	// parsed function reads its privates), so there is nothing to pass on;
+	// they are walked so a wrapper that starts passing images does not
+	// silently skip the flags.
+	for index := range p.module.EntryPoints {
+		var own []samplingFlags
+		if err := p.propagateBlockSampling(&p.module.EntryPoints[index].Function, &own, calleeFlags); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

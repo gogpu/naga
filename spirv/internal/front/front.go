@@ -276,13 +276,6 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		}
 	}
 
-	// A sampled image or sampler passed to a helper decides how the caller's
-	// global is sampled: the flags travel back over the call graph now that
-	// every call target is known.
-	if err := p.propagateParameterSampling(); err != nil {
-		return nil, Info{}, err
-	}
-
 	// The sampler of every combined image sampler gets its binding now that
 	// every global of the module is known.
 	if err := p.resolveCombinedSamplerBindings(); err != nil {
@@ -312,6 +305,14 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 		return nil, Info{}, err
 	}
 	p.patchCalls()
+
+	// A sampled image or sampler passed to a helper decides how the caller's
+	// global is sampled: the flags travel back over the call graph. This runs
+	// after patchCalls, when a Call names its function in Module.Functions
+	// rather than a placeholder handle.
+	if err := p.propagateParameterSampling(); err != nil {
+		return nil, Info{}, err
+	}
 
 	// An image or sampler sampled only as a depth comparison gets the
 	// depth-comparison type; one sampled both ways is refused. The handles are
