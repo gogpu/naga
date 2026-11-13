@@ -12,6 +12,9 @@ type lookupType struct {
 	handle  ir.TypeHandle
 	baseID  uint32
 	hasBase bool
+	// combinedSampler marks a UniformConstant pointer whose pointee is an
+	// OpTypeSampledImage: the variable it types is a combined image sampler.
+	combinedSampler bool
 }
 
 // lookupMember is one struct member of a type: its SPIR-V type id and whether
@@ -390,6 +393,10 @@ func (p *parser) parseTypePointer(inst instruction) error {
 			baseID:  typeID,
 			hasBase: true,
 		}
+	} else if _, isSampledImage := p.sampledImageTypes[typeID]; isSampledImage {
+		// A handle-space pointer to a sampled image is what a combined image
+		// sampler variable is declared with (glslc's form).
+		lookup.combinedSampler = true
 	}
 	p.lookupType[id] = lookup
 	return nil
@@ -701,6 +708,7 @@ func (p *parser) parseTypeSampledImage(inst instruction) error {
 	if err != nil {
 		return err
 	}
+	p.sampledImageTypes[id] = struct{}{}
 	p.lookupType[id] = lookupType{handle: image.handle, baseID: imageID, hasBase: true}
 	return nil
 }

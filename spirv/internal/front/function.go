@@ -74,6 +74,11 @@ func (p *parser) parseFunction() error {
 		if typeID != parameterTypeID {
 			return errWrongFunctionArgumentType(typeID)
 		}
+		if _, isSampledImage := p.sampledImageTypes[typeID]; isSampledImage {
+			// naga IR has no sampled-image argument type; a combined sampler
+			// cannot be split across a call boundary.
+			return errCombinedSamplerParameter(funID)
+		}
 		ty, err := p.typeLookup(typeID)
 		if err != nil {
 			return err
@@ -210,6 +215,15 @@ func (p *parser) makeExpressionStorage(fs *functionState) error {
 		variable := p.lookupVariable[id]
 		handle := appendExpression(fs.fn, ir.ExprGlobalVariable{Variable: variable.handle})
 		p.lookupExpression[id] = lookupExpression{handle: handle, typeID: variable.typeID}
+		if variable.sampler != nil {
+			// The sampler half of a combined image sampler has no SPIR-V id of
+			// its own; its expression is created here so a load of the
+			// variable can yield the pair without an expression in an Emit.
+			if fs.combinedSamplerExpr == nil {
+				fs.combinedSamplerExpr = make(map[ir.GlobalVariableHandle]ir.ExpressionHandle)
+			}
+			fs.combinedSamplerExpr[variable.handle] = appendExpression(fs.fn, ir.ExprGlobalVariable{Variable: *variable.sampler})
+		}
 	}
 
 	constantIDs := make([]uint32, 0, len(p.lookupConstant))
@@ -1168,6 +1182,15 @@ func (p *parser) load(inst instruction, fs *functionState, consumer *emitter, bl
 	pointerHandle, err := p.getExprHandle(pointerID, pointer, fs, consumer, block, bodyIdx)
 	if err != nil {
 		return err
+	}
+	// A load of a combined image sampler variable yields the image and the
+	// sampler halves at once (design §12); the value is the image.
+	if global, ok := fs.fn.Expressions[pointerHandle].Kind.(ir.ExprGlobalVariable); ok {
+		if sampler, ok := fs.combinedSamplerExpr[global.Variable]; ok {
+			p.lookupSampledImage[resultID] = lookupSampledImage{image: pointerHandle, sampler: sampler}
+			p.storeExpression(resultID, resultTypeID, blockID, pointerHandle)
+			return nil
+		}
 	}
 	pointerType, err := p.typeLookup(pointer.typeID)
 	if err != nil {

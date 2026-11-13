@@ -155,6 +155,18 @@ func errUnsupportedGroupOperation(op uint32) *Error {
 	return &Error{Message: fmt.Sprintf("unsupported group operation %%%d", op)}
 }
 
+func errCombinedSamplerRejected(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("combined image sampler %%%d: splitting is disabled by CombinedImageSamplerReject", id)}
+}
+
+func errCombinedSamplerWithoutBinding(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("combined image sampler %%%d has no descriptor set and binding to split on", id)}
+}
+
+func errCombinedSamplerParameter(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("function %%%d takes a combined image sampler parameter, which naga IR cannot express", id)}
+}
+
 var (
 	errInvalidImageDepthStorage            = &Error{Message: "cannot create a OpTypeImage as both a depth and storage image"}
 	errInvalidStorageImageWithoutFormat    = &Error{Message: "image read/write without format is not currently supported. See https://github.com/gfx-rs/wgpu/issues/6797"}
