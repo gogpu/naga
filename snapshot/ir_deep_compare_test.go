@@ -96,8 +96,13 @@ func ronOptionalString(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	// Direct string
+	// Direct string: a bare identifier. RON writes an absent option as the
+	// identifier None, which parseGenericValue returns as a string; names are
+	// always Some("..."), so a bare string is either None or no name.
 	if s, ok := v.(string); ok {
+		if s == "None" {
+			return ""
+		}
 		return s
 	}
 	// Some("data") parsed as map{"_tag":"Some", "_inner": map/value}

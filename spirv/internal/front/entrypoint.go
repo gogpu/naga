@@ -91,6 +91,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		expression := appendExpression(&function, ir.ExprGlobalVariable{Variable: variable.handle})
 
 		if structType, ok := p.module.Types[result.Type].Inner.(ir.StructType); ok {
+			structType = p.cullUnusedBuiltIns(result.Type, structType)
 			for index, member := range structType.Members {
 				if member.Binding == nil {
 					continue
@@ -185,6 +186,43 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		EarlyDepthTest: ep.earlyDepthTest,
 	})
 	return nil
+}
+
+// cullUnusedBuiltIns drops the binding of every built-in member of an output
+// struct that no access chain reached, as Rust naga does for gl_PerVertex
+// (front/spv/function.rs, process_entry_point): glslang declares PointSize,
+// ClipDistance and CullDistance whether or not the shader writes them, and
+// their presence in the result can make a backend refuse the module.
+//
+// The type is rewritten in place, keeping its handle: the output global and
+// its default initializer refer to the same type, and Rust naga's
+// UniqueArena::replace keeps the handle too.
+func (p *parser) cullUnusedBuiltIns(handle ir.TypeHandle, structType ir.StructType) ir.StructType {
+	var culled []ir.StructMember
+	for index, member := range structType.Members {
+		if member.Binding == nil {
+			continue
+		}
+		builtin, ok := (*member.Binding).(ir.BuiltinBinding)
+		if !ok {
+			continue
+		}
+		if _, accessed := p.glPerVertexBuiltinAccess[builtin.Builtin]; accessed {
+			continue
+		}
+		if culled == nil {
+			culled = append([]ir.StructMember(nil), structType.Members...)
+		}
+		culled[index].Binding = nil
+	}
+	if culled == nil {
+		return structType
+	}
+	name := p.module.Types[handle].Name
+	structType.Members = culled
+	p.types.Replace(handle, name, structType)
+	p.module.Types = p.types.GetTypes()
+	return structType
 }
 
 // withDefaultInterpolation returns a copy of binding with the default
