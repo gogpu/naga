@@ -998,9 +998,32 @@ func (p *parser) binaryOp(fs *functionState, consumer *emitter, block *ir.Block,
 	if err != nil {
 		return err
 	}
+	op = p.componentwiseLogicalOp(op, resultTypeID)
 	expression := ir.ExprBinary{Op: op, Left: left, Right: right}
 	p.storeExpression(resultID, resultTypeID, blockID, appendExpression(fs.fn, expression))
 	return nil
+}
+
+// componentwiseLogicalOp maps OpLogicalAnd and OpLogicalOr on bool vectors
+// to the IR's componentwise And and InclusiveOr: the IR's LogicalAnd and
+// LogicalOr take scalars only (Rust naga's typifier). Rust naga's frontend
+// maps them to LogicalAnd and LogicalOr regardless, which its own validator
+// rejects for vectors.
+func (p *parser) componentwiseLogicalOp(op ir.BinaryOperator, resultTypeID uint32) ir.BinaryOperator {
+	if op != ir.BinaryLogicalAnd && op != ir.BinaryLogicalOr {
+		return op
+	}
+	result, ok := p.lookupType[resultTypeID]
+	if !ok {
+		return op
+	}
+	if _, vector := p.module.Types[result.handle].Inner.(ir.VectorType); !vector {
+		return op
+	}
+	if op == ir.BinaryLogicalAnd {
+		return ir.BinaryAnd
+	}
+	return ir.BinaryInclusiveOr
 }
 
 // binaryOpSignAdjusted parses a binary operation whose operands are cast to

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/spvenums"
+	"github.com/gogpu/naga/valid"
 )
 
 // bodyModule assembles a module with a fixed set of types, constants and one
@@ -112,6 +113,7 @@ func (m *bodyModule) build(body ...[]uint32) []byte {
 		instWords(spvenums.OpConstant, 4, 37, 320),  // UniformMemory|WorkgroupMemory
 		instWords(spvenums.OpConstantNull, 4, 38),
 	)
+	groups = append(groups, m.groups...)
 	if m.resultID == 3 {
 		groups = append(groups,
 			instWords(spvenums.OpFunction, 3, 100, 0, 32),
@@ -879,6 +881,58 @@ func countExpressions[T ir.ExpressionKind](fn *ir.Function) int {
 		}
 	}
 	return count
+}
+
+// TestBodyLogicalOpsOnVectors: OpLogicalAnd and OpLogicalOr on bool vectors
+// become the componentwise And and InclusiveOr, since the IR's LogicalAnd
+// and LogicalOr take scalars only. Rust naga's frontend emits LogicalOr here
+// and its validator rejects the result; our SPIR-V writer's signed-remainder
+// guard (int-signed-remainder.wgsl, operators.wgsl) produces exactly this.
+func TestBodyLogicalOpsOnVectors(t *testing.T) {
+	for _, tt := range []struct {
+		op   spvenums.Op
+		want ir.BinaryOperator
+		vec  bool
+	}{
+		{spvenums.OpLogicalAnd, ir.BinaryAnd, true},
+		{spvenums.OpLogicalOr, ir.BinaryInclusiveOr, true},
+		{spvenums.OpLogicalAnd, ir.BinaryLogicalAnd, false},
+		{spvenums.OpLogicalOr, ir.BinaryLogicalOr, false},
+	} {
+		t.Run(tt.op.String()+map[bool]string{true: "/vector", false: "/scalar"}[tt.vec], func(t *testing.T) {
+			m := newBodyModule().add(instWords(spvenums.OpConstantComposite, 30, 60, 24, 25))
+			// The result is combined with a vector again: as a scalar, the IR
+			// would not validate.
+			operation := [][]uint32{
+				instWords(tt.op, 6, 61, 24, 25),
+				instWords(spvenums.OpLogicalOr, 6, 62, 24, 61),
+			}
+			if tt.vec {
+				operation = [][]uint32{
+					instWords(tt.op, 30, 61, 60, 60),
+					instWords(spvenums.OpLogicalOr, 30, 62, 60, 61),
+				}
+			}
+			module, _, err := Parse(m.build(operation...), Options{})
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			fn := &module.Functions[0]
+			kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+				_, ok := k.(ir.ExprBinary)
+				return ok
+			})
+			if !ok {
+				t.Fatal("no binary expression")
+			}
+			if got := kind.(ir.ExprBinary).Op; got != tt.want {
+				t.Errorf("op = %v, want %v", got, tt.want)
+			}
+			if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+				t.Errorf("valid.Validate: %v", err)
+			}
+		})
+	}
 }
 
 // itoaTest formats an id for an expected message.
