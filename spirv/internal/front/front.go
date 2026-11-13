@@ -61,7 +61,7 @@ func newParser(data []byte, options Options) *parser {
 		lookupFunctionType:       make(map[uint32]lookupFunctionType),
 		lookupConstant:           make(map[uint32]lookupConstant),
 		lookupVariable:           make(map[uint32]lookupVariable),
-		lookupFunction:           make(map[uint32]ir.FunctionHandle),
+		lookupFunction:           make(map[uint32]lookupFunction),
 	}
 }
 
@@ -101,7 +101,7 @@ type parser struct {
 	lookupFunctionType       map[uint32]lookupFunctionType
 	lookupConstant           map[uint32]lookupConstant
 	lookupVariable           map[uint32]lookupVariable
-	lookupFunction           map[uint32]ir.FunctionHandle
+	lookupFunction           map[uint32]lookupFunction
 	// lookupExpression is the table of the function being parsed; it is
 	// cleared when the next function starts.
 	lookupExpression map[uint32]lookupExpression
@@ -114,6 +114,12 @@ type parser struct {
 	// deferredEntryPoints lists the entry point function ids in OpEntryPoint
 	// order: their wrappers are built after every function is parsed.
 	deferredEntryPoints []uint32
+
+	// deferredCalls holds every call site, indexed by the placeholder
+	// function handle its IR refers to until all functions are parsed, and
+	// callGraph the calls between functions, which orders Module.Functions.
+	deferredCalls []deferredCall
+	callGraph     callGraph
 
 	// decorations and memberDecorations hold the values of OpDecorate,
 	// OpMemberDecorate, OpName and OpMemberName for ids that may not be
@@ -238,6 +244,16 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 			return nil, Info{}, err
 		}
 	}
+
+	// Every call target is known now: order the functions callees first and
+	// replace the placeholder handles.
+	if err := p.orderFunctions(); err != nil {
+		return nil, Info{}, err
+	}
+	if err := p.checkCalls(); err != nil {
+		return nil, Info{}, err
+	}
+	p.patchCalls()
 	return p.module, p.info, nil
 }
 

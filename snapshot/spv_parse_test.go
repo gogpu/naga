@@ -55,6 +55,9 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		"8151-barrier-reorder":      true,
 		"per-vertex":                true,
 		"spec-constants-issue-5598": true,
+		// Phase 2, function calls and the call graph.
+		"builtin-accessed-outside-entrypoint": true,
+		"do-while":                            true,
 	}
 	binaries, err := filepath.Glob(filepath.Join(rustDerivedDir, "spv", "*.spv"))
 	if err != nil {
@@ -94,6 +97,38 @@ func TestSPVCorpusParseValidate(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("%s: the Phase 1 module is missing from the corpus", name)
 		}
+	}
+}
+
+// TestSPVParseCallOrder: main calls a function defined after it. Rust naga
+// orders Module.Functions callees first, so its outputs for these modules
+// (tests/out/{msl,hlsl}/spv-do-while.*) write the callee before main, and
+// every call names a function earlier in the arena.
+func TestSPVParseCallOrder(t *testing.T) {
+	for name, want := range map[string][]string{
+		"do-while":                            {"f(b1;", "main"},
+		"builtin-accessed-outside-entrypoint": {"builtin_usage(", "main"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			module := parseSPVCorpus(t, name)
+			var got []string
+			for i := range module.Functions {
+				got = append(got, module.Functions[i].Name)
+			}
+			if strings.Join(got, ",") != strings.Join(want, ",") {
+				t.Fatalf("functions = %q, want %q", got, want)
+			}
+			for i := range module.Functions {
+				for _, statement := range module.Functions[i].Body {
+					if call, ok := statement.Kind.(ir.StmtCall); ok && int(call.Function) >= i {
+						t.Errorf("%s calls function %d, not before it", module.Functions[i].Name, call.Function)
+					}
+				}
+			}
+			if len(module.EntryPoints) != 1 {
+				t.Fatalf("entry points = %d, want 1", len(module.EntryPoints))
+			}
+		})
 	}
 }
 
@@ -270,6 +305,16 @@ func TestSPVRoundTripTrivial(t *testing.T) {
 					j++;
 				}
 			}
+		}`},
+		// Function calls (Phase 2): results, arguments, a pointer argument
+		// and a call chain whose callees come after their callers.
+		{"calls", `fn twice(x: i32) -> i32 { return add(x, x); }
+		fn add(a: i32, b: i32) -> i32 { return a + b; }
+		fn bump(p: ptr<function, i32>) { *p = twice(*p); }
+		@compute @workgroup_size(1) fn main() {
+			var s = twice(3);
+			bump(&s);
+			if s > 4 { bump(&s); }
 		}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -13,8 +13,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 	if !ok {
 		return errInvalidID(functionID)
 	}
-	inner, ok := p.lookupFunction[functionID]
-	if !ok {
+	if _, ok := p.lookupFunction[functionID]; !ok {
 		return errInvalidID(functionID)
 	}
 
@@ -64,7 +63,13 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		function.Arguments = append(function.Arguments, argumentCopy)
 	}
 
-	// 2. Call the parsed function.
+	// 2. Call the parsed function. The wrapper is a node of the call graph
+	// too, after every function, and the call holds a placeholder handle
+	// until the functions are ordered.
+	inner := p.addCall(callNode{id: uint32(len(p.module.EntryPoints)), wrapper: true}, deferredCall{
+		callee:  functionID,
+		wrapper: true,
+	})
 	function.Body = append(function.Body, ir.Statement{Kind: ir.StmtCall{Function: inner}})
 
 	// 3. Copy the outputs from their privates into the result.
