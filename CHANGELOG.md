@@ -31,11 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same wrong component. Rust naga has the same shape — its `extract_image_coordinates` comment says arrayed
   images "can't be Proj" — and no GLSL or WGSL producer reaches it (`textureProj` has no array-sampler
   overload).
-
-## [Unreleased]
-
-### Fixed
-
 - **The storage-expression budget counts every expression a function's arena starts with** (P3-SPVIN-005): the
   sampler half of each combined image sampler is appended to every function's arena, and the budget did not count
   it, so the enforced bound sat below the documented `maxStorageExpressions`. The count includes it now, and a
