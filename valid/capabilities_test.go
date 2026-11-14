@@ -90,3 +90,26 @@ func TestSubgroupSetsDerivedAsRust(t *testing.T) {
 		}
 	}
 }
+
+// TestParseCapabilities: the CLI's capability names are Rust naga's flag
+// spellings; "all" is every capability and an unknown name is an error.
+func TestParseCapabilities(t *testing.T) {
+	all, err := ParseCapabilities("all")
+	if err != nil || all != CapAll {
+		t.Errorf("all = %v, %v; want CapAll", all, err)
+	}
+	none, err := ParseCapabilities("")
+	if err != nil || none != 0 {
+		t.Errorf("empty = %v, %v; want none", none, err)
+	}
+	set, err := ParseCapabilities("SHADER_INT64, MEMORY_DECORATION_VOLATILE")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !set.Contains(CapShaderInt64) || !set.Contains(CapMemoryDecorationVolatile) || set.Contains(CapMemoryDecorationCoherent) {
+		t.Errorf("set = %b, want SHADER_INT64 and MEMORY_DECORATION_VOLATILE only", set)
+	}
+	if _, err := ParseCapabilities("NOPE"); err == nil {
+		t.Error("an unknown name parsed; want an error")
+	}
+}

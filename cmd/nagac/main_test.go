@@ -94,6 +94,11 @@ func TestFlagsBeforeInputCompileToFile(t *testing.T) {
 	if !bytes.HasPrefix(got, spirvMagic) {
 		t.Errorf("output file does not start with the SPIR-V magic number: % x", got[:min(len(got), 4)])
 	}
+	// The header word after the magic is the module version, 1.3 by default
+	// (0x00010300 little-endian).
+	if len(got) < 8 || got[4] != 0x00 || got[5] != 0x03 || got[6] != 0x01 || got[7] != 0x00 {
+		t.Errorf("SPIR-V header version = % x, want 1.3 (0x00010300 little-endian)", got[4:min(len(got), 8)])
+	}
 }
 
 func TestArgumentsAfterInputAreRejected(t *testing.T) {
@@ -319,4 +324,52 @@ func TestTextBackendMayWriteToTerminal(t *testing.T) {
 	if !strings.Contains(stdout.String(), "kernel") {
 		t.Errorf("stdout is not MSL kernel source:\n%s", &stdout)
 	}
+}
+
+// volatileShader is a storage buffer declared @volatile, which only the
+// backends whose supported list has MEMORY_DECORATION_VOLATILE may write.
+const volatileShader = "@group(0) @binding(0) @volatile var<storage, read_write> data: array<u32>;\n" +
+	"@compute @workgroup_size(1) fn main() { data[0] = 1u; }\n"
+
+// TestCapabilitiesFlag: -capabilities bounds what the input may use, and a
+// text backend intersects it with its supported list — MSL has no volatile,
+// the SPIR-V backend has.
+func TestCapabilitiesFlag(t *testing.T) {
+	in := writeSource(t, "volatile.wgsl", volatileShader)
+
+	t.Run("spirv accepts volatile", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.spv")
+		_, stderr, status := runNagac(t, "-o", out, in)
+		if status != exitOK {
+			t.Fatalf("exit status = %d; stderr: %s", status, stderr)
+		}
+	})
+	t.Run("msl refuses volatile", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.msl")
+		_, stderr, status := runNagac(t, "-backend", "msl", "-o", out, in)
+		if status != exitFailure {
+			t.Fatalf("exit status = %d, want %d; stderr: %s", status, exitFailure, stderr)
+		}
+		if !strings.Contains(string(stderr), "MEMORY_DECORATION_VOLATILE") {
+			t.Errorf("stderr does not name the missing capability:\n%s", stderr)
+		}
+	})
+	t.Run("a bounded set", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "a.spv")
+		if _, stderr, status := runNagac(t, "-capabilities", "MEMORY_DECORATION_COHERENT", "-o", out, in); status != exitFailure {
+			t.Fatalf("exit status = %d, want %d; stderr: %s", status, exitFailure, stderr)
+		}
+		if _, stderr, status := runNagac(t, "-capabilities", "all", "-o", out, in); status != exitOK {
+			t.Fatalf("all: exit status = %d; stderr: %s", status, stderr)
+		}
+	})
+	t.Run("unknown name", func(t *testing.T) {
+		_, stderr, status := runNagac(t, "-capabilities", "NOPE", in)
+		if status != exitUsage {
+			t.Errorf("exit status = %d, want %d", status, exitUsage)
+		}
+		if !strings.Contains(string(stderr), "unknown capability") {
+			t.Errorf("stderr does not name the unknown capability:\n%s", stderr)
+		}
+	})
 }
