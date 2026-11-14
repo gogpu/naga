@@ -1,10 +1,10 @@
 # AGENTS.md — naga
 
-> Pure Go shader compiler (~327K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
+> Pure Go shader compiler (~329K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
 
 ## What is naga
 
-naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats, and reads SPIR-V binaries into its IR (`spirv.Parse`, the SPIR-V input frontend; `nagac -from-spirv` translates one to SPIR-V, MSL, HLSL or GLSL). Inspired by [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (238 of 267 entry points of the Rust naga and own corpora pass IDxcValidator).
+naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats, and reads SPIR-V binaries into its IR (`spirv.Parse`, the SPIR-V input frontend; `nagac -from-spirv` translates one to SPIR-V, MSL, HLSL or GLSL). Inspired by [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (236 of 267 entry points of the Rust naga and own corpora pass IDxcValidator).
 
 Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computing. v1.0 target: December 2026.
 
@@ -26,7 +26,7 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computin
 | MSL | Text | Metal (macOS/iOS) | Production |
 | GLSL | Text | OpenGL 3.3+, ES 3.0+ | Production |
 | HLSL | Text | DirectX 11/12 | Production |
-| DXIL | Binary | DirectX 12 (SM 6.0–6.9) | Experimental (238/267 corpus entry points pass IDxcValidator) |
+| DXIL | Binary | DirectX 12 (SM 6.0–6.9) | Experimental (236/267 corpus entry points pass IDxcValidator) |
 
 ## Quick Start
 
