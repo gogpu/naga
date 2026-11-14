@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A projected sample of an arrayed image** (P3-SPVIN-004): `OpImageSampleProj*` on an arrayed image takes the
+  coordinate `(s, t, layer, q)` — the array layer is the component before the projection, which is the last
+  one (SPIR-V spec, `OpImageSampleProj*`). The frontend read the projection from the layer's position and
+  produced no array layer at all, so both were wrong; the depth reference of a projected comparison divided by
+  the same wrong component. Rust naga has the same shape — its `extract_image_coordinates` comment says arrayed
+  images "can't be Proj" — and no GLSL or WGSL producer reaches it (`textureProj` has no array-sampler
+  overload).
+
 ## [0.22.0] - 2026-11-14
 
 The SPIR-V input frontend gains the things the 0.21.12 notes said were still to come: row-major matrix members
