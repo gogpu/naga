@@ -813,7 +813,13 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 			regType = "t"
 		}
 		regStr := formatRegister(regType, binding.Register, binding.Space)
-		w.WriteLine("%sByteAddressBuffer %s : %s;", prefix, name, regStr)
+		// A coherent buffer is declared globallycoherent, as Rust naga writes
+		// it (back/hlsl/writer.rs:1085).
+		coherent := ""
+		if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+			coherent = "globallycoherent "
+		}
+		w.WriteLine("%s%sByteAddressBuffer %s : %s;", coherent, prefix, name, regStr)
 		w.registerBindings[name] = regStr
 
 	case ir.SpaceWorkGroup:

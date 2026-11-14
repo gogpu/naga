@@ -1531,14 +1531,24 @@ func (w *Writer) formatGlobalResourceParam(handle uint32, global *ir.GlobalVaria
 
 		if useFake {
 			if space == spaceConstant || space == spaceDevice {
-				return fmt.Sprintf("%s %s%s& %s [[user(fake0)]]", space, typeName, constQual, name)
+				coherent := ""
+				if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+					coherent = "coherent "
+				}
+				return fmt.Sprintf("%s%s %s%s& %s [[user(fake0)]]", coherent, space, typeName, constQual, name)
 			}
 			return fmt.Sprintf("%s %s [[user(fake0)]]", typeName, name)
 		}
 
 		idx := w.bindTargetIndex(bt.Buffer, global.Binding)
 		if space == spaceConstant || space == spaceDevice {
-			return fmt.Sprintf("%s %s%s& %s [[buffer(%d)]]", space, typeName, constQual, name, idx)
+			// A coherent buffer takes the coherent qualifier before the space,
+			// as Rust naga writes it (back/msl/writer.rs:463-471).
+			coherent := ""
+			if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+				coherent = "coherent "
+			}
+			return fmt.Sprintf("%s%s %s%s& %s [[buffer(%d)]]", coherent, space, typeName, constQual, name, idx)
 		}
 		return fmt.Sprintf("%s %s [[buffer(%d)]]", typeName, name, idx)
 	}
@@ -1569,7 +1579,11 @@ func (w *Writer) writePassThroughParam(handle uint32) {
 			if w.isStorageGlobalReadOnly(handle) {
 				constQual = " const"
 			}
-			w.write("%s %s%s& %s", space, typeName, constQual, name)
+			coherent := ""
+			if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+				coherent = "coherent "
+			}
+			w.write("%s%s %s%s& %s", coherent, space, typeName, constQual, name)
 		} else if space != "" {
 			// threadgroup, thread — pass by reference with address space qualifier
 			w.write("%s %s& %s", space, typeName, name)

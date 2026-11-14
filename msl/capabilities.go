@@ -17,9 +17,9 @@ import "github.com/gogpu/naga/valid"
 // too (IMMEDIATES, TEXTURE_EXTERNAL, MULTISAMPLED_SHADING, CUBE_ARRAY_TEXTURES,
 // LINEAR_INTERPOLATION, SHADER_FLOAT16_IN_FLOAT32) and capabilities whose IR
 // is not gated yet (the *_NON_UNIFORM_INDEXING ones, COOPERATIVE_MATRIX,
-// RAY_HIT_VERTEX_POSITION, RAY_TRACING_PIPELINE, MEMORY_DECORATION_*,
-// DEBUG_PRINTF); package valid has no bit for them
-// (ADR-010 N10, "arrive with the IR they gate"), so they are not listed.
+// RAY_HIT_VERTEX_POSITION, RAY_TRACING_PIPELINE, DEBUG_PRINTF); package valid
+// has no bit for them (ADR-010 N10, "arrive with the IR they gate"), so they
+// are not listed.
 func SupportedCapabilities() valid.Capabilities {
 	return valid.Capabilities(0) |
 		valid.CapPrimitiveIndex |
@@ -43,5 +43,8 @@ func SupportedCapabilities() valid.Capabilities {
 		valid.CapShaderBarycentrics |
 		valid.CapMeshShader |
 		valid.CapMeshShaderPointTopology |
-		valid.CapPerVertex
+		valid.CapPerVertex |
+		// No MEMORY_DECORATION_VOLATILE, as Rust's list (back/msl/mod.rs:879):
+		// Metal has no volatile, so such a module is refused.
+		valid.CapMemoryDecorationCoherent
 }

@@ -3,15 +3,15 @@
 #extension GL_ARB_shader_storage_buffer_object : require
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(std430) buffer Data_block_0Compute {
+layout(std430) coherent buffer Data_block_0Compute {
     uint values[];
 } _group_0_binding_0_cs;
 
-layout(std430) buffer Data_block_1Compute {
+layout(std430) volatile buffer Data_block_1Compute {
     uint values[];
 } _group_0_binding_1_cs;
 
-layout(std430) buffer Data_block_2Compute {
+layout(std430) coherent volatile buffer Data_block_2Compute {
     uint values[];
 } _group_0_binding_2_cs;
 

@@ -23,7 +23,9 @@ import (
 // MULTISAMPLED_SHADING, CUBE_ARRAY_TEXTURES, TEXTURE_EXTERNAL,
 // SHADER_FLOAT16_IN_FLOAT32, LINEAR_INTERPOLATION, the NON_UNIFORM_INDEXING
 // ones, COOPERATIVE_MATRIX, RAY_HIT_VERTEX_POSITION, RAY_TRACING_PIPELINE,
-// MEMORY_DECORATION_*, DEBUG_PRINTF).
+// DEBUG_PRINTF). The memory decorations have bits since the IR carries them:
+// MSL and HLSL list Coherent only, GLSL and SPIR-V list both, exactly as
+// Rust's lists do.
 var capabilityLists = []struct {
 	name string
 	got  valid.Capabilities
@@ -39,7 +41,8 @@ var capabilityLists = []struct {
 			valid.CapShaderInt64AtomicAllOps | valid.CapShaderFloat32Atomic | valid.CapTextureAtomic |
 			valid.CapTextureInt64Atomic | valid.CapShaderFloat16 | valid.CapShaderInt16 |
 			valid.CapShaderBarycentrics | valid.CapMeshShader | valid.CapMeshShaderPointTopology |
-			valid.CapPerVertex | valid.CapDrawIndex},
+			valid.CapPerVertex | valid.CapDrawIndex | valid.CapMemoryDecorationCoherent |
+			valid.CapMemoryDecorationVolatile},
 	{"msl", msl.SupportedCapabilities(),
 		valid.CapPrimitiveIndex | valid.CapTextureAndSamplerBindingArray | valid.CapStorageTextureBindingArray |
 			valid.CapStorageBufferBindingArray | valid.CapClipDistances | valid.CapStorageTexture16BitNormFormats |
@@ -47,7 +50,7 @@ var capabilityLists = []struct {
 			valid.CapSubgroup | valid.CapSubgroupBarrier | valid.CapShaderInt64AtomicMinMax |
 			valid.CapShaderFloat32Atomic | valid.CapTextureAtomic | valid.CapTextureInt64Atomic |
 			valid.CapShaderFloat16 | valid.CapShaderInt16 | valid.CapShaderBarycentrics | valid.CapMeshShader |
-			valid.CapMeshShaderPointTopology | valid.CapPerVertex},
+			valid.CapMeshShaderPointTopology | valid.CapPerVertex | valid.CapMemoryDecorationCoherent},
 	// Rust's HLSL list has no CLIP_DISTANCES; this backend writes
 	// SV_ClipDistance (hlsl clip_distances_test.go) and wgpu offers the
 	// feature on DX12, so it is listed here.
@@ -58,13 +61,15 @@ var capabilityLists = []struct {
 			valid.CapDualSourceBlending | valid.CapShaderInt64 | valid.CapSubgroup |
 			valid.CapShaderInt64AtomicMinMax | valid.CapShaderInt64AtomicAllOps | valid.CapTextureAtomic |
 			valid.CapTextureInt64Atomic | valid.CapShaderFloat16 | valid.CapShaderInt16 |
-			valid.CapShaderBarycentrics | valid.CapMeshShader | valid.CapPerVertex | valid.CapClipDistances},
+			valid.CapShaderBarycentrics | valid.CapMeshShader | valid.CapPerVertex | valid.CapClipDistances |
+			valid.CapMemoryDecorationCoherent},
 	{"glsl", glsl.SupportedCapabilities(),
 		valid.CapFloat64 | valid.CapPrimitiveIndex | valid.CapClipDistances | valid.CapMultiview |
 			valid.CapEarlyDepthTest | valid.CapDualSourceBlending | valid.CapShaderInt64 |
 			valid.CapShaderInt64AtomicAllOps | valid.CapTextureAtomic | valid.CapTextureInt64Atomic |
 			valid.CapSubgroup | valid.CapSubgroupBarrier | valid.CapShaderFloat16 | valid.CapShaderInt16 |
-			valid.CapShaderBarycentrics | valid.CapDrawIndex | valid.CapStorageTexture16BitNormFormats},
+			valid.CapShaderBarycentrics | valid.CapDrawIndex | valid.CapStorageTexture16BitNormFormats |
+			valid.CapMemoryDecorationCoherent | valid.CapMemoryDecorationVolatile},
 	// Rust has no DXIL backend: this list is ours (dxil/capabilities.go).
 	{"dxil", dxil.SupportedCapabilities(),
 		valid.CapFloat64 | valid.CapEarlyDepthTest | valid.CapPrimitiveIndex | valid.CapTextureAndSamplerBindingArray |

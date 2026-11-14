@@ -18,9 +18,9 @@ import "github.com/gogpu/naga/valid"
 // too (IMMEDIATES, TEXTURE_EXTERNAL, MULTISAMPLED_SHADING, CUBE_ARRAY_TEXTURES,
 // LINEAR_INTERPOLATION, SHADER_FLOAT16_IN_FLOAT32) and capabilities whose IR
 // is not gated yet (the *_NON_UNIFORM_INDEXING ones, COOPERATIVE_MATRIX,
-// RAY_HIT_VERTEX_POSITION, RAY_TRACING_PIPELINE, MEMORY_DECORATION_*,
-// DEBUG_PRINTF); package valid has no bit for them
-// (ADR-010 N10, "arrive with the IR they gate"), so they are not listed.
+// RAY_HIT_VERTEX_POSITION, RAY_TRACING_PIPELINE, DEBUG_PRINTF); package valid
+// has no bit for them (ADR-010 N10, "arrive with the IR they gate"), so they
+// are not listed.
 func SupportedCapabilities() valid.Capabilities {
 	return valid.Capabilities(0) |
 		valid.CapFloat64 |
@@ -43,6 +43,8 @@ func SupportedCapabilities() valid.Capabilities {
 		valid.CapShaderBarycentrics |
 		valid.CapMeshShader |
 		valid.CapPerVertex |
+		// No MEMORY_DECORATION_VOLATILE, as Rust's list (back/hlsl/mod.rs:831).
+		valid.CapMemoryDecorationCoherent |
 		// Deviation from Rust, whose list has no CLIP_DISTANCES: this backend
 		// writes SV_ClipDistance (shader model 4 and up, as Dawn does) and wgpu
 		// offers the feature on DX12.

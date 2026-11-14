@@ -570,16 +570,11 @@ func (v *validator) validateGlobalVariables() {
 			v.addError(fmt.Sprintf("global variable %q: only a storage variable has an access", gv.Name))
 		}
 
-		// Memory decorations are storage-only and need their capability
-		// (Rust naga's validate_global_var, valid/interface.rs:1157-1179).
+		// Memory decorations are storage-only (Rust naga's validate_global_var,
+		// valid/interface.rs:1157); their capabilities are reported above by
+		// globalVariableCapability, which also records the missing bits.
 		if gv.MemoryDecorations != 0 && gv.Space != ir.SpaceStorage {
 			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: Memory decorations (`@coherent`, `@volatile`) are only valid for variables in the `storage` address space", i, gv.Name))
-		}
-		if gv.MemoryDecorations.Contains(ir.MemoryCoherent) && !v.has(CapMemoryDecorationCoherent) {
-			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: `@coherent` requires the MEMORY_DECORATION_COHERENT capability", i, gv.Name))
-		}
-		if gv.MemoryDecorations.Contains(ir.MemoryVolatile) && !v.has(CapMemoryDecorationVolatile) {
-			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: `@volatile` requires the MEMORY_DECORATION_VOLATILE capability", i, gv.Name))
 		}
 
 		if gv.Init != nil {
@@ -603,6 +598,20 @@ func (v *validator) globalVariableCapability(gv *ir.GlobalVariable) Capabilities
 			return 0
 		}
 		return c
+	}
+	// Memory decorations are capabilities of their own: the bits exist since
+	// the IR carries the decorations, and the backends' supported lists decide
+	// where a module may go (Rust naga's validate_global_var asks the same two
+	// flags, valid/interface.rs:1162-1179).
+	if gv.MemoryDecorations.Contains(ir.MemoryCoherent) {
+		if c := missing(CapMemoryDecorationCoherent); c != 0 {
+			return c
+		}
+	}
+	if gv.MemoryDecorations.Contains(ir.MemoryVolatile) {
+		if c := missing(CapMemoryDecorationVolatile); c != 0 {
+			return c
+		}
 	}
 	inner := gv.Type
 	if ba, ok := v.module.Types[gv.Type].Inner.(ir.BindingArrayType); ok {
