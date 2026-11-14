@@ -283,6 +283,91 @@ func TestImageSampleProjection(t *testing.T) {
 	}
 }
 
+// vec4Float is the extra declaration of vec4<f32> (id 28) and its constant one
+// (id 29): the (s, t, layer, q) coordinate a projected sample of an arrayed 2D
+// image takes.
+func vec4Float() [][]uint32 {
+	return [][]uint32{
+		instWords(spvenums.OpTypeVector, 28, 13, 4),
+		instWords(spvenums.OpConstantComposite, 28, 29, 23, 23, 23, 23),
+	}
+}
+
+// TestImageSampleProjArrayLayer: OpImageSampleProj* on an arrayed image takes
+// the coordinate (s, t, layer, q) — the array layer is the component before the
+// projection, which is the last one (SPIR-V spec, OpImageSampleProj
+// instructions). Rust naga has no such case: its extract_image_coordinates
+// comment says arrayed images "can't be Proj", so it reads the projection from
+// the layer's position and drops the layer.
+func TestImageSampleProjArrayLayer(t *testing.T) {
+	arrayed2D := instWords(spvenums.OpTypeImage, 16, 13, 1, 0, 1, 0, 1, 0)
+	fn := imageVariant(t, arrayed2D, vec4Float(),
+		instWords(spvenums.OpImageSampleProjImplicitLod, 15, 40, 32, 29),
+	)
+	kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+		_, ok := k.(ir.ExprImageSample)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageSample expression")
+	}
+	sample := kind.(ir.ExprImageSample)
+	if sample.ArrayIndex == nil {
+		t.Fatal("the projected arrayed sample has no array index")
+	}
+	arrayIndex, ok := fn.Expressions[*sample.ArrayIndex].Kind.(ir.ExprAs)
+	if !ok || arrayIndex.Kind != ir.ScalarSint {
+		t.Fatalf("array index = %T, want the i32 cast", fn.Expressions[*sample.ArrayIndex].Kind)
+	}
+	access, ok := fn.Expressions[arrayIndex.Expr].Kind.(ir.ExprAccessIndex)
+	if !ok || access.Index != 2 {
+		t.Fatalf("array index operand = %T, want the layer, coordinate component 2", fn.Expressions[arrayIndex.Expr].Kind)
+	}
+	compose, ok := fn.Expressions[sample.Coordinate].Kind.(ir.ExprCompose)
+	if !ok || len(compose.Components) != 2 {
+		t.Fatalf("coordinate = %T, want the two divided components composed", fn.Expressions[sample.Coordinate].Kind)
+	}
+	for _, component := range compose.Components {
+		divide, ok := fn.Expressions[component].Kind.(ir.ExprBinary)
+		if !ok || divide.Op != ir.BinaryDivide {
+			t.Fatalf("coordinate component = %T, want a division by the projection", fn.Expressions[component].Kind)
+		}
+		projection, ok := fn.Expressions[divide.Right].Kind.(ir.ExprAccessIndex)
+		if !ok || projection.Index != 3 {
+			t.Fatalf("projection operand = %T, want coordinate component 3 (the last one)", fn.Expressions[divide.Right].Kind)
+		}
+	}
+}
+
+// TestImageSampleProjArrayLayerDepthRef: the depth reference of a projected
+// sample divides by the projection component too — the last one, not the
+// layer's position.
+func TestImageSampleProjArrayLayerDepthRef(t *testing.T) {
+	depthArrayed2D := instWords(spvenums.OpTypeImage, 16, 13, 1, 1, 1, 0, 1, 0)
+	fn := imageVariant(t, depthArrayed2D, vec4Float(),
+		instWords(spvenums.OpImageSampleProjDrefImplicitLod, 13, 40, 32, 29, 23),
+	)
+	kind, ok := findExpression(fn, func(k ir.ExpressionKind) bool {
+		_, ok := k.(ir.ExprImageSample)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no ImageSample expression")
+	}
+	sample := kind.(ir.ExprImageSample)
+	if sample.DepthRef == nil {
+		t.Fatal("the projected comparison has no depth reference")
+	}
+	divide, ok := fn.Expressions[*sample.DepthRef].Kind.(ir.ExprBinary)
+	if !ok || divide.Op != ir.BinaryDivide {
+		t.Fatalf("depth reference = %T, want the division", fn.Expressions[*sample.DepthRef].Kind)
+	}
+	projection, ok := fn.Expressions[divide.Right].Kind.(ir.ExprAccessIndex)
+	if !ok || projection.Index != 3 {
+		t.Fatalf("projection operand = %T, want coordinate component 3 (the last one)", fn.Expressions[divide.Right].Kind)
+	}
+}
+
 // TestImageQuerySizeArrayed: SPIR-V's OpImageQuerySize(Lod) returns the layer
 // count with the spatial size; the IR query is the spatial size, so the
 // layers come from ImageQueryNumLayers and are composed back in (Rust naga
