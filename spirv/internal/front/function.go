@@ -761,8 +761,10 @@ func (p *parser) localVariable(inst instruction, fs *functionState, consumer *em
 }
 
 // accessChain parses OpAccessChain: a chain of struct, matrix, vector and
-// array accesses. A row-major matrix member is refused until its transposed
-// load is implemented, so no module is read with the wrong matrix order.
+// array accesses. A chain that reaches a row-major matrix member remembers a
+// load override (Rust naga's lookup_load_override, front/spv/next_block.rs):
+// the OpLoad that reads the pointer yields a transposed value, because the IR
+// is column-major only.
 func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
 	if _, err := inst.expectAtLeast(4); err != nil {
 		return err
@@ -804,6 +806,7 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 	}
 
 	handle := baseHandle
+	override, hasOverride := fs.loadOverrides[baseID]
 	for range inst.wc - 4 {
 		indexID, err := p.next()
 		if err != nil {
@@ -832,9 +835,6 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 			if !ok {
 				return errInvalidAccessType(currentTypeID)
 			}
-			if member.rowMajor {
-				return errUnsupportedRowMajorMatrix
-			}
 			// Rust naga records the built-ins an access chain reaches so the
 			// wrapper can drop the gl_PerVertex members a shader never writes
 			// (front/spv/next_block.rs, gl_per_vertex_builtin_access).
@@ -844,8 +844,30 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 				}
 			}
 			handle = appendExpression(fs.fn, ir.ExprAccessIndex{Base: handle, Index: indexValue})
+			if member.rowMajor {
+				override, hasOverride, err = p.rowMajorOverride(fs, member.typeID, handle)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Rust resets the override on a member that is not row-major
+				// (front/spv/next_block.rs:348-350).
+				override, hasOverride = loadOverride{}, false
+			}
 			currentTypeID = member.typeID
 		case ir.MatrixType:
+			var next loadOverride
+			var hasNext bool
+			// An index inside a row-major matrix reads the column from the
+			// transposed value, not from the pointer (Rust naga,
+			// front/spv/next_block.rs:353-387).
+			if hasOverride && override.loaded {
+				if !hasIndex {
+					return errInvalidAccess
+				}
+				next = loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprAccessIndex{Base: override.handle, Index: indexValue})}
+				hasNext = true
+			}
 			if hasIndex {
 				handle = appendExpression(fs.fn, ir.ExprAccessIndex{Base: handle, Index: indexValue})
 			} else {
@@ -855,16 +877,53 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 				return errInvalidAccessType(currentTypeID)
 			}
 			currentTypeID = currentType.baseID
+			override, hasOverride = next, hasNext
 		default:
-			handle = appendExpression(fs.fn, ir.ExprAccess{Base: handle, Index: indexHandle})
+			element := appendExpression(fs.fn, ir.ExprAccess{Base: handle, Index: indexHandle})
+			var next loadOverride
+			var hasNext bool
+			if hasOverride {
+				if override.loaded {
+					// The index goes deeper inside the transposed value.
+					next = loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprAccess{Base: override.handle, Index: indexHandle})}
+				} else {
+					// The pending index selects a matrix out of an array of
+					// row-major matrices: load that element and transpose it
+					// (Rust naga, front/spv/next_block.rs:401-434).
+					loaded := appendExpression(fs.fn, ir.ExprLoad{Pointer: element})
+					next = loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprMath{Fun: ir.MathTranspose, Arg: loaded})}
+				}
+				hasNext = true
+			}
+			handle = element
 			if !currentType.hasBase {
 				return errInvalidAccessType(currentTypeID)
 			}
 			currentTypeID = currentType.baseID
+			override, hasOverride = next, hasNext
 		}
+	}
+	if hasOverride {
+		fs.setLoadOverride(resultID, override)
 	}
 	p.storeExpression(resultID, resultTypeID, blockID, handle)
 	return nil
+}
+
+// rowMajorOverride is the override a row-major matrix member leaves for the
+// load that reads it: the transposed value when the member is the matrix
+// itself, or a pending override that the array index in front of it resolves
+// (Rust naga's LookupLoadOverride, front/spv/mod.rs:394).
+func (p *parser) rowMajorOverride(fs *functionState, memberTypeID uint32, handle ir.ExpressionHandle) (loadOverride, bool, error) {
+	memberType, err := p.typeLookup(memberTypeID)
+	if err != nil {
+		return loadOverride{}, false, err
+	}
+	if _, isMatrix := p.module.Types[memberType.handle].Inner.(ir.MatrixType); isMatrix {
+		loaded := appendExpression(fs.fn, ir.ExprLoad{Pointer: handle})
+		return loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprMath{Fun: ir.MathTranspose, Arg: loaded})}, true, nil
+	}
+	return loadOverride{}, true, nil
 }
 
 // resolveIndex returns the constant value an index expression holds, if it is
@@ -1193,6 +1252,16 @@ func (p *parser) load(inst instruction, fs *functionState, consumer *emitter, bl
 			return nil
 		}
 	}
+	// A pointer that reached a row-major matrix carries the transposed value
+	// the access chain side-loaded, and the load yields it instead of reading
+	// the column-major layout (Rust naga, front/spv/next_block.rs:750-759). A
+	// pending override means the load reads a whole array of row-major
+	// matrices, which no single expression can transpose element-wise: Rust
+	// falls back to a plain load here, and so does this frontend.
+	if override, ok := fs.loadOverrides[pointerID]; ok && override.loaded {
+		p.storeExpression(resultID, resultTypeID, blockID, override.handle)
+		return nil
+	}
 	pointerType, err := p.typeLookup(pointer.typeID)
 	if err != nil {
 		return err
@@ -1209,6 +1278,9 @@ func (p *parser) load(inst instruction, fs *functionState, consumer *emitter, bl
 
 // store parses OpStore.
 func (p *parser) store(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	// Rust naga's OpStore does not apply the row-major load override either
+	// (front/spv/next_block.rs:771-793): a store through a row-major matrix
+	// pointer writes the value untransposed, exactly as here.
 	if _, err := inst.expectAtLeast(3); err != nil {
 		return err
 	}
