@@ -1,6 +1,7 @@
 package front
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -149,5 +150,24 @@ func TestRowMajorMatrixArrayLoad(t *testing.T) {
 	}
 	if loads := countMatchingExpressions(fn, isLoad); loads != 1 {
 		t.Errorf("loads = %d, want 1", loads)
+	}
+}
+
+// TestRowMajorMatrixStoreRefused: the IR has no transposed store, so a store
+// through a row-major matrix member is refused with a clear error rather than
+// written in the wrong layout. Rust 30.0.0 writes it untransposed (its
+// lookup_load_override covers OpLoad only); the SPIR-V spec decides, and a
+// shader would not read back what it wrote.
+func TestRowMajorMatrixStoreRefused(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	err := m.parseError(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 31, 201, 200, 60),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
+		instWords(spvenums.OpStore, 201, 211),
+	)
+	if !strings.Contains(err.Error(), "row-major") {
+		t.Errorf("error = %q, want it to name the row-major store", err)
 	}
 }

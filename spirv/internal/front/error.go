@@ -226,6 +226,12 @@ var (
 	// errInvalidAccess has no Rust counterpart's expression dump: the IR has
 	// no debug rendering of an expression, so it names none.
 	errInvalidAccess = &Error{Message: "invalid access"}
+	// errStoreThroughRowMajor is the store counterpart of the row-major read
+	// path: the IR has no transposed store, so a write through a row-major
+	// matrix pointer is refused rather than written in the wrong layout.
+	// Rust naga writes it untransposed (its lookup_load_override covers OpLoad
+	// only), which is a miscompile, not a behavior to port.
+	errStoreThroughRowMajor = &Error{Message: "a store through a row-major matrix is not supported"}
 )
 
 // errInvalidTerminator is Rust naga's InvalidTerminator text. Here it is the
