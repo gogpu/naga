@@ -5,8 +5,8 @@
     "repository": "https://github.com/gfx-rs/wgpu",
     "commit": "14328f49918cce19f7cc8bf703435968c8293035",
     "commitDate": "2026-10-14",
-    "generator": "Rust naga: WGSL front end; IR as RON (PrettyConfig, LF) before and after compact(KeepUnused::No) (docs tool ir_dump); ptr-deref-test outputs from the snapshot driver (convert_snapshots_wgsl); spirv-as (SPIRV-Tools v2026.1, Vulkan SDK 1.4.341.1) assembles ../rust/in/spv/*.spvasm into spv/*.spv at --target-env spv1.6",
-    "note": "Regenerated at the vendored commit by TEST-CORPUS-001 (IR for the Rust corpus shaders without an IR target; ptr-deref-test outputs verified byte-identical). spv/*.spv regenerated from the vendored assembly at the same commit by P2-TEST-017; TestSPVCorpusBinaries checks one binary per .spvasm and the SPIR-V magic."
+    "generator": "Rust naga: WGSL front end; IR as RON (PrettyConfig, LF) before and after compact(KeepUnused::No) (docs tool ir_dump); ptr-deref-test outputs from the snapshot driver (convert_snapshots_wgsl); spirv-as (SPIRV-Tools v2026.1, Vulkan SDK 1.4.341.1) assembles ../rust/in/spv/*.spvasm into spv/*.spv at --target-env spv1.6; row-major/* from our own GLSL fixtures: glslc (Vulkan SDK 1.4.341.1) compiles in/spv/*.glsl into spv/*.spv at --target-env vulkan1.1, and a driver over Rust naga at this commit writes out/{msl,hlsl,glsl}/* (row-major/PROVENANCE.md)",
+    "note": "Regenerated at the vendored commit by TEST-CORPUS-001 (IR for the Rust corpus shaders without an IR target; ptr-deref-test outputs verified byte-identical). spv/*.spv regenerated from the vendored assembly at the same commit by P2-TEST-017; TestSPVCorpusBinaries checks one binary per .spvasm and the SPIR-V magic. P3-TEST-018 adds the row-major corpus with its own PROVENANCE.md."
   },
   "files": [
     {
@@ -1593,6 +1593,121 @@
       "path": "out/spv/wgsl-ptr-deref-test.spvasm",
       "sha256": "f4bbbea17c708a55e97e14a031b964f05cfc0e2b63f77f0e4f82184a015e55b8",
       "gitBlob": "d88b35b0ba00c131d9d1c47e4fe8d37cc9e8fa96"
+    },
+    {
+      "path": "row-major/PROVENANCE.md",
+      "sha256": "bdece6b7a735d984fa02b118394cfc08dee0d35a42b8f918f39d4a1d05e0a1b9",
+      "gitBlob": "4d0dcbff4324c98b4ac4ac7f66903d7720ca395c"
+    },
+    {
+      "path": "row-major/in/spv/rm-array-element.glsl",
+      "sha256": "a199870df82b455c250fd2ad97a6d3eb37d5b6bf0e9fe9c576b2657c84909f88",
+      "gitBlob": "4987c698d100cef91ccfb5a9991cbda8be0bf47e"
+    },
+    {
+      "path": "row-major/in/spv/rm-column.glsl",
+      "sha256": "828bf95e4bbc049c4ec2c731d94cb328394e709f4a136ed9d8fe86081553c837",
+      "gitBlob": "1ec0563722356f3db7849b96de0e24218f7803a1"
+    },
+    {
+      "path": "row-major/in/spv/rm-member.glsl",
+      "sha256": "5b6c1cd8b4cefcc997ed55cdd50f3ec97a867171a375bdbc79eb39c4993f4ed7",
+      "gitBlob": "a227c3904b6c8401b51e99f7360471fdf369beec"
+    },
+    {
+      "path": "row-major/in/spv/rm-store.glsl",
+      "sha256": "743cb3c5a7eb53402e5dc52d9421516da5a3240dd47e95f2f813a477b735db69",
+      "gitBlob": "c60c071f61b1e4f9eb574db3c3234703b547f5a5"
+    },
+    {
+      "path": "row-major/in/spv/rm-whole-array.glsl",
+      "sha256": "a15ae3064fdbc3c0dc0a6af0574f78913e9dbf15798bb5c27f2953ecc55c80ad",
+      "gitBlob": "f792615c297275cba8cb6cfb32e2269734f0a411"
+    },
+    {
+      "path": "row-major/out/glsl/rm-array-element.glsl",
+      "sha256": "03b862f2412ef3dba088717d4ecb7e5262d1d549fb734b5ffdab4b2629a7dadf",
+      "gitBlob": "249852216bc5f2e9f3c9e05b0888ddb933ed0f0b"
+    },
+    {
+      "path": "row-major/out/glsl/rm-column.glsl",
+      "sha256": "ad9fef3e1e1a75e6acd9c67a739843fd42048ed5b960bada49369e58d3b2ff80",
+      "gitBlob": "d3839a65018cd2241ddb99506cc0c86ca097acd2"
+    },
+    {
+      "path": "row-major/out/glsl/rm-member.glsl",
+      "sha256": "e60ed8f585d710d8508c17a63c6e6b4b8877fdc7f1044621c326835b41f85c83",
+      "gitBlob": "224caf7d112e7f97f122ce32c08d57046cc991a4"
+    },
+    {
+      "path": "row-major/out/glsl/rm-whole-array.glsl",
+      "sha256": "3cdcd61c04d783b31780e3170433fed3b1b13eb4a9c47bb6cf60bdd21dc101a9",
+      "gitBlob": "9e3f21abad028fb09377dfbf62a7f8b19441cc11"
+    },
+    {
+      "path": "row-major/out/hlsl/rm-array-element.hlsl",
+      "sha256": "926ab2bbbbacf7f79329283d5aff8fceb5f7d62ca51ce07eda70f93ac48c30a2",
+      "gitBlob": "d87df10b6a753a89bc7e7f2603a090d63f79d02c"
+    },
+    {
+      "path": "row-major/out/hlsl/rm-column.hlsl",
+      "sha256": "962bd4b2ef764d04aeb2e6777b1763d3b724388d5d5cc8fe0c36824e16a023a8",
+      "gitBlob": "777f55405aa9ea5ae2b873530cf001acc4080d53"
+    },
+    {
+      "path": "row-major/out/hlsl/rm-member.hlsl",
+      "sha256": "456293fa4046419ef144a05e239837ebbc0a73d946ec3855e5744cdac9cd1adc",
+      "gitBlob": "cb1471803ef6d1c425aa572172209493072f97a0"
+    },
+    {
+      "path": "row-major/out/hlsl/rm-whole-array.hlsl",
+      "sha256": "0a2d56d6026e21f528a26ce997ad08c936179ad1d48c0e15143eaaa823a3efd9",
+      "gitBlob": "c2ccb006bc867fb4509ea0f0233bb22bb1958a4e"
+    },
+    {
+      "path": "row-major/out/msl/rm-array-element.metal",
+      "sha256": "d654d9355f0b9e9ec5100a8661a08f8c9d4329831a32e7333dfdb46c2c18671e",
+      "gitBlob": "6d5d893aae4959d7b9eb0d21b732186a4e7d59d3"
+    },
+    {
+      "path": "row-major/out/msl/rm-column.metal",
+      "sha256": "14582d8dd64f94710c9eb3cc1478cd610edb68a360061aa3482726271a5e6eb7",
+      "gitBlob": "0764738c5778c86218fbdaff13a4e82e6af3a113"
+    },
+    {
+      "path": "row-major/out/msl/rm-member.metal",
+      "sha256": "ca42e314be559838d6a0f1e0c4eff3bf7fbf20b777fde9407aa6dd7a1570e89f",
+      "gitBlob": "d999bf883831de772fc49a538976f110c6c7237d"
+    },
+    {
+      "path": "row-major/out/msl/rm-whole-array.metal",
+      "sha256": "1d23ab16eade30c8f69381212a97ea81c0f4f812365287525cefee113cd7e4f7",
+      "gitBlob": "9ce9bc2434af22d8941cc3f035077606892a101a"
+    },
+    {
+      "path": "row-major/spv/rm-array-element.spv",
+      "sha256": "157e52d8b7bd9fedeedba963a96bfb6ce7a771ad87956963c183d742ba9d6ff5",
+      "gitBlob": "b60b67eafc05604015ebf2c8cd93e868120b3a65"
+    },
+    {
+      "path": "row-major/spv/rm-column.spv",
+      "sha256": "e411b0529988d65d45c72a2bd4424db77f1d325871678075df11128e00a5be0f",
+      "gitBlob": "78a7296890a234a386dc8509f5b212e91cc7335b"
+    },
+    {
+      "path": "row-major/spv/rm-member.spv",
+      "sha256": "e9e80b2c5af9a0d05a9299e75ef5c8d80528b263c52b9c9ff22bb29e22a4b962",
+      "gitBlob": "281e516757a4f9c1064bcd2865ed64527d224c68"
+    },
+    {
+      "path": "row-major/spv/rm-store.spv",
+      "sha256": "5be0515d4c268aa3d0e475d79cd85dd8bfd035105b8a740a4a61b8e7f4ac1ace",
+      "gitBlob": "aec46a2db225c84eca4b31e148afa8a475543615"
+    },
+    {
+      "path": "row-major/spv/rm-whole-array.spv",
+      "sha256": "78b97abebe9b3adce67abdeebaf1b1497ff26e49e126d75aa10029873360938b",
+      "gitBlob": "6052ed223cc1ff319b9a639d0c7e32f019ecc17c"
     },
     {
       "path": "spv/8151-barrier-reorder.spv",

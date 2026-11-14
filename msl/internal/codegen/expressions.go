@@ -622,28 +622,35 @@ func (w *Writer) writeAccess(access ir.ExprAccess) error {
 	return nil
 }
 
-// writeAccessIndex_restricted writes an index expression, applying Restrict bounds
-// clamping if the active bounds check policy requires it.
+// writeAccessIndex_restricted writes a dynamic index expression, applying
+// Restrict bounds clamping if the active bounds check policy requires it.
 // Uses currentAccessPolicy if set (from writeLoad), otherwise determines policy
 // from the base expression's address space (for direct value accesses).
 func (w *Writer) writeAccessIndex_restricted(baseHandle ir.ExpressionHandle, indexHandle ir.ExpressionHandle) error {
-	policy := w.accessPolicy(baseHandle)
-	if policy == backend.BoundsCheckRestrict {
-		if maxIndex, needsRestrict := w.accessNeedsRestrict(baseHandle, indexHandle); needsRestrict {
-			return w.writeRestrictedIndex(indexHandle, maxIndex)
-		}
+	if w.accessPolicy(baseHandle) != backend.BoundsCheckRestrict {
+		return w.writeExpression(indexHandle)
+	}
+	length, ok := w.indexableLength(baseHandle)
+	if !ok || length == 0 {
 		// Fallback: try to get length from the original type in the module.
 		// When type resolution doesn't produce the right array type (e.g., it resolves to the
 		// runtime-sized array instead of the fixed-size one), try resolving by traversing
 		// the expression tree to find the actual array type.
-		if length, ok := w.indexableLengthDeep(baseHandle); ok && length > 0 {
+		length, ok = w.indexableLengthDeep(baseHandle)
+	}
+	if ok && length > 0 {
+		// A constant index known to be in bounds needs no clamp (Rust naga's
+		// access_needs_check resolves the index first); any other index, and
+		// a constant one out of bounds, is clamped to length-1.
+		if val, constant := w.indexConstantValue(indexHandle); !constant || val >= length {
 			return w.writeRestrictedIndex(indexHandle, length-1)
 		}
-		if w.isRuntimeSizedArrayBase(baseHandle) {
-			return w.writeRestrictedRuntimeArrayIndex(baseHandle, func() error {
-				return w.writeExpression(indexHandle)
-			})
-		}
+		return w.writeExpression(indexHandle)
+	}
+	if w.isRuntimeSizedArrayBase(baseHandle) {
+		return w.writeRestrictedRuntimeArrayIndex(baseHandle, func() error {
+			return w.writeExpression(indexHandle)
+		})
 	}
 	return w.writeExpression(indexHandle)
 }
@@ -3856,24 +3863,50 @@ func (w *Writer) typeInnerLength(inner ir.TypeInner) (uint32, bool) {
 	return 0, false
 }
 
-// accessNeedsRestrict checks if a dynamic access needs Restrict bounds clamping.
-// Returns (maxIndex, true) if clamping is needed.
-// If the index is a constant known to be in bounds, returns (0, false).
-func (w *Writer) accessNeedsRestrict(baseHandle ir.ExpressionHandle, indexHandle ir.ExpressionHandle) (uint32, bool) {
-	length, ok := w.indexableLength(baseHandle)
-	if !ok || length == 0 {
+// indexConstantValue resolves an index expression to its integer value the way
+// Rust naga's get_const_val_from does (proc/mod.rs): a literal, a module
+// constant whose init is a literal or a scalar zero value, or a scalar zero
+// value expression. The integer kinds and the negative-index rule are the
+// ones of Rust's TryFrom<Literal> for u32, which literalAsUint mirrors.
+func (w *Writer) indexConstantValue(handle ir.ExpressionHandle) (uint32, bool) {
+	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
 		return 0, false
 	}
-	// Check if the index is a known constant that's in bounds.
-	if w.currentFunction != nil && int(indexHandle) < len(w.currentFunction.Expressions) {
-		idx := &w.currentFunction.Expressions[indexHandle]
-		if lit, ok := idx.Kind.(ir.Literal); ok {
-			if val, ok := w.literalAsUint(lit); ok && val < length {
-				return 0, false // Statically in bounds, no check needed.
+	kind := w.currentFunction.Expressions[handle].Kind
+	if c, ok := kind.(ir.ExprConstant); ok {
+		if int(c.Constant) >= len(w.module.Constants) {
+			return 0, false
+		}
+		init := w.module.Constants[c.Constant].Init
+		if int(init) >= len(w.module.GlobalExpressions) {
+			return 0, false
+		}
+		kind = w.module.GlobalExpressions[init].Kind
+	}
+	switch k := kind.(type) {
+	case ir.Literal:
+		return w.literalAsUint(k)
+	case ir.ExprZeroValue:
+		if int(k.Type) < len(w.module.Types) {
+			if scalar, ok := w.module.Types[k.Type].Inner.(ir.ScalarType); ok {
+				return zeroIntegerValue(scalar)
 			}
 		}
 	}
-	return length - 1, true
+	return 0, false
+}
+
+// zeroIntegerValue reports whether a scalar type's zero is an integer literal
+// literalAsUint accepts, and that zero value.
+func zeroIntegerValue(scalar ir.ScalarType) (uint32, bool) {
+	switch scalar.Kind {
+	case ir.ScalarSint, ir.ScalarUint:
+		switch scalar.Width {
+		case 2, 4:
+			return 0, true
+		}
+	}
+	return 0, false
 }
 
 // accessIndexNeedsRestrict checks if a constant index access needs Restrict bounds clamping.

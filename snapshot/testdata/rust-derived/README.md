@@ -12,6 +12,9 @@ Reference outputs that upstream does not commit, produced by running
 - `spv/<name>.spv` — the vendored `../rust/in/spv/<name>.spvasm` assembled
   with `spirv-as`, one binary per assembly file, so a parse test needs no
   external tool. The vendored tree itself stays verbatim.
+- `row-major/` — our own row-major matrix fixtures for the SPIR-V frontend:
+  GLSL sources, the SPIR-V compiled from them, and Rust naga's MSL, HLSL and
+  GLSL output. See `row-major/PROVENANCE.md`.
 
 **Do not edit files in this directory.** They are listed in `MANIFEST.json` and
 checked by `TestRustCorpusIntegrity`; regenerate them with Rust naga and rewrite

@@ -55,6 +55,20 @@ The projective sample of an arrayed image still drops the projection term and th
   (`all` by default, as Rust's CLI), and text backends intersect it with their supported list, so a module the
   target cannot express is refused before its writer runs. The command also prints the frontend's warnings and a
   SPIR-V parse error's byte offset.
+- **Row-major corpus with Rust outputs** (P3-TEST-018): five SPIR-V fixtures — a member read, a column read, an
+  element of an array member, the whole array passed to a function, and the refused store — with Rust naga's MSL,
+  HLSL and GLSL outputs as goldens. `TestRowMajorCorpus` compares all three text backends byte for byte after the
+  expression-name normalization, and pins the store's refusal as that fixture's expected result (P3-SPVIN-007).
+  Sources, the exact `glslc` command and the driver's options: `snapshot/testdata/rust-derived/row-major/PROVENANCE.md`.
+
+### Fixed
+
+- **Restrict bounds clamping skips a constant index in bounds** (found by the row-major corpus): the MSL writer
+  clamped a dynamic index expression whose value was a constant — a literal, a module constant or a scalar zero
+  value — even when it was provably in bounds, writing `m.inner[metal::min(unsigned(1), 1u)]` where Rust naga
+  writes `m.inner[1]`; when the length was resolved only by walking the access chain (a row-major member), the
+  clamp was added unconditionally. The decision now resolves the index the way Rust naga's `access_needs_check`
+  does and clamps with the resolved length.
 
 ## [0.21.12] - 2026-11-13
 
