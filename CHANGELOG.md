@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.1] - 2026-11-14
+
+The SPIR-V input frontend's Phase 3 follow-ups: a store through a row-major matrix member is translated instead of
+refused, a projected sample of an arrayed image takes the array layer and the projection from the right components,
+the storage-expression budget counts every expression it charges for, and the post-parse errors report the
+declaration they refuse.
 
 ### Added
 
@@ -4235,7 +4240,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.1...HEAD
+[0.22.1]: https://github.com/gogpu/naga/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/gogpu/naga/compare/v0.21.12...v0.22.0
 [0.21.12]: https://github.com/gogpu/naga/compare/v0.21.11...v0.21.12
 [0.21.11]: https://github.com/gogpu/naga/compare/v0.21.10...v0.21.11

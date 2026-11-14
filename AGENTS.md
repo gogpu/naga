@@ -1,6 +1,6 @@
 # AGENTS.md — naga
 
-> Pure Go shader compiler (~329K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
+> Pure Go shader compiler (~330K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
 
 ## What is naga
 
