@@ -872,15 +872,29 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		}
 	}
 
+	// @coherent and @volatile, which Rust naga's WGSL frontend parses into the
+	// variable's memory decorations (front/wgsl/parse/mod.rs:2033-2040); the
+	// validator requires the storage address space for them.
+	var memoryDecorations ir.MemoryDecorations
+	for _, attr := range v.Attributes {
+		switch attr.Name {
+		case "coherent":
+			memoryDecorations |= ir.MemoryCoherent
+		case "volatile":
+			memoryDecorations |= ir.MemoryVolatile
+		}
+	}
+
 	handle := ir.GlobalVariableHandle(l.globalIdx)
 	l.globalIdx++
 	l.module.GlobalVariables = append(l.module.GlobalVariables, ir.GlobalVariable{
-		Name:     v.Name,
-		Space:    space,
-		Binding:  binding,
-		Type:     typeHandle,
-		InitExpr: initExpr,
-		Access:   accessMode,
+		Name:              v.Name,
+		Space:             space,
+		Binding:           binding,
+		Type:              typeHandle,
+		InitExpr:          initExpr,
+		Access:            accessMode,
+		MemoryDecorations: memoryDecorations,
 	})
 	l.globals[v.Name] = handle
 	return nil

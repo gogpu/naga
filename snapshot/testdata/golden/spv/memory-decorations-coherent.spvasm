@@ -15,6 +15,7 @@
                OpMemberDecorate %_5 0 Offset 0
                OpDecorate %_7 DescriptorSet 0
                OpDecorate %_7 Binding 0
+               OpDecorate %_7 Coherent
                OpDecorate %_8 DescriptorSet 0
                OpDecorate %_8 Binding 1
          %_2 = OpTypeVoid

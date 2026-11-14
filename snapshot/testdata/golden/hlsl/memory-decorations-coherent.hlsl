@@ -1,4 +1,4 @@
-RWByteAddressBuffer coherent_buf : register(u0);
+globallycoherent RWByteAddressBuffer coherent_buf : register(u0);
 RWByteAddressBuffer plain_buf : register(u1);
 
 [numthreads(1, 1, 1)]

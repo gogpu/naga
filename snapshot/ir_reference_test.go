@@ -185,8 +185,6 @@ const (
 	reasonIRTypeOrder = "type arena order: Rust registers a component type (the scalar of atomic<T> / vecN<T>, " +
 		"the image of binding_array<texture>) before the type containing it, we register the containing type " +
 		"first; the type handles that follow shift"
-	reasonIRMemoryDecorations = "@coherent / @volatile memory decorations are not supported: our IR has no " +
-		"GlobalVariable.memory_decorations"
 )
 
 // irReferenceDeviations is keyed by "<shader>" (TestIRReference) and
@@ -240,14 +238,6 @@ var irReferenceDeviations = map[string]irDeviation{
 		Fingerprint: "48e4b2d2ba92d2220fbd81115a1a60114cbab28568ab0643578922acf5e3656d"}, // 7 differences
 	"const-exprs.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "ecd6356542af727dca3ff90215aac0eb12473f5ce76e54d5e14a3d74bf17323e"}, // 6 differences
-	"memory-decorations": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
-		Fingerprint: "e30a7b4a1de2f36d09933d384cbfa2d119410c7a3f42220c6580fb1df5d445f3"}, // 3 differences
-	"memory-decorations-coherent": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
-		Fingerprint: "c20a228edf00ac278844c09216ed06af20174776efb577017e1f3cfb0ff6deb4"}, // 1 differences
-	"memory-decorations-coherent.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
-		Fingerprint: "c20a228edf00ac278844c09216ed06af20174776efb577017e1f3cfb0ff6deb4"}, // 1 differences
-	"memory-decorations.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
-		Fingerprint: "e30a7b4a1de2f36d09933d384cbfa2d119410c7a3f42220c6580fb1df5d445f3"}, // 3 differences
 	"overrides-atomicCompareExchangeWeak": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "263008a96abf44627f69b83c48b392338a534e7839ffa1f5b32631bbe27fbd96"}, // 5 differences
 	"overrides-atomicCompareExchangeWeak.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
@@ -447,11 +437,15 @@ func compareIRStructure(rust *ronModule, ours *ir.Module) []string {
 		diffs = append(diffs, fmt.Sprintf("entry_points: rust=%d go=%d", len(rust.EntryPoints), len(ours.EntryPoints)))
 	}
 
-	// Fields our IR does not model: a set value cannot match our module.
+	// Memory decorations are modeled now: compare them in Rust's RON spelling.
 	for i, gv := range rust.GlobalVariables {
-		if gv.MemoryDecorations != "" {
-			diffs = append(diffs, fmt.Sprintf("global_variables[%d].memory_decorations: rust=%q, our IR has none",
-				i, gv.MemoryDecorations))
+		if i >= len(ours.GlobalVariables) {
+			break
+		}
+		oursDecorations := memoryDecorationsString(ours.GlobalVariables[i].MemoryDecorations)
+		if gv.MemoryDecorations != oursDecorations {
+			diffs = append(diffs, fmt.Sprintf("global_variables[%d].memory_decorations: rust=%q go=%q",
+				i, gv.MemoryDecorations, oursDecorations))
 		}
 	}
 	for i, ep := range rust.EntryPoints {
@@ -584,6 +578,20 @@ func typeInnerTag(t ir.Type) string {
 	default:
 		return fmt.Sprintf("Unknown(%T)", t.Inner)
 	}
+}
+
+// memoryDecorationsString prints memory decorations in Rust's RON spelling:
+// "COHERENT", "VOLATILE" or "COHERENT | VOLATILE"; empty for none.
+func memoryDecorationsString(decorations ir.MemoryDecorations) string {
+	switch decorations {
+	case ir.MemoryCoherent:
+		return "COHERENT"
+	case ir.MemoryVolatile:
+		return "VOLATILE"
+	case ir.MemoryCoherent | ir.MemoryVolatile:
+		return "COHERENT | VOLATILE"
+	}
+	return ""
 }
 
 // Helper to parse shader name from RON file

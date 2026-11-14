@@ -149,6 +149,11 @@ var dxilKnownFailures = map[string]string{
 	"texture-external/fragment_main":      "P1-DXIL-056",
 	"texture-external/vertex_main":        "P1-DXIL-056",
 
+	// Refused by the capability check: the WGSL frontend now carries
+	// @coherent/@volatile into the IR, and DXIL has no lowering for them.
+	"memory-decorations/main":          "P3-DXIL-114",
+	"memory-decorations-coherent/main": "P3-DXIL-114",
+
 	// Refused by the capability check (dxil.SupportedCapabilities): DXIL has
 	// no float atomics (atomicOps-float32); the emitter does not set
 	// ForceEarlyDepthStencil yet, so @early_depth_test(force) is refused.

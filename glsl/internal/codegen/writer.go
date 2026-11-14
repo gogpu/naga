@@ -1490,6 +1490,15 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 	if !global.Access.Contains(ir.StorageAccessStore) {
 		readOnly = "readonly "
 	}
+	// A coherent or volatile storage buffer carries its qualifier after the
+	// access one, as Rust naga writes it (back/glsl/writer.rs:705-713).
+	decorations := ""
+	if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+		decorations += "coherent "
+	}
+	if global.MemoryDecorations.Contains(ir.MemoryVolatile) {
+		decorations += "volatile "
+	}
 
 	// Check if this is a struct type
 	if int(global.Type) < len(w.module.Types) {
@@ -1498,7 +1507,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 			// Non-dynamic structs: { StructType instance; }
 			isDynamic := len(st.Members) > 0 && w.isDynamicallySized(st.Members[len(st.Members)-1].Type)
 			if isDynamic {
-				w.WriteLine("%s%sbuffer %s {", layoutPrefix, readOnly, blockName)
+				w.WriteLine("%s%s%sbuffer %s {", layoutPrefix, readOnly, decorations, blockName)
 				w.PushIndent()
 				for memberIdx, member := range st.Members {
 					baseType := w.getBaseTypeName(member.Type)
@@ -1509,7 +1518,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 				w.PopIndent()
 				w.WriteLine("} %s;", instanceName)
 			} else {
-				w.WriteLine("%s%sbuffer %s { %s %s; };", layoutPrefix, readOnly, blockName, typeName, instanceName)
+				w.WriteLine("%s%s%sbuffer %s { %s %s; };", layoutPrefix, readOnly, decorations, blockName, typeName, instanceName)
 			}
 			// Record for runtime binding fallback (GL < 4.2).
 			if global.Binding != nil {
@@ -1526,7 +1535,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 	// Non-struct storage buffer — use C-style array declarations
 	baseType := w.getBaseTypeName(global.Type)
 	arraySuffix := w.getArraySuffix(global.Type)
-	w.WriteLine("%s%sbuffer %s { %s %s%s; };", layoutPrefix, readOnly, blockName, baseType, instanceName, arraySuffix)
+	w.WriteLine("%s%s%sbuffer %s { %s %s%s; };", layoutPrefix, readOnly, decorations, blockName, baseType, instanceName, arraySuffix)
 	// Record for runtime binding fallback (GL < 4.2).
 	if global.Binding != nil {
 		w.uniformInfos = append(w.uniformInfos, UniformInfo{
