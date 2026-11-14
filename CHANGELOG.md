@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The SPIR-V input frontend gains the last things the 0.21.12 notes said were still to come: row-major matrix
-members, SPIR-V input on the command line, and the empty-name distinction. Coherent and Volatile survive the
-round trip too, so the recorded limits on row-major access, memory decorations, `nagac --from-spirv` and empty
-names no longer hold. The projective sample of an arrayed image still drops the projection term and the array
-layer (P3-SPVIN-004).
+The SPIR-V input frontend gains the things the 0.21.12 notes said were still to come: row-major matrix members
+(reads; a store through one is refused with a clear error until the spec-correct store lands, P3-SPVIN-007),
+SPIR-V input on the command line, the Coherent/Volatile memory decorations end to end — the SPIR-V frontend, the
+WGSL attributes, the writers and the validator's capability model — and the empty-name distinction. So the
+recorded limits on row-major access, memory decorations, `nagac --from-spirv` and empty names no longer hold.
+The projective sample of an arrayed image still drops the projection term and the array layer (P3-SPVIN-004).
 
 ### Added
 
@@ -27,7 +28,12 @@ layer (P3-SPVIN-004).
   matrix member side-loads the transposed value — Rust naga's `lookup_load_override` — and the load of that
   pointer yields it instead of reading the column-major layout. Covers the member itself, a column inside it,
   and an element of an array of row-major matrices. Loading the whole array of row-major matrices keeps Rust's
-  plain-load behaviour (its `Pending` override is unused there), pinned by a test that names it.
+  plain-load behaviour (its `Pending` override is unused there), pinned by a test that names it. Reads work;
+  a store through a row-major matrix is refused with a clear error (`a store through a row-major matrix is not
+  supported`): the IR has no transposed store, and Rust naga writes it untransposed, a miscompile rather than a
+  behaviour to port (card P3-SPVIN-007). A column index that is not a constant inside a row-major matrix is
+  refused (`invalid access`): the IR has no dynamic transposed access, and Rust's frontend requires the constant
+  too.
 - **`nagac -from-spirv` and `-backend`**: the command reads a SPIR-V binary through `spirv.Parse` and emits
   SPIR-V (the default), MSL, HLSL or GLSL; WGSL input can target the same backends. Both frontends share the
   parse, validation and pipeline-constants path, and the terminal guard now covers only the binary output. The
@@ -39,6 +45,16 @@ layer (P3-SPVIN-004).
   `valid.CapMemoryDecorationCoherent`/`valid.CapMemoryDecorationVolatile` capabilities with Rust naga's error
   texts. Public API additions: the `MemoryDecorations` field on a public IR type, and the two capability
   constants.
+- **`@coherent` and `@volatile` travel from WGSL to every writer**: the WGSL frontend keeps the attributes in
+  `GlobalVariable.MemoryDecorations` (it used to parse and drop them), the MSL writer emits `coherent device`,
+  HLSL `globallycoherent`, GLSL `coherent`/`volatile`, and the SPIR-V writer emits both decorations, as Rust
+  naga's writers do. The validator's capability model reads the field, so `MissingCapabilities` is honest, and
+  the backend supported lists mirror Rust's: MSL and HLSL allow Coherent only, so a volatile module is refused
+  for them; GLSL and SPIR-V allow both.
+- **`nagac -capabilities`**: the input is validated against a comma-separated list of Rust capability flag names
+  (`all` by default, as Rust's CLI), and text backends intersect it with their supported list, so a module the
+  target cannot express is refused before its writer runs. The command also prints the frontend's warnings and a
+  SPIR-V parse error's byte offset.
 
 ## [0.21.12] - 2026-11-13
 
