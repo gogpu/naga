@@ -4,15 +4,17 @@
 //
 //	nagac [options] <input>
 //
-// Options must come before the input file: Go's flag package stops parsing at
-// the first non-flag argument, so nagac rejects anything that follows the input
-// file instead of silently ignoring it.
+// The input is WGSL, or a SPIR-V binary with -from-spirv. Options must come
+// before the input file: Go's flag package stops parsing at the first non-flag
+// argument, so nagac rejects anything that follows the input file instead of
+// silently ignoring it.
 //
 // Examples:
 //
-//	nagac shader.wgsl                    # Compile to SPIR-V on stdout (not to a terminal)
-//	nagac -o shader.spv shader.wgsl      # Compile to SPIR-V in a file
-//	nagac -debug -o shader.spv shader.wgsl  # Compile with debug info
+//	nagac shader.wgsl                          # Compile to SPIR-V on stdout (not to a terminal)
+//	nagac -o shader.spv shader.wgsl            # Compile to SPIR-V in a file
+//	nagac -backend msl shader.wgsl             # Translate WGSL to Metal Shading Language
+//	nagac -from-spirv -backend msl shader.spv  # Translate a SPIR-V binary to MSL
 package main
 
 import (
@@ -25,7 +27,13 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // Exit statuses. A command line the tool cannot interpret is a usage error
@@ -34,6 +42,15 @@ const (
 	exitOK      = 0
 	exitFailure = 1
 	exitUsage   = 2
+)
+
+// The output backends -backend accepts. The zero value of the flag is
+// backendSPIRV, the tool's historical output.
+const (
+	backendSPIRV = "spirv"
+	backendMSL   = "msl"
+	backendHLSL  = "hlsl"
+	backendGLSL  = "glsl"
 )
 
 // version returns the module version from build info.
@@ -74,9 +91,11 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() { usage(fs, stderr) }
 	output := fs.String("o", "", "output file (default: stdout)")
-	debugFlag := fs.Bool("debug", false, "include debug info")
+	debugFlag := fs.Bool("debug", false, "include debug info in the SPIR-V output")
 	validate := fs.Bool("validate", true, "validate IR")
 	versionFlag := fs.Bool("version", false, "print version")
+	fromSPIRV := fs.Bool("from-spirv", false, "read the input as a SPIR-V binary instead of WGSL")
+	backendName := fs.String("backend", backendSPIRV, "output backend: spirv, msl, hlsl or glsl")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -103,7 +122,13 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 	}
 	inputPath := rest[0]
 
-	if *output == "" && stdoutIsTerminal {
+	if !knownBackend(*backendName) {
+		sayf(stderr, "nagac: unknown backend %q; use spirv, msl, hlsl or glsl\n", *backendName)
+		return exitUsage
+	}
+	// The SPIR-V output is a binary; a terminal would garble it. A text
+	// backend may write to one.
+	if *backendName == backendSPIRV && *output == "" && stdoutIsTerminal {
 		sayf(stderr, "nagac: refusing to write binary SPIR-V to a terminal; use -o <file> or redirect stdout\n")
 		return exitUsage
 	}
@@ -114,40 +139,128 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 		return exitFailure
 	}
 
-	opts := naga.CompileOptions{
-		SPIRV:          spirv.Options{Version: spirv.Version1_3, Debug: *debugFlag},
-		SkipValidation: !*validate,
+	module, err := parseInput(source, *fromSPIRV)
+	if err != nil {
+		sayf(stderr, "Compilation error: %v\n", err)
+		return exitFailure
 	}
-	spirvBytes, err := naga.CompileWithOptions(string(source), opts)
+	var info valid.ModuleInfo
+	if *validate {
+		info, err = valid.Validate(module, valid.Options{})
+		if err != nil {
+			sayf(stderr, "Compilation error: validation failed: %v\n", err)
+			return exitFailure
+		}
+	}
+	module, _, err = naga.ProcessOverrides(module, info, naga.OverrideOptions{})
+	if err != nil {
+		sayf(stderr, "Compilation error: pipeline constants: %v\n", err)
+		return exitFailure
+	}
+
+	data, err := emit(module, *backendName, *debugFlag)
 	if err != nil {
 		sayf(stderr, "Compilation error: %v\n", err)
 		return exitFailure
 	}
 
-	if *output != "" {
-		if err := os.WriteFile(*output, spirvBytes, 0o644); err != nil {
+	return writeOutput(inputPath, *output, data, stdout, stderr)
+}
+
+// writeOutput writes the compiled data to the output file, or to stdout when
+// no file was given.
+func writeOutput(inputPath, outputPath string, data []byte, stdout, stderr io.Writer) int {
+	if outputPath != "" {
+		if err := os.WriteFile(outputPath, data, 0o644); err != nil {
 			sayf(stderr, "Error writing output: %v\n", err)
 			return exitFailure
 		}
-		sayf(stdout, "Successfully compiled %s to %s (%d bytes)\n", inputPath, *output, len(spirvBytes))
+		sayf(stdout, "Successfully compiled %s to %s (%d bytes)\n", inputPath, outputPath, len(data))
 		return exitOK
 	}
-	if _, err := stdout.Write(spirvBytes); err != nil {
+	if _, err := stdout.Write(data); err != nil {
 		sayf(stderr, "Error writing output: %v\n", err)
 		return exitFailure
 	}
 	return exitOK
 }
 
+// parseInput reads the input with the selected frontend: the SPIR-V binary
+// parser, or the WGSL parser, whose errors name the source location.
+func parseInput(source []byte, fromSPIRV bool) (*ir.Module, error) {
+	if fromSPIRV {
+		module, _, err := spirv.Parse(source, spirv.ParseOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("spirv: %w", err)
+		}
+		return module, nil
+	}
+	module, _, err := wgsl.Parse(string(source), wgsl.ParseOptions{})
+	if err != nil {
+		var parseErr *wgsl.ParseError
+		if errors.As(err, &parseErr) {
+			if loc, ok := parseErr.Location(string(source)); ok {
+				return nil, fmt.Errorf("wgsl:%d:%d: %w", loc.Line, loc.Column, err)
+			}
+		}
+		return nil, fmt.Errorf("wgsl: %w", err)
+	}
+	return module, nil
+}
+
+// knownBackend reports whether name is one of the output backends.
+func knownBackend(name string) bool {
+	switch name {
+	case backendSPIRV, backendMSL, backendHLSL, backendGLSL:
+		return true
+	}
+	return false
+}
+
+// emit translates the module with the selected backend. The zero value of
+// every text backend's options is the default the library documents; the
+// SPIR-V output keeps the version nagac has always written.
+func emit(module *ir.Module, backendName string, emitDebug bool) ([]byte, error) {
+	switch backendName {
+	case backendSPIRV:
+		data, _, err := spirv.Compile(module, spirv.Options{Version: spirv.Version1_3, Debug: emitDebug})
+		if err != nil {
+			return nil, fmt.Errorf("SPIR-V generation error: %w", err)
+		}
+		return data, nil
+	case backendMSL:
+		text, _, err := msl.Compile(module, msl.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("MSL generation error: %w", err)
+		}
+		return []byte(text), nil
+	case backendHLSL:
+		text, _, err := hlsl.Compile(module, hlsl.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("HLSL generation error: %w", err)
+		}
+		return []byte(text), nil
+	case backendGLSL:
+		text, _, err := glsl.Compile(module, glsl.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("GLSL generation error: %w", err)
+		}
+		return []byte(text), nil
+	}
+	return nil, fmt.Errorf("unknown backend %q", backendName)
+}
+
 func usage(fs *flag.FlagSet, w io.Writer) {
-	sayf(w, "Usage: nagac [options] <input.wgsl>\n\n")
+	sayf(w, "Usage: nagac [options] <input>\n\n")
+	sayf(w, "The input is WGSL, or a SPIR-V binary with -from-spirv.\n\n")
 	sayf(w, "Options come before the input file.\n\n")
 	sayf(w, "Options:\n")
 	fs.PrintDefaults()
 	sayf(w, "\nExamples:\n")
-	sayf(w, "  nagac shader.wgsl > shader.spv        Compile to stdout (redirected)\n")
-	sayf(w, "  nagac -o shader.spv shader.wgsl       Compile to file\n")
-	sayf(w, "  nagac -debug -o shader.spv shader.wgsl  Include debug info\n")
+	sayf(w, "  nagac shader.wgsl                          Compile to stdout (redirected)\n")
+	sayf(w, "  nagac -o shader.spv shader.wgsl            Compile to file\n")
+	sayf(w, "  nagac -backend msl shader.wgsl             Translate WGSL to MSL\n")
+	sayf(w, "  nagac -from-spirv -backend msl shader.spv  Translate a SPIR-V binary to MSL\n")
 }
 
 // sayf writes a diagnostic. A failed write to stdout or stderr has nowhere
