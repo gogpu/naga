@@ -1596,8 +1596,8 @@
     },
     {
       "path": "row-major/PROVENANCE.md",
-      "sha256": "bdece6b7a735d984fa02b118394cfc08dee0d35a42b8f918f39d4a1d05e0a1b9",
-      "gitBlob": "4d0dcbff4324c98b4ac4ac7f66903d7720ca395c"
+      "sha256": "a8622fde2222d7cc22388e5974dca68a1a5fad7d092788ec093393b0d486fb99",
+      "gitBlob": "9db026ffbfcc76371664c503b4e01a0dfa0c9b31"
     },
     {
       "path": "row-major/in/spv/rm-array-element.glsl",
@@ -1613,6 +1613,21 @@
       "path": "row-major/in/spv/rm-member.glsl",
       "sha256": "5b6c1cd8b4cefcc997ed55cdd50f3ec97a867171a375bdbc79eb39c4993f4ed7",
       "gitBlob": "a227c3904b6c8401b51e99f7360471fdf369beec"
+    },
+    {
+      "path": "row-major/in/spv/rm-store-column.glsl",
+      "sha256": "87632ffff0181abfcf56c5c5468acae03ed2f565775eb85aca5b95cac7f1640c",
+      "gitBlob": "ce72a01c1561a5105ef1832a2e1eb6da32d71981"
+    },
+    {
+      "path": "row-major/in/spv/rm-store-element.glsl",
+      "sha256": "e14459acca5390db825162e2f2eb6786fb89f47e33a51c7d35ea12b7346345bc",
+      "gitBlob": "444575346dd918a53a4bc2babd03f1296a6d62b5"
+    },
+    {
+      "path": "row-major/in/spv/rm-store-roundtrip.glsl",
+      "sha256": "2f7656c01e0da4e93f27b437aced3259746eb46cb6b62d46a86eb4dbf914cdc0",
+      "gitBlob": "82904667ed3182840d2ef53d12843bdac20565d0"
     },
     {
       "path": "row-major/in/spv/rm-store.glsl",
@@ -1698,6 +1713,21 @@
       "path": "row-major/spv/rm-member.spv",
       "sha256": "e9e80b2c5af9a0d05a9299e75ef5c8d80528b263c52b9c9ff22bb29e22a4b962",
       "gitBlob": "281e516757a4f9c1064bcd2865ed64527d224c68"
+    },
+    {
+      "path": "row-major/spv/rm-store-column.spv",
+      "sha256": "eecb53af2fcf28012918e57977fb6d4d2f02ba2257b045b8edb81d47d99ca4ff",
+      "gitBlob": "111690915ef8ae4d5b71cd5916471ca6491101b9"
+    },
+    {
+      "path": "row-major/spv/rm-store-element.spv",
+      "sha256": "0877550eb6ff3747b5de5483d7228ea2523d0eb37ca980285405807533032753",
+      "gitBlob": "7e90e76d48f562b6b30344beb4a6fe973008af7f"
+    },
+    {
+      "path": "row-major/spv/rm-store-roundtrip.spv",
+      "sha256": "e2f9f8453fe563caa5ce369773e37222f9d49e8f8b81648e7e0be383c8c4ee00",
+      "gitBlob": "09a65aae45019c0c0ffcf7259bc6e47a156b97da"
     },
     {
       "path": "row-major/spv/rm-store.spv",

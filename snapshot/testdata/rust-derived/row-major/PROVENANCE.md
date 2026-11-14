@@ -1,9 +1,11 @@
 # Row-major matrix corpus — provenance
 
 Fixtures for reads and stores through a `layout(row_major)` matrix, fed to the
-SPIR-V frontend, with Rust naga's output as the reference (card P3-TEST-018).
-Upstream has no such rows: neither the vendored WGSL inputs nor the vendored
-SPIR-V assembly contains a `RowMajor` decoration.
+SPIR-V frontend (cards P3-TEST-018 and P3-SPVIN-007). The reads compare with
+Rust naga's output; the stores have no Rust reference, because Rust miscompiles
+them, and are checked against the SPIR-V spec. Upstream has no such rows:
+neither the vendored WGSL inputs nor the vendored SPIR-V assembly contains a
+`RowMajor` decoration.
 
 | Fixture | What it exercises |
 |---|---|
@@ -12,6 +14,9 @@ SPIR-V assembly contains a `RowMajor` decoration.
 | `rm-array-element` | Reads one matrix of an array member, `data.m[1]`, then a column of it |
 | `rm-whole-array` | Passes the whole row-major array member to a function as a parameter |
 | `rm-store` | Writes the member, `data.m = mat4(1.0)`, through a `std430` buffer |
+| `rm-store-column` | Writes one column, `data.m[2] = vec4(1.0)`, then reads it back |
+| `rm-store-element` | Writes one element, `data.m[1][2] = 1.0`, then reads it back |
+| `rm-store-roundtrip` | Writes the whole member and reads a column of it back |
 
 ## Layout
 
@@ -62,16 +67,24 @@ per-entry-point MSL map with `FakeMissingBindings` (a nil map would take our
 automatic slot numbering, a convenience Rust does not have), the HLSL writer's
 fake bindings, and GLES 3.10 with unchecked bounds for GLSL.
 
-## The store fixture
+## The store fixtures
 
-`rm-store` has no Rust output on purpose. Rust's SPIR-V frontend side-loads a
-`Transpose` for a row-major member on the load path only (the
-`lookup_load_override` map applied in `front/spv/next_block.rs`); its store
+The four `rm-store*` fixtures have no Rust output on purpose. Rust's SPIR-V
+frontend side-loads a `Transpose` for a row-major member on the load path only
+(the `lookup_load_override` map applied in `front/spv/next_block.rs`); its store
 path has no counterpart, so it writes the value untransposed — a miscompile,
-not a reference. Our frontend refuses the store instead (card P3-SPVIN-007), and
-the refusal is this fixture's expected result until the spec-correct store
-lands (SPIR-V spec, `OpStore` through a row-major matrix member stores the
-matrix in row-major order).
+not a reference. Our frontend translates the store spec-correctly (card
+P3-SPVIN-007): the memory of a row-major matrix is the IR's transposed matrix,
+so a whole-matrix store writes `Transpose(value)`, and a column or a single
+element is written per component through the reversed access indices (SPIR-V
+spec, `RowMajor` and `OpStore`). `snapshot/row_major_corpus_test.go` checks
+those shapes, validates the IR and requires every backend to write each
+fixture; there is no text to compare against.
+
+Two store shapes stay refused, each with its own error: a whole array of
+row-major matrices (every element would need its own transpose, which a pointer
+to the array cannot express) and a matrix that is not square (the transpose maps
+the two layouts onto each other only when the row and column counts are equal).
 
 ## Matrix stride
 
