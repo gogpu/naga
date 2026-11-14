@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.0] - 2026-11-14
 
 The SPIR-V input frontend gains the things the 0.21.12 notes said were still to come: row-major matrix members
 (reads; a store through one is refused with a clear error until the spec-correct store lands, P3-SPVIN-007),
@@ -50,7 +50,9 @@ The projective sample of an arrayed image still drops the projection term and th
   HLSL `globallycoherent`, GLSL `coherent`/`volatile`, and the SPIR-V writer emits both decorations, as Rust
   naga's writers do. The validator's capability model reads the field, so `MissingCapabilities` is honest, and
   the backend supported lists mirror Rust's: MSL and HLSL allow Coherent only, so a volatile module is refused
-  for them; GLSL and SPIR-V allow both.
+  for them; GLSL and SPIR-V allow both, and DXIL lists neither, so a module carrying either decoration is
+  refused there until it gets a lowering (card P3-DXIL-114; the two corpus entries are recorded as known
+  failures).
 - **`nagac -capabilities`**: the input is validated against a comma-separated list of Rust capability flag names
   (`all` by default, as Rust's CLI), and text backends intersect it with their supported list, so a module the
   target cannot express is refused before its writer runs. The command also prints the frontend's warnings and a
@@ -4197,7 +4199,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.21.12...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/gogpu/naga/compare/v0.21.12...v0.22.0
 [0.21.12]: https://github.com/gogpu/naga/compare/v0.21.11...v0.21.12
 [0.21.11]: https://github.com/gogpu/naga/compare/v0.21.10...v0.21.11
 [0.21.10]: https://github.com/gogpu/naga/compare/v0.21.9...v0.21.10

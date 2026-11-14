@@ -34,8 +34,8 @@
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` — types, constants, bindings, control flow, calls, images and sampling, atomics, subgroups, combined image samplers |
-| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 238 of 267 entry points pass IDxcValidator (experimental) |
+| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` — types, constants, bindings, control flow, calls, images and sampling, atomics, subgroups, combined image samplers, row-major matrix members, Coherent/Volatile decorations |
+| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 236 of 267 entry points pass IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
 | **Compatibility** | Tested against Rust naga's WGSL snapshot corpus (172 shaders, gfx-rs/wgpu 14328f49): every output is compared, and each known difference is recorded with its reason — see [Rust Naga Compatibility](#rust-naga-compatibility) |
@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus (SPIR-V by instruction counts); known differences are recorded per output with a reason. 29 own test shaders; 914 golden outputs
+- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus (SPIR-V by instruction counts); known differences are recorded per output with a reason. 29 own test shaders; 912 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12, shader models 5.0–6.7 (FXC and DXC); helpers get one exit where FXC would miscompile an early return
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**238 of 267 corpus entry points pass IDxcValidator**; **113 of 177 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (liveness through control dependence, dead loops removed), SROA (struct decomposition, aggregate locals split per element), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**236 of 267 corpus entry points pass IDxcValidator**; **113 of 177 DXC roundtrip comparisons match exactly**; gg production shaders: every valid entry point passes; GPU readback corpus on D3D12 with Intel and NVIDIA). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0–6.9). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (liveness through control dependence, dead loops removed), SROA (struct decomposition, aggregate locals split per element), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -319,7 +319,7 @@ pkg.go.dev shows.
 | MSL | ✅ Stable | Metal (macOS/iOS) |
 | GLSL | ✅ Stable, version-aware binding | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ Stable | DirectX 11/12 |
-| DXIL | **238/267 entry points pass IDxcValidator** (Rust naga and own corpus), 113/177 DXC golden | DirectX 12 (SM 6.0-6.9, experimental) |
+| DXIL | **236/267 entry points pass IDxcValidator** (Rust naga and own corpus), 113/177 DXC golden | DirectX 12 (SM 6.0-6.9, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
