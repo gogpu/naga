@@ -2002,8 +2002,13 @@ func (e *Emitter) irTypeToCBVLLVMType(th ir.TypeHandle) *module.Type {
 		// Nested struct: build recursively with hostlayout.struct.<Name> naming.
 		memberTypes := e.buildCBVStructMemberTypes(t)
 		typeName := "hostlayout.struct.anon"
-		if irType.Name != "" {
-			typeName = "hostlayout.struct." + irType.Name
+		if name, hasName := ir.NamePresence(irType.Name, irType.NamePresent); hasName {
+			if name == "" {
+				// A present but empty name takes the namer's sanitized form,
+				// as every other backend renders it.
+				name = "unnamed"
+			}
+			typeName = "hostlayout.struct." + name
 		}
 		return e.mod.GetStructType(typeName, memberTypes)
 
@@ -2068,8 +2073,13 @@ func (e *Emitter) cbvInnerStructName(res *resourceInfo) string {
 		return ""
 	}
 	ty := e.ir.Types[res.typeHandle]
-	if _, ok := ty.Inner.(ir.StructType); ok && ty.Name != "" {
-		return ty.Name
+	if _, ok := ty.Inner.(ir.StructType); ok {
+		if name, hasName := ir.NamePresence(ty.Name, ty.NamePresent); hasName {
+			if name == "" {
+				return "unnamed"
+			}
+			return name
+		}
 	}
 	return ""
 }

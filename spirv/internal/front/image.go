@@ -87,7 +87,7 @@ func (p *parser) patchComparisonType(handle ir.GlobalVariableHandle, flags sampl
 	default:
 		return errInvalidImage(global.Type)
 	}
-	global.Type = p.insertType(original.Name, inner)
+	global.Type = p.insertType(original.Name, original.NamePresent, inner)
 	return nil
 }
 
@@ -148,9 +148,9 @@ func (p *parser) imageTypeOf(fs *functionState, handle ir.ExpressionHandle) (ir.
 // to, Rust naga's required_ty lookup: the type parseTypeImage registered.
 func (p *parser) requiredCoordinateType(size ir.VectorSize, hasSize bool) ir.TypeHandle {
 	if !hasSize {
-		return p.insertType("", f32Type)
+		return p.insertType("", false, f32Type)
 	}
-	return p.insertType("", ir.VectorType{Size: size, Scalar: f32Type})
+	return p.insertType("", false, ir.VectorType{Size: size, Scalar: f32Type})
 }
 
 // extractImageCoordinates separates the texture coordinates from the array
@@ -1134,7 +1134,7 @@ func (p *parser) extendImageQuerySize(fs *functionState, image ir.ExpressionHand
 		size = ir.Vec4
 	}
 	return appendExpression(fs.fn, ir.ExprCompose{
-		Type:       p.insertType("", ir.VectorType{Size: size, Scalar: u32}),
+		Type:       p.insertType("", false, ir.VectorType{Size: size, Scalar: u32}),
 		Components: elements,
 	})
 }

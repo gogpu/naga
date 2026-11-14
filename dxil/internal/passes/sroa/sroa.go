@@ -385,9 +385,10 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 			}
 		}
 		fn.LocalVars = append(fn.LocalVars, ir.LocalVariable{
-			Name: member.Name,
-			Type: member.Type,
-			Init: initExpr,
+			Name:        member.Name,
+			NamePresent: member.NamePresent,
+			Type:        member.Type,
+			Init:        initExpr,
 		})
 	}
 

@@ -41,7 +41,7 @@ func privatesToLocals(m *ir.Module, fn *ir.Function) error {
 		idx, seen := locals[g.Variable]
 		if !seen {
 			gv := &m.GlobalVariables[g.Variable]
-			lv := ir.LocalVariable{Name: gv.Name, Type: gv.Type}
+			lv := ir.LocalVariable{Name: gv.Name, NamePresent: gv.NamePresent, Type: gv.Type}
 			init, hasInit, err := privateInitializer(m, fn, gv, &globals)
 			if err != nil {
 				return fmt.Errorf("private %q: %w", gv.Name, err)

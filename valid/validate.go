@@ -163,6 +163,7 @@ func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 	}
 	v.subgroupStages, v.subgroupOperations = subgroupSets(opts)
 
+	v.validateNamePresence()
 	v.validateModule()
 
 	if len(v.errors) > 0 {
@@ -479,6 +480,56 @@ func (v *validator) literalWidthError(lit ir.LiteralValue) string {
 	}
 	// %#q backquotes, as Rust's text does: Using `u64` values ...
 	return fmt.Sprintf("Using %#q values requires the %#q flag", name, "naga::valid::Capabilities::"+flag)
+}
+
+// validateNamePresence checks the one invalid pairing of a name and its
+// presence bit: a set bit with a non-empty name, which would give "present"
+// two encodings (see ir.NamePresence). An empty present name is valid in any
+// entity, as is every non-empty name.
+func (v *validator) validateNamePresence() {
+	check := func(kind string, index int, name string, present bool) {
+		if present && name != "" {
+			v.addError(fmt.Sprintf("%s [%d] '%s' is invalid: NamePresent is set on a non-empty name", kind, index, name))
+		}
+	}
+	for i := range v.module.Types {
+		typ := &v.module.Types[i]
+		check("Type", i, typ.Name, typ.NamePresent)
+		if st, ok := typ.Inner.(ir.StructType); ok {
+			for m := range st.Members {
+				check("Struct member", i, st.Members[m].Name, st.Members[m].NamePresent)
+			}
+		}
+	}
+	for i := range v.module.Constants {
+		check("Constant", i, v.module.Constants[i].Name, v.module.Constants[i].NamePresent)
+	}
+	for i := range v.module.Overrides {
+		check("Override", i, v.module.Overrides[i].Name, v.module.Overrides[i].NamePresent)
+	}
+	for i := range v.module.GlobalVariables {
+		check("Global variable", i, v.module.GlobalVariables[i].Name, v.module.GlobalVariables[i].NamePresent)
+	}
+	for i := range v.module.Functions {
+		fn := &v.module.Functions[i]
+		check("Function", i, fn.Name, fn.NamePresent)
+		for a := range fn.Arguments {
+			check("Function argument", i, fn.Arguments[a].Name, fn.Arguments[a].NamePresent)
+		}
+		for l := range fn.LocalVars {
+			check("Local variable", i, fn.LocalVars[l].Name, fn.LocalVars[l].NamePresent)
+		}
+	}
+	for i := range v.module.EntryPoints {
+		fn := &v.module.EntryPoints[i].Function
+		check("Entry point function", i, fn.Name, fn.NamePresent)
+		for a := range fn.Arguments {
+			check("Entry point argument", i, fn.Arguments[a].Name, fn.Arguments[a].NamePresent)
+		}
+		for l := range fn.LocalVars {
+			check("Entry point local variable", i, fn.LocalVars[l].Name, fn.LocalVars[l].NamePresent)
+		}
+	}
 }
 
 // validateGlobalVariables checks all global variables.

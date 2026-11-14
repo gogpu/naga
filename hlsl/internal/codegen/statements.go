@@ -2238,7 +2238,7 @@ func (w *Writer) writeFunctionBody(fn *ir.Function) error {
 	for localIdx, local := range fn.LocalVars {
 		localName := w.names[nameKey{kind: nameKeyLocal, handle1: uint32(w.currentFuncHandle), handle2: uint32(localIdx)}]
 		if localName == "" {
-			localName = w.namer.callOr(local.Name, "local")
+			localName = w.namer.callName(local.Name, local.NamePresent, "local")
 		}
 		w.localNames[uint32(localIdx)] = localName
 		// HLSL arrays: type name[size], not type[size] name

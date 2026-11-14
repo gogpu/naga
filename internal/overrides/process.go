@@ -109,11 +109,11 @@ func checkKeys(m *ir.Module, constants map[string]float64) error {
 // false for an override without name and id (one the frontend makes for an
 // override-expression array size).
 func key(o *ir.Override) (string, bool) {
-	switch {
-	case o.ID != nil:
+	if o.ID != nil {
 		return strconv.FormatUint(uint64(*o.ID), 10), true
-	case o.Name != "":
-		return o.Name, true
+	}
+	if name, hasName := ir.NamePresence(o.Name, o.NamePresent); hasName {
+		return name, true
 	}
 	return "", false
 }
@@ -403,7 +403,12 @@ func (p *processor) pipelineValue(k string, value float64, ty ir.TypeInner) (ir.
 
 func (p *processor) newConstant(o int, name string, init ir.ExpressionHandle) ir.ConstantHandle {
 	c := ir.ConstantHandle(irutil.ArenaIndex(len(p.m.Constants)))
-	p.m.Constants = append(p.m.Constants, ir.Constant{Name: name, Type: p.m.Overrides[o].Ty, Init: init})
+	p.m.Constants = append(p.m.Constants, ir.Constant{
+		Name:        name,
+		NamePresent: p.m.Overrides[o].NamePresent && name == "",
+		Type:        p.m.Overrides[o].Ty,
+		Init:        init,
+	})
 	p.initAdjusted = append(p.initAdjusted, true)
 	p.constantOf[o] = c + 1
 	p.m.Overrides[o].Init = &init

@@ -97,9 +97,10 @@ func outputView(module *ir.Module, out Output) *ir.Module {
 				continue
 			}
 			view.GlobalVariables[h] = ir.GlobalVariable{
-				Name:  module.GlobalVariables[h].Name,
-				Space: ir.SpacePrivate,
-				Type:  module.GlobalVariables[h].Type,
+				Name:        module.GlobalVariables[h].Name,
+				NamePresent: module.GlobalVariables[h].NamePresent,
+				Space:       ir.SpacePrivate,
+				Type:        module.GlobalVariables[h].Type,
 			}
 		}
 	}

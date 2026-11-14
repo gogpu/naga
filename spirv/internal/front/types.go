@@ -54,10 +54,10 @@ type extendedClass struct {
 
 // insertType interns a type and keeps the module's type arena in sync with the
 // registry, which deduplicates by the full definition as Rust naga's
-// UniqueArena does.
-func (p *parser) insertType(name string, inner ir.TypeInner) ir.TypeHandle {
+// UniqueArena does. present carries the name's presence (ir.NamePresence).
+func (p *parser) insertType(name string, present bool, inner ir.TypeInner) ir.TypeHandle {
 	depth := p.typeDepth(inner)
-	handle := p.types.GetOrCreate(name, inner)
+	handle := p.types.GetOrCreateNamed(name, present, inner)
 	p.module.Types = p.types.GetTypes()
 	for len(p.typeDepths) < len(p.module.Types) {
 		p.typeDepths = append(p.typeDepths, depth)
@@ -149,7 +149,7 @@ func (p *parser) parseTypeBool(inst instruction) error {
 		return err
 	}
 	dec := p.takeDecoration(id)
-	handle := p.insertType(dec.name, ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	p.lookupType[id] = lookupType{handle: handle}
 	return nil
 }
@@ -188,7 +188,7 @@ func (p *parser) parseTypeInt(inst instruction) error {
 		return err
 	}
 	dec := p.takeDecoration(id)
-	handle := p.insertType(dec.name, ir.ScalarType{Kind: kind, Width: width})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.ScalarType{Kind: kind, Width: width})
 	p.lookupType[id] = lookupType{handle: handle}
 	return nil
 }
@@ -214,7 +214,7 @@ func (p *parser) parseTypeFloat(inst instruction) error {
 		return err
 	}
 	dec := p.takeDecoration(id)
-	handle := p.insertType(dec.name, ir.ScalarType{Kind: ir.ScalarFloat, Width: width})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.ScalarType{Kind: ir.ScalarFloat, Width: width})
 	p.lookupType[id] = lookupType{handle: handle}
 	return nil
 }
@@ -252,7 +252,7 @@ func (p *parser) parseTypeVector(inst instruction) error {
 		return err
 	}
 	dec := p.takeDecoration(id)
-	handle := p.insertType(dec.name, ir.VectorType{Size: size, Scalar: scalar})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.VectorType{Size: size, Scalar: scalar})
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
 	return nil
 }
@@ -290,7 +290,7 @@ func (p *parser) parseTypeMatrix(inst instruction) error {
 	if err != nil {
 		return err
 	}
-	handle := p.insertType(dec.name, ir.MatrixType{Columns: columns, Rows: vector.Size, Scalar: vector.Scalar})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.MatrixType{Columns: columns, Rows: vector.Size, Scalar: vector.Scalar})
 	p.lookupType[id] = lookupType{handle: handle, baseID: vectorTypeID, hasBase: true}
 	return nil
 }
@@ -389,7 +389,7 @@ func (p *parser) parseTypePointer(inst instruction) error {
 			return err
 		}
 		lookup = lookupType{
-			handle:  p.insertType(dec.name, pointer),
+			handle:  p.insertType(dec.name, dec.namePresent(), pointer),
 			baseID:  typeID,
 			hasBase: true,
 		}
@@ -451,7 +451,7 @@ func (p *parser) parseTypeArray(inst instruction) error {
 	if err := p.checkTypeDepth(inner); err != nil {
 		return err
 	}
-	handle := p.insertType(dec.name, inner)
+	handle := p.insertType(dec.name, dec.namePresent(), inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
 	return nil
 }
@@ -496,7 +496,7 @@ func (p *parser) parseTypeRuntimeArray(inst instruction) error {
 	if err := p.checkTypeDepth(inner); err != nil {
 		return err
 	}
-	handle := p.insertType(dec.name, inner)
+	handle := p.insertType(dec.name, dec.namePresent(), inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
 	return nil
 }
@@ -562,7 +562,7 @@ func (p *parser) parseTypeStruct(inst instruction) error {
 			}
 		}
 
-		member := ir.StructMember{Name: dec.name, Type: ty.handle, Offset: offset}
+		member := ir.StructMember{Name: dec.name, NamePresent: dec.namePresent(), Type: ty.handle, Offset: offset}
 		if binding != nil {
 			member.Binding = &binding
 		}
@@ -574,7 +574,7 @@ func (p *parser) parseTypeStruct(inst instruction) error {
 	if err := p.checkTypeDepth(inner); err != nil {
 		return err
 	}
-	handle := p.insertType(parentDecor.name, inner)
+	handle := p.insertType(parentDecor.name, parentDecor.namePresent(), inner)
 	if isStorageBuffer {
 		p.lookupStorageBufferTypes[handle] = storageAccess
 	}
@@ -637,11 +637,11 @@ func (p *parser) parseTypeImage(inst instruction) error {
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	switch dim {
 	case ir.Dim1D:
-		p.insertType("", f32)
+		p.insertType("", false, f32)
 	case ir.Dim2D:
-		p.insertType("", ir.VectorType{Size: ir.Vec2, Scalar: f32})
+		p.insertType("", false, ir.VectorType{Size: ir.Vec2, Scalar: f32})
 	case ir.Dim3D, ir.DimCube:
-		p.insertType("", ir.VectorType{Size: ir.Vec3, Scalar: f32})
+		p.insertType("", false, ir.VectorType{Size: ir.Vec3, Scalar: f32})
 	}
 
 	base, err := p.typeLookup(sampleTypeID)
@@ -682,7 +682,7 @@ func (p *parser) parseTypeImage(inst instruction) error {
 		image.SampledKind = kind
 		image.Multisampled = isMSAA != 0
 	}
-	handle := p.insertType(dec.name, image)
+	handle := p.insertType(dec.name, dec.namePresent(), image)
 	p.lookupType[id] = lookupType{handle: handle, baseID: sampleTypeID, hasBase: true}
 	return nil
 }
@@ -727,7 +727,7 @@ func (p *parser) parseTypeSampler(inst instruction) error {
 		return err
 	}
 	dec := p.takeDecoration(id)
-	handle := p.insertType(dec.name, ir.SamplerType{Comparison: false})
+	handle := p.insertType(dec.name, dec.namePresent(), ir.SamplerType{Comparison: false})
 	p.lookupType[id] = lookupType{handle: handle}
 	return nil
 }

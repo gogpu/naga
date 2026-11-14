@@ -206,12 +206,19 @@ func (w *Writer) writeLiteral(lit ir.Literal) (string, error) {
 	}
 }
 
+// hasConstantName reports whether a constant is declared and referenced by
+// name: any present name, empty included (Rust naga's is_some()).
+func hasConstantName(constant *ir.Constant) bool {
+	_, hasName := ir.NamePresence(constant.Name, constant.NamePresent)
+	return hasName
+}
+
 // writeConstant writes a constant reference. An unnamed constant (the SPIR-V
 // frontend makes them) is never declared, so its init is written in place,
 // as Rust naga does (back/glsl/writer.rs, write_expr, Expression::Constant).
 func (w *Writer) writeConstant(c ir.ExprConstant) (string, error) {
 	if int(c.Constant) < len(w.module.Constants) {
-		if constant := &w.module.Constants[c.Constant]; constant.Name == "" {
+		if constant := &w.module.Constants[c.Constant]; !hasConstantName(constant) {
 			return w.writeConstExpr(constant.Init)
 		}
 	}

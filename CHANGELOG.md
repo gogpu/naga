@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The SPIR-V input frontend gains the two things the 0.21.12 notes said were still to come: row-major matrix
-members, and SPIR-V input on the command line. Coherent and Volatile survive the round trip too, so three of
-those recorded limits no longer hold: row-major access, memory decorations, and `nagac --from-spirv`. An empty
-global name is still indistinguishable from an absent one (P3-IR-033), and the projective sample of an arrayed
-image still drops the projection term and the array layer (P3-SPVIN-004).
+The SPIR-V input frontend gains the last things the 0.21.12 notes said were still to come: row-major matrix
+members, SPIR-V input on the command line, and the empty-name distinction. Coherent and Volatile survive the
+round trip too, so the recorded limits on row-major access, memory decorations, `nagac --from-spirv` and empty
+names no longer hold. The projective sample of an arrayed image still drops the projection term and the array
+layer (P3-SPVIN-004).
 
 ### Added
+
+- **`ir.NamePresence` and the `NamePresent` fields** (P3-IR-033): every entity Rust naga keeps as
+  `Option<String>` — global variables, functions, function arguments, local variables, struct members, types,
+  constants, overrides — now records whether a name exists but is empty, and the MSL, HLSL, GLSL and SPIR-V
+  writers tell the two empty cases apart as Rust does (a present empty name sanitizes to `unnamed`, an absent
+  one takes the entity's fallback). `TestSPVTextReference` matches all 16 Rust MSL/HLSL goldens byte for byte;
+  the four that were pinned as deviations are gone. Public API: eight additive `NamePresent` fields, the
+  `ir.NamePresence` accessor, and the validator rule that rejects a set bit on a non-empty name.
 
 - **`spirv.Parse` reads row-major matrix members** (NAGA-FEAT-001): an access chain that reaches a `RowMajor`
   matrix member side-loads the transposed value — Rust naga's `lookup_load_override` — and the load of that

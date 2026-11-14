@@ -228,18 +228,20 @@ func (p *parser) insertParsedConstant(id, typeID uint32, ty ir.TypeHandle, init 
 		initHandle := init
 		handle := ir.OverrideHandle(len(p.module.Overrides))
 		p.module.Overrides = append(p.module.Overrides, ir.Override{
-			Name: dec.name,
-			ID:   &specID,
-			Ty:   ty,
-			Init: &initHandle,
+			Name:        dec.name,
+			NamePresent: dec.namePresent(),
+			ID:          &specID,
+			Ty:          ty,
+			Init:        &initHandle,
 		})
 		kind.override = &handle
 	} else {
 		handle := ir.ConstantHandle(len(p.module.Constants))
 		p.module.Constants = append(p.module.Constants, ir.Constant{
-			Name: dec.name,
-			Type: ty,
-			Init: init,
+			Name:        dec.name,
+			NamePresent: dec.namePresent(),
+			Type:        ty,
+			Init:        init,
 		})
 		kind.constant = &handle
 	}

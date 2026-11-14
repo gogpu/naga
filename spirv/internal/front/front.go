@@ -852,7 +852,9 @@ func (p *parser) parseName(inst instruction) error {
 	if left != 0 {
 		return errInvalidOperand
 	}
-	p.decorationOf(id).name = name
+	dec := p.decorationOf(id)
+	dec.name = name
+	dec.hasName = true
 	return nil
 }
 
@@ -880,7 +882,9 @@ func (p *parser) parseMemberName(inst instruction) error {
 	if left != 0 {
 		return errInvalidOperand
 	}
-	p.memberDecorationOf(id, member).name = name
+	dec := p.memberDecorationOf(id, member)
+	dec.name = name
+	dec.hasName = true
 	return nil
 }
 

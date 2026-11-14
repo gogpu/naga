@@ -1,8 +1,6 @@
 package snapshot_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,44 +19,6 @@ import (
 // modules' Rust-derived binaries.
 var spvInputDir = filepath.Join(rustCorpusDir, "in", "spv")
 
-// spvTextDeviation is one recorded difference from Rust naga's text output
-// for a SPIR-V corpus module: why it is there, and the fingerprint of our
-// normalized output, so a change on either side fails until it is re-read.
-type spvTextDeviation struct {
-	Reason      string
-	Fingerprint string
-}
-
-// spvTextDeviations pins the text differences from Rust naga's outputs for
-// SPIR-V input that are deliberate, by "module/backend".
-var spvTextDeviations = map[string]spvTextDeviation{
-	"empty-global-name/msl": {
-		Reason:      spvReasonUnnamedGlobal,
-		Fingerprint: "7197b0cd4a6b6ace5633dbb596968f01fabebe8f27d3f1e6ee1439f1a365c9e4",
-	},
-	"empty-global-name/hlsl": {
-		Reason:      spvReasonUnnamedGlobal,
-		Fingerprint: "ec611e0ee0c06b9e588990096744068fe40438d4c23477cc25fcbb9c18281887",
-	},
-	"quad-vert/msl": {
-		Reason:      spvReasonUnnamedGlobal,
-		Fingerprint: "4a8a8dd36791e060082cc29aff5abe71be057aaeacdf10ce07eb657c7016ab94",
-	},
-	"quad-vert/hlsl": {
-		Reason:      spvReasonUnnamedGlobal,
-		Fingerprint: "c24acdc86f60d2d0afe2c34840cf1aad5e4f473a999ce117ec73f903659209c4",
-	},
-}
-
-// spvReasonUnnamedGlobal is the one deliberate text difference left on the
-// SPIR-V corpus: a global whose OpName is an empty string. Rust naga's IR
-// keeps Option<String>, so its namer tells Some("") from no name at all
-// ("unnamed" for the first, "global" for the second); our IR has only the
-// empty string, and every backend names both "global". Card P3-IR-033.
-const spvReasonUnnamedGlobal = "a global named by an empty OpName: Rust naga's IR keeps Option<String> and names " +
-	"Some(\"\") \"unnamed\", while our IR stores only the empty string and names it \"global\" like an " +
-	"unnamed one (P3-IR-033)"
-
 // TestSPVTextReference compares the MSL and HLSL text our backends write for
 // the SPIR-V corpus with Rust naga's own outputs of the same modules
 // (design §17.2). The IR is compared separately by TestSPVIRReference; this
@@ -66,7 +26,6 @@ const spvReasonUnnamedGlobal = "a global named by an empty OpName: Rust naga's I
 // its own, on every module Rust has a golden for.
 func TestSPVTextReference(t *testing.T) {
 	compared := 0
-	exercised := make(map[string]bool)
 	for _, kind := range []string{"msl", "hlsl"} {
 		goldens, err := filepath.Glob(filepath.Join(rustCorpusDir, "out", kind, "spv-*"))
 		if err != nil {
@@ -139,25 +98,8 @@ func TestSPVTextReference(t *testing.T) {
 					compared++
 					return
 				}
-				if deviation, known := spvTextDeviations[name+"/"+kind]; known {
-					exercised[name+"/"+kind] = true
-					sum := sha256.Sum256([]byte(gotText))
-					fingerprint := hex.EncodeToString(sum[:])
-					if fingerprint != deviation.Fingerprint {
-						t.Errorf("the deviation changed (fingerprint %s, recorded %s): re-review\n%s",
-							fingerprint, deviation.Fingerprint, firstDiff(wantText, gotText))
-						return
-					}
-					t.Logf("known deviation (%s): %s", name+"/"+kind, deviation.Reason)
-					return
-				}
 				t.Errorf("differs from Rust naga:\n%s", firstDiff(wantText, gotText))
 			})
-		}
-	}
-	for key := range spvTextDeviations {
-		if !exercised[key] {
-			t.Errorf("deviation %s was not exercised: remove it or fix its module", key)
 		}
 	}
 	t.Logf("SPIR-V text reference: %d goldens match Rust", compared)

@@ -630,9 +630,10 @@ func typeInnerToMSL(inner ir.TypeInner) string {
 func (w *Writer) writeConstants() error {
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
-		// Skip unnamed constants (component sub-values of composites).
-		// Matches Rust naga which only emits constants with c.name.is_some().
-		if constant.Name == "" {
+		// Skip unnamed constants (component sub-values of composites). Matches
+		// Rust naga, which emits only constants with c.name.is_some() — a
+		// present but empty name still takes the namer ("unnamed").
+		if _, hasName := ir.NamePresence(constant.Name, constant.NamePresent); !hasName {
 			continue
 		}
 		// Skip abstract-typed constants (e.g., `const ONE = 1;` without explicit type).

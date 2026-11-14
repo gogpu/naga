@@ -62,11 +62,28 @@ type SpecialTypes struct {
 	RayIntersection *TypeHandle
 }
 
+// NamePresence reports an entity's name and whether it has one — the pair
+// Rust naga keeps in an Option<String>. A non-empty name is present by value;
+// an empty one is absent unless NamePresent marks it as present-but-empty
+// (SPIR-V's OpName with an empty string). The namers treat the two empty cases
+// differently: the present one is sanitized ("unnamed"), the absent one takes
+// the entity's fallback ("global", "function", ...). The validator rejects a
+// set bit with a non-empty name, where the pair would otherwise have two
+// encodings of "present".
+func NamePresence(name string, present bool) (value string, hasName bool) {
+	if name != "" {
+		return name, true
+	}
+	return "", present
+}
+
 // Override represents a pipeline-overridable constant.
 // Mirrors Rust naga's Override struct.
 type Override struct {
 	// Name is the identifier name of the override.
 	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
 	// ID is the numeric @id attribute value, if specified.
 	// In Rust naga this is Option<u16>; we use *uint16 for nil-ability.
 	ID *uint16
@@ -195,8 +212,10 @@ type (
 
 // Type represents a type in the IR.
 type Type struct {
-	Name  string
-	Inner TypeInner
+	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
+	Inner       TypeInner
 }
 
 // TypeInner represents the inner type kind.
@@ -280,10 +299,12 @@ func (StructType) typeInner() {}
 
 // StructMember represents a struct member.
 type StructMember struct {
-	Name    string
-	Type    TypeHandle
-	Binding *Binding // @builtin(position), @location(0), etc.
-	Offset  uint32
+	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
+	Type        TypeHandle
+	Binding     *Binding // @builtin(position), @location(0), etc.
+	Offset      uint32
 }
 
 // PointerType represents pointer types.
@@ -576,6 +597,8 @@ func (m MemoryDecorations) Contains(b MemoryDecorations) bool { return m&b == b 
 type Constant struct {
 	// Name is the constant's name; empty for an unnamed constant.
 	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
 	// Type is the constant's type.
 	Type TypeHandle
 	// Init is the constant's value: a handle into Module.GlobalExpressions,
@@ -585,11 +608,13 @@ type Constant struct {
 
 // GlobalVariable represents a global variable.
 type GlobalVariable struct {
-	Name    string
-	Space   AddressSpace
-	Binding *ResourceBinding
-	Type    TypeHandle
-	Init    *ConstantHandle
+	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
+	Space       AddressSpace
+	Binding     *ResourceBinding
+	Type        TypeHandle
+	Init        *ConstantHandle
 	// InitExpr is an optional handle into Module.GlobalExpressions for the
 	// init expression. This mirrors Rust naga's GlobalVariable.init field.
 	// When set, this is the canonical init reference into GlobalExpressions.
@@ -615,7 +640,9 @@ type ResourceBinding struct {
 
 // Function represents a function definition.
 type Function struct {
-	Name        string
+	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
 	Arguments   []FunctionArgument
 	Result      *FunctionResult
 	LocalVars   []LocalVariable
@@ -632,9 +659,11 @@ type Function struct {
 
 // FunctionArgument represents a function argument.
 type FunctionArgument struct {
-	Name    string
-	Type    TypeHandle
-	Binding *Binding
+	Name string
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
+	Type        TypeHandle
+	Binding     *Binding
 }
 
 // FunctionResult represents a function return type.
@@ -646,8 +675,10 @@ type FunctionResult struct {
 // LocalVariable represents a function-local variable.
 type LocalVariable struct {
 	Name string
-	Type TypeHandle
-	Init *ExpressionHandle
+	// NamePresent marks a present but empty Name; see NamePresence.
+	NamePresent bool
+	Type        TypeHandle
+	Init        *ExpressionHandle
 }
 
 // Binding represents shader bindings.

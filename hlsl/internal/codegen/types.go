@@ -347,14 +347,22 @@ func (w *Writer) typeToHLSLWithArraySuffix(typ *ir.Type) (typeName, arraySuffix 
 
 	case ir.StructType:
 		// Use registered name with namer suffix (includes trailing underscore for digit-ending names)
-		if typ.Name != "" {
+		if typeName, hasName := ir.NamePresence(typ.Name, typ.NamePresent); hasName {
 			// First check if any registered type has this name
 			for h, name := range w.typeNames {
-				if int(h) < len(w.module.Types) && w.module.Types[h].Name == typ.Name {
+				if int(h) >= len(w.module.Types) {
+					continue
+				}
+				other, otherHas := ir.NamePresence(w.module.Types[h].Name, w.module.Types[h].NamePresent)
+				if otherHas && other == typeName {
 					return name, ""
 				}
 			}
-			return Escape(typ.Name), ""
+			if typeName == "" {
+				// A present but empty name takes the namer's sanitized form.
+				return "unnamed", ""
+			}
+			return Escape(typeName), ""
 		}
 		// Look up in typeNames by structure equality
 		for h, name := range w.typeNames {
@@ -721,8 +729,9 @@ func (w *Writer) writeConstants() error {
 	written := 0
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
-		// Skip unnamed constants (only named constants are written, matching Rust naga)
-		if constant.Name == "" {
+		// Skip unnamed constants (only named constants are written, matching
+		// Rust naga, whose is_some() keeps a present but empty name).
+		if _, hasName := ir.NamePresence(constant.Name, constant.NamePresent); !hasName {
 			continue
 		}
 		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}]

@@ -166,7 +166,7 @@ func (p *parser) processEntryPoint(functionID uint32) error {
 		function.Body = append(function.Body, ir.Statement{Kind: ir.StmtReturn{Value: &value}})
 		function.Result = &ir.FunctionResult{Type: members[0].Type, Binding: members[0].Binding}
 	default:
-		resultType := p.insertType("", ir.StructType{
+		resultType := p.insertType("", false, ir.StructType{
 			Members: members,
 			Span:    roundUp(nextOffset, structAlignment),
 		})

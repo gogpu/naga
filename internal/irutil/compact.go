@@ -234,8 +234,11 @@ func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
 	// of reference count. Only abstract types are force-removed.
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
-		// Abstract types must not reach backends.
-		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || t.Name != "")
+		// Abstract types must not reach backends. A named type is kept
+		// whatever its reference count, a present but empty name included
+		// (Rust naga's name.is_some()).
+		_, hasName := ir.NamePresence(t.Name, t.NamePresent)
+		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || hasName)
 	}
 
 	// Check if anything would be removed

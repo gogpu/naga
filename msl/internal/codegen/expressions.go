@@ -174,7 +174,8 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		// put_possibly_const_expression, Expression::Constant).
 		if int(k.Constant) < len(w.module.Constants) {
 			c := &w.module.Constants[k.Constant]
-			if c.Name == "" || int(c.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[c.Type].Inner, w.module.Types) {
+			_, hasName := ir.NamePresence(c.Name, c.NamePresent)
+			if !hasName || int(c.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[c.Type].Inner, w.module.Types) {
 				return w.writeGlobalExpression(c.Init)
 			}
 		}
