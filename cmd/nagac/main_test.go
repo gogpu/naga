@@ -224,3 +224,99 @@ func TestIsTerminal(t *testing.T) {
 		}
 	})
 }
+
+// fragmentShader compiles to a stage every text backend can express, unlike
+// the compute-only minimalShader that GLSL 3.30 cannot.
+const fragmentShader = "@fragment\nfn main() -> @location(0) vec4<f32> {\n\treturn vec4<f32>(1.0);\n}\n"
+
+// writeSource writes a shader to a temporary file and returns its path.
+func writeSource(t *testing.T, name, source string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestFromSPIRVToTextBackends compiles WGSL to SPIR-V and feeds the binary
+// back through -from-spirv into every text backend: the round trip a CLI user
+// runs, which the frontend's corpus tests cannot see.
+func TestFromSPIRVToTextBackends(t *testing.T) {
+	in := writeSource(t, "t.wgsl", fragmentShader)
+	dir := t.TempDir()
+	spvPath := filepath.Join(dir, "a.spv")
+	if _, stderr, status := runNagac(t, "-o", spvPath, in); status != exitOK {
+		t.Fatalf("compiling WGSL: exit status = %d; stderr: %s", status, stderr)
+	}
+
+	tests := []struct {
+		backend string
+		want    string
+	}{
+		{"msl", "fragment"},
+		{"hlsl", "SV_Target"},
+		{"glsl", "void main"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.backend, func(t *testing.T) {
+			out := filepath.Join(dir, "a."+tt.backend)
+			stdout, stderr, status := runNagac(t, "-from-spirv", "-backend", tt.backend, "-o", out, spvPath)
+			if status != exitOK {
+				t.Fatalf("exit status = %d, want %d; stderr: %s", status, exitOK, stderr)
+			}
+			if bytes.HasPrefix(stdout, spirvMagic) {
+				t.Error("SPIR-V written although a text backend was selected")
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatalf("output file was not written: %v", err)
+			}
+			if !strings.Contains(string(data), tt.want) {
+				t.Errorf("%s output does not contain %q:\n%s", tt.backend, tt.want, data)
+			}
+		})
+	}
+}
+
+// TestFromSPIRVTruncated checks a malformed binary is a compilation failure,
+// not a panic and not a silent success.
+func TestFromSPIRVTruncated(t *testing.T) {
+	path := writeSource(t, "bad.spv", string(append(append([]byte{}, spirvMagic...), 0, 0, 0, 0)))
+	_, stderr, status := runNagac(t, "-from-spirv", path)
+	if status != exitFailure {
+		t.Errorf("exit status = %d, want %d", status, exitFailure)
+	}
+	if !strings.Contains(string(stderr), "Compilation error") {
+		t.Errorf("stderr does not report a compilation error:\n%s", stderr)
+	}
+}
+
+// TestUnknownBackendIsRejected checks a misspelled backend is a usage error
+// that names the accepted values, not a failed compile.
+func TestUnknownBackendIsRejected(t *testing.T) {
+	in := writeShader(t)
+	stdout, stderr, status := runNagac(t, "-backend", "dxil", in)
+	if status != exitUsage {
+		t.Errorf("exit status = %d, want %d", status, exitUsage)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("stdout has %d bytes, want none", len(stdout))
+	}
+	if !strings.Contains(string(stderr), "unknown backend") {
+		t.Errorf("stderr does not name the unknown backend:\n%s", stderr)
+	}
+}
+
+// TestTextBackendMayWriteToTerminal checks the terminal guard covers only the
+// binary SPIR-V output, not text.
+func TestTextBackendMayWriteToTerminal(t *testing.T) {
+	in := writeShader(t)
+	var stdout, stderr bytes.Buffer
+	if status := run([]string{"-backend", "msl", in}, &stdout, &stderr, true); status != exitOK {
+		t.Fatalf("exit status = %d, want %d; stderr: %s", status, exitOK, &stderr)
+	}
+	if !strings.Contains(stdout.String(), "kernel") {
+		t.Errorf("stdout is not MSL kernel source:\n%s", &stdout)
+	}
+}
