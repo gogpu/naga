@@ -51,10 +51,47 @@ type functionState struct {
 	// access chain side-loaded, and the OpLoad of that pointer uses it instead
 	// of reading the column-major layout.
 	loadOverrides map[uint32]loadOverride
-	// rowMajorMatrices is the SPIR-V type id of the row-major matrix a pointer's
-	// access chain crossed, by the id of the pointer it produced: a store
-	// through that pointer needs the matrix shape to translate it.
-	rowMajorMatrices map[uint32]uint32
+	// rowMajorPointers is what a pointer's access chain learned about the
+	// row-major matrix it crossed, by the id of the pointer it produced: a
+	// store through that pointer and a re-read after one translate the same
+	// way from it.
+	rowMajorPointers map[uint32]rowMajorPointer
+}
+
+// rowMajorPointee is the part of a row-major matrix a pointer selects.
+type rowMajorPointee uint8
+
+const (
+	// pointeeMatrix is the whole matrix: a member, or an array element.
+	pointeeMatrix rowMajorPointee = iota
+	// pointeeColumn is one column, the vector a matrix index selects.
+	pointeeColumn
+	// pointeeElement is one scalar of a column.
+	pointeeElement
+)
+
+// rowMajorAccess is one index an access chain applies: a constant, or a
+// computed expression.
+type rowMajorAccess struct {
+	index      uint32
+	computed   ir.ExpressionHandle
+	isComputed bool
+}
+
+// rowMajorPointer is what an access chain learned about a pointer that crossed
+// a row-major matrix: the matrix, the pointer to it, the accesses that follow
+// and the part the pointer selects. The memory of a row-major matrix is the
+// IR's transposed matrix, so writing it (or reading it again after a write)
+// needs all of them.
+type rowMajorPointer struct {
+	matrix  ir.MatrixType
+	pointee rowMajorPointee
+	// matrixPointer is the pointer to the matrix, and column and component the
+	// indices the chain applied after it: element [column][component] of the
+	// shader's matrix is IR element [component][column], the indices reversed.
+	matrixPointer ir.ExpressionHandle
+	column        rowMajorAccess
+	component     rowMajorAccess
 }
 
 // loadOverride is Rust naga's LookupLoadOverride (front/spv/mod.rs:394): the
@@ -78,13 +115,13 @@ func (fs *functionState) setLoadOverride(id uint32, override loadOverride) {
 	fs.loadOverrides[id] = override
 }
 
-// setRowMajorMatrix records the row-major matrix a pointer's access chain
-// crossed.
-func (fs *functionState) setRowMajorMatrix(id, typeID uint32) {
-	if fs.rowMajorMatrices == nil {
-		fs.rowMajorMatrices = make(map[uint32]uint32)
+// setRowMajorPointer records what a pointer's access chain learned about the
+// row-major matrix it crossed.
+func (fs *functionState) setRowMajorPointer(id uint32, pointer rowMajorPointer) {
+	if fs.rowMajorPointers == nil {
+		fs.rowMajorPointers = make(map[uint32]rowMajorPointer)
 	}
-	fs.rowMajorMatrices[id] = typeID
+	fs.rowMajorPointers[id] = pointer
 }
 
 // mergeBlockInformation is what a branch to a merge block or a continue

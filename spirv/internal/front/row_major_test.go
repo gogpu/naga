@@ -424,9 +424,22 @@ func loadsAfter(fn *ir.Function, store ir.StmtStore) []ir.ExpressionHandle {
 	return loads
 }
 
+// transposedLoad returns the transpose of a load evaluated after the given
+// store, and the index access applied to it: the value a re-read produces.
+func transposedLoad(t *testing.T, fn *ir.Function, load ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	t.Helper()
+	for handle := range ir.ExpressionHandle(len(fn.Expressions)) {
+		math, ok := fn.Expressions[handle].Kind.(ir.ExprMath)
+		if ok && math.Fun == ir.MathTranspose && math.Arg == load {
+			return handle, true
+		}
+	}
+	return 0, false
+}
+
 // TestRowMajorMatrixColumnReadBack: a load of a column pointer after a store
-// reads the column from the memory again — one element load per row, composed,
-// because a column of a row-major matrix is strided.
+// reads the memory again — the whole matrix, transposed, with the column taken
+// from it.
 func TestRowMajorMatrixColumnReadBack(t *testing.T) {
 	m := addRowMajorMatrixMember(newBodyModule())
 	fn := m.parseValidated(t,
@@ -441,37 +454,24 @@ func TestRowMajorMatrixColumnReadBack(t *testing.T) {
 		t.Fatalf("stores = %d, want 2 (one per row): %#v", len(stores), fn.Body)
 	}
 	loads := loadsAfter(fn, stores[0])
-	if len(loads) != 2 {
-		t.Fatalf("loads after the store = %d, want 2 (one per column element): %#v", len(loads), fn.Expressions)
+	if len(loads) != 1 {
+		t.Fatalf("loads after the store = %d, want 1: the column comes from a fresh transposed load: %#v", len(loads), fn.Expressions)
 	}
-	composed, ok := findExpression(fn, func(kind ir.ExpressionKind) bool {
-		compose, ok := kind.(ir.ExprCompose)
-		if !ok || len(compose.Components) != 2 {
-			return false
-		}
-		return compose.Components[0] == loads[0] && compose.Components[1] == loads[1]
-	})
+	transposed, ok := transposedLoad(t, fn, loads[0])
 	if !ok {
-		t.Errorf("no compose of the re-read column elements: %#v", fn.Expressions)
+		t.Fatalf("the re-read load is not transposed: %#v", fn.Expressions)
 	}
-	_ = composed
-	for row, load := range loads {
-		pointer, ok := fn.Expressions[load].Kind.(ir.ExprLoad)
-		if !ok {
-			t.Fatalf("load %d = %#v", row, fn.Expressions[load].Kind)
-		}
-		componentPointer, columnIndex, _, ok := accessParts(fn, pointer.Pointer)
-		if !ok || columnIndex != 1 {
-			t.Fatalf("load %d pointer = %#v, want the column index 1 outermost", row, fn.Expressions[pointer.Pointer].Kind)
-		}
-		if _, rowIndex, _, ok := accessParts(fn, componentPointer); !ok || rowIndex != uint32(row) {
-			t.Errorf("load %d row = %d, want %d: the access indices are reversed", row, rowIndex, row)
-		}
+	if _, ok := findExpression(fn, func(kind ir.ExpressionKind) bool {
+		access, ok := kind.(ir.ExprAccessIndex)
+		return ok && access.Base == transposed && access.Index == 1
+	}); !ok {
+		t.Errorf("the column is not taken from the re-read value: %#v", fn.Expressions)
 	}
 }
 
 // TestRowMajorMatrixElementReadBack: a load of an element pointer after a store
-// reads the scalar again through the reversed access indices.
+// reads the scalar again — the transposed matrix, its column, then the
+// component.
 func TestRowMajorMatrixElementReadBack(t *testing.T) {
 	m := addRowMajorMatrixMember(newBodyModule())
 	fn := m.parseValidated(t,
@@ -488,16 +488,22 @@ func TestRowMajorMatrixElementReadBack(t *testing.T) {
 	if len(loads) != 1 {
 		t.Fatalf("loads after the store = %d, want 1: %#v", len(loads), fn.Expressions)
 	}
-	pointer, ok := fn.Expressions[loads[0]].Kind.(ir.ExprLoad)
+	transposed, ok := transposedLoad(t, fn, loads[0])
 	if !ok {
-		t.Fatalf("load = %#v", fn.Expressions[loads[0]].Kind)
+		t.Fatalf("the re-read load is not transposed: %#v", fn.Expressions)
 	}
-	rowPointer, columnIndex, _, ok := accessParts(fn, pointer.Pointer)
-	if !ok || columnIndex != 1 {
-		t.Fatalf("re-read pointer = %#v, want the column index 1 outermost", fn.Expressions[pointer.Pointer].Kind)
+	column, ok := expressionHandle(fn, func(kind ir.ExpressionKind) bool {
+		access, ok := kind.(ir.ExprAccessIndex)
+		return ok && access.Base == transposed && access.Index == 1
+	})
+	if !ok {
+		t.Fatalf("the column is not taken from the re-read value: %#v", fn.Expressions)
 	}
-	if _, _, _, ok := accessParts(fn, rowPointer); !ok {
-		t.Errorf("re-read pointer = %#v, want the row index as its base", fn.Expressions[rowPointer].Kind)
+	if _, ok := findExpression(fn, func(kind ir.ExpressionKind) bool {
+		access, ok := kind.(ir.ExprAccess)
+		return ok && access.Base == column
+	}); !ok {
+		t.Errorf("the component is not taken from the re-read column: %#v", fn.Expressions)
 	}
 }
 
@@ -543,6 +549,29 @@ func TestRowMajorMatrixChainAfterStore(t *testing.T) {
 		return ok && access.Base == refreshed && access.Index == 1
 	}); !ok {
 		t.Errorf("the column is not read from the refreshed value: %#v", fn.Expressions)
+	}
+}
+
+// TestRowMajorArrayOfNonMatricesRefused: a RowMajor member whose array does not
+// hold matrices is invalid SPIR-V; indexing into it is refused rather than
+// transposed into IR that is not a matrix.
+func TestRowMajorArrayOfNonMatricesRefused(t *testing.T) {
+	m := newBodyModule().annotate(
+		instWords(spvenums.OpMemberDecorate, 53, 0, uint32(spvenums.DecorationRowMajor)),
+	).add(
+		instWords(spvenums.OpTypeArray, 52, 7, 16), // an array of vec2<f32>, not of matrices
+		instWords(spvenums.OpTypeStruct, 53, 52),
+		instWords(spvenums.OpTypePointer, 54, uint32(spvenums.StorageClassFunction), 53),
+		instWords(spvenums.OpTypePointer, 55, uint32(spvenums.StorageClassFunction), 52),
+		instWords(spvenums.OpConstant, 3, 60, 0),
+	)
+	err := m.parseError(t,
+		instWords(spvenums.OpVariable, 54, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 55, 201, 200, 60, 26), // member 0, element 1
+		instWords(spvenums.OpLoad, 7, 202, 201),
+	)
+	if !strings.Contains(err.Error(), "invalid access type") {
+		t.Errorf("error = %q, want the invalid access type refusal", err)
 	}
 }
 
