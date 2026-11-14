@@ -34,6 +34,12 @@ const (
 	extraArrayLayer extraCoordinate = iota
 	// extraProjection divides the coordinates by the last one.
 	extraProjection
+	// extraArrayLayerProjection reads the array layer from the component before
+	// the projection and divides the coordinates by the projection, the last
+	// one: the OpImageSampleProj* coordinate rule for an arrayed image
+	// (SPIR-V spec, OpImageSampleProj*). Rust naga has no such case — its
+	// extract_image_coordinates comment says arrayed images "can't be Proj".
+	extraArrayLayerProjection
 	// extraGarbage cuts the coordinate down to the image's dimensions.
 	extraGarbage
 )
@@ -178,36 +184,19 @@ func (p *parser) extractImageCoordinates(dim ir.ImageDimension, extra extraCoord
 
 	switch extra {
 	case extraArrayLayer:
-		var extracted ir.ExpressionHandle
-		if !hasRequiredSize {
-			extracted = appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: 0})
-		} else {
-			components := make([]ir.ExpressionHandle, requiredSize)
-			for i := range int(requiredSize) {
-				components[i] = appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: uint32(i)})
-			}
-			extracted = appendExpression(fs.fn, ir.ExprCompose{Type: requiredType, Components: components})
-		}
-		arrayIndexF := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: extraIndex})
-		width := uint8(4)
-		arrayIndex := appendExpression(fs.fn, ir.ExprAs{Expr: arrayIndexF, Kind: ir.ScalarSint, Convert: &width})
+		extracted := p.cutCoordinate(base, requiredSize, hasRequiredSize, requiredType, fs)
+		arrayIndex := p.arrayLayer(base, extraIndex, fs)
 		return extracted, &arrayIndex, nil
 
 	case extraProjection:
-		projection := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: extraIndex})
-		var divided ir.ExpressionHandle
-		if !hasRequiredSize {
-			temp := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: 0})
-			divided = appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: temp, Right: projection})
-		} else {
-			components := make([]ir.ExpressionHandle, requiredSize)
-			for i := range int(requiredSize) {
-				temp := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: uint32(i)})
-				components[i] = appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: temp, Right: projection})
-			}
-			divided = appendExpression(fs.fn, ir.ExprCompose{Type: requiredType, Components: components})
-		}
-		return divided, nil, nil
+		return p.divideCoordinate(base, extraIndex, requiredSize, hasRequiredSize, requiredType, fs), nil, nil
+
+	case extraArrayLayerProjection:
+		// The projection is the last component and the layer the one before it,
+		// so the layer sits where a plain projection would take its divisor.
+		divided := p.divideCoordinate(base, extraIndex+1, requiredSize, hasRequiredSize, requiredType, fs)
+		arrayIndex := p.arrayLayer(base, extraIndex, fs)
+		return divided, &arrayIndex, nil
 
 	default: // extraGarbage
 		if hasGivenSize == hasRequiredSize && (!hasGivenSize || givenSize == requiredSize) {
@@ -225,6 +214,41 @@ func (p *parser) extractImageCoordinates(dim ir.ImageDimension, extra extraCoord
 		}
 		return appendExpression(fs.fn, cut), nil, nil
 	}
+}
+
+// cutCoordinate returns the coordinate cut down to the image's dimensions.
+func (p *parser) cutCoordinate(base ir.ExpressionHandle, requiredSize ir.VectorSize, hasRequiredSize bool, requiredType ir.TypeHandle, fs *functionState) ir.ExpressionHandle {
+	if !hasRequiredSize {
+		return appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: 0})
+	}
+	components := make([]ir.ExpressionHandle, requiredSize)
+	for i := range int(requiredSize) {
+		components[i] = appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: uint32(i)})
+	}
+	return appendExpression(fs.fn, ir.ExprCompose{Type: requiredType, Components: components})
+}
+
+// divideCoordinate returns the coordinate cut down to the image's dimensions
+// and divided by the projection component at index.
+func (p *parser) divideCoordinate(base ir.ExpressionHandle, index uint32, requiredSize ir.VectorSize, hasRequiredSize bool, requiredType ir.TypeHandle, fs *functionState) ir.ExpressionHandle {
+	projection := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: index})
+	if !hasRequiredSize {
+		temp := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: 0})
+		return appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: temp, Right: projection})
+	}
+	components := make([]ir.ExpressionHandle, requiredSize)
+	for i := range int(requiredSize) {
+		temp := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: uint32(i)})
+		components[i] = appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: temp, Right: projection})
+	}
+	return appendExpression(fs.fn, ir.ExprCompose{Type: requiredType, Components: components})
+}
+
+// arrayLayer returns the coordinate component at index as the i32 array layer.
+func (p *parser) arrayLayer(base ir.ExpressionHandle, index uint32, fs *functionState) ir.ExpressionHandle {
+	arrayIndexF := appendExpression(fs.fn, ir.ExprAccessIndex{Base: base, Index: index})
+	width := uint8(4)
+	return appendExpression(fs.fn, ir.ExprAs{Expr: arrayIndexF, Kind: ir.ScalarSint, Convert: &width})
 }
 
 // splatToVector broadcasts a scalar to a vector of size, Rust naga's
@@ -769,9 +793,14 @@ func (p *parser) parseImageSample(inst instruction, options samplingOptions, fs 
 	}
 
 	extraCoordinate := extraGarbage
-	if options.project {
+	switch {
+	case options.project && imageType.Arrayed:
+		// A projected arrayed coordinate is (s, t, layer, q): the layer is not
+		// the last component any more, so the two cannot share one case.
+		extraCoordinate = extraArrayLayerProjection
+	case options.project:
 		extraCoordinate = extraProjection
-	} else if imageType.Arrayed {
+	case imageType.Arrayed:
 		extraCoordinate = extraArrayLayer
 	}
 	coordinateExpr, arrayIndex, err := p.extractImageCoordinates(imageType.Dim, extraCoordinate, coordinateHandle, coordinateType.handle, fs)
@@ -794,6 +823,11 @@ func (p *parser) parseImageSample(inst instruction, options samplingOptions, fs 
 			index := uint32(1)
 			if hasRequiredSize {
 				index = uint32(requiredSize)
+			}
+			if imageType.Arrayed {
+				// The layer sits where the projection would be; the projection
+				// is the last component.
+				index++
 			}
 			right := appendExpression(fs.fn, ir.ExprAccessIndex{Base: coordinateHandle, Index: index})
 			depth = appendExpression(fs.fn, ir.ExprBinary{Op: ir.BinaryDivide, Left: depth, Right: right})
