@@ -16,13 +16,14 @@ const (
 	maxArrayElements = 1 << 24
 
 	// maxStorageExpressions caps the expressions the functions of a module
-	// get for its globals and constants together: (globals + constants) ×
-	// functions. Every function's arena starts with one expression per global
-	// and per constant, as Rust naga's make_expression_storage, so a small
-	// module of many constants and many functions would otherwise build an IR
-	// quadratic in its size (4,000 constants and 4,000 functions, 208 KB, made
-	// 16M expressions). The running total is checked before each function's
-	// arena is filled.
+	// get for its globals and constants together: (globals + constants + the
+	// sampler halves of combined image samplers) × functions. Every function's
+	// arena starts with one expression per global, per constant and per split
+	// sampler half, as Rust naga's make_expression_storage, so a small module of
+	// many constants and many functions would otherwise build an IR quadratic in
+	// its size (4,000 constants and 4,000 functions, 208 KB, made 16M
+	// expressions). The running total is checked before each function's arena
+	// is filled.
 	maxStorageExpressions = 1 << 20
 
 	// maxNesting caps how deeply structured control flow (selections, loops,

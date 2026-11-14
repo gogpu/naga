@@ -2,6 +2,7 @@ package front
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -292,16 +293,22 @@ func TestAtomicPointerNotGlobal(t *testing.T) {
 // atomic_upgrade refuses it the same way).
 func TestAtomicGlobalInit(t *testing.T) {
 	variable := instWords(spvenums.OpVariable, 13, 18, uint32(spvenums.StorageClassStorageBuffer), 16)
-	_, _, err := parseWords(t, Options{},
-		atomicVariantGroups(instWords(spvenums.OpTypeStruct, 12, 14, 14), nil, variable,
-			instWords(spvenums.OpAccessChain, 15, 20, 18, 16),
-			instWords(spvenums.OpAtomicIAdd, 14, 21, 20, 16, 16, 17),
-		)...)
+	groups := atomicVariantGroups(instWords(spvenums.OpTypeStruct, 12, 14, 14), nil, variable,
+		instWords(spvenums.OpAccessChain, 15, 20, 18, 16),
+		instWords(spvenums.OpAtomicIAdd, 14, 21, 20, 16, 16, 17),
+	)
+	_, _, err := parseWords(t, Options{}, groups...)
 	if err == nil {
 		t.Fatal("Parse accepted an atomic global with an initializer")
 	}
-	if got := requireError(t, err).Message; got != errAtomicGlobalInitUnsupported.Message {
+	parseErr := requireError(t, err)
+	if got := parseErr.Message; got != errAtomicGlobalInitUnsupported.Message {
 		t.Errorf("message = %q, want %q", got, errAtomicGlobalInitUnsupported.Message)
+	}
+	// The phase runs after the parse, but the error names the declaration it
+	// refuses instead of carrying the zero that reads as "no position".
+	if want := instructionOffsets(groups, spvenums.OpVariable); !slices.Contains(want, parseErr.Offset) {
+		t.Errorf("offset = %d, want the variable declaration at %v", parseErr.Offset, want)
 	}
 }
 

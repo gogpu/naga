@@ -78,7 +78,10 @@ func (p *parser) patchComparisonType(handle ir.GlobalVariableHandle, flags sampl
 		return nil
 	}
 	if flags == samplingRegular|samplingComparison {
-		return errInconsistentComparisonSampling(handle)
+		return &Error{
+			Message: errInconsistentComparisonSampling(handle).Message,
+			Offset:  p.globalOffsets[handle],
+		}
 	}
 	global := &p.module.GlobalVariables[handle]
 	original := p.module.Types[global.Type]

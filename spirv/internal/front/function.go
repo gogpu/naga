@@ -201,9 +201,17 @@ parameters:
 // in ascending order, so the arena is reproducible from run to run.
 //
 // The arenas of all functions together are bounded by maxStorageExpressions,
-// checked before this function's arena grows.
+// checked before this function's arena grows. Every expression the arena starts
+// with counts: one per global, one per constant, and one more for the sampler
+// half a combined image sampler splits into.
 func (p *parser) makeExpressionStorage(fs *functionState) error {
-	p.storageExpressions += len(p.lookupVariable) + len(p.lookupConstant)
+	stored := len(p.lookupVariable) + len(p.lookupConstant)
+	for _, variable := range p.lookupVariable {
+		if variable.sampler != nil {
+			stored++
+		}
+	}
+	p.storageExpressions += stored
 	if p.storageExpressions > maxStorageExpressions {
 		return errTooManyStorageExpressions(p.storageExpressions)
 	}

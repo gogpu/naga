@@ -1,6 +1,7 @@
 package front
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/gogpu/naga/frontend"
@@ -116,9 +117,10 @@ func TestCombinedSamplerBindingMap(t *testing.T) {
 	t.Run("taken", func(t *testing.T) {
 		// The image itself already uses (0,0): the caller asked for two
 		// globals on one binding.
+		groups := combinedSamplerModuleGroups(sampleCombined...)
 		_, _, err := parseWords(t, Options{SamplerBindings: frontend.SamplerBindings{
 			{Group: 0, Binding: 0}: {Group: 0, Binding: 0},
-		}}, combinedSamplerModuleGroups(sampleCombined...)...)
+		}}, groups...)
 		if err == nil {
 			t.Fatal("Parse accepted a sampler binding another resource already uses")
 		}
@@ -126,6 +128,11 @@ func TestCombinedSamplerBindingMap(t *testing.T) {
 		want := errCombinedSamplerBindingTaken(ir.ResourceBinding{Group: 0, Binding: 0}, ir.ResourceBinding{Group: 0, Binding: 0}).Message
 		if parseErr.Message != want {
 			t.Errorf("error = %q, want %q", parseErr.Message, want)
+		}
+		// The phase runs after the parse, but the error names the declaration it
+		// refuses instead of carrying the zero that reads as "no position".
+		if want := instructionOffsets(groups, spvenums.OpVariable); !slices.Contains(want, parseErr.Offset) {
+			t.Errorf("offset = %d, want the variable declaration at %v", parseErr.Offset, want)
 		}
 	})
 
