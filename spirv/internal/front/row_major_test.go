@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv/internal/spvenums"
+	"github.com/gogpu/naga/valid"
 )
 
 // The row-major cases share a struct in the Function space whose member is a
@@ -153,19 +154,268 @@ func TestRowMajorMatrixArrayLoad(t *testing.T) {
 	}
 }
 
-// TestRowMajorMatrixStoreRefused: the IR has no transposed store, so a store
-// through a row-major matrix member is refused with a clear error rather than
-// written in the wrong layout. Rust 30.0.0 writes it untransposed (its
-// lookup_load_override covers OpLoad only); the SPIR-V spec decides, and a
-// shader would not read back what it wrote.
-func TestRowMajorMatrixStoreRefused(t *testing.T) {
+// storeStatements returns every store in the function body.
+func storeStatements(fn *ir.Function) []ir.StmtStore {
+	var stores []ir.StmtStore
+	for _, statement := range fn.Body {
+		if store, ok := statement.Kind.(ir.StmtStore); ok {
+			stores = append(stores, store)
+		}
+	}
+	return stores
+}
+
+// accessParts splits an access expression into its base and the index it
+// applies: a constant, or the handle of a computed index.
+func accessParts(fn *ir.Function, handle ir.ExpressionHandle) (base ir.ExpressionHandle, index uint32, computed ir.ExpressionHandle, ok bool) {
+	if int(handle) >= len(fn.Expressions) {
+		return 0, 0, 0, false
+	}
+	switch access := fn.Expressions[handle].Kind.(type) {
+	case ir.ExprAccessIndex:
+		return access.Base, access.Index, 0, true
+	case ir.ExprAccess:
+		return access.Base, 0, access.Index, true
+	}
+	return 0, 0, 0, false
+}
+
+// expressionStatement returns the index of the Emit statement that evaluates an
+// expression, or -1.
+func expressionStatement(fn *ir.Function, handle ir.ExpressionHandle) int {
+	for i, statement := range fn.Body {
+		emit, ok := statement.Kind.(ir.StmtEmit)
+		if ok && emit.Range.Start <= handle && handle < emit.Range.End {
+			return i
+		}
+	}
+	return -1
+}
+
+// parseValidated parses a module and validates its IR, which every translated
+// body must pass.
+func (m *bodyModule) parseValidated(t *testing.T, body ...[]uint32) *ir.Function {
+	t.Helper()
+	module, _, err := Parse(m.build(body...), Options{})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
+		t.Fatalf("valid.Validate: %v", err)
+	}
+	if len(module.Functions) != 1 {
+		t.Fatalf("functions = %d, want 1", len(module.Functions))
+	}
+	return &module.Functions[0]
+}
+
+// TestRowMajorMatrixStore: the memory of a row-major matrix holds the transpose
+// of the value the shader sees (the load path side-loads that transpose), so a
+// whole-matrix store writes Transpose(value) at the member pointer
+// (P3-SPVIN-007; the SPIR-V spec, RowMajor).
+func TestRowMajorMatrixStore(t *testing.T) {
 	m := addRowMajorMatrixMember(newBodyModule())
-	err := m.parseError(t,
+	fn := m.parseValidated(t,
 		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
 		instWords(spvenums.OpAccessChain, 31, 201, 200, 60),
 		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
 		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
 		instWords(spvenums.OpStore, 201, 211),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 1 {
+		t.Fatalf("stores = %d, want 1: %#v", len(stores), fn.Body)
+	}
+	math, ok := fn.Expressions[stores[0].Value].Kind.(ir.ExprMath)
+	if !ok || math.Fun != ir.MathTranspose {
+		t.Fatalf("store value = %#v, want a Transpose of the matrix", fn.Expressions[stores[0].Value].Kind)
+	}
+	if _, ok := fn.Expressions[math.Arg].Kind.(ir.ExprCompose); !ok {
+		t.Errorf("transpose operand = %#v, want the composed matrix", fn.Expressions[math.Arg].Kind)
+	}
+	if _, index, _, ok := accessParts(fn, stores[0].Pointer); !ok || index != 0 {
+		t.Errorf("store pointer = %#v, want the member access (index 0)", fn.Expressions[stores[0].Pointer].Kind)
+	}
+}
+
+// TestRowMajorMatrixColumnStore: a column of a row-major matrix is strided in
+// memory, and IR element [r][c] is the SPIR-V element [c][r], so the vector
+// store becomes one store per component through the reversed access indices.
+func TestRowMajorMatrixColumnStore(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 33, 201, 200, 60, 26), // member 0, column 1
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpStore, 201, 210),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 2 {
+		t.Fatalf("stores = %d, want 2 (one per row): %#v", len(stores), fn.Body)
+	}
+	for r, store := range stores {
+		componentPointer, columnIndex, _, ok := accessParts(fn, store.Pointer)
+		if !ok || columnIndex != 1 {
+			t.Fatalf("store %d pointer = %#v, want the column index 1 outermost", r, fn.Expressions[store.Pointer].Kind)
+		}
+		_, rowIndex, _, ok := accessParts(fn, componentPointer)
+		if !ok || rowIndex != uint32(r) {
+			t.Errorf("store %d row = %d, want %d: the SPIR-V column and row indices are reversed", r, rowIndex, r)
+		}
+		_, componentIndex, _, ok := accessParts(fn, store.Value)
+		if !ok || componentIndex != uint32(r) {
+			t.Errorf("store %d value = %#v, want component %d of the column", r, fn.Expressions[store.Value].Kind, r)
+		}
+	}
+}
+
+// TestRowMajorMatrixElementStore: the scalar V[c][r] of a row-major matrix is IR
+// element [r][c], so the store pointer swaps the two access indices.
+func TestRowMajorMatrixElementStore(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 12, 201, 200, 60, 26, 60), // member 0, column 1, component 0
+		instWords(spvenums.OpStore, 201, 22),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 1 {
+		t.Fatalf("stores = %d, want 1: %#v", len(stores), fn.Body)
+	}
+	componentPointer, columnIndex, _, ok := accessParts(fn, stores[0].Pointer)
+	if !ok || columnIndex != 1 {
+		t.Fatalf("store pointer = %#v, want the column index 1 outermost", fn.Expressions[stores[0].Pointer].Kind)
+	}
+	if _, rowIndex, _, ok := accessParts(fn, componentPointer); !ok || rowIndex != 0 {
+		t.Errorf("column index = %d, want the SPIR-V row index 0: the access indices are reversed", rowIndex)
+	}
+	if _, ok := fn.Expressions[stores[0].Value].Kind.(ir.ExprConstant); !ok {
+		t.Errorf("store value = %#v, want the constant", fn.Expressions[stores[0].Value].Kind)
+	}
+}
+
+// TestRowMajorMatrixStoreReadBack: a load through the stored pointer reads the
+// memory the store just wrote. The transposed side-load the access chain made
+// before the store is stale, so the load must read the pointer again
+// (P3-SPVIN-007).
+func TestRowMajorMatrixStoreReadBack(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 31, 201, 200, 60),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
+		instWords(spvenums.OpStore, 201, 211),
+		instWords(spvenums.OpLoad, 10, 202, 201),
+	)
+	first, ok := expressionHandle(fn, isTranspose)
+	if !ok {
+		t.Fatalf("no Transpose in the expressions: %#v", fn.Expressions)
+	}
+	second := ir.ExpressionHandle(0)
+	found := false
+	for i := first + 1; i < ir.ExpressionHandle(len(fn.Expressions)); i++ {
+		if isTranspose(fn.Expressions[i].Kind) {
+			second, found = i, true
+		}
+	}
+	if !found {
+		t.Fatalf("only one Transpose: the load reused the stale side-load: %#v", fn.Body)
+	}
+	storeIndex := -1
+	for i, statement := range fn.Body {
+		if _, ok := statement.Kind.(ir.StmtStore); ok {
+			storeIndex = i
+		}
+	}
+	if storeIndex < 0 {
+		t.Fatal("no store statement")
+	}
+	if expressionStatement(fn, first) >= storeIndex {
+		t.Errorf("the first side-load is evaluated after the store")
+	}
+	if expressionStatement(fn, second) <= storeIndex {
+		t.Errorf("the load reads the memory before the store: Emit at %d, store at %d", expressionStatement(fn, second), storeIndex)
+	}
+	firstLoad := fn.Expressions[first].Kind.(ir.ExprMath).Arg
+	secondLoad := fn.Expressions[second].Kind.(ir.ExprMath).Arg
+	if firstLoad == secondLoad {
+		t.Fatalf("both Transposes read the same expression: the memory is not re-read")
+	}
+	if firstPointer := fn.Expressions[firstLoad].Kind.(ir.ExprLoad).Pointer; firstPointer != fn.Expressions[secondLoad].Kind.(ir.ExprLoad).Pointer {
+		t.Errorf("the re-read loads a different pointer than the first side-load")
+	}
+}
+
+// TestRowMajorMatrixStoreThroughCopy: an OpCopyObject of the member pointer is
+// the same pointer, so the copy keeps the row-major translation and a store
+// through it writes Transpose(value) too.
+func TestRowMajorMatrixStoreThroughCopy(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 31, 201, 200, 60),
+		instWords(spvenums.OpCopyObject, 31, 202, 201),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
+		instWords(spvenums.OpStore, 202, 211),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 1 {
+		t.Fatalf("stores = %d, want 1: %#v", len(stores), fn.Body)
+	}
+	if math, ok := fn.Expressions[stores[0].Value].Kind.(ir.ExprMath); !ok || math.Fun != ir.MathTranspose {
+		t.Errorf("store value = %#v, want a Transpose of the matrix", fn.Expressions[stores[0].Value].Kind)
+	}
+}
+
+// addRowMajorNonSquareMatrixMember declares a struct whose member is a row-major
+// mat3x2: three columns of two rows. Ids: 45 the matrix, 46 its struct, 47 the
+// struct pointer, 48 the matrix pointer, 60 the struct member index.
+func addRowMajorNonSquareMatrixMember(m *bodyModule) *bodyModule {
+	m.annotate(
+		instWords(spvenums.OpMemberDecorate, 46, 0, uint32(spvenums.DecorationRowMajor)),
+	)
+	return m.add(
+		instWords(spvenums.OpTypeMatrix, 45, 7, 3),
+		instWords(spvenums.OpTypeStruct, 46, 45),
+		instWords(spvenums.OpTypePointer, 47, uint32(spvenums.StorageClassFunction), 46),
+		instWords(spvenums.OpTypePointer, 48, uint32(spvenums.StorageClassFunction), 45),
+		instWords(spvenums.OpConstant, 3, 60, 0),
+	)
+}
+
+// TestRowMajorNonSquareStoreRefused: the transpose that maps row-major memory
+// onto the IR's column-major matrices needs equal row and column counts, so a
+// store through a non-square row-major matrix is refused instead of written at
+// offsets the load could not read back.
+func TestRowMajorNonSquareStoreRefused(t *testing.T) {
+	m := addRowMajorNonSquareMatrixMember(newBodyModule())
+	err := m.parseError(t,
+		instWords(spvenums.OpVariable, 47, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 48, 201, 200, 60),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 45, 211, 210, 210, 210),
+		instWords(spvenums.OpStore, 201, 211),
+	)
+	if !strings.Contains(err.Error(), "not square") {
+		t.Errorf("error = %q, want the non-square refusal", err)
+	}
+}
+
+// TestRowMajorMatrixArrayStoreRefused: a whole array of row-major matrices has
+// no transposed store — every element would need its own transpose — so the
+// store is refused. Rust 30.0.0 writes it untransposed (its
+// lookup_load_override covers OpLoad only); the SPIR-V spec decides.
+func TestRowMajorMatrixArrayStoreRefused(t *testing.T) {
+	m := addRowMajorMatrixArrayMember(newBodyModule())
+	err := m.parseError(t,
+		instWords(spvenums.OpVariable, 54, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 55, 201, 200, 60),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
+		instWords(spvenums.OpCompositeConstruct, 52, 212, 211, 211, 211, 211),
+		instWords(spvenums.OpStore, 201, 212),
 	)
 	if !strings.Contains(err.Error(), "row-major") {
 		t.Errorf("error = %q, want it to name the row-major store", err)

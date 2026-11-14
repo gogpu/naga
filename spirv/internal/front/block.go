@@ -51,6 +51,10 @@ type functionState struct {
 	// access chain side-loaded, and the OpLoad of that pointer uses it instead
 	// of reading the column-major layout.
 	loadOverrides map[uint32]loadOverride
+	// rowMajorMatrices is the SPIR-V type id of the row-major matrix a pointer's
+	// access chain crossed, by the id of the pointer it produced: a store
+	// through that pointer needs the matrix shape to translate it.
+	rowMajorMatrices map[uint32]uint32
 }
 
 // loadOverride is Rust naga's LookupLoadOverride (front/spv/mod.rs:394): the
@@ -60,6 +64,10 @@ type functionState struct {
 type loadOverride struct {
 	loaded bool
 	handle ir.ExpressionHandle
+	// stale marks a side-loaded value a store may have overwritten: the load
+	// path evaluates it at the access chain, so a later OpLoad of the same
+	// pointer must read the memory again instead of reusing it.
+	stale bool
 }
 
 // setLoadOverride records the transposed value a later OpLoad of id must use.
@@ -68,6 +76,15 @@ func (fs *functionState) setLoadOverride(id uint32, override loadOverride) {
 		fs.loadOverrides = make(map[uint32]loadOverride)
 	}
 	fs.loadOverrides[id] = override
+}
+
+// setRowMajorMatrix records the row-major matrix a pointer's access chain
+// crossed.
+func (fs *functionState) setRowMajorMatrix(id, typeID uint32) {
+	if fs.rowMajorMatrices == nil {
+		fs.rowMajorMatrices = make(map[uint32]uint32)
+	}
+	fs.rowMajorMatrices[id] = typeID
 }
 
 // mergeBlockInformation is what a branch to a merge block or a continue

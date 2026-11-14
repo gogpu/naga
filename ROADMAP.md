@@ -102,7 +102,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Frontend | Priority | Status | Description |
 |----------|----------|--------|-------------|
-| SPIR-V input | P1 | Phases 1-3 complete in v0.22.0; a store through a row-major member is refused until the spec-correct store (P3-SPVIN-007) | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split, entry-point wrappers, row-major matrix members and the Coherent/Volatile memory decorations. `nagac -from-spirv` turns a binary into SPIR-V, MSL, HLSL or GLSL. Ported from Rust naga's `front/spv` |
+| SPIR-V input | P1 | Phases 1-3 complete in v0.22.0; stores through a row-major member translated (P3-SPVIN-007) | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split, entry-point wrappers, row-major matrix members with their reads and stores, and the Coherent/Volatile memory decorations. `nagac -from-spirv` turns a binary into SPIR-V, MSL, HLSL or GLSL. Ported from Rust naga's `front/spv` |
 | GLSL input | P2 | Planned | Vulkan GLSL 440/450/460 and GL 3.30 / ES 3.00 with combined samplers (NAGA-FEAT-002) |
 | Slang input | P2 | Planned | HLSL subset ("HLSL with import"), a native Pure Go parser, no slangc dependency |
 

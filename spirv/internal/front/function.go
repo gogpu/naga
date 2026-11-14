@@ -401,6 +401,14 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 			return false, nil, err
 		}
 		p.storeExpression(id, typeID, blockID, handle)
+		// A copy of a row-major pointer carries what the chain learned: the
+		// transposed value a load reads and the matrix a store translates by.
+		if override, ok := fs.loadOverrides[operandID]; ok {
+			fs.setLoadOverride(id, override)
+		}
+		if matrix, ok := fs.rowMajorMatrices[operandID]; ok {
+			fs.setRowMajorMatrix(id, matrix)
+		}
 	case spvenums.OpSNegate, spvenums.OpFNegate:
 		return false, nil, p.unaryOp(inst, fs, consumer, block, bodyIdx, blockID, ir.UnaryNegate, true)
 	case spvenums.OpLogicalNot:
@@ -807,6 +815,19 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 
 	handle := baseHandle
 	override, hasOverride := fs.loadOverrides[baseID]
+	// A store since the base's chain was parsed may have overwritten the
+	// side-loaded value: read the memory again before the chain indexes it.
+	if hasOverride && override.loaded && override.stale {
+		override, err = p.rowMajorValue(fs, baseID, baseHandle, override)
+		if err != nil {
+			return err
+		}
+		fs.setLoadOverride(baseID, override)
+	}
+	// rowMajorMatrix is the row-major matrix the chain crossed, if any: a store
+	// through the pointer it produces needs the matrix shape.
+	var rowMajorMatrix uint32
+	var hasRowMajorMatrix bool
 	for range inst.wc - 4 {
 		indexID, err := p.next()
 		if err != nil {
@@ -849,6 +870,9 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 				if err != nil {
 					return err
 				}
+				if override.loaded {
+					rowMajorMatrix, hasRowMajorMatrix = member.typeID, true
+				}
 			} else {
 				// Rust resets the override on a member that is not row-major
 				// (front/spv/next_block.rs:348-350).
@@ -867,6 +891,7 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 				}
 				next = loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprAccessIndex{Base: override.handle, Index: indexValue})}
 				hasNext = true
+				rowMajorMatrix, hasRowMajorMatrix = currentTypeID, true
 			}
 			if hasIndex {
 				handle = appendExpression(fs.fn, ir.ExprAccessIndex{Base: handle, Index: indexValue})
@@ -890,8 +915,12 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 					// The pending index selects a matrix out of an array of
 					// row-major matrices: load that element and transpose it
 					// (Rust naga, front/spv/next_block.rs:401-434).
+					if !currentType.hasBase {
+						return errInvalidAccessType(currentTypeID)
+					}
 					loaded := appendExpression(fs.fn, ir.ExprLoad{Pointer: element})
 					next = loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprMath{Fun: ir.MathTranspose, Arg: loaded})}
+					rowMajorMatrix, hasRowMajorMatrix = currentType.baseID, true
 				}
 				hasNext = true
 			}
@@ -905,6 +934,9 @@ func (p *parser) accessChain(inst instruction, fs *functionState, consumer *emit
 	}
 	if hasOverride {
 		fs.setLoadOverride(resultID, override)
+	}
+	if hasRowMajorMatrix {
+		fs.setRowMajorMatrix(resultID, rowMajorMatrix)
 	}
 	p.storeExpression(resultID, resultTypeID, blockID, handle)
 	return nil
@@ -1259,6 +1291,15 @@ func (p *parser) load(inst instruction, fs *functionState, consumer *emitter, bl
 	// matrices, which no single expression can transpose element-wise: Rust
 	// falls back to a plain load here, and so does this frontend.
 	if override, ok := fs.loadOverrides[pointerID]; ok && override.loaded {
+		if override.stale {
+			// A store since the chain was parsed may have overwritten the
+			// side-loaded value: read the memory again.
+			override, err = p.rowMajorValue(fs, pointerID, pointerHandle, override)
+			if err != nil {
+				return err
+			}
+			fs.setLoadOverride(pointerID, override)
+		}
 		p.storeExpression(resultID, resultTypeID, blockID, override.handle)
 		return nil
 	}
@@ -1285,13 +1326,6 @@ func (p *parser) store(inst instruction, fs *functionState, consumer *emitter, b
 	if err != nil {
 		return err
 	}
-	// A pointer that reached a row-major matrix has no transposed store in
-	// the IR: writing it would put the value in the wrong layout, so the
-	// store is refused (Rust naga writes it untransposed; the SPIR-V spec
-	// decides, and a shader would not read back what it wrote).
-	if _, ok := fs.loadOverrides[pointerID]; ok {
-		return errStoreThroughRowMajor
-	}
 	valueID, err := p.next()
 	if err != nil {
 		return err
@@ -1313,10 +1347,222 @@ func (p *parser) store(inst instruction, fs *functionState, consumer *emitter, b
 	if err != nil {
 		return err
 	}
+	if override, ok := fs.loadOverrides[pointerID]; ok {
+		return p.rowMajorStore(fs, pointerID, pointer, value, override, consumer, block)
+	}
 	flushBeforeStatement(consumer, fs.fn.Expressions, block)
 	*block = append(*block, ir.Statement{Kind: ir.StmtStore{Pointer: pointer, Value: value}})
 	consumer.startWith(fs.fn.Expressions)
 	return nil
+}
+
+// storePair is one store a row-major translation emits.
+type storePair struct {
+	pointer ir.ExpressionHandle
+	value   ir.ExpressionHandle
+}
+
+// appendStores flushes the expressions the stores need and appends them.
+func appendStores(consumer *emitter, fs *functionState, block *ir.Block, pairs []storePair) {
+	flushBeforeStatement(consumer, fs.fn.Expressions, block)
+	for _, pair := range pairs {
+		*block = append(*block, ir.Statement{Kind: ir.StmtStore{Pointer: pair.pointer, Value: pair.value}})
+	}
+	consumer.startWith(fs.fn.Expressions)
+}
+
+// rowMajorStore writes a value through a pointer that reached a row-major
+// matrix. The IR has only column-major matrices, so the memory of a row-major
+// matrix is the IR's transposed matrix: a whole-matrix store writes
+// Transpose(value) there, and a store to a column or to a single element writes
+// the SPIR-V element [c][r] at the IR element [r][c] — the access indices are
+// reversed. The translation applies to square matrices only: the transpose maps
+// the two layouts onto each other only when the row and column counts are
+// equal. Rust naga writes the value untransposed (front/spv/next_block.rs:
+// 771-793), so a shader does not read back what it wrote; the SPIR-V spec
+// (RowMajor, OpStore) decides.
+func (p *parser) rowMajorStore(fs *functionState, pointerID uint32, pointer, value ir.ExpressionHandle, override loadOverride, consumer *emitter, block *ir.Block) error {
+	matrixTypeID, ok := fs.rowMajorMatrices[pointerID]
+	if !ok || !override.loaded {
+		return errStoreRowMajorArray
+	}
+	matrix, err := p.rowMajorMatrixShape(matrixTypeID)
+	if err != nil {
+		return err
+	}
+	if matrix.Columns != matrix.Rows {
+		return errStoreRowMajorNonSquare
+	}
+	pointee, err := p.pointeeType(pointerID)
+	if err != nil {
+		return err
+	}
+	switch p.module.Types[pointee.handle].Inner.(type) {
+	case ir.MatrixType:
+		transposed := appendExpression(fs.fn, ir.ExprMath{Fun: ir.MathTranspose, Arg: value})
+		appendStores(consumer, fs, block, []storePair{{pointer: pointer, value: transposed}})
+	case ir.VectorType:
+		// One store per component: a column of a row-major matrix is strided
+		// in memory, so no single pointer reaches it.
+		column, ok := accessStep(fs.fn, pointer)
+		if !ok {
+			return errInvalidAccess
+		}
+		pairs := make([]storePair, matrix.Rows)
+		for row := range matrix.Rows {
+			columnPointer := appendExpression(fs.fn, ir.ExprAccessIndex{Base: column.base, Index: uint32(row)})
+			pairs[row] = storePair{
+				pointer: p.rowMajorIndex(fs, columnPointer, column),
+				value:   appendExpression(fs.fn, ir.ExprAccessIndex{Base: value, Index: uint32(row)}),
+			}
+		}
+		appendStores(consumer, fs, block, pairs)
+	case ir.ScalarType:
+		element, err := p.rowMajorElementPointer(fs, pointer)
+		if err != nil {
+			return err
+		}
+		appendStores(consumer, fs, block, []storePair{{pointer: element, value: value}})
+	default:
+		return errStoreRowMajorArray
+	}
+	// The store may have overwritten the memory any side-loaded row-major value
+	// was read from: a later load must read it again.
+	p.invalidateRowMajorValues(fs)
+	return nil
+}
+
+// rowMajorAccess is one index a pointer expression applies: the base it starts
+// from and the index itself, either a constant or a computed expression.
+type rowMajorAccess struct {
+	base       ir.ExpressionHandle
+	index      uint32
+	computed   ir.ExpressionHandle
+	isComputed bool
+}
+
+// accessStep splits a pointer expression into its base and the index it
+// applies, if the expression is an access at all.
+func accessStep(fn *ir.Function, handle ir.ExpressionHandle) (rowMajorAccess, bool) {
+	if int(handle) >= len(fn.Expressions) {
+		return rowMajorAccess{}, false
+	}
+	switch access := fn.Expressions[handle].Kind.(type) {
+	case ir.ExprAccessIndex:
+		return rowMajorAccess{base: access.Base, index: access.Index}, true
+	case ir.ExprAccess:
+		return rowMajorAccess{base: access.Base, computed: access.Index, isComputed: true}, true
+	}
+	return rowMajorAccess{}, false
+}
+
+// rowMajorIndex applies an access to a pointer.
+func (p *parser) rowMajorIndex(fs *functionState, pointer ir.ExpressionHandle, access rowMajorAccess) ir.ExpressionHandle {
+	if access.isComputed {
+		return appendExpression(fs.fn, ir.ExprAccess{Base: pointer, Index: access.computed})
+	}
+	return appendExpression(fs.fn, ir.ExprAccessIndex{Base: pointer, Index: access.index})
+}
+
+// rowMajorElementPointer returns the pointer to the IR element the SPIR-V
+// scalar [column][row] of a row-major matrix occupies: IR element [row]
+// [column], because the memory of a row-major matrix is the IR's transposed
+// matrix.
+func (p *parser) rowMajorElementPointer(fs *functionState, pointer ir.ExpressionHandle) (ir.ExpressionHandle, error) {
+	component, ok := accessStep(fs.fn, pointer)
+	if !ok {
+		return 0, errInvalidAccess
+	}
+	column, ok := accessStep(fs.fn, component.base)
+	if !ok {
+		return 0, errInvalidAccess
+	}
+	return p.rowMajorIndex(fs, p.rowMajorIndex(fs, column.base, component), column), nil
+}
+
+// pointeeType returns the type of the value a pointer id points at.
+func (p *parser) pointeeType(pointerID uint32) (lookupType, error) {
+	expression, err := p.lookupExpr(pointerID)
+	if err != nil {
+		return lookupType{}, err
+	}
+	pointerType, err := p.typeLookup(expression.typeID)
+	if err != nil {
+		return lookupType{}, err
+	}
+	if !pointerType.hasBase {
+		return lookupType{}, errInvalidAccessType(expression.typeID)
+	}
+	return p.typeLookup(pointerType.baseID)
+}
+
+// rowMajorMatrixShape returns the matrix a row-major pointer chain crossed.
+func (p *parser) rowMajorMatrixShape(typeID uint32) (ir.MatrixType, error) {
+	lookup, err := p.typeLookup(typeID)
+	if err != nil {
+		return ir.MatrixType{}, err
+	}
+	matrix, ok := p.module.Types[lookup.handle].Inner.(ir.MatrixType)
+	if !ok {
+		return ir.MatrixType{}, errInvalidAccessType(typeID)
+	}
+	return matrix, nil
+}
+
+// rowMajorValue returns the value a load of a row-major pointer reads now: a
+// store invalidated the side-loaded value, so the memory is read again — as a
+// transposed load for a matrix, as one load per component for a column, and as
+// a single element load for a scalar.
+func (p *parser) rowMajorValue(fs *functionState, pointerID uint32, pointer ir.ExpressionHandle, override loadOverride) (loadOverride, error) {
+	matrixTypeID, ok := fs.rowMajorMatrices[pointerID]
+	if !ok {
+		return loadOverride{}, errInvalidAccess
+	}
+	matrix, err := p.rowMajorMatrixShape(matrixTypeID)
+	if err != nil {
+		return loadOverride{}, err
+	}
+	pointee, err := p.pointeeType(pointerID)
+	if err != nil {
+		return loadOverride{}, err
+	}
+	switch p.module.Types[pointee.handle].Inner.(type) {
+	case ir.MatrixType:
+		loaded := appendExpression(fs.fn, ir.ExprLoad{Pointer: pointer})
+		return loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprMath{Fun: ir.MathTranspose, Arg: loaded})}, nil
+	case ir.VectorType:
+		column, ok := accessStep(fs.fn, pointer)
+		if !ok {
+			return loadOverride{}, errInvalidAccess
+		}
+		components := make([]ir.ExpressionHandle, matrix.Rows)
+		for row := range matrix.Rows {
+			columnPointer := appendExpression(fs.fn, ir.ExprAccessIndex{Base: column.base, Index: uint32(row)})
+			element := p.rowMajorIndex(fs, columnPointer, column)
+			components[row] = appendExpression(fs.fn, ir.ExprLoad{Pointer: element})
+		}
+		return loadOverride{loaded: true, handle: appendExpression(fs.fn, ir.ExprCompose{Type: pointee.handle, Components: components})}, nil
+	case ir.ScalarType:
+		element, err := p.rowMajorElementPointer(fs, pointer)
+		if err != nil {
+			return loadOverride{}, err
+		}
+		loaded := appendExpression(fs.fn, ir.ExprLoad{Pointer: element})
+		return loadOverride{loaded: true, handle: loaded}, nil
+	}
+	return loadOverride{}, errInvalidAccess
+}
+
+// invalidateRowMajorValues marks every side-loaded row-major value stale: a
+// store may have written the memory any of them was read from, and a later load
+// through a row-major pointer must read the memory again.
+func (p *parser) invalidateRowMajorValues(fs *functionState) {
+	for id, override := range fs.loadOverrides {
+		if override.loaded {
+			override.stale = true
+			fs.setLoadOverride(id, override)
+		}
+	}
 }
 
 // unaryOp parses a unary operation. A sign-adjusted one casts the operand to
