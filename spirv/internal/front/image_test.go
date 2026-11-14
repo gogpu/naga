@@ -2,6 +2,7 @@ package front
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,11 +162,11 @@ func TestImageComparisonPatch(t *testing.T) {
 	})
 
 	t.Run("both ways", func(t *testing.T) {
-		_, _, err := parseWords(t, Options{},
-			imageModuleGroups(
-				instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24),
-				instWords(spvenums.OpImageSampleDrefImplicitLod, 13, 41, 32, 24, 23),
-			)...)
+		groups := imageModuleGroups(
+			instWords(spvenums.OpImageSampleImplicitLod, 15, 40, 32, 24),
+			instWords(spvenums.OpImageSampleDrefImplicitLod, 13, 41, 32, 24, 23),
+		)
+		_, _, err := parseWords(t, Options{}, groups...)
 		if err == nil {
 			t.Fatal("Parse accepted a sampler used both ways")
 		}
@@ -177,6 +178,11 @@ func TestImageComparisonPatch(t *testing.T) {
 		// on the arena order (Rust naga's hash order is arbitrary there too).
 		if want := "inconsistent comparison sampling"; len(parseErr.Message) < len(want) || parseErr.Message[:len(want)] != want {
 			t.Errorf("error = %q, want %q", parseErr.Message, want)
+		}
+		// The phase runs after the parse, but the error names the declaration it
+		// refuses instead of carrying the zero that reads as "no position".
+		if want := instructionOffsets(groups, spvenums.OpVariable); !slices.Contains(want, parseErr.Offset) {
+			t.Errorf("offset = %d, want a variable declaration at %v", parseErr.Offset, want)
 		}
 	})
 }

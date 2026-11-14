@@ -65,6 +65,34 @@ func parseWords(t *testing.T, options Options, groups ...[]uint32) (*ir.Module, 
 	return Parse(spvWords(groups...), options)
 }
 
+// instructionOffsets returns the byte offsets of every instruction with the
+// opcode in an assembled module's word groups.
+func instructionOffsets(groups [][]uint32, op spvenums.Op) []uint32 {
+	words := wordGroups(groups)
+	var offsets []uint32
+	for index := 5; index < len(words); {
+		wc := int(words[index] >> 16)
+		if wc == 0 {
+			break
+		}
+		if spvenums.Op(words[index]&0xffff) == op {
+			offsets = append(offsets, uint32(index)*4)
+		}
+		index += wc
+	}
+	return offsets
+}
+
+// wordGroups concatenates word groups, as spvWords does before it encodes
+// them.
+func wordGroups(groups [][]uint32) []uint32 {
+	var words []uint32
+	for _, group := range groups {
+		words = append(words, group...)
+	}
+	return words
+}
+
 // requireError returns the *Error a parse failed with.
 func requireError(t *testing.T, err error) *Error {
 	t.Helper()

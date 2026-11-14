@@ -137,6 +137,9 @@ type parser struct {
 	// declares the gl_PerVertex built-ins a shader never writes, and the
 	// wrapper drops the binding of those in its result.
 	glPerVertexBuiltinAccess map[ir.BuiltinValue]struct{}
+	// globalOffsets is the byte offset of the instruction that declared each
+	// global, so a post-parse phase reports the declaration it refuses.
+	globalOffsets map[ir.GlobalVariableHandle]uint32
 	// lookupExpression is the table of the function being parsed; it is
 	// cleared when the next function starts.
 	lookupExpression map[uint32]lookupExpression
@@ -277,32 +280,34 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 	}
 
 	// The sampler of every combined image sampler gets its binding now that
-	// every global of the module is known.
+	// every global of the module is known. The phases below run after the
+	// parse; p.at gives their errors the position parsing ended at instead of
+	// the zero that reads as "no position".
 	if err := p.resolveCombinedSamplerBindings(); err != nil {
-		return nil, Info{}, err
+		return nil, Info{}, p.at(err)
 	}
 
 	// The atomics the module accessed get their Atomic types before the
 	// wrappers are built, as Rust naga's parse does.
 	if err := p.upgradeAtomics(); err != nil {
-		return nil, Info{}, err
+		return nil, Info{}, p.at(err)
 	}
 
 	// The entry point wrappers are built after every function is parsed, so
 	// that their calls all have a target.
 	for _, functionID := range p.deferredEntryPoints {
 		if err := p.processEntryPoint(functionID); err != nil {
-			return nil, Info{}, err
+			return nil, Info{}, p.at(err)
 		}
 	}
 
 	// Every call target is known now: order the functions callees first and
 	// replace the placeholder handles.
 	if err := p.orderFunctions(); err != nil {
-		return nil, Info{}, err
+		return nil, Info{}, p.at(err)
 	}
 	if err := p.checkCalls(); err != nil {
-		return nil, Info{}, err
+		return nil, Info{}, p.at(err)
 	}
 	p.patchCalls()
 
@@ -311,7 +316,7 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 	// after patchCalls, when a Call names its function in Module.Functions
 	// rather than a placeholder handle.
 	if err := p.propagateParameterSampling(); err != nil {
-		return nil, Info{}, err
+		return nil, Info{}, p.at(err)
 	}
 
 	// An image or sampler sampled only as a depth comparison gets the
@@ -324,7 +329,7 @@ func (p *parser) parse() (*ir.Module, Info, error) {
 	sort.Slice(handles, func(i, j int) bool { return handles[i] < handles[j] })
 	for _, handle := range handles {
 		if err := p.patchComparisonType(handle, p.handleSampling[handle]); err != nil {
-			return nil, Info{}, err
+			return nil, Info{}, p.at(err)
 		}
 	}
 	return p.module, p.info, nil

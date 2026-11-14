@@ -38,10 +38,8 @@ func (p *parser) splitCombinedSampler(id, typeID uint32, dec *decoration, imageT
 		Space: ir.SpaceHandle,
 		Type:  p.insertType("", false, ir.SamplerType{}),
 	}
-	imageHandle := ir.GlobalVariableHandle(len(p.module.GlobalVariables))
-	p.module.GlobalVariables = append(p.module.GlobalVariables, image)
-	samplerHandle := ir.GlobalVariableHandle(len(p.module.GlobalVariables))
-	p.module.GlobalVariables = append(p.module.GlobalVariables, sampler)
+	imageHandle := p.appendGlobal(image)
+	samplerHandle := p.appendGlobal(sampler)
 
 	if p.canComparisonSample(imageType) {
 		p.handleSampling[imageHandle] = 0
@@ -90,7 +88,10 @@ func (p *parser) resolveCombinedSamplerBindings() error {
 		var samplerBinding ir.ResourceBinding
 		if mapped, ok := p.options.SamplerBindings[split.declared]; ok {
 			if _, taken := used[mapped.Group][mapped.Binding]; taken {
-				return errCombinedSamplerBindingTaken(split.declared, mapped)
+				return &Error{
+					Message: errCombinedSamplerBindingTaken(split.declared, mapped).Message,
+					Offset:  p.globalOffsets[split.image],
+				}
 			}
 			samplerBinding = mapped
 		} else {

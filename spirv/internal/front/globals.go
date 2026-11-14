@@ -165,8 +165,7 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 		lookup.class = classGlobal
 	}
 
-	lookup.handle = ir.GlobalVariableHandle(len(p.module.GlobalVariables))
-	p.module.GlobalVariables = append(p.module.GlobalVariables, global)
+	lookup.handle = p.appendGlobal(global)
 	if p.canComparisonSample(ty) {
 		// The module may sample it as a depth comparison; that is known only
 		// after every function is parsed (Rust naga's handle_sampling).
@@ -174,6 +173,18 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 	}
 	p.lookupVariable[id] = lookup
 	return nil
+}
+
+// appendGlobal adds a global and remembers the instruction that declared it,
+// so a post-parse phase reports the declaration its error is about.
+func (p *parser) appendGlobal(global ir.GlobalVariable) ir.GlobalVariableHandle {
+	handle := ir.GlobalVariableHandle(len(p.module.GlobalVariables))
+	p.module.GlobalVariables = append(p.module.GlobalVariables, global)
+	if p.globalOffsets == nil {
+		p.globalOffsets = make(map[ir.GlobalVariableHandle]uint32)
+	}
+	p.globalOffsets[handle] = uint32(p.instOffset)
+	return handle
 }
 
 // variableClass maps a variable's pointee type and storage class to its IR

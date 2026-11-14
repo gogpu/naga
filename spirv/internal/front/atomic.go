@@ -417,7 +417,10 @@ func (p *parser) upgradeAtomics() error {
 		}
 		global := &p.module.GlobalVariables[handle]
 		if global.InitExpr != nil {
-			return errAtomicGlobalInitUnsupported
+			return &Error{
+				Message: errAtomicGlobalInitUnsupported.Message,
+				Offset:  p.globalOffsets[handle],
+			}
 		}
 		newType, err := p.upgradeAtomicType(global.Type, upgraded)
 		if err != nil {

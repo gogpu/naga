@@ -63,6 +63,78 @@ func TestStorageExpressionLimit(t *testing.T) {
 	})
 }
 
+// storageSamplerModule assembles a module of combined image sampler variables
+// and functions empty void functions. Each function's arena starts with one
+// expression per variable and one more for the sampler half the split creates,
+// so the module asks for 2 × samplers × functions storage expressions.
+func storageSamplerModule(samplers, functions int) []byte {
+	groups := [][]uint32{
+		headerWords(),
+		instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+		instWords(spvenums.OpMemoryModel, 0, 1),
+	}
+	variableID := uint32(10)
+	for i := range samplers {
+		groups = append(groups,
+			instWords(spvenums.OpDecorate, variableID, uint32(spvenums.DecorationDescriptorSet), 0),
+			instWords(spvenums.OpDecorate, variableID, uint32(spvenums.DecorationBinding), uint32(i)),
+		)
+		variableID++
+	}
+	groups = append(groups,
+		instWords(spvenums.OpTypeVoid, 1),
+		instWords(spvenums.OpTypeFunction, 2, 1),
+		instWords(spvenums.OpTypeFloat, 3, 32),
+		instWords(spvenums.OpTypeImage, 4, 3, 1, 0, 0, 0, 1, 0),
+		instWords(spvenums.OpTypeSampler, 5),
+		instWords(spvenums.OpTypeSampledImage, 6, 4),
+		instWords(spvenums.OpTypePointer, 7, uint32(spvenums.StorageClassUniformConstant), 6),
+	)
+	id := uint32(10)
+	for range samplers {
+		groups = append(groups,
+			instWords(spvenums.OpVariable, 7, id, uint32(spvenums.StorageClassUniformConstant)),
+		)
+		id++
+	}
+	for range functions {
+		groups = append(groups,
+			instWords(spvenums.OpFunction, 1, id, 0, 2),
+			instWords(spvenums.OpLabel, id+1),
+			instWords(spvenums.OpReturn),
+			instWords(spvenums.OpFunctionEnd),
+		)
+		id += 2
+	}
+	return spvWords(groups...)
+}
+
+// TestStorageExpressionLimitSamplers: the budget counts the expression
+// makeExpressionStorage appends for the sampler half of each combined image
+// sampler, so the documented bound is the enforced one. The old accounting
+// counted one expression per variable only and admitted a module of twice the
+// documented bound.
+func TestStorageExpressionLimitSamplers(t *testing.T) {
+	const samplers = 1024
+	atLimit := maxStorageExpressions / (2 * samplers)
+
+	t.Run("at the limit", func(t *testing.T) {
+		if _, _, err := Parse(storageSamplerModule(samplers, atLimit), Options{}); err != nil {
+			t.Fatalf("Parse at the limit: %v", err)
+		}
+	})
+
+	t.Run("just over the limit", func(t *testing.T) {
+		_, _, err := Parse(storageSamplerModule(samplers, atLimit+1), Options{})
+		if err == nil {
+			t.Fatal("Parse accepted a module over the storage expression limit")
+		}
+		if got := requireError(t, err).Message; !strings.Contains(got, "more than the limit") {
+			t.Errorf("message = %q, want the storage expression limit", got)
+		}
+	})
+}
+
 // chainKind is the type typeChainModule wraps i32 in, level by level.
 type chainKind uint8
 

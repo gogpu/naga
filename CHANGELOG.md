@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   images "can't be Proj" — and no GLSL or WGSL producer reaches it (`textureProj` has no array-sampler
   overload).
 
+## [Unreleased]
+
+### Fixed
+
+- **The storage-expression budget counts every expression a function's arena starts with** (P3-SPVIN-005): the
+  sampler half of each combined image sampler is appended to every function's arena, and the budget did not count
+  it, so the enforced bound sat below the documented `maxStorageExpressions`. The count includes it now, and a
+  test pins both sides of the boundary with 1,024 combined samplers.
+- **The post-parse phases report the declaration they refuse** (P3-SPVIN-006): a combined-sampler binding another
+  resource already uses, an atomically accessed global with an initializer, and a resource sampled both ways
+  returned errors with `ParseError.Offset` 0. They now carry the byte offset of the variable declaration, and
+  every other post-parse phase routes its error through the position parsing ended at instead of returning it
+  bare.
+
 ## [0.22.0] - 2026-11-14
 
 The SPIR-V input frontend gains the things the 0.21.12 notes said were still to come: row-major matrix members
