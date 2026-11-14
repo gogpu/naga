@@ -27,8 +27,8 @@ Current scope
   Frontends: WGSL; SPIR-V input (phases 1-3 of the design, ported from Rust
   naga's front/spv: types, constants, decorations, globals, control flow, calls,
   images and sampling, atomics, subgroups, the combined image sampler split, the
-  entry-point wrapper, row-major matrix members (reads; a store through one is
-  refused until the spec-correct store, card P3-SPVIN-007), and the
+  entry-point wrapper, row-major matrix members with their reads and stores (a
+  whole-array store and a matrix that is not square stay refused), and the
   Coherent/Volatile memory decorations; nagac -from-spirv turns a binary into
   SPIR-V, MSL, HLSL or GLSL).
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
