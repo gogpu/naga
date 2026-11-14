@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The SPIR-V input frontend gains the two things the 0.21.12 notes said were still to come: row-major matrix
+members, and SPIR-V input on the command line. Coherent and Volatile survive the round trip too, so three of
+those recorded limits no longer hold: row-major access, memory decorations, and `nagac --from-spirv`. An empty
+global name is still indistinguishable from an absent one (P3-IR-033), and the projective sample of an arrayed
+image still drops the projection term and the array layer (P3-SPVIN-004).
+
+### Added
+
+- **`spirv.Parse` reads row-major matrix members** (NAGA-FEAT-001): an access chain that reaches a `RowMajor`
+  matrix member side-loads the transposed value — Rust naga's `lookup_load_override` — and the load of that
+  pointer yields it instead of reading the column-major layout. Covers the member itself, a column inside it,
+  and an element of an array of row-major matrices. Loading the whole array of row-major matrices keeps Rust's
+  plain-load behaviour (its `Pending` override is unused there), pinned by a test that names it.
+- **`nagac -from-spirv` and `-backend`**: the command reads a SPIR-V binary through `spirv.Parse` and emits
+  SPIR-V (the default), MSL, HLSL or GLSL; WGSL input can target the same backends. Both frontends share the
+  parse, validation and pipeline-constants path, and the terminal guard now covers only the binary output. The
+  end-to-end test compiles WGSL to SPIR-V, feeds the binary back through `-from-spirv` into every text backend,
+  and covers a truncated binary, an unknown backend and the terminal rule.
+- **`ir.GlobalVariable.MemoryDecorations`** with the `ir.MemoryCoherent`/`ir.MemoryVolatile` flags
+  (P2-SPVIN-001): the SPIR-V frontend keeps the Coherent and Volatile decorations it used to drop, the SPIR-V
+  writer emits them again, and the validator requires the storage address space and the new
+  `valid.CapMemoryDecorationCoherent`/`valid.CapMemoryDecorationVolatile` capabilities with Rust naga's error
+  texts. Public API additions: the `MemoryDecorations` field on a public IR type, and the two capability
+  constants.
+
 ## [0.21.12] - 2026-11-13
 
 A patch with the rest of the SPIR-V input frontend — structured control flow and calls, images and sampling,
