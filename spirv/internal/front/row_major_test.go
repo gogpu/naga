@@ -403,6 +403,149 @@ func TestRowMajorNonSquareStoreRefused(t *testing.T) {
 	}
 }
 
+// loadsAfter returns the load expressions an Emit evaluates after the given
+// store: the reads a store invalidated.
+func loadsAfter(fn *ir.Function, store ir.StmtStore) []ir.ExpressionHandle {
+	storeIndex := -1
+	for i, statement := range fn.Body {
+		if kind, ok := statement.Kind.(ir.StmtStore); ok && kind == store {
+			storeIndex = i
+		}
+	}
+	var loads []ir.ExpressionHandle
+	for handle := range ir.ExpressionHandle(len(fn.Expressions)) {
+		if _, ok := fn.Expressions[handle].Kind.(ir.ExprLoad); !ok {
+			continue
+		}
+		if expressionStatement(fn, handle) > storeIndex {
+			loads = append(loads, handle)
+		}
+	}
+	return loads
+}
+
+// TestRowMajorMatrixColumnReadBack: a load of a column pointer after a store
+// reads the column from the memory again — one element load per row, composed,
+// because a column of a row-major matrix is strided.
+func TestRowMajorMatrixColumnReadBack(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 33, 201, 200, 60, 26), // member 0, column 1
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpStore, 201, 210),
+		instWords(spvenums.OpLoad, 7, 202, 201),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 2 {
+		t.Fatalf("stores = %d, want 2 (one per row): %#v", len(stores), fn.Body)
+	}
+	loads := loadsAfter(fn, stores[0])
+	if len(loads) != 2 {
+		t.Fatalf("loads after the store = %d, want 2 (one per column element): %#v", len(loads), fn.Expressions)
+	}
+	composed, ok := findExpression(fn, func(kind ir.ExpressionKind) bool {
+		compose, ok := kind.(ir.ExprCompose)
+		if !ok || len(compose.Components) != 2 {
+			return false
+		}
+		return compose.Components[0] == loads[0] && compose.Components[1] == loads[1]
+	})
+	if !ok {
+		t.Errorf("no compose of the re-read column elements: %#v", fn.Expressions)
+	}
+	_ = composed
+	for row, load := range loads {
+		pointer, ok := fn.Expressions[load].Kind.(ir.ExprLoad)
+		if !ok {
+			t.Fatalf("load %d = %#v", row, fn.Expressions[load].Kind)
+		}
+		componentPointer, columnIndex, _, ok := accessParts(fn, pointer.Pointer)
+		if !ok || columnIndex != 1 {
+			t.Fatalf("load %d pointer = %#v, want the column index 1 outermost", row, fn.Expressions[pointer.Pointer].Kind)
+		}
+		if _, rowIndex, _, ok := accessParts(fn, componentPointer); !ok || rowIndex != uint32(row) {
+			t.Errorf("load %d row = %d, want %d: the access indices are reversed", row, rowIndex, row)
+		}
+	}
+}
+
+// TestRowMajorMatrixElementReadBack: a load of an element pointer after a store
+// reads the scalar again through the reversed access indices.
+func TestRowMajorMatrixElementReadBack(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 12, 201, 200, 60, 26, 60), // member 0, column 1, component 0
+		instWords(spvenums.OpStore, 201, 22),
+		instWords(spvenums.OpLoad, 5, 202, 201),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 1 {
+		t.Fatalf("stores = %d, want 1: %#v", len(stores), fn.Body)
+	}
+	loads := loadsAfter(fn, stores[0])
+	if len(loads) != 1 {
+		t.Fatalf("loads after the store = %d, want 1: %#v", len(loads), fn.Expressions)
+	}
+	pointer, ok := fn.Expressions[loads[0]].Kind.(ir.ExprLoad)
+	if !ok {
+		t.Fatalf("load = %#v", fn.Expressions[loads[0]].Kind)
+	}
+	rowPointer, columnIndex, _, ok := accessParts(fn, pointer.Pointer)
+	if !ok || columnIndex != 1 {
+		t.Fatalf("re-read pointer = %#v, want the column index 1 outermost", fn.Expressions[pointer.Pointer].Kind)
+	}
+	if _, _, _, ok := accessParts(fn, rowPointer); !ok {
+		t.Errorf("re-read pointer = %#v, want the row index as its base", fn.Expressions[rowPointer].Kind)
+	}
+}
+
+// TestRowMajorMatrixChainAfterStore: an access chain derived from a pointer a
+// store wrote through refreshes the side-loaded value first, so the column it
+// reads comes from the memory the store wrote.
+func TestRowMajorMatrixChainAfterStore(t *testing.T) {
+	m := addRowMajorMatrixMember(newBodyModule())
+	fn := m.parseValidated(t,
+		instWords(spvenums.OpVariable, 51, 200, uint32(spvenums.StorageClassFunction)),
+		instWords(spvenums.OpAccessChain, 31, 201, 200, 60),
+		instWords(spvenums.OpCompositeConstruct, 7, 210, 22, 22),
+		instWords(spvenums.OpCompositeConstruct, 10, 211, 210, 210),
+		instWords(spvenums.OpStore, 201, 211),
+		instWords(spvenums.OpAccessChain, 33, 202, 201, 26), // column 1 of the stored pointer
+		instWords(spvenums.OpLoad, 7, 203, 202),
+	)
+	stores := storeStatements(fn)
+	if len(stores) != 1 {
+		t.Fatalf("stores = %d, want 1: %#v", len(stores), fn.Body)
+	}
+	var transposes []ir.ExpressionHandle
+	for handle := range ir.ExpressionHandle(len(fn.Expressions)) {
+		if isTranspose(fn.Expressions[handle].Kind) {
+			transposes = append(transposes, handle)
+		}
+	}
+	if len(transposes) < 2 {
+		t.Fatalf("transposes = %d, want the chain's side-load and the refresh after the store: %#v", len(transposes), fn.Expressions)
+	}
+	refreshed := transposes[len(transposes)-1]
+	storeIndex := -1
+	for i, statement := range fn.Body {
+		if _, ok := statement.Kind.(ir.StmtStore); ok {
+			storeIndex = i
+		}
+	}
+	if expressionStatement(fn, refreshed) <= storeIndex {
+		t.Fatalf("the refresh is evaluated before the store: Emit at %d, store at %d", expressionStatement(fn, refreshed), storeIndex)
+	}
+	if _, ok := findExpression(fn, func(kind ir.ExpressionKind) bool {
+		access, ok := kind.(ir.ExprAccessIndex)
+		return ok && access.Base == refreshed && access.Index == 1
+	}); !ok {
+		t.Errorf("the column is not read from the refreshed value: %#v", fn.Expressions)
+	}
+}
+
 // TestRowMajorMatrixArrayStoreRefused: a whole array of row-major matrices has
 // no transposed store — every element would need its own transpose — so the
 // store is refused. Rust 30.0.0 writes it untransposed (its
