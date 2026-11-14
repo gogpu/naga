@@ -1278,15 +1278,19 @@ func (p *parser) load(inst instruction, fs *functionState, consumer *emitter, bl
 
 // store parses OpStore.
 func (p *parser) store(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
-	// Rust naga's OpStore does not apply the row-major load override either
-	// (front/spv/next_block.rs:771-793): a store through a row-major matrix
-	// pointer writes the value untransposed, exactly as here.
 	if _, err := inst.expectAtLeast(3); err != nil {
 		return err
 	}
 	pointerID, err := p.next()
 	if err != nil {
 		return err
+	}
+	// A pointer that reached a row-major matrix has no transposed store in
+	// the IR: writing it would put the value in the wrong layout, so the
+	// store is refused (Rust naga writes it untransposed; the SPIR-V spec
+	// decides, and a shader would not read back what it wrote).
+	if _, ok := fs.loadOverrides[pointerID]; ok {
+		return errStoreThroughRowMajor
 	}
 	valueID, err := p.next()
 	if err != nil {
