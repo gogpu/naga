@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.21.12** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.22.0** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,9 +32,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.21.12)
+## Where We Are (v0.22.0)
 
-**~327K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
+**~329K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
 172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
 
 | Backend | Rust comparison | Validation | Status |
@@ -43,7 +43,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | MSL | exact text | M3 Max Metal 3.1 verified | Production |
 | GLSL | exact text | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
 | HLSL | exact text | SM 5.0 / SM 6.0 | Production |
-| DXIL | — (Rust naga has no DXIL backend) | 238/267 entry points IDxcValidator, 113/177 DXC golden (Rust naga corpus at gfx-rs/wgpu 14328f49 and own corpus) | Experimental |
+| DXIL | — (Rust naga has no DXIL backend) | 236/267 entry points IDxcValidator, 113/177 DXC golden (Rust naga corpus at gfx-rs/wgpu 14328f49 and own corpus) | Experimental |
 | IR | types, expressions, statements | — | Production |
 
 ---
@@ -79,7 +79,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| IDxcValidator: whole corpus | P1 | 238/267 | 13 entry points fail validation, 15 do not compile yet (counted per entry point of the Rust and own corpora) |
+| IDxcValidator: whole corpus | P1 | 236/267 | 13 entry points fail validation, 17 do not compile yet (counted per entry point of the Rust and own corpora) |
 | DXC golden parity 80%+ | P1 | 113/177 (64%) | Structural match with DXC roundtrip output |
 | DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
 | Microsoft IDxcValidator AV issue | P2 | On hold | Re-check before filing: P1-DXIL-101 (v0.21.3) found a crash source in our own validator wrapper (blob on a moving goroutine stack) |
@@ -102,7 +102,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Frontend | Priority | Status | Description |
 |----------|----------|--------|-------------|
-| SPIR-V input | P1 | Phases 1-3 in v0.21.12; row-major members, memory decorations and the CLI next (v0.22.0) | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split, entry-point wrappers, row-major matrix members and the Coherent/Volatile memory decorations. `nagac -from-spirv` turns a binary into SPIR-V, MSL, HLSL or GLSL. Ported from Rust naga's `front/spv` |
+| SPIR-V input | P1 | Phases 1-3 complete in v0.22.0; a store through a row-major member is refused until the spec-correct store (P3-SPVIN-007) | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split, entry-point wrappers, row-major matrix members and the Coherent/Volatile memory decorations. `nagac -from-spirv` turns a binary into SPIR-V, MSL, HLSL or GLSL. Ported from Rust naga's `front/spv` |
 | GLSL input | P2 | Planned | Vulkan GLSL 440/450/460 and GL 3.30 / ES 3.00 with combined samplers (NAGA-FEAT-002) |
 | Slang input | P2 | Planned | HLSL subset ("HLSL with import"), a native Pure Go parser, no slangc dependency |
 
@@ -114,7 +114,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 |-----------|--------|-------|
 | Complete Rust naga parity | In Progress | Corpus synced to gfx-rs/wgpu 14328f49; every difference recorded per output with a reason |
 | SPIR-V binary validation 100% | In Progress | spirv-val in CI, also in the Vulkan environments; 5 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
-| DXIL backend production-ready | In Progress | 238/267 entry points IDxcValidator, GPU readback on Intel and NVIDIA; target: whole corpus |
+| DXIL backend production-ready | In Progress | 236/267 entry points IDxcValidator, GPU readback on Intel and NVIDIA; target: whole corpus |
 | API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
 | Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |
 | Performance benchmarks published | ✅ Done | 46 benchmarks, −32% allocs, −34% bytes |
