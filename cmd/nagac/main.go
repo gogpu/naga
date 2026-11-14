@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/frontend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
@@ -96,6 +97,7 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 	versionFlag := fs.Bool("version", false, "print version")
 	fromSPIRV := fs.Bool("from-spirv", false, "read the input as a SPIR-V binary instead of WGSL")
 	backendName := fs.String("backend", backendSPIRV, "output backend: spirv, msl, hlsl or glsl")
+	capabilityList := fs.String("capabilities", "all", "input capabilities: all, or a comma-separated list of names")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -133,20 +135,36 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 		return exitUsage
 	}
 
+	return compileInput(inputPath, *output, *fromSPIRV, *backendName, *capabilityList, *debugFlag, *validate, stdout, stderr)
+}
+
+// compileInput reads the input file, parses it, validates, applies pipeline
+// constants and emits with the selected backend; the output goes to the file
+// or to stdout. A usage error (an unknown capability name) is exitUsage.
+func compileInput(inputPath, outputPath string, fromSPIRV bool, backendName, capabilityList string, emitDebug, validate bool, stdout, stderr io.Writer) int {
 	source, err := os.ReadFile(inputPath)
 	if err != nil {
 		sayf(stderr, "Error reading file: %v\n", err)
 		return exitFailure
 	}
 
-	module, err := parseInput(source, *fromSPIRV)
+	capabilities, err := resolveCapabilities(capabilityList, backendName)
+	if err != nil {
+		sayf(stderr, "nagac: %v\n", err)
+		return exitUsage
+	}
+
+	module, warnings, err := parseInput(source, fromSPIRV)
 	if err != nil {
 		sayf(stderr, "Compilation error: %v\n", err)
 		return exitFailure
 	}
+	for _, warning := range warnings {
+		sayf(stderr, "warning: %s\n", warning.Message)
+	}
 	var info valid.ModuleInfo
-	if *validate {
-		info, err = valid.Validate(module, valid.Options{})
+	if validate {
+		info, err = valid.Validate(module, valid.Options{Capabilities: capabilities})
 		if err != nil {
 			sayf(stderr, "Compilation error: validation failed: %v\n", err)
 			return exitFailure
@@ -158,13 +176,13 @@ func run(args []string, stdout, stderr io.Writer, stdoutIsTerminal bool) int {
 		return exitFailure
 	}
 
-	data, err := emit(module, *backendName, *debugFlag)
+	data, err := emit(module, backendName, emitDebug)
 	if err != nil {
 		sayf(stderr, "Compilation error: %v\n", err)
 		return exitFailure
 	}
 
-	return writeOutput(inputPath, *output, data, stdout, stderr)
+	return writeOutput(inputPath, outputPath, data, stdout, stderr)
 }
 
 // writeOutput writes the compiled data to the output file, or to stdout when
@@ -185,27 +203,61 @@ func writeOutput(inputPath, outputPath string, data []byte, stdout, stderr io.Wr
 	return exitOK
 }
 
-// parseInput reads the input with the selected frontend: the SPIR-V binary
-// parser, or the WGSL parser, whose errors name the source location.
-func parseInput(source []byte, fromSPIRV bool) (*ir.Module, error) {
+// parseInput reads the input with the selected frontend and returns the
+// warnings it reported: the SPIR-V parser's, or the WGSL parser's (whose
+// errors name the source location).
+func parseInput(source []byte, fromSPIRV bool) (*ir.Module, []frontend.Diagnostic, error) {
 	if fromSPIRV {
-		module, _, err := spirv.Parse(source, spirv.ParseOptions{})
+		module, info, err := spirv.Parse(source, spirv.ParseOptions{})
 		if err != nil {
-			return nil, fmt.Errorf("spirv: %w", err)
+			var parseErr *spirv.ParseError
+			if errors.As(err, &parseErr) && parseErr.Offset != 0 {
+				return nil, nil, fmt.Errorf("spirv: %w (at byte %d)", err, parseErr.Offset)
+			}
+			return nil, nil, fmt.Errorf("spirv: %w", err)
 		}
-		return module, nil
+		return module, info.Warnings, nil
 	}
-	module, _, err := wgsl.Parse(string(source), wgsl.ParseOptions{})
+	module, info, err := wgsl.Parse(string(source), wgsl.ParseOptions{})
 	if err != nil {
 		var parseErr *wgsl.ParseError
 		if errors.As(err, &parseErr) {
 			if loc, ok := parseErr.Location(string(source)); ok {
-				return nil, fmt.Errorf("wgsl:%d:%d: %w", loc.Line, loc.Column, err)
+				return nil, nil, fmt.Errorf("wgsl:%d:%d: %w", loc.Line, loc.Column, err)
 			}
 		}
-		return nil, fmt.Errorf("wgsl: %w", err)
+		return nil, nil, fmt.Errorf("wgsl: %w", err)
 	}
-	return module, nil
+	return module, info.Warnings, nil
+}
+
+// resolveCapabilities parses the -capabilities flag and intersects it with
+// the supported list of a text backend: the input is validated against what
+// the target can write, as wgpu validates against the device's features. The
+// SPIR-V writer reports its own unsupported set itself.
+func resolveCapabilities(list, backendName string) (valid.Capabilities, error) {
+	capabilities, err := valid.ParseCapabilities(list)
+	if err != nil {
+		return 0, err
+	}
+	if backendName != backendSPIRV {
+		capabilities &= textBackendCapabilities(backendName)
+	}
+	return capabilities, nil
+}
+
+// textBackendCapabilities is what a text output may write: the backend's
+// supported list (each package's SupportedCapabilities).
+func textBackendCapabilities(backendName string) valid.Capabilities {
+	switch backendName {
+	case backendMSL:
+		return msl.SupportedCapabilities()
+	case backendHLSL:
+		return hlsl.SupportedCapabilities()
+	case backendGLSL:
+		return glsl.SupportedCapabilities()
+	}
+	return valid.CapAll
 }
 
 // knownBackend reports whether name is one of the output backends.

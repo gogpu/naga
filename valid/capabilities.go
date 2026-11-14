@@ -304,3 +304,39 @@ func subgroupSets(opts Options) (ShaderStages, SubgroupOperationSet) {
 	}
 	return stages, ops
 }
+
+// ParseCapabilities parses a comma-separated list of Rust naga capability flag
+// names — the spelling Validate's errors print, e.g. "SHADER_INT64" — or
+// "all" for every capability. An empty list is no capabilities; an unknown
+// name is an error that names it.
+func ParseCapabilities(list string) (Capabilities, error) {
+	switch strings.TrimSpace(list) {
+	case "":
+		return 0, nil
+	case "all":
+		return CapAll, nil
+	}
+	var capabilities Capabilities
+	for _, word := range strings.Split(list, ",") {
+		name := strings.TrimSpace(word)
+		if name == "" {
+			continue
+		}
+		bit, ok := capabilityBit(name)
+		if !ok {
+			return 0, fmt.Errorf("unknown capability %q", name)
+		}
+		capabilities |= bit
+	}
+	return capabilities, nil
+}
+
+// capabilityBit returns the bit of a Rust flag name.
+func capabilityBit(name string) (Capabilities, bool) {
+	for bit, flag := range capabilityNames[:] {
+		if flag == name {
+			return Capabilities(1) << bit, true
+		}
+	}
+	return 0, false
+}
