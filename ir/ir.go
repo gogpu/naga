@@ -548,6 +548,25 @@ const (
 // Contains reports whether every bit of b is in a.
 func (a StorageAccess) Contains(b StorageAccess) bool { return a&b == b }
 
+// MemoryDecorations are the SPIR-V Coherent and Volatile decorations of a
+// global variable (Rust naga's sync::MemoryDecorations): the SPIR-V frontend
+// reads them, the SPIR-V backend writes them back, and the validator requires
+// the storage address space and the matching capability. No other frontend
+// produces them; backends other than SPIR-V ignore them.
+type MemoryDecorations uint32
+
+const (
+	// MemoryCoherent: reads and writes are automatically visible to other
+	// invocations without explicit barriers.
+	MemoryCoherent MemoryDecorations = 1 << 0
+	// MemoryVolatile: the variable may be modified by something external to
+	// the shader, preventing certain compiler optimizations.
+	MemoryVolatile MemoryDecorations = 1 << 1
+)
+
+// Contains reports whether every bit of b is in m.
+func (m MemoryDecorations) Contains(b MemoryDecorations) bool { return m&b == b }
+
 // Constant is a module-scope constant, Rust naga's Constant { name, ty, init }.
 // Its value is its Init expression and nothing else: every reader takes it
 // from Module.GlobalExpressions[Init]. A constant of an abstract type
@@ -581,6 +600,11 @@ type GlobalVariable struct {
 	// rejects an empty set on a storage variable and any set on another
 	// space, where Rust's type has no place for it.
 	Access StorageAccess
+	// MemoryDecorations are the Coherent/Volatile decorations of a storage
+	// variable (Rust naga's GlobalVariable.memory_decorations). The validator
+	// requires the storage address space and the matching capability; only
+	// the SPIR-V writer emits them.
+	MemoryDecorations MemoryDecorations
 }
 
 // ResourceBinding represents a resource binding.

@@ -519,6 +519,18 @@ func (v *validator) validateGlobalVariables() {
 			v.addError(fmt.Sprintf("global variable %q: only a storage variable has an access", gv.Name))
 		}
 
+		// Memory decorations are storage-only and need their capability
+		// (Rust naga's validate_global_var, valid/interface.rs:1157-1179).
+		if gv.MemoryDecorations != 0 && gv.Space != ir.SpaceStorage {
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: Memory decorations (`@coherent`, `@volatile`) are only valid for variables in the `storage` address space", i, gv.Name))
+		}
+		if gv.MemoryDecorations.Contains(ir.MemoryCoherent) && !v.has(CapMemoryDecorationCoherent) {
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: `@coherent` requires the MEMORY_DECORATION_COHERENT capability", i, gv.Name))
+		}
+		if gv.MemoryDecorations.Contains(ir.MemoryVolatile) && !v.has(CapMemoryDecorationVolatile) {
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: `@volatile` requires the MEMORY_DECORATION_VOLATILE capability", i, gv.Name))
+		}
+
 		if gv.Init != nil {
 			if !v.isValidConstantHandle(*gv.Init) {
 				v.addError(fmt.Sprintf("global variable %q: init constant %d does not exist", gv.Name, *gv.Init))

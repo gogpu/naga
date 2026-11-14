@@ -52,6 +52,19 @@ const (
 	decorationVolatile    decorationFlags = 1 << 3
 )
 
+// memoryDecorations is the Coherent/Volatile pair of a variable (Rust naga's
+// DecorationFlags::to_memory_decorations).
+func (dec *decoration) memoryDecorations() ir.MemoryDecorations {
+	var decorations ir.MemoryDecorations
+	if dec.flags&decorationCoherent != 0 {
+		decorations |= ir.MemoryCoherent
+	}
+	if dec.flags&decorationVolatile != 0 {
+		decorations |= ir.MemoryVolatile
+	}
+	return decorations
+}
+
 // takeDecoration returns the decoration record of id and removes it: its
 // definition consumes it, as Rust naga's future_decor.remove. An id without
 // one gets an empty record.

@@ -152,6 +152,14 @@ const (
 	// acceleration structures (Rust ACCELERATION_STRUCTURE_BINDING_ARRAY).
 	CapAccelerationStructureBindingArray Capabilities = 1 << 40
 
+	// CapMemoryDecorationCoherent enables the Coherent memory decoration on
+	// storage variables (Rust MEMORY_DECORATION_COHERENT).
+	CapMemoryDecorationCoherent Capabilities = 1 << 41
+
+	// CapMemoryDecorationVolatile enables the Volatile memory decoration on
+	// storage variables (Rust MEMORY_DECORATION_VOLATILE).
+	CapMemoryDecorationVolatile Capabilities = 1 << 42
+
 	// CapShaderInt16 enables i16 and u16 scalar types (Sint/Uint width=2;
 	// Rust SHADER_INT16).
 	CapShaderInt16 Capabilities = 1 << 43
