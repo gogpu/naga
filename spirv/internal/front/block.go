@@ -46,6 +46,28 @@ type functionState struct {
 	// sampled through the caller's globals, so the flags travel back to them
 	// once every function is parsed.
 	parameterSampling []samplingFlags
+	// loadOverrides is Rust naga's lookup_load_override for this function: a
+	// pointer that reached a row-major matrix yields the transposed value the
+	// access chain side-loaded, and the OpLoad of that pointer uses it instead
+	// of reading the column-major layout.
+	loadOverrides map[uint32]loadOverride
+}
+
+// loadOverride is Rust naga's LookupLoadOverride (front/spv/mod.rs:394): the
+// transposed value a later OpLoad of a row-major pointer must use. loaded is
+// false for Pending — the access chain has not reached the matrix inside an
+// array of row-major matrices yet.
+type loadOverride struct {
+	loaded bool
+	handle ir.ExpressionHandle
+}
+
+// setLoadOverride records the transposed value a later OpLoad of id must use.
+func (fs *functionState) setLoadOverride(id uint32, override loadOverride) {
+	if fs.loadOverrides == nil {
+		fs.loadOverrides = make(map[uint32]loadOverride)
+	}
+	fs.loadOverrides[id] = override
 }
 
 // mergeBlockInformation is what a branch to a merge block or a continue

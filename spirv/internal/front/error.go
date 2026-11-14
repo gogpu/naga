@@ -226,10 +226,6 @@ var (
 	// errInvalidAccess has no Rust counterpart's expression dump: the IR has
 	// no debug rendering of an expression, so it names none.
 	errInvalidAccess = &Error{Message: "invalid access"}
-	// errUnsupportedRowMajorMatrix is this frontend's own limit: a row-major
-	// matrix is refused until its transposed load lands, never read in the
-	// wrong order.
-	errUnsupportedRowMajorMatrix = &Error{Message: "row-major matrix access is not supported yet"}
 )
 
 // errInvalidTerminator is Rust naga's InvalidTerminator text. Here it is the

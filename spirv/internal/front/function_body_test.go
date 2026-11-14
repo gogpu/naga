@@ -22,6 +22,9 @@ type bodyModule struct {
 	groups   [][]uint32
 	extInst  bool
 	resultID uint32 // 1 for a void function
+	// annotations are decorations and names, which the SPIR-V layout places
+	// before the type declarations.
+	annotations [][]uint32
 	// raw leaves the function unclosed, so the last body instruction can be
 	// the end of the input.
 	raw bool
@@ -30,6 +33,12 @@ type bodyModule struct {
 // newBodyModule returns the shared preamble.
 func newBodyModule() *bodyModule {
 	return &bodyModule{resultID: 1}
+}
+
+// annotate appends annotations, which must precede the type declarations.
+func (m *bodyModule) annotate(groups ...[]uint32) *bodyModule {
+	m.annotations = append(m.annotations, groups...)
+	return m
 }
 
 // withResult makes the function return i32 instead of void.
@@ -69,8 +78,9 @@ func (m *bodyModule) build(body ...[]uint32) []byte {
 		// The extension section precedes the memory model.
 		groups = append(groups, instWithString(spvenums.OpExtInstImport, []uint32{40}, "GLSL.std.450"))
 	}
+	groups = append(groups, instWords(spvenums.OpMemoryModel, 0, 1))
+	groups = append(groups, m.annotations...)
 	groups = append(groups,
-		instWords(spvenums.OpMemoryModel, 0, 1),
 		instWords(spvenums.OpTypeVoid, 1),
 		instWords(spvenums.OpTypeFunction, 2, 1),
 		instWords(spvenums.OpTypeInt, 3, 32, 1),
