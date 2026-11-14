@@ -150,12 +150,13 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 			access = storageAccess & dec.storageAccess()
 		}
 		global = ir.GlobalVariable{
-			Name:     dec.name,
-			Space:    space,
-			Binding:  dec.resourceBinding(),
-			Type:     ty,
-			InitExpr: init,
-			Access:   access,
+			Name:              dec.name,
+			Space:             space,
+			Binding:           dec.resourceBinding(),
+			Type:              ty,
+			InitExpr:          init,
+			Access:            access,
+			MemoryDecorations: dec.memoryDecorations(),
 		}
 		lookup.class = classGlobal
 	}

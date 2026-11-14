@@ -1877,6 +1877,15 @@ func (b *Backend) emitGlobals() error {
 				b.builder.AddDecorate(varID, spvenums.DecorationNonWritable)
 			}
 		}
+
+		// Coherent/Volatile travel with the variable (Rust naga writes both
+		// from GlobalVariable::memory_decorations, back/spv/writer.rs:3470).
+		if global.MemoryDecorations.Contains(ir.MemoryCoherent) {
+			b.builder.AddDecorate(varID, spvenums.DecorationCoherent)
+		}
+		if global.MemoryDecorations.Contains(ir.MemoryVolatile) {
+			b.builder.AddDecorate(varID, spvenums.DecorationVolatile)
+		}
 	}
 	return nil
 }
