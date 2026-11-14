@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`spirv.Parse` translates a store through a row-major matrix member** (P3-SPVIN-007), where it used to refuse
+  one: the memory of a row-major matrix holds the transpose of the value the shader sees, so a whole-matrix store
+  writes `Transpose(value)`, a column store becomes one store per component, and a single element is written
+  through the reversed access indices — element `[c][r]` of the SPIR-V matrix is IR element `[r][c]`. The
+  translation follows the SPIR-V spec (`RowMajor`, `OpStore`); Rust naga writes the value untransposed, so a
+  shader does not read back what it wrote, and there is no Rust output to compare with. A store also invalidates
+  the value the load path side-loaded, so an `OpLoad` after an `OpStore` through the same or an aliasing pointer
+  reads the memory again instead of the pre-store value. Two shapes stay refused with their own errors: a whole
+  array of row-major matrices (every element would need its own transpose, which a pointer to the array cannot
+  express) and a matrix that is not square (the transpose maps the two layouts onto each other only when the row
+  and column counts are equal; the load path keeps the shape Rust naga produces there). New corpus fixtures
+  cover a column store, an element store and a whole-matrix store with a read-back.
+
 ### Fixed
 
 - **A projected sample of an arrayed image** (P3-SPVIN-004): `OpImageSampleProj*` on an arrayed image takes the
