@@ -421,7 +421,10 @@ func (w *Writer) registerNames() error {
 			continue
 		}
 		ty := ep.Function.Result.Type
-		if int(ty) >= len(w.module.Types) || w.module.Types[ty].Name != "" {
+		if int(ty) >= len(w.module.Types) {
+			continue
+		}
+		if _, hasName := ir.NamePresence(w.module.Types[ty].Name, w.module.Types[ty].NamePresent); hasName {
 			continue
 		}
 		fallback, ok := backend.EntryPointResultStructName(ep.Stage)
@@ -435,9 +438,10 @@ func (w *Writer) registerNames() error {
 	for handle := range w.module.Types {
 		typ := &w.module.Types[handle]
 		var baseName string
+		typeName, hasName := ir.NamePresence(typ.Name, typ.NamePresent)
 		switch {
-		case typ.Name != "":
-			baseName = typ.Name
+		case hasName:
+			baseName = typeName
 		case entryPointResultNames[ir.TypeHandle(handle)] != "":
 			baseName = entryPointResultNames[ir.TypeHandle(handle)]
 		default:
@@ -453,7 +457,7 @@ func (w *Writer) registerNames() error {
 			h := handle // capture for closure
 			w.namer.namespace(func() {
 				for memberIdx, member := range st.Members {
-					memberName := w.namer.callOr(member.Name, "member")
+					memberName := w.namer.callName(member.Name, member.NamePresent, "member")
 					w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(h), handle2: uint32(memberIdx)}] = memberName
 				}
 			})
@@ -479,11 +483,11 @@ func (w *Writer) registerNames() error {
 
 		fn := &ep.Function
 		for argIdx, arg := range fn.Arguments {
-			argName := w.namer.callOr(arg.Name, "param")
+			argName := w.namer.callName(arg.Name, arg.NamePresent, "param")
 			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(argIdx)}] = argName
 		}
 		for localIdx, local := range fn.LocalVars {
-			localName := w.namer.callOr(local.Name, "local")
+			localName := w.namer.callName(local.Name, local.NamePresent, "local")
 			w.names[nameKey{kind: nameKeyLocal, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(localIdx)}] = localName
 		}
 	}
@@ -493,15 +497,15 @@ func (w *Writer) registerNames() error {
 		fn := &w.module.Functions[handle]
 		// An unnamed function takes Rust naga's "function" fallback
 		// (proc/namer.rs, name_functions); the namer numbers the rest.
-		name := w.namer.callOr(fn.Name, "function")
+		name := w.namer.callName(fn.Name, fn.NamePresent, "function")
 		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		for argIdx, arg := range fn.Arguments {
-			argName := w.namer.callOr(arg.Name, "param")
+			argName := w.namer.callName(arg.Name, arg.NamePresent, "param")
 			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = argName
 		}
 		for localIdx, local := range fn.LocalVars {
-			localName := w.namer.callOr(local.Name, "local")
+			localName := w.namer.callName(local.Name, local.NamePresent, "local")
 			w.names[nameKey{kind: nameKeyLocal, handle1: uint32(handle), handle2: uint32(localIdx)}] = localName
 		}
 	}
@@ -511,17 +515,15 @@ func (w *Writer) registerNames() error {
 		global := &w.module.GlobalVariables[handle]
 		// An unnamed global takes Rust naga's "global" fallback
 		// (proc/namer.rs, name_globals); the namer numbers the rest.
-		name := w.namer.callOr(global.Name, "global")
+		name := w.namer.callName(global.Name, global.NamePresent, "global")
 		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name
 	}
 
 	// 5. Register constant names
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
-		var baseName string
-		if constant.Name != "" {
-			baseName = constant.Name
-		} else {
+		baseName, hasName := ir.NamePresence(constant.Name, constant.NamePresent)
+		if !hasName {
 			typeName := w.typeNames[constant.Type]
 			baseName = fmt.Sprintf("const_%s", typeName)
 		}

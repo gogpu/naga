@@ -60,6 +60,6 @@ func Example_backendCompile() {
 
 	// Output:
 	// SPIR-V magic: 0x07230203
-	// Binary size: 172 bytes
+	// Binary size: 256 bytes
 	// Compilation successful!
 }

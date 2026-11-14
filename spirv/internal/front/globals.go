@@ -85,7 +85,7 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 		// every variable of it: the access comes from the variable's
 		// decorations, so the type is copied with it applied.
 		image.StorageAccess = dec.storageAccess()
-		ty = p.insertType("", image)
+		ty = p.insertType("", false, image)
 	}
 
 	extClass, storageAccess, err := p.variableClass(ty, storageClass)
@@ -108,15 +108,17 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 			}
 		}
 		global = ir.GlobalVariable{
-			Name:  dec.name,
-			Space: ir.SpacePrivate,
-			Type:  ty,
+			Name:        dec.name,
+			NamePresent: dec.namePresent(),
+			Space:       ir.SpacePrivate,
+			Type:        ty,
 		}
 		lookup.class = classInput
 		lookup.argument = ir.FunctionArgument{
-			Name:    dec.name,
-			Type:    argumentType,
-			Binding: &binding,
+			Name:        dec.name,
+			NamePresent: dec.namePresent(),
+			Type:        argumentType,
+			Binding:     &binding,
 		}
 	case classOutput:
 		binding, _ := dec.ioBinding()
@@ -130,10 +132,11 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 			}
 		}
 		global = ir.GlobalVariable{
-			Name:     dec.name,
-			Space:    ir.SpacePrivate,
-			Type:     ty,
-			InitExpr: initExpr,
+			Name:        dec.name,
+			NamePresent: dec.namePresent(),
+			Space:       ir.SpacePrivate,
+			Type:        ty,
+			InitExpr:    initExpr,
 		}
 		lookup.class = classOutput
 		lookup.result = ir.FunctionResult{Type: ty}
@@ -151,6 +154,7 @@ func (p *parser) parseGlobalVariable(inst instruction) error {
 		}
 		global = ir.GlobalVariable{
 			Name:              dec.name,
+			NamePresent:       dec.namePresent(),
 			Space:             space,
 			Binding:           dec.resourceBinding(),
 			Type:              ty,
@@ -211,7 +215,7 @@ func (p *parser) unsignedBuiltinType(builtin ir.BuiltinValue, ty ir.TypeHandle) 
 	if !ok || kind != ir.ScalarSint {
 		return 0, false
 	}
-	return p.insertType("", unsigned), true
+	return p.insertType("", false, unsigned), true
 }
 
 // defaultStructInit builds the default value of an output struct: each member

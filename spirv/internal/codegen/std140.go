@@ -155,14 +155,18 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 			if mat, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				for c := range uint32(mat.Columns) {
 					b.builder.AddMemberDecorate(info.id, index+c, spvenums.DecorationOffset, m.Offset+c*columnStride(mat))
-					if b.options.Debug && m.Name != "" {
-						b.builder.AddMemberName(info.id, index+c, fmt.Sprintf("%s_col%d", m.Name, c))
+					if b.options.Debug {
+						if name, hasName := ir.NamePresence(m.Name, m.NamePresent); hasName {
+							b.builder.AddMemberName(info.id, index+c, fmt.Sprintf("%s_col%d", name, c))
+						}
 					}
 				}
 			} else if b.std140Types[m.Type] != nil {
 				b.builder.AddMemberDecorate(info.id, index, spvenums.DecorationOffset, m.Offset)
-				if b.options.Debug && m.Name != "" {
-					b.builder.AddMemberName(info.id, index, m.Name)
+				if b.options.Debug {
+					if name, hasName := ir.NamePresence(m.Name, m.NamePresent); hasName {
+						b.builder.AddMemberName(info.id, index, name)
+					}
 				}
 			} else {
 				b.decorateStructMember(info.id, index, m)

@@ -43,7 +43,7 @@ func NewTypeRegistryFrom(types []ir.Type) *TypeRegistry {
 	r := NewTypeRegistryWithCap(len(types) + 8)
 	for i, t := range types {
 		r.types = append(r.types, t)
-		r.buildKey(t.Name, t.Inner)
+		r.buildKeyNamed(t.Name, t.NamePresent, t.Inner)
 		if _, exists := r.typeMap[string(r.keyBuf)]; !exists {
 			r.typeMap[string(r.keyBuf)] = ir.TypeHandle(i)
 		}
@@ -56,9 +56,20 @@ func NewTypeRegistryFrom(types []ir.Type) *TypeRegistry {
 // Named struct types are never deduplicated with each other (different names
 // mean different types), matching Rust naga's Arena behavior.
 func (r *TypeRegistry) GetOrCreate(name string, inner ir.TypeInner) ir.TypeHandle {
+	return r.getOrCreate(name, false, inner)
+}
+
+// GetOrCreateNamed is GetOrCreate for a name with its presence
+// (ir.NamePresence): a present but empty name is a distinct type from an
+// absent one, as Rust naga's UniqueArena sees Some("") and None.
+func (r *TypeRegistry) GetOrCreateNamed(name string, present bool, inner ir.TypeInner) ir.TypeHandle {
+	return r.getOrCreate(name, present, inner)
+}
+
+func (r *TypeRegistry) getOrCreate(name string, present bool, inner ir.TypeInner) ir.TypeHandle {
 	// Build the full key in keyBuf. normalizeType writes the type portion,
 	// and we prepend the name prefix if needed.
-	r.buildKey(name, inner)
+	r.buildKeyNamed(name, present, inner)
 
 	// Use string(r.keyBuf) directly in the map index expression.
 	// Go compiler optimizes m[string(b)] to avoid heap allocation for lookups.
@@ -72,8 +83,9 @@ func (r *TypeRegistry) GetOrCreate(name string, inner ir.TypeInner) ir.TypeHandl
 	// Create new type
 	handle := ir.TypeHandle(len(r.types))
 	r.types = append(r.types, ir.Type{
-		Name:  name,
-		Inner: inner,
+		Name:        name,
+		NamePresent: present && name == "",
+		Inner:       inner,
 	})
 	r.typeMap[key] = handle
 
@@ -85,12 +97,16 @@ func (r *TypeRegistry) GetOrCreate(name string, inner ir.TypeInner) ir.TypeHandl
 // ir.Type{name: None, inner: X} and ir.Type{name: Some("A"), inner: X} are distinct.
 // We replicate this by including the name in the dedup key for ALL named types,
 // not just structs. Anonymous types (name="") still dedup on inner alone.
-func (r *TypeRegistry) buildKey(name string, inner ir.TypeInner) {
+// buildKeyNamed writes the dedup key of a type named with presence: a present
+// but empty name gets a marker no absent one shares.
+func (r *TypeRegistry) buildKeyNamed(name string, present bool, inner ir.TypeInner) {
 	r.keyBuf = r.keyBuf[:0]
 	if name != "" {
 		r.keyBuf = append(r.keyBuf, "named:"...)
 		r.appendStringKey(name)
 		r.keyBuf = append(r.keyBuf, ':')
+	} else if present {
+		r.keyBuf = append(r.keyBuf, "empty-name:"...)
 	}
 	r.appendTypeKey(inner)
 }
@@ -103,14 +119,19 @@ func (r *TypeRegistry) SetName(handle ir.TypeHandle, name string) {
 		return
 	}
 	oldName := r.types[handle].Name
-	r.types[handle].Name = name
+	oldPresent := r.types[handle].NamePresent
 
 	// Remove old key
-	r.buildKey(oldName, r.types[handle].Inner)
+	r.buildKeyNamed(oldName, oldPresent, r.types[handle].Inner)
 	delete(r.typeMap, string(r.keyBuf))
 
-	// Add new key
-	r.buildKey(name, r.types[handle].Inner)
+	// A bit only says "present while empty"; renaming to a non-empty name
+	// clears it, keeping the pair validateNamePresence accepts.
+	r.types[handle].Name = name
+	if name != "" {
+		r.types[handle].NamePresent = false
+	}
+	r.buildKeyNamed(name, r.types[handle].NamePresent, r.types[handle].Inner)
 	r.typeMap[string(r.keyBuf)] = handle
 }
 
@@ -123,17 +144,18 @@ func (r *TypeRegistry) Replace(handle ir.TypeHandle, name string, inner ir.TypeI
 	if int(handle) >= len(r.types) {
 		return false
 	}
-	r.buildKey(name, inner)
+	r.buildKeyNamed(name, r.types[handle].NamePresent, inner)
 	if existing, ok := r.typeMap[string(r.keyBuf)]; ok && existing != handle {
 		return false
 	}
 	newKey := string(r.keyBuf)
 	oldName, oldInner := r.types[handle].Name, r.types[handle].Inner
-	r.buildKey(oldName, oldInner)
+	r.buildKeyNamed(oldName, r.types[handle].NamePresent, oldInner)
 	if r.typeMap[string(r.keyBuf)] == handle {
 		delete(r.typeMap, string(r.keyBuf))
 	}
-	r.types[handle] = ir.Type{Name: name, Inner: inner}
+	present := r.types[handle].NamePresent && name == ""
+	r.types[handle] = ir.Type{Name: name, NamePresent: present, Inner: inner}
 	r.typeMap[newKey] = handle
 	return true
 }

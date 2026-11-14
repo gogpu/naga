@@ -28,14 +28,15 @@ func (p *parser) splitCombinedSampler(id, typeID uint32, dec *decoration, imageT
 		return errCombinedSamplerWithoutBinding(id)
 	}
 	image := ir.GlobalVariable{
-		Name:    dec.name,
-		Space:   ir.SpaceHandle,
-		Binding: declared,
-		Type:    imageType,
+		Name:        dec.name,
+		NamePresent: dec.namePresent(),
+		Space:       ir.SpaceHandle,
+		Binding:     declared,
+		Type:        imageType,
 	}
 	sampler := ir.GlobalVariable{
 		Space: ir.SpaceHandle,
-		Type:  p.insertType("", ir.SamplerType{}),
+		Type:  p.insertType("", false, ir.SamplerType{}),
 	}
 	imageHandle := ir.GlobalVariableHandle(len(p.module.GlobalVariables))
 	p.module.GlobalVariables = append(p.module.GlobalVariables, image)

@@ -41,7 +41,7 @@ func (p *parser) parseFunction() error {
 	}
 
 	dec := p.takeDecoration(funID)
-	fn := ir.Function{Name: dec.name}
+	fn := ir.Function{Name: dec.name, NamePresent: dec.namePresent()}
 	if !(p.hasVoidType && p.voidTypeID == resultTypeID) {
 		result, err := p.typeLookup(resultTypeID)
 		if err != nil {
@@ -84,7 +84,7 @@ func (p *parser) parseFunction() error {
 			return err
 		}
 		argumentDec := p.takeDecoration(id)
-		fn.Arguments = append(fn.Arguments, ir.FunctionArgument{Name: argumentDec.name, Type: ty.handle})
+		fn.Arguments = append(fn.Arguments, ir.FunctionArgument{Name: argumentDec.name, NamePresent: argumentDec.namePresent(), Type: ty.handle})
 		parameters = append(parameters, parameter{id: id, typeID: typeID})
 	}
 
@@ -752,7 +752,7 @@ func (p *parser) localVariable(inst instruction, fs *functionState, consumer *em
 	if pointer, ok := p.module.Types[ty].Inner.(ir.PointerType); ok {
 		ty = pointer.Base
 	}
-	fs.fn.LocalVars = append(fs.fn.LocalVars, ir.LocalVariable{Name: dec.name, Type: ty, Init: init})
+	fs.fn.LocalVars = append(fs.fn.LocalVars, ir.LocalVariable{Name: dec.name, NamePresent: dec.namePresent(), Type: ty, Init: init})
 	local := ir.LocalVariableHandle(len(fs.fn.LocalVars) - 1)
 	handle := appendExpression(fs.fn, ir.ExprLocalVariable{Variable: local})
 	p.storeExpression(resultID, resultTypeID, blockID, handle)

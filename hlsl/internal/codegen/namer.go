@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/ir"
 )
 
 // namer generates unique identifiers for HLSL output.
@@ -198,6 +199,16 @@ func (n *namer) callOr(base, fallback string) string {
 		return n.call(fallback)
 	}
 	return n.call(base)
+}
+
+// callName is callOr for a name with presence (ir.NamePresence): a present but
+// empty name is sanitized (to "unnamed"), an absent one takes the fallback.
+func (n *namer) callName(name string, present bool, fallback string) string {
+	value, hasName := ir.NamePresence(name, present)
+	if !hasName {
+		value = fallback
+	}
+	return n.call(value)
 }
 
 // isKeyword checks if a name is a reserved keyword.

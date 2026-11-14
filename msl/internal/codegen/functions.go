@@ -1417,7 +1417,7 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 		// Constant reference in global expression: write the constant's name or value.
 		if int(k.Constant) < len(w.module.Constants) {
 			c := &w.module.Constants[k.Constant]
-			if c.Name != "" {
+			if _, hasName := ir.NamePresence(c.Name, c.NamePresent); hasName {
 				name := w.getName(nameKey{kind: nameKeyConstant, handle1: uint32(k.Constant)})
 				w.write("%s", name)
 			} else {

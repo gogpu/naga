@@ -10,6 +10,10 @@ import (
 // either order, and Rust naga merges them the same way.
 type decoration struct {
 	name string
+	// hasName records that an OpName named this id, even when the name is
+	// empty (Rust naga's Some("")); the namers render that differently from an
+	// absent name.
+	hasName bool
 
 	builtIn   *uint32
 	location  *uint32
@@ -51,6 +55,11 @@ const (
 	decorationCoherent    decorationFlags = 1 << 2
 	decorationVolatile    decorationFlags = 1 << 3
 )
+
+// namePresent reports whether the entity's OpName was present but empty —
+// Rust naga's Some(""), which a namer sanitizes to "unnamed" instead of taking
+// the entity's fallback. A non-empty name is present by value.
+func (dec *decoration) namePresent() bool { return dec.hasName && dec.name == "" }
 
 // memoryDecorations is the Coherent/Volatile pair of a variable (Rust naga's
 // DecorationFlags::to_memory_decorations).

@@ -172,7 +172,7 @@ func (w *Writer) writeEPInputStruct(
 		if int(arg.Type) < len(w.module.Types) {
 			if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
 				for _, member := range st.Members {
-					memberName := w.namer.callOr(member.Name, "member")
+					memberName := w.namer.callName(member.Name, member.NamePresent, "member")
 					idx := uint32(len(fakeMembers))
 					fakeMembers = append(fakeMembers, epStructMember{
 						name:    memberName,
@@ -186,8 +186,7 @@ func (w *Writer) writeEPInputStruct(
 		}
 
 		// Non-struct argument
-		argName := fn.Arguments[i].Name
-		memberName := w.namer.callOr(argName, "member")
+		memberName := w.namer.callName(fn.Arguments[i].Name, fn.Arguments[i].NamePresent, "member")
 		idx := uint32(len(fakeMembers))
 		fakeMembers = append(fakeMembers, epStructMember{
 			name:    memberName,
@@ -264,7 +263,7 @@ func (w *Writer) writeEPOutputStruct(
 			}
 		}
 
-		memberName := w.namer.callOr(member.Name, "member")
+		memberName := w.namer.callName(member.Name, member.NamePresent, "member")
 		fakeMembers = append(fakeMembers, epStructMember{
 			name:    memberName,
 			ty:      member.Type,
@@ -521,7 +520,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	for localIdx, local := range fn.LocalVars {
 		localName := w.names[nameKey{kind: nameKeyLocal, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(localIdx)}]
 		if localName == "" {
-			localName = w.namer.callOr(local.Name, "local")
+			localName = w.namer.callName(local.Name, local.NamePresent, "local")
 		}
 		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
 

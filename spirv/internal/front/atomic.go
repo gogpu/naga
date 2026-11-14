@@ -113,9 +113,9 @@ func (p *parser) atomicStructType(scalar ir.ScalarType) ir.TypeHandle {
 			return ir.TypeHandle(index)
 		}
 	}
-	boolType := p.insertType("", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-	scalarType := p.insertType("", scalar)
-	return p.insertType(name, ir.StructType{
+	boolType := p.insertType("", false, ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	scalarType := p.insertType("", false, scalar)
+	return p.insertType(name, false, ir.StructType{
 		Members: []ir.StructMember{
 			{Name: "old_value", Type: scalarType, Offset: 0},
 			{Name: "exchanged", Type: boolType, Offset: uint32(scalar.Width)},
@@ -485,7 +485,7 @@ func (p *parser) upgradeAtomicType(ty ir.TypeHandle, upgraded map[ir.TypeHandle]
 	default:
 		return ty, nil
 	}
-	newType := p.insertType(original.Name, inner)
+	newType := p.insertType(original.Name, original.NamePresent, inner)
 	upgraded[ty] = newType
 	return newType, nil
 }

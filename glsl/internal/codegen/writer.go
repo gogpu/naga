@@ -495,10 +495,8 @@ func (w *Writer) writePrecisionQualifiers() {
 func (w *Writer) registerNames() error {
 	// Register type names
 	for handle, typ := range w.module.Types {
-		var baseName string
-		if typ.Name != "" {
-			baseName = typ.Name
-		} else {
+		baseName, hasName := ir.NamePresence(typ.Name, typ.NamePresent)
+		if !hasName {
 			// Rust naga uses "type" as the default name for unnamed types
 			baseName = "type"
 		}
@@ -511,8 +509,8 @@ func (w *Writer) registerNames() error {
 		if st, ok := typ.Inner.(ir.StructType); ok {
 			memberNamer := newNamer()
 			for memberIdx, member := range st.Members {
-				memberName := member.Name
-				if memberName == "" {
+				memberName, hasName := ir.NamePresence(member.Name, member.NamePresent)
+				if !hasName {
 					memberName = "member"
 				}
 				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = memberNamer.call(memberName)
@@ -537,8 +535,8 @@ func (w *Writer) registerNames() error {
 
 		epFuncHandle := uint32(len(w.module.Functions)) + uint32(epIdx)
 		for argIdx, arg := range ep.Function.Arguments {
-			argName := arg.Name
-			if argName == "" {
+			argName, hasName := ir.NamePresence(arg.Name, arg.NamePresent)
+			if !hasName {
 				argName = fmt.Sprintf("arg_%d", argIdx)
 			}
 			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: epFuncHandle, handle2: uint32(argIdx)}] = w.namer.call(argName)
@@ -546,8 +544,8 @@ func (w *Writer) registerNames() error {
 
 		// Register EP local variable names (reserve in global namer + store)
 		for localIdx, local := range ep.Function.LocalVars {
-			localName := local.Name
-			if localName == "" {
+			localName, hasName := ir.NamePresence(local.Name, local.NamePresent)
+			if !hasName {
 				localName = "local"
 			}
 			w.names[nameKey{kind: nameKeyEntryPointLocal, handle1: uint32(epIdx), handle2: uint32(localIdx)}] = w.namer.call(localName)
@@ -557,26 +555,24 @@ func (w *Writer) registerNames() error {
 	// Register function names, arguments, and locals
 	for handle := range w.module.Functions {
 		fn := &w.module.Functions[handle]
-		var baseName string
-		if fn.Name != "" {
-			baseName = fn.Name
-		} else {
+		baseName, hasName := ir.NamePresence(fn.Name, fn.NamePresent)
+		if !hasName {
 			baseName = fmt.Sprintf("function_%d", handle)
 		}
 		name := w.namer.call(baseName)
 		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		for argIdx, arg := range fn.Arguments {
-			argName := arg.Name
-			if argName == "" {
+			argName, hasName := ir.NamePresence(arg.Name, arg.NamePresent)
+			if !hasName {
 				argName = fmt.Sprintf("arg_%d", argIdx)
 			}
 			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = w.namer.call(argName)
 		}
 
 		for localIdx, local := range fn.LocalVars {
-			localName := local.Name
-			if localName == "" {
+			localName, hasName := ir.NamePresence(local.Name, local.NamePresent)
+			if !hasName {
 				localName = "local"
 			}
 			w.names[nameKey{kind: nameKeyFunctionLocal, handle1: uint32(handle), handle2: uint32(localIdx)}] = w.namer.call(localName)
@@ -585,10 +581,8 @@ func (w *Writer) registerNames() error {
 
 	// Register constant names (AFTER EP locals and globals, matching Rust)
 	for handle, constant := range w.module.Constants {
-		var baseName string
-		if constant.Name != "" {
-			baseName = constant.Name
-		} else {
+		baseName, hasName := ir.NamePresence(constant.Name, constant.NamePresent)
+		if !hasName {
 			baseName = fmt.Sprintf("const_%d", handle)
 		}
 		name := w.namer.call(baseName)
@@ -601,10 +595,8 @@ func (w *Writer) registerNames() error {
 	// We must do the same to avoid collisions with local variables that shadow globals.
 	for handle, global := range w.module.GlobalVariables {
 		// Always call the namer to reserve the base name, matching Rust behavior.
-		var baseName string
-		if global.Name != "" {
-			baseName = global.Name
-		} else {
+		baseName, hasName := ir.NamePresence(global.Name, global.NamePresent)
+		if !hasName {
 			baseName = fmt.Sprintf("global_%d", handle)
 		}
 		namerName := w.namer.call(baseName)
@@ -901,8 +893,9 @@ func (w *Writer) writeTypes() error {
 func (w *Writer) writeConstants() error {
 	wrote := false
 	for handle, constant := range w.module.Constants {
-		// Only write named constants (matches Rust: c.name.is_some())
-		if constant.Name == "" {
+		// Only write named constants (matches Rust: c.name.is_some(), which a
+		// present but empty name satisfies).
+		if _, hasName := ir.NamePresence(constant.Name, constant.NamePresent); !hasName {
 			continue
 		}
 
@@ -2763,17 +2756,11 @@ func (w *Writer) writeEntryPointArgLocals(ep *ir.EntryPoint) {
 			continue
 		}
 
-		// Get the argument name from NamedExpressions or fall back to arg.Name
-		name := ""
-		if fn.NamedExpressions != nil {
-			name = fn.NamedExpressions[exprHandle]
-		}
-		if name == "" {
-			name = arg.Name
-		}
-		if name == "" {
-			continue
-		}
+		// The declaration below uses the registered argument name — the name
+		// the body refers to; deriving it here from NamedExpressions or
+		// arg.Name skipped a present-empty name (and an absent one) and left
+		// the local undeclared while the body used the registered name.
+		// Declare it unconditionally.
 
 		// Determine the GLSL value to initialize from
 		var initValue string
@@ -3008,7 +2995,11 @@ func (w *Writer) writeLocalVars(fn *ir.Function) error {
 		}
 		if localName == "" {
 			// Fallback — shouldn't happen but safe
-			localName = w.namer.call(local.Name)
+			fallback, hasName := ir.NamePresence(local.Name, local.NamePresent)
+			if !hasName {
+				fallback = "local"
+			}
+			localName = w.namer.call(fallback)
 		}
 		w.localNames[uint32(localIdx)] = localName
 		baseType := w.getBaseTypeName(local.Type)

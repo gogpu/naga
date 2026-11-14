@@ -546,3 +546,27 @@ func TestTypeRegistry_StructMemberBinding(t *testing.T) {
 		t.Error("the same struct registered twice got different handles")
 	}
 }
+
+// TestSetNameReconcilesPresence: renaming clears the present-empty bit (only
+// an empty name can carry it) and moves the dedup key, so the old empty-name
+// key is released.
+func TestSetNameReconcilesPresence(t *testing.T) {
+	r := NewTypeRegistry()
+	inner := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	h := r.GetOrCreateNamed("", true, inner)
+	if !r.types[h].NamePresent {
+		t.Fatal("GetOrCreateNamed did not set the bit")
+	}
+	r.SetName(h, "renamed")
+	if got := r.types[h].Name; got != "renamed" {
+		t.Errorf("name = %q, want renamed", got)
+	}
+	if r.types[h].NamePresent {
+		t.Error("the present-empty bit survived a non-empty rename")
+	}
+	// The old empty-name key must be gone: an absent-named type of the same
+	// inner is a different type again.
+	if absent := r.GetOrCreate("", inner); absent == h {
+		t.Error("the renamed type still answers the empty-name key")
+	}
+}

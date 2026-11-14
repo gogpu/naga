@@ -428,13 +428,20 @@ func (w *Writer) writeGlobalSplatExpression(e ir.ExprSplat) error {
 // Constant and Zero Value Expressions
 // =============================================================================
 
+// hasConstantName reports whether a constant is declared and referenced by
+// name: any present name, empty included (Rust naga's is_some()).
+func hasConstantName(c *ir.Constant) bool {
+	_, hasName := ir.NamePresence(c.Name, c.NamePresent)
+	return hasName
+}
+
 // writeConstantExpression writes a reference to a module constant. An
 // unnamed constant (the SPIR-V frontend makes them) is never declared, so its
 // init is written in place, as Rust naga does (back/hlsl/writer.rs,
 // write_possibly_const_expression, Expression::Constant).
 func (w *Writer) writeConstantExpression(e ir.ExprConstant) error {
 	if int(e.Constant) < len(w.module.Constants) {
-		if c := &w.module.Constants[e.Constant]; c.Name == "" {
+		if c := &w.module.Constants[e.Constant]; !hasConstantName(c) {
 			return w.writeGlobalConstExpression(c.Init)
 		}
 	}

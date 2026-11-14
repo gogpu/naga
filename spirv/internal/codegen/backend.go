@@ -462,10 +462,9 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	// 6. Execution modes (deferred)
 	// Will be added after entry points
 
-	// 7. Debug names (if debug enabled)
-	if b.options.Debug {
-		b.emitDebugNames()
-	}
+	// 7. Debug names are emitted after every declaration: the emission needs
+	// the type, constant, global and function IDs (Rust naga writes them at
+	// the end of the module; the builder serializes them as their own section).
 
 	// 8. Types and constants
 	// Must be emitted before decorations because decorations need type IDs.
@@ -505,6 +504,12 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	// 12. Entry points (now that we have function IDs)
 	if err := b.emitEntryPoints(); err != nil {
 		return nil, err
+	}
+
+	// 12.5. Debug names, now that every declaration has an ID (Rust naga's
+	// write_debug_names runs at the end of the module).
+	if b.options.Debug {
+		b.emitDebugNames()
 	}
 
 	// 13. Linkage capability for modules without compilable entry points
@@ -613,7 +618,7 @@ func (b *Backend) decorateNonUniformBindingArrayAccess(id uint32) {
 func (b *Backend) emitDebugNames() {
 	// Type names
 	for handle, typ := range b.module.Types {
-		if typ.Name != "" {
+		if emitName(typ.Name, typ.NamePresent) {
 			if id, ok := b.typeIDs[ir.TypeHandle(handle)]; ok {
 				b.builder.AddName(id, typ.Name)
 			}
@@ -622,7 +627,7 @@ func (b *Backend) emitDebugNames() {
 
 	// Constant names
 	for handle, constant := range b.module.Constants {
-		if constant.Name != "" {
+		if emitName(constant.Name, constant.NamePresent) {
 			if id, ok := b.constantIDs[ir.ConstantHandle(handle)]; ok {
 				b.builder.AddName(id, constant.Name)
 			}
@@ -631,7 +636,7 @@ func (b *Backend) emitDebugNames() {
 
 	// Global variable names
 	for handle, global := range b.module.GlobalVariables {
-		if global.Name != "" {
+		if emitName(global.Name, global.NamePresent) {
 			if id, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
 				b.builder.AddName(id, global.Name)
 			}
@@ -641,7 +646,7 @@ func (b *Backend) emitDebugNames() {
 	// Function names
 	for handle := range b.module.Functions {
 		fn := &b.module.Functions[handle]
-		if fn.Name != "" {
+		if emitName(fn.Name, fn.NamePresent) {
 			if id, ok := b.functionIDs[ir.FunctionHandle(handle)]; ok {
 				b.builder.AddName(id, fn.Name)
 			}
@@ -651,7 +656,7 @@ func (b *Backend) emitDebugNames() {
 	// Entry point function names
 	for epIdx := range b.module.EntryPoints {
 		ep := &b.module.EntryPoints[epIdx]
-		if ep.Function.Name != "" {
+		if emitName(ep.Function.Name, ep.Function.NamePresent) {
 			if id, ok := b.entryPointFuncIDs[epIdx]; ok {
 				b.builder.AddName(id, ep.Function.Name)
 			}
@@ -702,7 +707,7 @@ func (b *Backend) decorateStructMember(structID, index uint32, member ir.StructM
 		}
 		b.builder.AddMemberDecorate(structID, index, spvenums.DecorationMatrixStride, rowMul*uint32(mat.Scalar.Width))
 	}
-	if b.options.Debug && member.Name != "" {
+	if b.options.Debug && emitName(member.Name, member.NamePresent) {
 		b.builder.AddMemberName(structID, index, member.Name)
 	}
 }
@@ -1890,6 +1895,13 @@ func (b *Backend) emitGlobals() error {
 	return nil
 }
 
+// emitName reports whether an entity's name is written: any present name,
+// empty included (Rust naga writes OpName for Some("") and skips None).
+func emitName(name string, present bool) bool {
+	_, ok := ir.NamePresence(name, present)
+	return ok
+}
+
 // getStorageAccessFlags returns (hasLoad, hasStore) for a global variable.
 // Checks both Storage address space and storage image types.
 // Matches Rust naga's write_global_variable logic for NonReadable/NonWritable.
@@ -2068,7 +2080,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					b.addInterpolationDecorations(varID, binding, entryPoint.Stage, spvenums.StorageClassInput)
 				}
 
-				if b.options.Debug && arg.Name != "" {
+				if b.options.Debug && emitName(arg.Name, arg.NamePresent) {
 					b.builder.AddName(varID, arg.Name)
 				}
 			} else {
@@ -2122,7 +2134,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 								b.f16PolyfillVars[varID] = ioMemberTypeID
 							}
 
-							if b.options.Debug && member.Name != "" {
+							if b.options.Debug && emitName(member.Name, member.NamePresent) {
 								b.builder.AddName(varID, member.Name)
 							}
 
@@ -2252,7 +2264,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 						}
 
 						// Add debug name if enabled
-						if b.options.Debug && member.Name != "" {
+						if b.options.Debug && emitName(member.Name, member.NamePresent) {
 							b.builder.AddName(varID, member.Name)
 						}
 
@@ -3398,7 +3410,7 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 			paramIDs[i] = paramID
 
 			// Add debug name if enabled
-			if b.options.Debug && arg.Name != "" {
+			if b.options.Debug && emitName(arg.Name, arg.NamePresent) {
 				b.builder.AddName(paramID, arg.Name)
 			}
 		}
@@ -3441,7 +3453,7 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 		localVarIDs[i] = varID
 
 		// Add debug name if enabled
-		if b.options.Debug && localVar.Name != "" {
+		if b.options.Debug && emitName(localVar.Name, localVar.NamePresent) {
 			b.builder.AddName(varID, localVar.Name)
 		}
 

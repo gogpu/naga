@@ -1580,7 +1580,10 @@ func (w *Writer) registerNames() error {
 			continue
 		}
 		ty := ep.Function.Result.Type
-		if int(ty) >= len(w.module.Types) || w.module.Types[ty].Name != "" {
+		if int(ty) >= len(w.module.Types) {
+			continue
+		}
+		if _, hasName := ir.NamePresence(w.module.Types[ty].Name, w.module.Types[ty].NamePresent); hasName {
 			continue
 		}
 		fallback, ok := backend.EntryPointResultStructName(ep.Stage)
@@ -1593,9 +1596,10 @@ func (w *Writer) registerNames() error {
 	}
 	for handle, typ := range w.module.Types {
 		var baseName string
+		typeName, hasName := ir.NamePresence(typ.Name, typ.NamePresent)
 		switch {
-		case typ.Name != "":
-			baseName = typ.Name
+		case hasName:
+			baseName = typeName
 		case entryPointResultNames[ir.TypeHandle(handle)] != "":
 			baseName = entryPointResultNames[ir.TypeHandle(handle)]
 		default:
@@ -1611,8 +1615,8 @@ func (w *Writer) registerNames() error {
 		if st, ok := typ.Inner.(ir.StructType); ok {
 			memberNamer := newNamer()
 			for memberIdx, member := range st.Members {
-				memberName := member.Name
-				if memberName == "" {
+				memberName, hasName := ir.NamePresence(member.Name, member.NamePresent)
+				if !hasName {
 					memberName = "member"
 				}
 				mname := memberNamer.call(memberName)
@@ -1639,8 +1643,8 @@ func (w *Writer) registerNames() error {
 		// Register entry point argument names via namer.call to match Rust
 		// namer.call_or(&arg.name, "param") behavior.
 		for argIdx, arg := range fn.Arguments {
-			argBase := arg.Name
-			if argBase == "" {
+			argBase, hasName := ir.NamePresence(arg.Name, arg.NamePresent)
+			if !hasName {
 				argBase = "param"
 			}
 			argName := w.namer.call(argBase)
@@ -1651,8 +1655,8 @@ func (w *Writer) registerNames() error {
 		// This is critical: locals must be registered before output struct
 		// naming so the namer knows about conflicting names.
 		for localIdx, local := range fn.LocalVars {
-			localBase := local.Name
-			if localBase == "" {
+			localBase, hasName := ir.NamePresence(local.Name, local.NamePresent)
+			if !hasName {
 				localBase = "local"
 			}
 			localName := w.namer.call(localBase)
@@ -1667,8 +1671,8 @@ func (w *Writer) registerNames() error {
 		handle := ir.FunctionHandle(idx)
 
 		fn := &w.module.Functions[idx]
-		baseName := fn.Name
-		if baseName == "" {
+		baseName, hasName := ir.NamePresence(fn.Name, fn.NamePresent)
+		if !hasName {
 			baseName = "function"
 		}
 		funcName := w.namer.call(baseName)
@@ -1676,8 +1680,8 @@ func (w *Writer) registerNames() error {
 
 		// Register argument names via namer.call to match Rust.
 		for argIdx, arg := range fn.Arguments {
-			argBase := arg.Name
-			if argBase == "" {
+			argBase, hasName := ir.NamePresence(arg.Name, arg.NamePresent)
+			if !hasName {
 				argBase = "param"
 			}
 			argName := w.namer.call(argBase)
@@ -1686,8 +1690,8 @@ func (w *Writer) registerNames() error {
 
 		// Register local variable names.
 		for localIdx, local := range fn.LocalVars {
-			localBase := local.Name
-			if localBase == "" {
+			localBase, hasName := ir.NamePresence(local.Name, local.NamePresent)
+			if !hasName {
 				localBase = "local"
 			}
 			localName := w.namer.call(localBase)
@@ -1697,10 +1701,8 @@ func (w *Writer) registerNames() error {
 
 	// 4. Register global variable names.
 	for handle, global := range w.module.GlobalVariables {
-		var baseName string
-		if global.Name != "" {
-			baseName = global.Name
-		} else {
+		baseName, hasName := ir.NamePresence(global.Name, global.NamePresent)
+		if !hasName {
 			baseName = "global"
 		}
 		name := w.namer.call(baseName)
@@ -1712,8 +1714,8 @@ func (w *Writer) registerNames() error {
 		if int(global.Type) < len(w.module.Types) {
 			if imgType, isImg := w.module.Types[global.Type].Inner.(ir.ImageType); isImg {
 				if imgType.Class == ir.ImageClassExternal {
-					base := global.Name
-					if base == "" {
+					base, hasName := ir.NamePresence(global.Name, global.NamePresent)
+					if !hasName {
 						base = "global"
 					}
 					// Rust: self.call(&format!("{base}_{suffix}"))
@@ -1732,10 +1734,8 @@ func (w *Writer) registerNames() error {
 	// 5. Register constant names.
 	// Rust uses const_{type_name} as fallback for unnamed constants.
 	for handle, constant := range w.module.Constants {
-		var baseName string
-		if constant.Name != "" {
-			baseName = constant.Name
-		} else {
+		baseName, hasName := ir.NamePresence(constant.Name, constant.NamePresent)
+		if !hasName {
 			typeName := w.names[nameKey{kind: nameKeyType, handle1: uint32(constant.Type)}]
 			baseName = fmt.Sprintf("const_%s", typeName)
 		}

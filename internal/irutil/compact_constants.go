@@ -120,7 +120,7 @@ func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 	}
 	if keep == KeepUnusedYes {
 		for i := range m.Overrides {
-			if m.Overrides[i].Name != "" {
+			if _, hasName := ir.NamePresence(m.Overrides[i].Name, m.Overrides[i].NamePresent); hasName {
 				t.override(ir.OverrideHandle(i))
 			}
 		}
@@ -135,7 +135,8 @@ func (t *constantTracer) markNamedConstants() {
 	for i := range m.Constants {
 		c := &m.Constants[i]
 		abstract := int(c.Type) < len(m.Types) && IsAbstractType(m.Types[c.Type].Inner, m.Types)
-		if c.Name != "" && c.Name != "_" && !abstract {
+		name, hasName := ir.NamePresence(c.Name, c.NamePresent)
+		if hasName && name != "_" && !abstract {
 			t.constant(ir.ConstantHandle(i))
 		}
 	}
