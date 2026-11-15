@@ -32,16 +32,23 @@ fi
 # SPIRV-Headers and SPIRV-Tools pinned at this tag.
 (cd "$work/src" && python3 ./update_glslang_sources.py)
 
+# The standalone tool's target is glslang-standalone and its artifact is
+# named glslang (the binaries were renamed in 16.0; glslangValidator stays as
+# the backwards-compatible name, which is what the tests and the SDK use). The
+# SPIR-V optimizer is not linked (ENABLE_OPT=OFF): the corpus matrices use the
+# tool as a language oracle in plain dialect mode, where the optimizer plays
+# no part, and this keeps the CI build short. Tests are off (GLSLANG_TESTS).
 cmake -S "$work/src" -B "$work/build" -DCMAKE_BUILD_TYPE=Release \
-	-DENABLE_OPT=OFF -DBUILD_TESTING=OFF -DENABLE_CTEST=OFF
-cmake --build "$work/build" --config Release --parallel --target glslangValidator
+	-DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF
+cmake --build "$work/build" --config Release --parallel --target glslang-standalone
 
 mkdir -p "$prefix/bin"
-found=$(find "$work/build" -type f \( -name glslangValidator -o -name glslangValidator.exe \) | head -1)
+found=$(find "$work/build" -type f \( -name glslang -o -name glslang.exe \) | head -1)
 if [ -z "$found" ]; then
-	echo "glslangValidator not found in the build tree" >&2
+	echo "the glslang-standalone binary was not found in the build tree" >&2
 	exit 1
 fi
-cp "$found" "$prefix/bin/"
+cp "$found" "$prefix/bin/glslang"
+cp "$found" "$prefix/bin/glslangValidator"
 
 "$prefix/bin/glslangValidator" --version
