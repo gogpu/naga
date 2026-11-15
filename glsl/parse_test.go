@@ -2,8 +2,10 @@ package glsl
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gogpu/naga/frontend"
 	"github.com/gogpu/naga/hlsl"
@@ -197,5 +199,36 @@ void main() {
 	}
 	if len(parseErr.Notes) != 0 {
 		t.Fatalf("notes = %+v, want none: the first unknown name is fatal", parseErr.Notes)
+	}
+}
+
+// TestParseManyErrorsIsNotQuadratic pins the cost of error reporting: the
+// public error path builds one line index (ir.SourceLines) instead of
+// rescanning the source per diagnostic. One #error per line, 100k of them,
+// used to take 8.2 s (deep validation, 2026-11-15) and takes well under a
+// second with the index; the bound is loose on purpose.
+func TestParseManyErrorsIsNotQuadratic(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("#version 450\n")
+	for i := 0; i < 100_000; i++ {
+		fmt.Fprintf(&b, "#error boom%d\n", i)
+	}
+	b.WriteString("void main() {}\n")
+
+	start := time.Now()
+	_, _, err := Parse(b.String(), ParseOptions{Stage: ir.StageFragment})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("a source with 100000 #error directives parsed without an error")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error is %T, want *ParseError", err)
+	}
+	if len(pe.Notes) != 99_999 {
+		t.Fatalf("notes = %d, want 99999", len(pe.Notes))
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("reporting 100000 diagnostics took %s, want under 5s", elapsed)
 	}
 }
