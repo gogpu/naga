@@ -289,6 +289,20 @@ func TestTranslateNaga(t *testing.T) {
 	}
 }
 
+func TestCommand(t *testing.T) {
+	// The test binary is a real executable on every platform: given the
+	// generator's arguments it rejects the unknown flags and exits non-zero,
+	// which exercises the process launch itself.
+	stderr, err := command(os.Args[0],
+		"--input-kind", "glsl", "--shader-stage", "frag", "--compact", "in", "out")
+	if err == nil {
+		t.Fatal("the test binary accepted the generator's arguments, want a launch error")
+	}
+	if stderr == "" {
+		t.Error("command returned no stderr for a failing process")
+	}
+}
+
 func TestRunWithFakeTranslator(t *testing.T) {
 	in := t.TempDir()
 	out := t.TempDir()
