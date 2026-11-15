@@ -23,11 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `wgsl.ParseError` renders through the shared `internal/errfmt`; its behaviour is unchanged.
 - **GLSL frontend, Phase 2: MSL and HLSL output matches Rust naga's `naga-cli` byte for byte** on every derived
-  golden of the vendored GLSL corpus (design §18.2, new `TestGLSLTextReference`): 76 of 83 goldens match
-  exactly, 17 are recorded skips (the `#version` refusals and the pairs the pinned naga cannot translate) and
-  five are recorded deviations, each explained in the test — one where Rust's own output is invalid HLSL, four
-  where our compaction keeps a named type Rust drops (the typifier resolves modf/frexp result structs by name
-  until they are modelled, card P2-IR-034). The MSL writer now follows Rust's expression scoping (parentheses
+  golden of the vendored GLSL corpus (design §18.2, new `TestGLSLTextReference`): 72 of 83 goldens match
+  exactly, 6 are the `#version` refusals (11 further source/backend pairs the pinned naga cannot translate
+  have no golden) and five are recorded deviations, each explained in the test — one where Rust's own output
+  is invalid HLSL, four where our compaction keeps a named type Rust drops (the typifier resolves modf/frexp
+  result structs by name until they are modeled, card P2-IR-034). The MSL writer now follows Rust's expression scoping (parentheses
   of unary, binary, ternary and swizzle operands), renders constant composites the way Rust does (arrays as
   `{{…}}`, structs with member padding, no splat collapsing) and writes no level/bias/gradient for a 1D image
   sample: Metal's `texture1d` has no such `sample` overload. The HLSL writer now ports Rust's `GetDimensions`
