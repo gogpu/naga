@@ -914,13 +914,6 @@ func (f *Frontend) addCombinedSampler(c *Context, used *layoutUse, qualifiers *t
 	imageTy := f.registerType(image)
 	samplerTy := f.registerType(ir.SamplerType{Comparison: spec.Comparison})
 
-	samplerKey := resourceKey{group: group, binding: binding}
-	samplerBinding, ok := f.samplerBindings[samplerKey]
-	if !ok {
-		samplerBinding = f.nextFreeBinding(group)
-	}
-	samplerResource := ir.ResourceBinding{Group: group, Binding: samplerBinding}
-
 	imageHandle := ir.GlobalVariableHandle(len(f.mod.GlobalVariables))
 	f.mod.GlobalVariables = append(f.mod.GlobalVariables, ir.GlobalVariable{
 		Name:    decl.Name,
@@ -928,12 +921,14 @@ func (f *Frontend) addCombinedSampler(c *Context, used *layoutUse, qualifiers *t
 		Binding: &imageBinding,
 		Type:    imageTy,
 	})
+	// The sampler's binding is resolved once every module-scope declaration is
+	// known (resolveCombinedSamplerBindings): the next free slot depends on the
+	// whole module, not on the declarations that happen to precede this one.
 	samplerHandle := ir.GlobalVariableHandle(len(f.mod.GlobalVariables))
 	f.mod.GlobalVariables = append(f.mod.GlobalVariables, ir.GlobalVariable{
-		Name:    decl.Name + "_sampler",
-		Space:   ir.SpaceHandle,
-		Binding: &samplerResource,
-		Type:    samplerTy,
+		Name:  decl.Name + "_sampler",
+		Space: ir.SpaceHandle,
+		Type:  samplerTy,
 	})
 
 	f.combinedPairs[imageHandle] = samplerHandle
@@ -953,13 +948,89 @@ func (f *Frontend) addCombinedSampler(c *Context, used *layoutUse, qualifiers *t
 	}
 
 	f.combinedSamplers = append(f.combinedSamplers, combinedSamplerInfo{
-		name:           decl.Name,
-		imageBinding:   imageBinding,
-		samplerBinding: samplerResource,
+		name:         decl.Name,
+		imageBinding: imageBinding,
 	})
 
 	f.unusedQualifierErrors(qualifiers)
 	used.unusedErrors()
+	return nil
+}
+
+// combinedSamplerSpans returns the source span of each combined image sampler
+// declaration by its variable name, so the binding resolution, which runs after
+// the declarations are lowered, can report a refused mapping where the resource
+// was declared.
+func combinedSamplerSpans(decls []astDecl) map[string]ir.Span {
+	spans := map[string]ir.Span{}
+	for i := range decls {
+		d, ok := decls[i].Kind.(declVarList)
+		if !ok || d.Typ.Builtin == nil || !d.Typ.Builtin.Combined {
+			continue
+		}
+		for j := range d.Declarators {
+			spans[d.Declarators[j].Name] = d.Declarators[j].Span
+		}
+	}
+	return spans
+}
+
+// splitSamplerHandle returns the sampler global the image global of a split
+// combined sampler was split into.
+func (f *Frontend) splitSamplerHandle(split *combinedSamplerInfo) (ir.GlobalVariableHandle, bool) {
+	for i := range f.mod.GlobalVariables {
+		g := &f.mod.GlobalVariables[i]
+		if g.Name != split.name || g.Binding == nil || *g.Binding != split.imageBinding {
+			continue
+		}
+		sampler, ok := f.combinedPairs[ir.GlobalVariableHandle(i)]
+		return sampler, ok
+	}
+	return 0, false
+}
+
+// resolveCombinedSamplerBindings gives every split sampler its binding once all
+// module-scope declarations are known: one counter per group over every bound
+// resource, in source order (design §11). A ParseOptions.SamplerBindings entry
+// wins over the next free slot, and is reserved like any other binding; a
+// mapping onto a slot another resource of the module already holds is an error,
+// because the caller asked for two globals to share one.
+//
+// The allocation waits for the whole module because the next free slot depends
+// on it: allocating at the declaration let a later resource take the slot, and
+// the resulting module failed validation (P0-GLSLIN-003). The SPIR-V frontend
+// resolves its splits in the same post-pass
+// (spirv/internal/front/combined_sampler.go:78-111); Rust naga has no combined
+// samplers at all (gfx-rs/wgpu#4342).
+func (f *Frontend) resolveCombinedSamplerBindings(decls []astDecl) *frontError {
+	if len(f.combinedSamplers) == 0 {
+		return nil
+	}
+	spans := combinedSamplerSpans(decls)
+	for i := range f.combinedSamplers {
+		split := &f.combinedSamplers[i]
+		span := spans[split.name]
+		samplerHandle, ok := f.splitSamplerHandle(split)
+		if !ok {
+			return errInternal("split combined sampler without a sampler global", span)
+		}
+		group := split.imageBinding.Group
+		var samplerBinding ir.ResourceBinding
+		if supplied, mapped := f.samplerBindings[resourceKey{group: group, binding: split.imageBinding.Binding}]; mapped {
+			target := resourceKey{group: group, binding: supplied}
+			if f.usedBindings[target] {
+				return errSemantic(span,
+					"the sampler of combined image sampler (group %d, binding %d) is mapped to (group %d, binding %d), which another resource of the module already uses",
+					group, split.imageBinding.Binding, group, supplied)
+			}
+			samplerBinding = ir.ResourceBinding{Group: group, Binding: supplied}
+			f.usedBindings[target] = true
+		} else {
+			samplerBinding = ir.ResourceBinding{Group: group, Binding: f.nextFreeBinding(group)}
+		}
+		f.mod.GlobalVariables[samplerHandle].Binding = &samplerBinding
+		split.samplerBinding = samplerBinding
+	}
 	return nil
 }
 

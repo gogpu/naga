@@ -45,6 +45,19 @@ func (f *Frontend) functionOrConstructorCall(c *Context, e *hirArena, callee cal
 	if err != nil {
 		return 0, false, err
 	}
+	// An unsized array constructor takes its size from the argument list:
+	// float[](a, b, c) builds an array of three floats. The source's
+	// ArraySize::Dynamic names no size and no backend can construct it, so
+	// the constructor's type is replaced by the sized one; the empty form has
+	// no size to take and is refused (Rust expressions.rs:136-152).
+	if array, ok := c.mod.Types[ty].Inner.(ir.ArrayType); ok && array.Size.Constant == nil && array.Size.Pending == nil {
+		if len(args) == 0 {
+			return 0, false, errMessage(span, "There must be at least one argument")
+		}
+		size := uint32(len(args))
+		array.Size.Constant = &size
+		ty = f.registerType(array)
+	}
 	if len(args) == 1 {
 		h, cerr := f.constructorSingle(c, ty, args[0], span)
 		return h, true, cerr
