@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/gogpu/naga/frontend"
+	"github.com/gogpu/naga/internal/errfmt"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/lower"
 	"github.com/gogpu/naga/wgsl/internal/parser"
@@ -44,10 +44,7 @@ func (e *ParseError) Error() string {
 // Location returns the line and column of the primary label in source, and
 // false when the error has no label, as Rust's ParseError::location.
 func (e *ParseError) Location(source string) (ir.SourceLocation, bool) {
-	if len(e.Labels) == 0 {
-		return ir.SourceLocation{}, false
-	}
-	return e.Labels[0].Span.Location(source), true
+	return errfmt.Location(e.Labels, source)
 }
 
 // Format renders the error with the source lines it labels, attributed to
@@ -59,52 +56,10 @@ func (e *ParseError) Location(source string) (ir.SourceLocation, bool) {
 //	1 │ fn () {}
 //	  │    ^ expected identifier
 //
-// Each label is drawn under its own copy of its line.
+// Each label is drawn under its own copy of its line. glsl.ParseError renders
+// the same way; the layout lives in internal/errfmt.
 func (e *ParseError) Format(source, path string) string {
-	var labels []frontend.Label
-	for _, l := range e.Labels {
-		if l.Span.IsDefined() {
-			labels = append(labels, l)
-		}
-	}
-	lines := strings.Split(source, "\n")
-	width := 1
-	for _, l := range labels {
-		width = max(width, len(strconv.Itoa(int(l.Span.Location(source).Line))))
-	}
-	pad := strings.Repeat(" ", width+1)
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "error: %s\n", e.Message)
-	if len(labels) > 0 {
-		loc := labels[0].Span.Location(source)
-		fmt.Fprintf(&sb, "%s┌─ %s:%d:%d\n%s│\n", pad, path, loc.Line, loc.Column, pad)
-		for _, l := range labels {
-			loc := l.Span.Location(source)
-			text := lines[min(int(loc.Line), len(lines))-1]
-			fmt.Fprintf(&sb, "%*d │ %s\n", width, loc.Line, text)
-			// Carets cover the span's characters on its line, at least one.
-			lineStart := int(loc.Offset) - int(loc.Column-1)
-			startCol := utf8.RuneCountInString(source[lineStart:loc.Offset])
-			end := min(int(loc.Offset+loc.Length), lineStart+len(text))
-			carets := max(1, utf8.RuneCountInString(source[loc.Offset:max(end, int(loc.Offset))]))
-			fmt.Fprintf(&sb, "%s│ %s%s", pad, strings.Repeat(" ", startCol), strings.Repeat("^", carets))
-			if l.Text != "" {
-				sb.WriteString(" " + l.Text)
-			}
-			sb.WriteString("\n")
-		}
-	}
-	if len(e.Notes) > 0 {
-		if len(labels) > 0 {
-			fmt.Fprintf(&sb, "%s│\n", pad)
-		}
-		for _, n := range e.Notes {
-			fmt.Fprintf(&sb, "%s= note: %s\n", pad, n)
-		}
-	}
-	sb.WriteString("\n")
-	return sb.String()
+	return errfmt.Format(e.Message, e.Labels, e.Notes, source, path)
 }
 
 // Parse parses WGSL source and lowers it to an IR module, as Rust naga's
