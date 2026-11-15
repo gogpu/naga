@@ -269,8 +269,8 @@ func TestMacroCallSingleArgumentExpansions(t *testing.T) {
 	}
 }
 
-// TestMacroCallBarrier is the statement-shaped expansion of barrier()
-// (builtins.rs:2030-2045): no value, one control-barrier statement.
+// TestMacroCallBarrier is the statement-shaped expansion of barrier(): no
+// value, one control-barrier statement carrying the workgroup barrier.
 func TestMacroCallBarrier(t *testing.T) {
 	_, c := newTestContext(t)
 	macro := macroCall{kind: macroBarrier}
@@ -285,8 +285,8 @@ func TestMacroCallBarrier(t *testing.T) {
 	for _, stmt := range c.body {
 		if barrier, isBarrier := stmt.Kind.(ir.StmtControlBarrier); isBarrier {
 			found = true
-			if barrier.Flags != barrierAll {
-				t.Fatalf("barrier flags = %v, want every class", barrier.Flags)
+			if barrier.Flags != ir.BarrierWorkGroup {
+				t.Fatalf("barrier flags = %v, want the workgroup barrier", barrier.Flags)
 			}
 		}
 	}

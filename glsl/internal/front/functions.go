@@ -527,6 +527,12 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 		argTypes = append(argTypes, c.getType(arg.expr))
 	}
 
+	if reason := refusedBuiltin(name); reason != "" {
+		// A deliberately unsupported builtin fails here, where the call's span
+		// is known, so the diagnostic carries a source location; injectBuiltin's
+		// own refusal stays as a fallback for the declaration-time call sites.
+		return 0, false, errMessage(span, reason)
+	}
 	decl, variations := f.functionDeclaration(name, builtinRequiredVariations(argTypes...))
 	f.injectBuiltin(decl, name, variations)
 

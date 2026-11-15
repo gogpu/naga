@@ -324,8 +324,10 @@ func TestBuiltinTextureGradCarriesBothGradients(t *testing.T) {
 }
 
 // TestBuiltinBarrierEmitsControlBarrier checks that barrier() is a statement,
-// not a value, and that it asks for every barrier bit Rust's Barrier::all
-// carries (builtins.rs:2039).
+// not a value, and that it asks for the workgroup barrier only: Rust naga's
+// Barrier::all() would raise the module to SPIR-V 1.3 for no reason, while
+// glslang compiles barrier() to a Workgroup/Workgroup barrier
+// (builtins.go, barrierFlags).
 func TestBuiltinBarrierEmitsControlBarrier(t *testing.T) {
 	f, c := newTestContext(t)
 	decl := &functionDeclaration{}
@@ -348,8 +350,11 @@ func TestBuiltinBarrierEmitsControlBarrier(t *testing.T) {
 	if barrier == nil {
 		t.Fatal("barrier emitted no control barrier statement")
 	}
-	if barrier.Flags != barrierAll {
-		t.Fatalf("barrier flags are %b, want %b", barrier.Flags, barrierAll)
+	if barrier.Flags != barrierFlags {
+		t.Fatalf("barrier flags are %b, want %b", barrier.Flags, barrierFlags)
+	}
+	if barrier.Flags&ir.BarrierSubGroup != 0 {
+		t.Fatalf("barrier flags %b ask for a subgroup barrier, which needs SPIR-V 1.3", barrier.Flags)
 	}
 }
 
