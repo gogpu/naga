@@ -38,6 +38,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The validator checks store and initializer types, and entry-point varying types**, as Rust naga's does.
+  A store whose value type does not match the pointer's and a local initializer that does not match the
+  variable were accepted and then failed in every backend (`mat3x2 c = m3;`, `vec4 → vec3`, `int i = 1.9`);
+  a matrix (or other non-IO-shareable type) as a `@location` varying validated while MSL and HLSL cannot
+  express it. Both are rejected now with Rust's messages.
+- **The GLSL frontend sizes unsized array constructors** (`float[](a, b, c)`) from the argument list instead
+  of keeping a runtime-sized type — the module used to parse and validate while SPIR-V, MSL and HLSL output
+  was invalid — and resolves a split combined sampler's binding in a post-pass after the module-scope
+  declarations: supplied `SamplerBindings` are reserved, the rest take the next free slot of their group in
+  source order, and a collision is a `*ParseError`. Two combined samplers (or a sampler followed by a UBO)
+  used to collide and produce a module `valid.Validate` rejected.
+- **HLSL writes a non-scalar `Select` as `select(condition, accept, reject)`** instead of a C++ ternary, which
+  dxc rejects for vector conditions (`select(a, b, a > b)` from WGSL, and the GLSL corpus's `bool-select.frag`).
+  Rust naga's HLSL output has the same defect; the GLSL text gate records the deliberate deviation.
+- **The SPIR-V backend takes the result type of `length`, `distance` and `determinant` from the operand**, so
+  f64 shaders produce valid SPIR-V (the result was hard-coded f32; card P1-SPV-023).
 - **The GLSL frontend can no longer be made to exhaust the process by untrusted input.** Three recursion
   paths are bounded: `#if` expressions (4096 levels), operator chains in the lowering (the parser reads chains
   in loops and only now the lowering counts its depth against `maxExprDepth`), and macro expansion through
