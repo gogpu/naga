@@ -81,6 +81,11 @@ func (p *parser) parseType() (*typeSpec, ir.Span, *frontError) {
 		spec.StructDef = def
 	case tok.kind == tokIdent:
 		if !p.types[tok.text] {
+			// A type the frontend deliberately does not model gets its own
+			// message; atomic_uint is one (atomic counters, atomics.go).
+			if reason := unsupportedTypeText(tok.text); reason != "" {
+				return nil, tok.span, errMessage(tok.span, reason)
+			}
 			return nil, tok.span, errUnknownType(tok.text, tok.span)
 		}
 		spec.Name = tok.text

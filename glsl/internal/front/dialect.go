@@ -85,6 +85,22 @@ func (d dialect) supportsCubeArraySamplers() bool { return d.vulkan() }
 // allowed when using GLSL for Vulkan".
 func (d dialect) supportsPushConstants() bool { return d.vulkan() }
 
+// supportsAtomicMemory reports whether the atomicAdd family of atomic memory
+// functions exists. They are GLSL 4.30 and later: a #version 420 compute probe
+// gets "'atomicAdd' : required extension not requested:
+// GL_ARB_shader_storage_buffer_object", a #version 430 probe compiles, a 330
+// core source gets "'atomicAdd' : no matching overloaded function found", and
+// glslangValidator 11:16.2.0 confirms each. Every dialect this frontend accepts
+// reaches them only through Vulkan GLSL, because the compute stage, shared
+// variables and buffer blocks are Vulkan GLSL alone here.
+func (d dialect) supportsAtomicMemory() bool { return d.vulkan() }
+
+// supportsImageAtomics reports whether the imageAtomic* family exists. They are
+// GLSL 4.20 and later: a #version 420 probe with GL_ARB_shader_image_load_store
+// compiles, a 330 core source is refused, and glslangValidator 11:16.2.0
+// confirms both. This frontend's storage images are Vulkan GLSL only.
+func (d dialect) supportsImageAtomics() bool { return d.vulkan() }
+
 // supportsDouble reports whether the double scalar type exists. glslang on
 // `double d = 1.0lf;` in 330 core: "'double' : not supported for this version
 // or the enabled extensions"; in 300 es: "'double' : not supported with this
@@ -162,6 +178,16 @@ func (d dialect) builtinRefusal(name string) string {
 	case "textureQueryLevels":
 		if !d.supportsTextureQueryLevels() {
 			return d.unsupported(name, " (textureQueryLevels requires GLSL 4.30 or ES 3.10)")
+		}
+	case "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr", "atomicXor",
+		"atomicExchange", "atomicCompSwap":
+		if !d.supportsAtomicMemory() {
+			return d.unsupported(name, " (atomic memory functions require GLSL 4.30 or ES 3.10)")
+		}
+	case "imageAtomicAdd", "imageAtomicMin", "imageAtomicMax", "imageAtomicAnd",
+		"imageAtomicOr", "imageAtomicXor", "imageAtomicExchange", "imageAtomicCompSwap":
+		if !d.supportsImageAtomics() {
+			return d.unsupported(name, " (image atomic functions require GLSL 4.20 or ES 3.10)")
 		}
 	}
 	return ""

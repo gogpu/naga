@@ -514,6 +514,12 @@ func refusedBuiltin(name string) string {
 		return "textureGatherOffsets is not supported: it gathers with four independent offsets, " +
 			"but ir.ExprImageSample carries one constant Offset and the SPIR-V writer emits ConstOffset, not ConstOffsets"
 	default:
+		// The atomic-counter functions are refused here too, so a call reports
+		// the missing resource class rather than an unknown-function text
+		// (atomic counters, atomics.go).
+		if atomicCounterFunction(name) {
+			return atomicCounterText
+		}
 		return ""
 	}
 }

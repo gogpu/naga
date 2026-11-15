@@ -302,7 +302,12 @@ func (p *parser) parseQualifiedNameDeclaration(qualifiers typeQualifiers) (*astD
 		}, nil
 	}
 	// Rust's NotImplemented text for a qualified name that is not a block, the
-	// declaration it refuses (declarations.rs:444-450).
+	// declaration it refuses (declarations.rs:444-450). A type the frontend
+	// deliberately does not model gets its own message first; `uniform
+	// atomic_uint counter;` is the atomic counter declaration (atomics.go).
+	if reason := unsupportedTypeText(tok.text); reason != "" {
+		return nil, errSemantic(tok.span, "%s", reason)
+	}
 	return nil, errSemantic(tok.span, "Not implemented: variable qualifier")
 }
 

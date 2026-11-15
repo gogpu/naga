@@ -40,6 +40,12 @@ func (f *Frontend) lowerModule(file *parsedFile) *frontError {
 			return derr
 		}
 	}
+	// Every function is lowered, so the variables the module accesses with
+	// atomic memory functions can now be turned atomic, before the entry point
+	// and the validator see the module (atomics.go).
+	if aerr := f.upgradeAtomics(); aerr != nil {
+		return aerr
+	}
 	// A split combined sampler's binding depends on every bound resource of
 	// the module, so it is resolved once the declarations are all lowered.
 	if derr := f.resolveCombinedSamplerBindings(file.Decls); derr != nil {

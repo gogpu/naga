@@ -27,6 +27,12 @@ func (c *Context) lowerExpect(arena *hirArena, expr hirHandle, pos exprPos) (ir.
 		return 0, span, err
 	}
 	if !ok {
+		// An image atomic is a statement whose value the IR cannot carry; a
+		// use as a value names that limitation instead of the generic void call
+		// text (atomics.go).
+		if reason := c.fe.statementOnlyAtomicText(arena.get(expr)); reason != "" {
+			return 0, span, errMessage(span, reason)
+		}
 		return 0, span, errMessage(span, "Expression returns void")
 	}
 	return h, span, nil

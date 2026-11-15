@@ -21,6 +21,17 @@ type loweredArg struct {
 // Frontend::function_or_constructor_call (functions.rs:34-58). ok is false
 // when the call yields no value (a void function).
 func (f *Frontend) functionOrConstructorCall(c *Context, e *hirArena, callee callee, rawArgs []hirHandle, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	// An atomic builtin takes an lvalue, so its arguments are lowered by the
+	// atomic path: lowering the first one in an Rhs position, as the overload
+	// comparison does, would load a variable that is about to become atomic and
+	// emit a spurious atomic read. A name the shader itself defined is an
+	// ordinary function, never the builtin (atomics.go).
+	if callee.Kind == calleeFunction {
+		if builtin, ok := atomicBuiltinFunction(callee.Name); ok && !userDefinedFunction(f.functions[callee.Name]) {
+			return f.atomicCall(c, e, callee.Name, builtin, rawArgs, span)
+		}
+	}
+
 	args := make([]loweredArg, 0, len(rawArgs))
 	for _, raw := range rawArgs {
 		expr, exprSpan, err := c.lowerExpect(e, raw, rhsPos)
