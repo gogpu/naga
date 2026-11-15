@@ -270,30 +270,52 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 		}
 	}
 	processedFunctions := make(map[string]bool)
+	// WGSL gives module-scope declarations one namespace: a second declaration
+	// of a name is Rust naga's Error::Redefinition, reported by its frontend's
+	// index pass (front/wgsl/index.rs:24-39), not by the validator.
+	declared := make(map[string]bool)
+
+	redefine := func(name string, span parser.Span) bool {
+		if name == "" {
+			return false
+		}
+		if declared[name] {
+			l.addError("redefinition of `"+name+"`", span)
+			return true
+		}
+		declared[name] = true
+		return false
+	}
 
 	for _, decl := range sortedDecls {
 		switch d := decl.(type) {
 		case *parser.AliasDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerAlias(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 		case *parser.StructDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerStruct(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 		case *parser.VarDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerGlobalVar(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 		case *parser.OverrideDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerOverride(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 		case *parser.ConstDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerConstant(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 		case *parser.FunctionDecl:
+			redefine(d.Name, d.Span)
 			if err := l.lowerFunction(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
@@ -635,7 +657,14 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 	members := make([]ir.StructMember, len(s.Members))
 	var offset uint32
 	var maxAlign uint32 = 1
+	// A struct's members share one namespace; a repeated name is Rust naga's
+	// Error::Redefinition from its index pass (front/wgsl/index.rs:24-39).
+	memberNames := make(map[string]bool, len(s.Members))
 	for i, m := range s.Members {
+		if memberNames[m.Name] {
+			return fmt.Errorf("redefinition of `%s`", m.Name)
+		}
+		memberNames[m.Name] = true
 		typeHandle, err := l.resolveType(m.Type)
 		if err != nil {
 			return fmt.Errorf("struct %s member %s: %w", s.Name, m.Name, err)

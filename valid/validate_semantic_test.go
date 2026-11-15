@@ -140,7 +140,10 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 		}
 	})
 
-	t.Run("duplicate member name", func(t *testing.T) {
+	t.Run("duplicate member name accepted", func(t *testing.T) {
+		// Rust naga's validator does not check member-name uniqueness
+		// (valid/type.rs); the GLSL frontend's entry wrapper relies on that
+		// for an array of output variables.
 		module := &ir.Module{
 			Types: []ir.Type{
 				{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -155,7 +158,9 @@ func TestValidateSemantic_StructMembers(t *testing.T) {
 				},
 			},
 		}
-		expectErrors(t, module, "duplicate struct member name")
+		if errs, err := validateErrs(module, CapAll); err != nil || len(errs) != 0 {
+			t.Errorf("validation errors = %v (%v), want none", errs, err)
+		}
 	})
 
 	t.Run("invalid member type", func(t *testing.T) {

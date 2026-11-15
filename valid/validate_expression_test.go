@@ -286,15 +286,21 @@ func TestValidateNew_StructUnnamedMemberAllowed(t *testing.T) {
 	}
 }
 
-func TestValidateNew_StructDuplicateMemberName(t *testing.T) {
+// TestValidateNew_StructDuplicateMemberNameAccepted pins Rust naga's
+// behavior: its validator does not check member-name uniqueness
+// (valid/type.rs), and the GLSL frontend's entry-point wrapper gives each
+// element of an output array the variable's own name.
+func TestValidateNew_StructDuplicateMemberNameAccepted(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.StructType{
+	m.Types = append(m.Types, ir.Type{Name: "ok", Inner: ir.StructType{
 		Members: []ir.StructMember{
 			{Name: "x", Type: 0},
 			{Name: "x", Type: 0},
 		},
 	}})
-	expectValidationErrors(t, m, "duplicate struct member name")
+	if errs, err := validateErrs(m, CapAll); err != nil || len(errs) != 0 {
+		t.Errorf("validation errors = %v (%v), want none: Rust naga accepts duplicate member names", errs, err)
+	}
 }
 
 func TestValidateNew_StructMemberCircularRef(t *testing.T) {
