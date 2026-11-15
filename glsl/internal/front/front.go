@@ -33,6 +33,10 @@ type Frontend struct {
 	// table when it starts (context.rs:121-123), so a name declared after a
 	// function still resolves inside it at lowering time.
 	globalVars []namedLookup
+	// functionSpans is where each module function (by FunctionHandle) was
+	// declared, so a post-lowering check reports a refused call graph at the
+	// declaration it involves.
+	functionSpans []ir.Span
 
 	// types maps a declared struct or interface block name to its type.
 	types map[string]ir.TypeHandle

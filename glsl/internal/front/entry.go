@@ -41,6 +41,11 @@ func (f *Frontend) lowerModule(file *parsedFile) *frontError {
 	if derr := f.resolveCombinedSamplerBindings(file.Decls); derr != nil {
 		return derr
 	}
+	// GLSL forbids recursion; Rust naga rejects a call cycle in validation.
+	// Refused here, before the module reaches a backend.
+	if rerr := f.rejectRecursiveCalls(); rerr != nil {
+		return rerr
+	}
 
 	mainDecl, ok := f.functions["main"]
 	if ok {

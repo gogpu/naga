@@ -1033,6 +1033,7 @@ func (f *Frontend) addFunction(c *Context, name string, result *ir.FunctionResul
 		} else {
 			handle := ir.FunctionHandle(len(f.mod.Functions))
 			f.mod.Functions = append(f.mod.Functions, function)
+			f.functionSpans = append(f.functionSpans, span)
 			overload.kind = overloadCall
 			overload.function = handle
 			overload.macro = nil
@@ -1068,6 +1069,7 @@ func (f *Frontend) addPrototype(c *Context, name string, result *ir.FunctionResu
 	function := ir.Function{Name: name, Arguments: c.arguments, Result: result}
 	handle := ir.FunctionHandle(len(f.mod.Functions))
 	f.mod.Functions = append(f.mod.Functions, function)
+	f.functionSpans = append(f.functionSpans, span)
 	decl.overloads = append(decl.overloads, &overload{
 		parameters:     c.parameters,
 		parametersInfo: c.parametersInfo,
