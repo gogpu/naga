@@ -6,10 +6,10 @@
 //	go run ./internal/cmd/corpussync sync -wgpu <gfx-rs/wgpu checkout> -out snapshot/testdata/rust
 //	go run ./internal/cmd/corpussync manifest -dir <tree> -kind vendored|derived -repo <url> [flags]
 //
-// sync replaces the vendored tree with the WGSL inputs, their TOML parameters,
-// the SPIR-V/MSL/HLSL/GLSL/IR outputs and the license files of the checkout's
-// HEAD commit, read from git objects, and writes MANIFEST.json. The checkout
-// must be clean.
+// sync replaces the vendored tree with the WGSL, SPIR-V and GLSL inputs, their
+// TOML parameters, the WGSL/MSL/HLSL/GLSL/IR outputs and the license files of
+// the checkout's HEAD commit, read from git objects, and writes MANIFEST.json.
+// The checkout must be clean.
 //
 // manifest (re)writes MANIFEST.json for an existing derived tree from explicit
 // source flags, and records a manually vendored tree (SPIRV-Headers, license

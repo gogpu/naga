@@ -1,7 +1,7 @@
 # Rust naga test corpus (vendored)
 
-Verbatim copies of the WGSL test inputs and reference outputs of
-[Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga), the shader
+Verbatim copies of the WGSL, SPIR-V and GLSL test inputs and reference outputs
+of [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga), the shader
 translator of gfx-rs/wgpu. Our backends are compared against these outputs:
 Rust naga is the ground truth for this project.
 
@@ -24,6 +24,7 @@ at your option, as in the upstream repository.
 |---|---|
 | `in/wgsl/<name>.wgsl`, `<name>.toml` | `naga/tests/in/wgsl/` (shader + test parameters) |
 | `in/spv/<name>.spvasm`, `<name>.toml` | `naga/tests/in/spv/` (SPIR-V assembly + test parameters) |
+| `in/glsl/<name>.{vert,frag,comp}`, `<name>.toml` | `naga/tests/in/glsl/` (GLSL sources + test parameters) |
 | `out/spv/wgsl-<name>.spvasm` | `naga/tests/out/spv/` (rspirv disassembly) |
 | `out/msl/wgsl-<name>.metal`, `out/msl/spv-<name>.metal` | `naga/tests/out/msl/` |
 | `out/hlsl/wgsl-<name>.hlsl`, `out/hlsl/spv-<name>.hlsl` | `naga/tests/out/hlsl/` |
@@ -35,8 +36,12 @@ The `spv-*` files in `out/{msl,hlsl,glsl,ir}/` are the goldens of the SPIR-V
 inputs. Upstream also writes `out/spv/*.spvasm.glsl` (SPIRV-Cross output of its
 SPIR-V, a review aid); a sync vendors them as well. Two kinds are not vendored:
 the SPIR-V backend's own output for an `spv` input (`out/spv/spv-*`, our own
-disassembly — the frontend reads the assembled binary) and the GLSL inputs
-(`in/glsl/`). The `.spvasm` inputs are assembled into `../rust-derived/spv/`.
+disassembly — the frontend reads the assembled binary) and the goldens of the
+GLSL inputs (`out/wgsl/glsl-*` and the one `out/glsl/glsl-variations*`), because
+Rust's harness translates GLSL only to WGSL text and our WGSL backend is
+post-v1.0. The MSL, HLSL and SPIR-V goldens of the GLSL inputs are generated
+from the pinned naga-cli into `../rust-derived/glsl/`. The `.spvasm` inputs are
+assembled into `../rust-derived/spv/`.
 
 ## Provenance
 

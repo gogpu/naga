@@ -74,12 +74,18 @@ func upstreamFiles() map[string]string {
 		"naga/tests/out/hlsl/spv-s.hlsl":             "// spv hlsl\n",
 		"naga/tests/out/glsl/spv-s.main.Vertex.glsl": "// spv glsl\n",
 		"naga/tests/out/ir/spv-s.ron":                "(spv ir)\n",
+		// GLSL input corpus: the sources and their parameters. The WGSL text
+		// Rust commits for these inputs is not vendored: our WGSL backend is
+		// post-v1.0, and the backend goldens come from the naga-cli instead.
+		"naga/tests/in/glsl/c.vert": "void main() {}\n",
+		"naga/tests/in/glsl/c.frag": "void main() {}\n",
+		"naga/tests/in/glsl/c.toml": "targets = \"MSL\"\n",
 		// Not selected: the SPIR-V backend's own output for an spv input, the
 		// WGSL round-trip, analysis info, non-corpus sources and code.
 		"naga/tests/out/spv/spv-b.spvasm":         "; from spv input\n",
 		"naga/tests/out/wgsl/wgsl-a.wgsl":         "// wgsl roundtrip\n",
+		"naga/tests/out/wgsl/glsl-c.vert.wgsl":    "// wgsl from glsl\n",
 		"naga/tests/out/analysis/wgsl-a.info.ron": "(info)\n",
-		"naga/tests/in/glsl/c.vert":               "void main() {}\n",
 		"naga/src/lib.rs":                         "// code\n",
 	}
 }
@@ -110,6 +116,9 @@ func TestSyncCopiesSelectedFilesByteForByte(t *testing.T) {
 		"out/hlsl/spv-s.hlsl":               "// spv hlsl\n",
 		"out/glsl/spv-s.main.Vertex.glsl":   "// spv glsl\n",
 		"out/ir/spv-s.ron":                  "(spv ir)\n",
+		"in/glsl/c.vert":                    "void main() {}\n",
+		"in/glsl/c.frag":                    "void main() {}\n",
+		"in/glsl/c.toml":                    "targets = \"MSL\"\n",
 	}
 	m, err := testcorpus.Load(out)
 	if err != nil {
@@ -267,7 +276,7 @@ func TestManifestVendoredExtensionAndRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Files) != 17 || m.Source.Commit == "" {
+	if len(m.Files) != 20 || m.Source.Commit == "" {
 		t.Errorf("manifest = %d files from %q, want the extension recorded", len(m.Files), m.Source.Commit)
 	}
 
@@ -417,9 +426,9 @@ func TestRunErrors(t *testing.T) {
 	}
 }
 
-// TestSyncRequiresBothCorpora pins the shape check: a checkout missing either
-// input set is refused instead of vendoring an empty half.
-func TestSyncRequiresBothCorpora(t *testing.T) {
+// TestSyncRequiresAllCorpora pins the shape check: a checkout missing any
+// input set is refused instead of vendoring an empty third.
+func TestSyncRequiresAllCorpora(t *testing.T) {
 	t.Run("no SPIR-V inputs", func(t *testing.T) {
 		files := upstreamFiles()
 		delete(files, "naga/tests/in/spv/s.spvasm")
@@ -438,6 +447,17 @@ func TestSyncRequiresBothCorpora(t *testing.T) {
 		_, err := syncCorpus(upstream, t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), "no .wgsl inputs") {
 			t.Fatalf("err = %v, want a refusal mentioning the missing WGSL inputs", err)
+		}
+	})
+	t.Run("no GLSL inputs", func(t *testing.T) {
+		files := upstreamFiles()
+		delete(files, "naga/tests/in/glsl/c.vert")
+		delete(files, "naga/tests/in/glsl/c.frag")
+		delete(files, "naga/tests/in/glsl/c.toml")
+		upstream := fakeUpstream(t, files)
+		_, err := syncCorpus(upstream, t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "no .frag inputs") {
+			t.Fatalf("err = %v, want a refusal mentioning the missing GLSL inputs", err)
 		}
 	})
 }

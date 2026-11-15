@@ -17,6 +17,12 @@ Reference outputs that upstream does not commit, produced by running
   output for the read fixtures, and the store fixtures, which have no Rust
   output because Rust naga miscompiles a row-major store. See
   `row-major/PROVENANCE.md`.
+- `glsl/{msl,hlsl,spv}/glsl-<shader>.<ext>` — Rust naga's backend outputs for
+  the vendored GLSL inputs (`../rust/in/glsl/`). Upstream's harness translates
+  these inputs only to WGSL text (which our post-v1.0 WGSL backend cannot use),
+  so the MSL, HLSL and SPIR-V goldens are generated here (card P2-GLSLIN-001).
+  `glsl/SKIPPED.md` lists every shader the pinned naga does not translate for
+  a backend, with its error.
 
 **Do not edit files in this directory.** They are listed in `MANIFEST.json` and
 checked by `TestRustCorpusIntegrity`; regenerate them with Rust naga and rewrite
@@ -57,3 +63,15 @@ each starts with the SPIR-V magic; `TestSPVCorpusAssembly` re-assembles every
 file with spirv-as and compares the bytes exactly. CI installs the assembler
 and requires it through `NAGA_REQUIRE_TOOLS`; locally the byte check skips
 when spirv-as is absent, with the reason.
+
+The GLSL input goldens are regenerated with the pinned naga-cli (naga-cli
+30.0.0 built at the vendored commit):
+
+```sh
+go run ./internal/cmd/glslgoldens \
+  -naga <path-to-naga-cli> \
+  -in ../rust/in/glsl -out glsl
+```
+
+The tool writes `msl/`, `hlsl/` and `spv/`, and records every shader/backend
+pair the pinned naga refuses in `glsl/SKIPPED.md`; nothing is skipped silently.

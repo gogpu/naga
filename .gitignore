@@ -56,6 +56,8 @@ tmp/
 # SPIR-V compiled binaries (test artifacts)
 *.spv
 # ...except the assembled SPIR-V input corpus, which is committed test data,
-# and the row-major corpus binaries (P3-TEST-018).
+# the row-major corpus binaries (P3-TEST-018), and the GLSL input goldens
+# (P2-GLSLIN-001).
 !snapshot/testdata/rust-derived/spv/*.spv
 !snapshot/testdata/rust-derived/row-major/spv/*.spv
+!snapshot/testdata/rust-derived/glsl/spv/*.spv
