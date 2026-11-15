@@ -147,6 +147,14 @@ type Context struct {
 	// samplers maps a combined sampler's image expression to its sampler
 	// expression, which the texture builtins read (builtins.rs:2071-2097).
 	samplers map[ir.ExpressionHandle]ir.ExpressionHandle
+
+	// localConsts maps a const-qualified local to the constant expression it
+	// was initialized with. A load of such a local is a constant expression
+	// (GLSL 4.50 §4.3.3), so the evaluator resolves it through
+	// Context.LocalConstInit. Mutable locals never enter the map, and neither
+	// does a const local whose initializer is not constant: its load keeps the
+	// pre-existing run-time behavior.
+	localConsts map[ir.LocalVariableHandle]ir.ExpressionHandle
 }
 
 // newContext returns a context over fe's module. isConst makes it lower
@@ -155,11 +163,12 @@ type Context struct {
 // Context::new does (context.rs:119-126).
 func newContext(fe *Frontend, isConst bool) (*Context, *frontError) {
 	c := &Context{
-		fe:       fe,
-		mod:      fe.mod,
-		isConst:  isConst,
-		vars:     map[*glslSymbol]*variableRef{},
-		samplers: map[ir.ExpressionHandle]ir.ExpressionHandle{},
+		fe:          fe,
+		mod:         fe.mod,
+		isConst:     isConst,
+		vars:        map[*glslSymbol]*variableRef{},
+		samplers:    map[ir.ExpressionHandle]ir.ExpressionHandle{},
+		localConsts: map[ir.LocalVariableHandle]ir.ExpressionHandle{},
 	}
 	behavior := consteval.BehaviorRuntime
 	if isConst {
@@ -431,6 +440,17 @@ func (c *Context) appendExpr(kind ir.ExpressionKind) ir.ExpressionHandle {
 // IsGlobal implements consteval.Arena and consteval.Types.
 func (c *Context) IsGlobal() bool { return c.isConst }
 
+// LocalConstInit implements consteval.LocalConstResolver: a load of a
+// const-qualified local is a constant expression equal to the local's
+// initializer (GLSL 4.50 §4.3.3). The initializer lives in the arena the
+// evaluator reads, so the handle is returned as is. The map holds only const
+// locals whose initializer is constant, and only for a function arena: a const
+// context has no locals.
+func (c *Context) LocalConstInit(variable ir.LocalVariableHandle) (ir.ExpressionHandle, bool) {
+	init, ok := c.localConsts[variable]
+	return init, ok
+}
+
 // Type implements consteval.Types: it registers an anonymous result type.
 func (c *Context) Type(inner ir.TypeInner) ir.TypeHandle { return c.fe.registerType(inner) }
 
@@ -450,6 +470,55 @@ func (c *Context) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
 		stride = (layout.Size + layout.Alignment - 1) / layout.Alignment * layout.Alignment
 	}
 	return c.fe.registerType(ir.ArrayType{Base: base, Size: size, Stride: stride})
+}
+
+// applyArrays applies the array specifiers written after a type to it, Rust
+// naga's parse_array_specifier (parser/types.rs:19-73). Unlike
+// Frontend.resolveTypeArrays it lowers each size in this context, so a
+// const-qualified local is visible as a constant expression there (GLSL 4.50
+// §4.3.3). Rust lowers the size in the module's shared const context, which
+// has no locals, and a function-local `const int N = 4; float a[N];` would be
+// reported as an unknown variable there.
+func (c *Context) applyArrays(ty ir.TypeHandle, arrays []arraySpec) (ir.TypeHandle, *frontError) {
+	for i := range arrays {
+		size, err := c.arraySize(&arrays[i])
+		if err != nil {
+			return 0, err
+		}
+		ty = c.Array(ty, size)
+	}
+	return ty, nil
+}
+
+// arraySize reads one array dimension's size as a constant count. The size is
+// a constant expression, so evaluation happens in whatever context is current:
+// a function context can see its const locals, a const context its module-scope
+// constants.
+func (c *Context) arraySize(spec *arraySpec) (ir.ArraySize, *frontError) {
+	if spec.Size == nil {
+		return ir.ArraySize{}, nil
+	}
+	h, span, err := c.lowerExpect(&spec.Size.Arena, spec.Size.Root, rhsPos)
+	if err != nil {
+		return ir.ArraySize{}, err
+	}
+	// The resolving view: a const-qualified local is a constant expression
+	// (GLSL 4.50 §4.3.3), as is a chain through other const locals.
+	lit, ok := c.eval.LiteralWithConstLocals(h)
+	if !ok {
+		return ir.ArraySize{}, errMessage(span, "Expected a uint constant")
+	}
+	count, convErr := u32FromLiteral(lit)
+	if convErr != nil {
+		if errors.Is(convErr, errNegativeConstant) {
+			return ir.ArraySize{}, errMessage(span, "int constant overflows")
+		}
+		return ir.ArraySize{}, errMessage(span, "Expected a uint constant")
+	}
+	if count == 0 {
+		return ir.ArraySize{}, errMessage(spec.Span, "Array size must be greater than zero")
+	}
+	return ir.ArraySize{Constant: &count}, nil
 }
 
 // emitStart opens a new Emit range at the end of the expression arena.
