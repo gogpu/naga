@@ -165,14 +165,29 @@ func (s *scanner) number(first rune, start int, line uint32) ppToken {
 
 	span := func() ir.Span { return spanOf(start, s.off) }
 
+	width := int32(32)
 	if isFloat {
 		if r, ok := s.peek(); ok {
 			switch r {
 			case 'f', 'F':
 				s.advance()
 			case 'l', 'L', 'h', 'H':
+				// GLSL 4.60 §4.1.4: the double suffix is "lf" and the
+				// half-float suffix "hf" (the float16 extension); a bare l or
+				// h is not a suffix, and the tokenizer reads it as part of the
+				// next token.
 				s.advance()
-				s.errorf(span(), "unsupported 16- or 64-bit floating-point literal")
+				next, ok := s.peek()
+				if !ok || (next != 'f' && next != 'F') {
+					s.errorf(span(), "invalid floating-point literal suffix: %q must be followed by 'f' (lf, hf)", string(r))
+					break
+				}
+				s.advance()
+				if r == 'l' || r == 'L' {
+					width = 64
+				} else {
+					width = 16
+				}
 			}
 		}
 		text := raw.String()
@@ -181,11 +196,13 @@ func (s *scanner) number(first rune, start int, line uint32) ppToken {
 		if i := strings.IndexByte(text, '.'); i >= 0 && (i+1 == len(text) || text[i+1] == 'e' || text[i+1] == 'E') {
 			text = text[:i+1] + "0" + text[i+1:]
 		}
-		value, err := strconv.ParseFloat(text, 32)
+		// Parse at full precision: a 32-bit literal is narrowed when it
+		// becomes an IR literal, and a double keeps its bits.
+		value, err := strconv.ParseFloat(text, 64)
 		if err != nil {
 			s.errorf(span(), "invalid floating-point literal %q", text)
 		}
-		return ppToken{kind: ppFloat, floatValue: float32(value), floatWidth: 32, span: span(), line: line}
+		return ppToken{kind: ppFloat, floatValue: value, floatWidth: width, span: span(), line: line}
 	}
 
 	signed := true

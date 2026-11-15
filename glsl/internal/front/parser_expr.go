@@ -26,11 +26,24 @@ func (p *parser) parsePrimary(e *exprs) (hirHandle, *frontError) {
 		}
 		return e.Arena.add(hirLiteral{Value: value}, tok.span), nil
 	case tokFloat:
-		if tok.floatWidth != 32 {
-			p.errors = append(p.errors, *errSemantic(tok.span,
-				"Unsupported floating-point value (expected single-precision floating-point number)"))
+		// The literal's width comes from its suffix (GLSL 4.60 §4.1.4): "lf"
+		// makes it a double, "hf" a half float. Each is gated by the same rule
+		// its type is, with the same feature key, so one diagnostic covers a
+		// shader that writes the type and the suffix.
+		switch tok.floatWidth {
+		case 16:
+			if !p.float16Allowed() {
+				p.gate("float16_t", tok.span, p.dialect.unsupported("half floating-point suffix",
+					" (half-float arithmetic requires the GL_EXT_shader_explicit_arithmetic_types_float16 extension in GLSL 3.30 core and is not part of GLSL ES 3.00)"))
+			}
+			return e.Arena.add(hirLiteral{Value: ir.LiteralF16(float32(tok.floatValue))}, tok.span), nil
+		case 64:
+			if !p.dialect.supportsDouble() {
+				p.gate("double", tok.span, p.dialect.unsupported("double", " (double requires GLSL 4.00)"))
+			}
+			return e.Arena.add(hirLiteral{Value: ir.LiteralF64(tok.floatValue)}, tok.span), nil
 		}
-		return e.Arena.add(hirLiteral{Value: ir.LiteralF32(tok.floatValue)}, tok.span), nil
+		return e.Arena.add(hirLiteral{Value: ir.LiteralF32(float32(tok.floatValue))}, tok.span), nil
 	case tokBool:
 		return e.Arena.add(hirLiteral{Value: ir.LiteralBool(tok.boolValue)}, tok.span), nil
 	case tokPunct:

@@ -14,7 +14,7 @@ type glslToken struct {
 	intSigned bool
 	intWidth  int32
 
-	floatValue float32
+	floatValue float64
 	floatWidth int32
 
 	boolValue bool
