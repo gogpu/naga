@@ -177,6 +177,9 @@ func TestPreprocessVersion(t *testing.T) {
 		{"#version 460\n", 460, ppProfileCore},
 		{"#version 440 core\n", 440, ppProfileCore},
 		{"#version 330 core\n", 330, ppProfileCore},
+		// `#version 330` with no profile is core, as glslang accepts it
+		// (ver330nop.frag); an ES version must name its profile.
+		{"#version 330\n", 330, ppProfileCore},
 		{"#version 300 es\n", 300, ppProfileES},
 	}
 	for _, tt := range good {
@@ -194,7 +197,7 @@ func TestPreprocessVersion(t *testing.T) {
 	}{
 		{"void main() {}\n#version 450\n", "#version must occur first"},
 		{"#version 420 core\n", "Invalid version: 420"},
-		{"#version 330\n", "330 requires core"},
+		{"#version 330 es\n", "330 requires core"},
 		{"#version 300\n", "300 requires es"},
 		{"#version 450 es\n", "Invalid profile: es"},
 		{"#version 450 compatibility\n", "Invalid profile: compatibility"},

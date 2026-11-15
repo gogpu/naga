@@ -20,9 +20,9 @@ type Options struct {
 	// sampler; see frontend.SamplerBindings for the resolution rule.
 	SamplerBindings frontend.SamplerBindings
 	// ResourceBindings names the binding of a resource the source cannot bind
-	// itself (GL 3.30 and ES 3.00 have no layout(binding)). Not implemented
-	// with the rest of the GL/ES binding model: Parse refuses a non-empty map
-	// instead of ignoring it (design §11, Phase 4).
+	// itself (GL 3.30 and ES 3.00 have no layout(binding)), by source name:
+	// design §11 (R2), bindings.go. Vulkan GLSL declares its bindings and
+	// consults no map.
 	ResourceBindings map[string]ir.ResourceBinding
 }
 
@@ -63,11 +63,6 @@ func Parse(source string, options Options) (*ir.Module, Info, *ParseError) {
 				options.Stage.String())}}
 	}
 
-	if len(options.ResourceBindings) != 0 {
-		return nil, Info{}, &ParseError{Errors: []frontError{*errMessage(ir.Span{},
-			"Not implemented: ResourceBindings for a source without layout(binding)")}}
-	}
-
 	pp := preprocess(source, options.Defines)
 	if len(pp.Errors) != 0 {
 		return nil, Info{}, ppFailure(pp.Errors)
@@ -78,14 +73,32 @@ func Parse(source string, options Options) (*ir.Module, Info, *ParseError) {
 	}
 	// The preprocessor has already checked the version and its profile against
 	// the dialect matrix of design §15 (pp_directive.go versionDirective).
+	d := dialect{version: pp.Version.Value, profile: pp.Version.Profile}
+
+	// The compute stage is Vulkan GLSL only: glslang, for both 330 core and 300
+	// es, "compute shaders require es profile with version 310 or above, or
+	// non-es profile with version 420 or above".
+	if options.Stage == ir.StageCompute && !d.supportsCompute() {
+		return nil, Info{}, &ParseError{Errors: []frontError{*errMessage(pp.Version.Span,
+			"compute shaders require es profile with version 310 or above, or non-es profile with version 420 or above")}}
+	}
+
+	// The #extension behavior rules need the directive list, which the
+	// preprocessor records. Vulkan GLSL gets no extension diagnostics (Rust
+	// naga never examines the directive); in the GL/ES dialects an unsupported
+	// require is a warning, so parsing goes on.
+	extensionErrors, extensionWarnings := checkExtensions(d, pp.Extensions)
+	if len(extensionErrors) != 0 {
+		return nil, Info{}, &ParseError{Errors: extensionErrors}
+	}
 
 	tokens := lex(pp.Tokens)
-	file := parse(tokens, pp.Version.Value)
+	file := parse(tokens, d, options.Stage, pp.Extensions)
 	if len(file.Errors) != 0 {
 		return nil, Info{}, &ParseError{Errors: file.Errors}
 	}
 
-	fe := newFrontend(&ir.Module{})
+	fe := newFrontendFor(&ir.Module{}, d, options.ResourceBindings)
 	fe.resetMeta(options.Stage)
 	fe.combinedPolicy = options.CombinedImageSampler
 	for from, to := range options.SamplerBindings {
@@ -99,7 +112,7 @@ func Parse(source string, options Options) (*ir.Module, Info, *ParseError) {
 		return nil, Info{}, &ParseError{Errors: fe.errors}
 	}
 
-	info := Info{}
+	info := Info{Warnings: append(extensionWarnings, fe.warnings...)}
 	for _, split := range fe.combinedSamplers {
 		info.CombinedSamplers = append(info.CombinedSamplers, frontend.CombinedSampler{
 			Sampler: split.imageBinding,

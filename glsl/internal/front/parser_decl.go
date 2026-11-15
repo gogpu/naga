@@ -57,7 +57,7 @@ func (p *parser) parseDeclaration(external bool) (*astDecl, *frontError) {
 // followed by a parenthesis, Rust naga's type-name branch of parse_declaration
 // (parser/declarations.rs:316-417).
 func (p *parser) parseTypedDeclaration(qualifiers typeQualifiers, external bool) (*astDecl, *frontError) {
-	typ, typeSpan, err := p.parseType()
+	typ, typeSpan, err := p.parseTypeExemptingPrecision(qualifiers.Precision != precisionNone)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +113,8 @@ func (p *parser) parseFunctionDeclaration(
 	if _, err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
-	p.symbols.pushScope()
-	defer p.symbols.popScope()
+	p.pushScope()
+	defer p.popScope()
 
 	params, err := p.parseParamList()
 	if err != nil {
@@ -387,7 +387,9 @@ func (p *parser) parsePrecisionDeclaration() (*astDecl, *frontError) {
 		return nil, invalidToken(tok,
 			wantKeyword(tokHighP), wantKeyword(tokMediumP), wantKeyword(tokLowP))
 	}
+	p.inPrecisionDecl = true
 	typ, _, err := p.parseTypeNonVoid()
+	p.inPrecisionDecl = false
 	if err != nil {
 		return nil, err
 	}
@@ -395,8 +397,34 @@ func (p *parser) parsePrecisionDeclaration() (*astDecl, *frontError) {
 	if err != nil {
 		return nil, err
 	}
+	// A default float precision statement in scope satisfies the ES 3.00
+	// fragment rule of checkFloatPrecision for the declarations that follow
+	// (GLSL ES 3.00 §4.5.4). Any other statement (int, a sampler type) leaves
+	// the float default unchanged.
+	if typ.Builtin != nil {
+		if scalar, ok := typeScalar(typ.Builtin.Inner); ok && scalar.Kind == ir.ScalarFloat && scalar.Width == 4 {
+			p.defaultFloatPrecision = true
+		}
+	}
 	decl := declPrecision{Precision: precisionOf(tok.kind), Typ: typ}
 	return &astDecl{Kind: decl, Span: subsumeSpan(start.span, end.span)}, nil
+}
+
+// pushScope opens a scope: the symbol table and the ES default float precision
+// state travel together, because a `precision` declaration applies to the
+// scope it is written in (GLSL ES 3.00 §4.5.4; a local precision statement
+// inside a block covers that block only, p_scope.frag).
+func (p *parser) pushScope() {
+	p.symbols.pushScope()
+	p.precisionScopes = append(p.precisionScopes, p.defaultFloatPrecision)
+}
+
+// popScope closes the scope pushScope opened.
+func (p *parser) popScope() {
+	p.symbols.popScope()
+	last := len(p.precisionScopes) - 1
+	p.defaultFloatPrecision = p.precisionScopes[last]
+	p.precisionScopes = p.precisionScopes[:last]
 }
 
 // parseParamList parses a function's parameter list, Rust naga's
@@ -435,14 +463,24 @@ func (p *parser) parseParamList() ([]param, *frontError) {
 // naga's loop body of parse_function_args (parser/functions.rs:629-657).
 func (p *parser) parseParam() (*param, bool, *frontError) {
 	qualifier := paramIn
-	if p.peekParameterQualifier() {
+	sawPrecision := false
+	for p.peekParameterQualifier() {
 		tok, err := p.bump()
 		if err != nil {
 			return nil, false, err
 		}
-		qualifier = parameterQualifierOf(tok.kind)
+		switch tok.kind {
+		case tokHighP, tokMediumP, tokLowP:
+			// A precision qualifier on a parameter is accepted; it carries no
+			// IR (design §15), but in ES 3.00 it is the declaration's own
+			// precision, which exempts the parameter from the default float
+			// precision rule.
+			sawPrecision = true
+		default:
+			qualifier = parameterQualifierOf(tok.kind)
+		}
 	}
-	typ, span, err := p.parseTypeNonVoid()
+	typ, span, err := p.parseTypeNonVoidExemptingPrecision(sawPrecision)
 	if err != nil {
 		return nil, false, err
 	}

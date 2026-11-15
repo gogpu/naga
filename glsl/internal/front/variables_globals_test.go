@@ -454,9 +454,11 @@ void main() { o = vec4(1.0); }
 	}
 }
 
-// TestPrecisionDeclarationRules is lower_precision_declaration
-// (declarations.rs:487-529): float and int are accepted, anything else is
-// reported and the hints themselves do not reach the IR.
+// TestPrecisionDeclarationRules is the precision statement's type rule
+// (GLSL 4.60 §4.5.4, GLSL ES 3.00 §4.5.4): float, int and sampler types are
+// accepted, anything else is reported, and the hints themselves do not reach
+// the IR. glslang refuses bool and a struct with "cannot apply precision
+// statement to this type; use 'float', 'int' or a sampler type".
 func TestPrecisionDeclarationRules(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -465,8 +467,9 @@ func TestPrecisionDeclarationRules(t *testing.T) {
 	}{
 		{"float", "precision highp float;", ""},
 		{"int", "precision mediump int;", ""},
-		{"bool", "precision highp bool;", "Precision statement can only work on floats and ints"},
-		{"struct", "struct S { float x; };\nprecision highp S;", "Precision statement can only work on floats and ints"},
+		{"sampler", "precision lowp sampler2D;", ""},
+		{"bool", "precision highp bool;", "Precision statement can only work on floats, ints and sampler types"},
+		{"struct", "struct S { float x; };\nprecision highp S;", "Precision statement can only work on floats, ints and sampler types"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

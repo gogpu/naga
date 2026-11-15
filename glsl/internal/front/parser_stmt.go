@@ -28,8 +28,12 @@ func (p *parser) parseStatement() (astStmt, *frontError) {
 	defer p.leaveStmt()
 
 	// A type qualifier always identifies a declaration statement
-	// (functions.rs:48-51).
-	if p.peekTypeQualifier() {
+	// (functions.rs:48-51). A `precision` statement inside a block is a
+	// declaration too: the GLSL 4.60 and GLSL ES 3.00 languages allow one in
+	// any scope (§4.5.4, glslang accepts it in 330 core and 450), but Rust
+	// naga rejects it, so the Vulkan GLSL path keeps Rust's parse error and
+	// only the GL/ES dialects accept the statement here.
+	if p.peekTypeQualifier() || (!p.dialect.vulkan() && p.atKind(tokPrecision)) {
 		return p.parseDeclarationStatement()
 	}
 	// A type name identifies a declaration or a type constructor depending on
@@ -337,8 +341,8 @@ func (p *parser) parseForStatement() (astStmt, *frontError) {
 	// The whole statement is one scope, so the names of the init clause reach
 	// the condition, the update clause and the body
 	// (parser/functions.rs:438, 541).
-	p.symbols.pushScope()
-	defer p.symbols.popScope()
+	p.pushScope()
+	defer p.popScope()
 
 	forStmt, err := p.parseForClauses()
 	if err != nil {
@@ -461,8 +465,8 @@ func (p *parser) parseBlockStatement() (astStmt, *frontError) {
 // reachability of the emitted IR, which lowering decides; the AST keeps every
 // statement as written.
 func (p *parser) parseCompoundStatement() ([]astStmt, *frontError) {
-	p.symbols.pushScope()
-	defer p.symbols.popScope()
+	p.pushScope()
+	defer p.popScope()
 
 	var body []astStmt
 	for {

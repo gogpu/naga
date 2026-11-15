@@ -299,11 +299,15 @@ func (d *directiveState) versionDirective(line []ppToken, span ir.Span) {
 			return
 		}
 	case 330:
-		if profileName != "core" {
+		// `#version 330` without a profile is core, as glslang accepts it
+		// (ver330nop.frag); ES requires the explicit profile (300 must say es).
+		switch profileName {
+		case "", "core":
+			profile = ppProfileCore
+		default:
 			d.errorf(span, "Invalid profile: %s (330 requires core)", profileName)
 			return
 		}
-		profile = ppProfileCore
 	case 300:
 		if profileName != "es" {
 			d.errorf(span, "Invalid profile: %s (300 requires es)", profileName)
