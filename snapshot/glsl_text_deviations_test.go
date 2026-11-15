@@ -29,6 +29,16 @@ var glslTextDeviations = []rustDeviation{
 	{Shader: "bevy-pbr.frag", File: "glsl-bevy-pbr.frag.hlsl", Kind: deviationIntentional,
 		Reason:      reasonGLSLStructOrder,
 		Fingerprint: "b0466f229d62a7c6b76bedf40365ae12e863d62b39fccace6f9a8c520d582324"},
+	{Shader: "bool-select.frag", File: "glsl-bool-select.frag.hlsl", Kind: deviationIntentional,
+		Reason: "the pinned naga writes every select as a C++ ternary (back/hlsl/writer.rs " +
+			"Expression::Select), but dxc rejects a ternary whose condition is a vector: \"condition for " +
+			"short-circuiting ternary operator must be scalar, for non-scalar types use 'select'\". A vector " +
+			"condition is written with HLSL 2021's select(condition, accept, reject) intrinsic instead " +
+			"(hlsl-specs proposal 0040: T select(bool, T, T), which dxc lowers with the first operand as the " +
+			"condition); the ternary stays for scalar conditions, which is every other select in the corpus. " +
+			"dxc rejects the Rust golden and compiles ours",
+		Card:        "P1-HLSL-041",
+		Fingerprint: "80ae935a6a1547bcb4cb6df9631c91e2f1c2c6bffc09b72b6ed2fb95c81faf42"},
 }
 
 // Reason texts shared by deviations above.
