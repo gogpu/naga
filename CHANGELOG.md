@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The GLSL frontend can no longer be made to exhaust the process by untrusted input.** Three recursion
+  paths are bounded: `#if` expressions (4096 levels), operator chains in the lowering (the parser reads chains
+  in loops and only now the lowering counts its depth against `maxExprDepth`), and macro expansion through
+  function-like arguments (`maxExpansionDepth` used to be reset to 0 when an argument was pre-expanded — 63 KB
+  of source reached 7.1 GB of memory and 300 KB was an out-of-memory kill). The preprocessor's token budget
+  now charges every token it produces, including the ones that land in macro-argument slices.
+- Error reporting builds one line index per parse (`ir.SourceLines`) instead of rescanning the source per
+  diagnostic: 100k `#error` diagnostics over a 1.4 MB source report in well under a second instead of 8.2 s.
 - `naga.Compact` no longer keeps a global variable or function alive through an expression no statement
   reaches (the GLSL frontend leaves such dead references in the entry point's arena — an unused push constant
   stayed in every output), and traces the type graph from the used handles, so a type reachable only from an
