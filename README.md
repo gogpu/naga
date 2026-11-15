@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Pure Go Shader Compiler</strong><br>
-  WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL; SPIR-V binaries into IR. Zero CGO.
+  WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL; WGSL, SPIR-V and Vulkan GLSL share one IR. Zero CGO.
 </p>
 
 <p align="center">
@@ -28,13 +28,13 @@
 
 ## Overview
 
-**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies, and reads SPIR-V binaries into its IR (`spirv.Parse`).
+**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies, reads SPIR-V binaries into its IR (`spirv.Parse`), and parses Vulkan GLSL 440/450/460 with `glsl.Parse`.
 
 ### Key Features
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` — types, constants, bindings, control flow, calls, images and sampling, atomics, subgroups, combined image samplers, row-major matrix members with their reads and stores, Coherent/Volatile decorations |
+| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors; SPIR-V binaries through `spirv.Parse` — types, constants, bindings, control flow, calls, images and sampling, atomics, subgroups, combined image samplers, row-major matrix members with their reads and stores, Coherent/Volatile decorations; Vulkan GLSL 440/450/460 through `glsl.Parse` — its own preprocessor, the texture and image sampling surface with image queries and barriers, combined image samplers split into image + sampler globals (GL 3.30 and ES 3.00 dialects are on the roadmap) |
 | **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 236 of 267 entry points pass IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
@@ -47,6 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
+- **GLSL Frontend** — `glsl.Parse` reads Vulkan GLSL 440/450/460 into the same IR under the WGSL frontend's error contract: its own preprocessor, interface blocks with std140/std430 layouts, storage images, specialization constants, the builtin catalogue including the image and sampling families, barriers and texture gather; a combined image sampler (`uniform sampler2D`) becomes an image global and a sampler global. MSL and HLSL output matches Rust naga's `naga-cli` on the vendored GLSL corpus, with every difference recorded
 - **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus (SPIR-V by instruction counts); known differences are recorded per output with a reason. 29 own test shaders; 912 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
@@ -193,6 +194,33 @@ dxilBytes, _, err := dxil.Compile(module, dxil.Options{})                       
 
 GLSL and DXIL write one entry point: select it with `Options.EntryPoint = &backend.EntryPointSelector{Stage, Name}`
 when the module has several.
+
+### GLSL Input
+
+Vulkan GLSL 440/450/460 reaches the same pipeline through `glsl.Parse`: the module it returns is the one the WGSL
+frontend would produce, so validation and every backend above apply unchanged.
+
+```go
+module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
+if err != nil {
+    var pe *glsl.ParseError
+    if errors.As(err, &pe) {
+        fmt.Println(pe.Format(source, "shader.frag")) // the WGSL frontend's error layout
+    }
+    return err
+}
+for _, split := range info.CombinedSamplers { // uniform sampler2D: image + sampler globals
+    fmt.Println(split.Sampler, "->", split.Split)
+}
+if _, err := valid.Validate(module, valid.Options{}); err != nil {
+    return err
+}
+spirvBytes, _, err := spirv.Compile(module, spirv.Options{})
+```
+
+GLSL does not name its stage, so `ParseOptions.Stage` supplies it; combined image samplers are split by default
+(`CombinedImageSampler: frontend.CombinedImageSamplerReject` refuses the declaration instead), and
+`ParseOptions.SamplerBindings` places the sampler of each split. GL 3.30 core and ES 3.00 dialects are planned.
 
 ### Pipeline Constants
 
