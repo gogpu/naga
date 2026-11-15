@@ -1556,8 +1556,33 @@ func (w *Writer) isIntOrFloatBinaryOp(e ir.ExprBinary) bool {
 	return false
 }
 
-// writeSelectExpression writes a ternary select operation.
+// writeSelectExpression writes a select operation. A scalar condition becomes
+// a C++ ternary, as Rust naga writes every select (back/hlsl/writer.rs
+// Expression::Select); a vector condition becomes HLSL's component-wise
+// select() intrinsic, because dxc rejects the ternary with "condition for
+// short-circuiting ternary operator must be scalar".
 func (w *Writer) writeSelectExpression(e ir.ExprSelect) error {
+	if w.selectConditionIsVector(e.Condition) {
+		// HLSL 2021's select(condition, accept, reject) is component-wise and
+		// needs no short circuit (hlsl-specs proposal 0040: T select(bool, T,
+		// T); dxc lowers its first operand as the condition,
+		// HLOperationLower.cpp TranslateSelect).
+		w.Out.WriteString("select(")
+		if err := w.writeExpression(e.Condition); err != nil {
+			return fmt.Errorf("select condition: %w", err)
+		}
+		w.Out.WriteString(", ")
+		if err := w.writeExpression(e.Accept); err != nil {
+			return fmt.Errorf("select accept: %w", err)
+		}
+		w.Out.WriteString(", ")
+		if err := w.writeExpression(e.Reject); err != nil {
+			return fmt.Errorf("select reject: %w", err)
+		}
+		w.Out.WriteByte(')')
+		return nil
+	}
+
 	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Condition); err != nil {
 		return fmt.Errorf("select condition: %w", err)
@@ -1572,6 +1597,13 @@ func (w *Writer) writeSelectExpression(e ir.ExprSelect) error {
 	}
 	w.Out.WriteByte(')')
 	return nil
+}
+
+// selectConditionIsVector reports whether the condition of a select is a
+// vector, which HLSL's ternary operator does not accept.
+func (w *Writer) selectConditionIsVector(handle ir.ExpressionHandle) bool {
+	_, ok := w.getExpressionTypeInner(handle).(ir.VectorType)
+	return ok
 }
 
 // =============================================================================
