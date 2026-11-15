@@ -170,3 +170,32 @@ void main() {
 }`), valid.Options{Capabilities: valid.CapAll})
 	})
 }
+
+// TestStoreImageValueIR pins Rust's ImplInvalidStoreTypes-adjacent rule
+// (valid/function.rs, FunctionError::InvalidStoreTexture): storing an image or
+// sampler value is rejected with its own message before the types are
+// compared.
+func TestStoreImageValueIR(t *testing.T) {
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
+		},
+		GlobalVariables: []ir.GlobalVariable{{
+			Name:  "img",
+			Space: ir.SpaceHandle,
+			Type:  1,
+		}},
+		Functions: []ir.Function{{
+			Name:      "f",
+			LocalVars: []ir.LocalVariable{{Name: "a", Type: 0}},
+			Expressions: []ir.Expression{
+				{Kind: ir.ExprLocalVariable{Variable: 0}},
+				{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			},
+			Body: []ir.Statement{{Kind: ir.StmtStore{Pointer: 0, Value: 1}}},
+		}},
+	}
+	expectRejected(t, m, valid.Options{Capabilities: valid.CapAll},
+		"Image store texture parameter type mismatch")
+}
