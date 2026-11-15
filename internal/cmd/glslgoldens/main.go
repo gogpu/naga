@@ -178,21 +178,25 @@ func stageOf(name string) (string, bool) {
 	return "", false
 }
 
+// command runs name with args and returns the process's standard error output.
+// It is a variable so tests can replace the process launch.
+var command = func(name string, args ...string) (string, error) {
+	var stderr strings.Builder
+	cmd := exec.Command(name, args...) //nolint:gosec // the tool runs the caller-named binary
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stderr.String(), err
+}
+
 // translateNaga runs the pinned naga-cli on one input for one backend and
 // returns its combined error output. The output file exists only on success.
 func translateNaga(naga, stage, input, output string) (string, error) {
-	cmd := exec.Command(naga, //nolint:gosec // the generator runs the naga-cli path the caller names
+	return command(naga,
 		"--input-kind", "glsl",
 		"--shader-stage", stage,
 		"--compact",
 		input, output,
 	)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return stderr.String(), err
-	}
-	return "", nil
 }
 
 // ansiEscape matches the terminal color codes naga's error writer emits.

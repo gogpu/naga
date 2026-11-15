@@ -261,6 +261,34 @@ func TestGenerateFailsToCreateOutTree(t *testing.T) {
 	}
 }
 
+func TestTranslateNaga(t *testing.T) {
+	old := command
+	defer func() { command = old }()
+
+	var gotName string
+	var gotArgs []string
+	command = func(name string, args ...string) (string, error) {
+		gotName, gotArgs = name, args
+		return "\x1b[0merror: nope\nmore\n", errors.New("exit 1")
+	}
+	stderr, err := translateNaga("naga-cli", "frag", "in.frag", "out.metal")
+	if err == nil || firstError(stderr) != "error: nope" {
+		t.Fatalf("translateNaga = %q, %v; want the process error and its stderr", stderr, err)
+	}
+	if gotName != "naga-cli" {
+		t.Errorf("command name = %q, want naga-cli", gotName)
+	}
+	want := []string{"--input-kind", "glsl", "--shader-stage", "frag", "--compact", "in.frag", "out.metal"}
+	if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
+		t.Errorf("command args = %v, want %v", gotArgs, want)
+	}
+
+	command = func(_ string, _ ...string) (string, error) { return "", nil }
+	if stderr, err := translateNaga("naga-cli", "vert", "in.vert", "out.metal"); err != nil || stderr != "" {
+		t.Errorf("translateNaga on success = %q, %v; want no error and no stderr", stderr, err)
+	}
+}
+
 func TestRunWithFakeTranslator(t *testing.T) {
 	in := t.TempDir()
 	out := t.TempDir()
