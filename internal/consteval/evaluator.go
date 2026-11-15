@@ -33,6 +33,20 @@ type Arena interface {
 	IsGlobal() bool
 }
 
+// LocalConstResolver is an optional [Arena] capability: it reports the
+// const-expression a const-qualified local variable was initialized with. A
+// frontend whose language has const locals (GLSL) implements it, so a load of
+// such a local is a constant expression with the initializer's value (GLSL
+// 4.50 §4.3.3); a language without them (WGSL) leaves its arena without the
+// method, and every load stays run-time exactly as before.
+type LocalConstResolver interface {
+	// LocalConstInit returns the initializer of the local, a handle in the
+	// same arena the evaluator reads. ok is false for a local that is not
+	// const-qualified, has no initializer, or whose initializer is not a
+	// constant expression.
+	LocalConstInit(variable ir.LocalVariableHandle) (ir.ExpressionHandle, bool)
+}
+
 // Types registers result types.
 type Types interface {
 	// Type returns the handle of the anonymous type inner, adding it if
@@ -56,6 +70,24 @@ type Evaluator struct {
 	// stages[h] is the stage of expression h plus one; 0 means not yet
 	// known (appended by the caller), computed from the expression's kind.
 	stages []stage
+
+	// resolveLocals selects the resolving view: a load of a const-qualified
+	// local has its initializer's stage and value (see LocalConstResolver).
+	// The zero value is the strict view used by the lowering path, where every
+	// load is a run-time expression and the IR keeps it, as Rust naga's does.
+	resolveLocals bool
+}
+
+// resolveCopy returns a copy of the evaluator in the resolving view, where a
+// load of a const-qualified local is a constant expression (GLSL 4.50 §4.3.3).
+// The copy shares the module, the arena and the stage slice but never reads or
+// writes a stage in it: the two views give a load a different stage, so a
+// cached value from one would be wrong for the other. There is therefore no
+// shared mutable state between the views.
+func (e *Evaluator) resolveCopy() Evaluator {
+	r := *e
+	r.resolveLocals = true
+	return r
 }
 
 // stage is the evaluation stage of an expression, Rust's ExpressionKind.
@@ -142,6 +174,71 @@ func (e *Evaluator) Value(h ir.ExpressionHandle) (Value, bool) {
 // IsConst reports whether h is a const-expression.
 func (e *Evaluator) IsConst(h ir.ExpressionHandle) bool { return e.stageOf(h) == stageConst }
 
+// IsConstWithConstLocals reports whether h is a const-expression in the
+// resolving view, where a load of a const-qualified local is a constant
+// expression equal to the local's initializer (GLSL 4.50 §4.3.3), recursively
+// through a chain of const locals. [Evaluator.IsConst] stays strict: it treats
+// every load as run-time, which is the shape the IR is lowered in.
+//
+// A call site that requires a constant expression in a language with const
+// locals uses this method (or [Evaluator.LiteralWithConstLocals]); the folding
+// path uses the strict methods.
+func (e *Evaluator) IsConstWithConstLocals(h ir.ExpressionHandle) bool {
+	r := e.resolveCopy()
+	return r.IsConst(h)
+}
+
+// ValueWithConstLocals returns the value of h in the resolving view, like
+// [Evaluator.Value] does in the strict one.
+func (e *Evaluator) ValueWithConstLocals(h ir.ExpressionHandle) (Value, bool) {
+	r := e.resolveCopy()
+	return r.Value(h)
+}
+
+// LiteralWithConstLocals returns the scalar value of h in the resolving view,
+// like [Evaluator.Literal] does in the strict one.
+func (e *Evaluator) LiteralWithConstLocals(h ir.ExpressionHandle) (lit ir.LiteralValue, ok bool) {
+	r := e.resolveCopy()
+	return r.Literal(h)
+}
+
+// ConstExprWithConstLocals returns a handle to a const-expression that stands
+// for h in the resolving view, following a load of a const local (and a chain
+// of them) to the initializer. The result is a shape the backends read as a
+// constant — a literal, a construct, a zero value or a constant — as
+// ir.ExprImageSample.Offset requires; when h's value has no such shape yet
+// (an unevaluated operation over const locals, or a construct with a load
+// component), the value is appended to the arena as one. The call therefore
+// belongs to the lowering flow, not to a pure query.
+//
+// ok is false when h is not a const-expression in the resolving view.
+func (e *Evaluator) ConstExprWithConstLocals(h ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	r := e.resolveCopy()
+	if !r.IsConst(h) {
+		return 0, false
+	}
+	for {
+		load, ok := r.Arena.Expression(h).(ir.ExprLoad)
+		if !ok {
+			break
+		}
+		init, ok := r.localConstInit(load)
+		if !ok {
+			return 0, false
+		}
+		h = init
+	}
+	if e.IsConst(h) {
+		// Already a literal, a constant, a zero value or a construct of them.
+		return h, true
+	}
+	v, err := r.value(h)
+	if err != nil {
+		return 0, false
+	}
+	return r.appendValue(v), true
+}
+
 // IsConstOrOverride reports whether h is a const- or override-expression.
 func (e *Evaluator) IsConstOrOverride(h ir.ExpressionHandle) bool {
 	return e.stageOf(h) != stageRuntime
@@ -161,21 +258,35 @@ func (e *Evaluator) setStage(h ir.ExpressionHandle, s stage) {
 }
 
 func (e *Evaluator) stageOf(h ir.ExpressionHandle) stage {
-	if int(h) < len(e.stages) && e.stages[h] != 0 {
+	if !e.resolveLocals && int(h) < len(e.stages) && e.stages[h] != 0 {
 		return e.stages[h]
 	}
 	s := e.stageOfKind(e.Arena.Expression(h))
-	e.setStage(h, s)
+	if !e.resolveLocals {
+		// The resolving view must not cache: the two views give a load (and
+		// every expression over one) different stages.
+		e.setStage(h, s)
+	}
 	return s
 }
 
 // stageOfKind is the latest stage among an expression's operands.
 func (e *Evaluator) stageOfKind(kind ir.ExpressionKind) stage {
-	switch kind.(type) {
+	switch k := kind.(type) {
 	case ir.Literal, ir.ExprZeroValue, ir.ExprConstant:
 		return stageConst
 	case ir.ExprOverride:
 		return stageOverride
+	case ir.ExprLoad:
+		// A load is resolved only in the resolving view, through
+		// localConstInit. The strict view used by the lowering path keeps the
+		// load a run-time expression, exactly as before the const-local
+		// capability existed: the IR keeps the local and its loads, which is
+		// Rust naga's shape.
+		if init, ok := e.localConstInit(k); ok {
+			return e.stageOf(init)
+		}
+		return stageRuntime
 	}
 	ops, ok := operands(kind)
 	if !ok {
@@ -186,6 +297,39 @@ func (e *Evaluator) stageOfKind(kind ir.ExpressionKind) stage {
 		s = max(s, e.stageOf(op))
 	}
 	return s
+}
+
+// localConstInit returns the initializer a load of a const local stands for.
+// Only the resolving view reports it: in the strict view a load is a run-time
+// expression (GLSL 4.50 §4.3.3 is what the resolving view exists for).
+func (e *Evaluator) localConstInit(load ir.ExprLoad) (ir.ExpressionHandle, bool) {
+	if !e.resolveLocals {
+		return 0, false
+	}
+	local, ok := e.Arena.Expression(load.Pointer).(ir.ExprLocalVariable)
+	if !ok {
+		return 0, false
+	}
+	resolver, ok := e.Arena.(LocalConstResolver)
+	if !ok {
+		return 0, false
+	}
+	return resolver.LocalConstInit(local.Variable)
+}
+
+// operationValue computes the value of an operation the lowering kept
+// unevaluated because a load made it look run-time (a chain of const locals,
+// `const int b = a + 1`). Only the resolving view can do that; a matrix result
+// is not a [Value].
+func (e *Evaluator) operationValue(kind ir.ExpressionKind) (Value, bool) {
+	if !e.resolveLocals {
+		return Value{}, false
+	}
+	r, err := e.numeric(kind)
+	if err != nil || r.isMat {
+		return Value{}, false
+	}
+	return r.v, true
 }
 
 // operands lists the operand handles of the expressions the evaluator

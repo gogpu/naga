@@ -644,10 +644,14 @@ func (m *macroCall) callTexture(c *Context, args []loweredArg, span ir.Span) (ir
 		// instruction, and spirv-val rejects a non-constant one. glslang is
 		// laxer and accepts the source, so the check is ours, as it is for
 		// textureGatherOffset.
-		if !c.eval.IsConst(args[numArgs].expr) {
+		// The check is the resolving one: a const-qualified local is a
+		// constant expression (GLSL 4.50 §4.3.3), and the offset stored in the
+		// IR must be a value the backends can read as a constant.
+		offsetExpr, ok := c.eval.ConstExprWithConstLocals(args[numArgs].expr)
+		if !ok {
 			return 0, false, errMessage(span, "the offset argument of a texture sampling call must be a constant expression")
 		}
-		offset = exprPtr(args[numArgs].expr)
+		offset = exprPtr(offsetExpr)
 		numArgs++
 	}
 
@@ -681,10 +685,14 @@ func (m *macroCall) callTextureGather(c *Context, args []loweredArg, span ir.Spa
 		// GLSL 4.50 §8.9 requires of a gather offset ("must be a constant
 		// expression"). glslang is laxer and emits a non-constant Offset
 		// operand, so the check is ours.
-		if !c.eval.IsConst(args[next].expr) {
+		// The resolving check: a const-qualified local is a constant
+		// expression (GLSL 4.50 §4.3.3), and the stored offset must be a value
+		// the backends can read as a constant.
+		offsetExpr, ok := c.eval.ConstExprWithConstLocals(args[next].expr)
+		if !ok {
 			return 0, false, errMessage(span, "the offset argument of textureGatherOffset must be a constant expression")
 		}
-		offset = exprPtr(args[next].expr)
+		offset = exprPtr(offsetExpr)
 		next++
 	}
 
@@ -702,7 +710,9 @@ func (m *macroCall) callTextureGather(c *Context, args []loweredArg, span ir.Spa
 // gatherComponent evaluates textureGather's component argument, which GLSL
 // 4.50 §8.9 constrains to a constant integral expression in 0 to 3.
 func gatherComponent(c *Context, h ir.ExpressionHandle, span ir.Span) (ir.SwizzleComponent, *frontError) {
-	lit, ok := c.eval.Literal(h)
+	// The resolving view: a const-qualified local is a constant expression
+	// (GLSL 4.50 §4.3.3), as is a chain through other const locals.
+	lit, ok := c.eval.LiteralWithConstLocals(h)
 	if !ok {
 		// glslang: "must be a compile-time constant: component argument".
 		return 0, errMessage(span, "the comp argument of textureGather must be a constant expression")

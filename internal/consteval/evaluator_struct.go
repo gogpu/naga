@@ -103,7 +103,8 @@ func (e *Evaluator) value(h ir.ExpressionHandle) (Value, error) {
 }
 
 func (e *Evaluator) valueIn(global bool, h ir.ExpressionHandle) (Value, error) {
-	switch k := e.read(global, h).(type) {
+	kind := e.read(global, h)
+	switch k := kind.(type) {
 	case ir.Literal:
 		return Scalar(k.Value), nil
 	case ir.ExprConstant:
@@ -142,6 +143,14 @@ func (e *Evaluator) valueIn(global bool, h ir.ExpressionHandle) (Value, error) {
 			comps = append(comps, v.comps...)
 		}
 		return composeValue(comps)
+	case ir.ExprLoad:
+		// The resolving view only; localConstInit reports nothing otherwise.
+		if init, ok := e.localConstInit(k); ok {
+			return e.valueIn(e.Arena.IsGlobal(), init)
+		}
+	}
+	if v, ok := e.operationValue(kind); ok {
+		return v, nil
 	}
 	return Value{}, newError(ErrInvalidOperand, "Cannot apply the operation to a non-numeric value")
 }

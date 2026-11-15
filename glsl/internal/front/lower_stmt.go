@@ -240,34 +240,54 @@ func (c *Context) lowerVarList(list *declVarList, scope stmtScope) *frontError {
 // initializer and the local variable that carries them
 // (declarations.rs:195-272).
 func (c *Context) lowerDeclarator(qualifiers *typeQualifiers, base ir.TypeHandle, d *declarator, scope stmtScope) *frontError {
-	ty, err := c.fe.resolveTypeArrays(base, d.Arrays)
+	ty, err := c.applyArrays(base, d.Arrays)
 	if err != nil {
 		return err
 	}
 	// The initializer is lowered before the variable exists, so the expression
 	// that reads the name is appended after it (declarations.rs:224-272).
 	var value ir.ExpressionHandle
+	constant := false
+	resolveConstant := false
 	if d.Init != nil {
 		value, err = c.lowerInitializer(&d.Init.Arena, d.Init.Root, ty)
 		if err != nil {
 			return err
 		}
+		constant = c.eval.IsConst(value)
+		resolveConstant = c.eval.IsConstWithConstLocals(value)
 	}
 	// A constant initializer outside a loop is the local's initial value; any
 	// other one is stored where the declaration is written, so a loop
 	// re-initializes the variable every iteration (declarations.rs:254-261).
+	// This decision stays strict: an initializer that is constant only through
+	// a const local (`const int b = a + 1`) keeps the run-time store, so no load
+	// is ever written into LocalVariable.Init.
 	var init *ir.ExpressionHandle
 	late := false
 	if d.Init != nil {
-		if scope.insideLoop || !c.eval.IsConst(value) {
+		if scope.insideLoop || !constant {
 			late = true
 		} else {
 			init = &value
 		}
 	}
-	pointer, err := c.addLocalVariable(d.Sym, d.Name, ty, init, c.localMutability(qualifiers), d.Span)
+	mutable := c.localMutability(qualifiers)
+	handle, pointer, err := c.addLocalVariable(d.Sym, d.Name, ty, init, mutable, d.Span)
 	if err != nil {
 		return err
+	}
+	// A const-qualified local is a constant expression (GLSL 4.50 §4.3.3), so
+	// record the initializer of every const local whose initializer is constant
+	// in the resolving view, which lets a chain through another const local
+	// (`const int b = a + 1`) resolve too. Only call sites that require a
+	// constant expression consult the record; the lowering path stays strict,
+	// so the local and its loads stay in the IR exactly as the parity goldens
+	// record them. A mutable local, and a const one whose initializer is not
+	// constant (which GLSL forbids but which we do not reject), is never
+	// recorded, keeping the pre-existing run-time behavior.
+	if !mutable && resolveConstant {
+		c.localConsts[handle] = value
 	}
 	if late {
 		c.emitRestart()
@@ -292,20 +312,21 @@ func (c *Context) localMutability(qualifiers *typeQualifiers) bool {
 	}
 }
 
-// addLocalVariable declares one local and returns the expression that reads the
-// name, Rust naga's Frontend::add_local_var (variables.rs:683-706): the
-// LocalVariable first, then the expression that names it.
-func (c *Context) addLocalVariable(sym *glslSymbol, name string, ty ir.TypeHandle, init *ir.ExpressionHandle, mutable bool, span ir.Span) (ir.ExpressionHandle, *frontError) {
+// addLocalVariable declares one local and returns its handle together with the
+// expression that reads the name, Rust naga's Frontend::add_local_var
+// (variables.rs:683-706): the LocalVariable first, then the expression that
+// names it.
+func (c *Context) addLocalVariable(sym *glslSymbol, name string, ty ir.TypeHandle, init *ir.ExpressionHandle, mutable bool, span ir.Span) (ir.LocalVariableHandle, ir.ExpressionHandle, *frontError) {
 	h := ir.LocalVariableHandle(len(c.locals))
 	c.locals = append(c.locals, ir.LocalVariable{Name: name, Type: ty, Init: init})
 	expr, err := c.addExpression(ir.ExprLocalVariable{Variable: h}, span)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	// A repeated name in the same scope is reported where the parser declares
 	// it (parser_decl.go's declareLocal), so the replacement is silent here.
 	c.addLocalVar(sym, expr, mutable)
-	return expr, nil
+	return h, expr, nil
 }
 
 // lowerInitializer lowers one initializer to the value of ty, Rust naga's
