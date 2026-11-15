@@ -15,8 +15,10 @@ import (
 // constants of a concrete type always stay), the abstract types and the
 // anonymous types nothing refers to any more. With KeepUnusedNo it first
 // removes the global variables and functions no entry point reaches, and the
-// named overrides and named types nothing uses. Entry points and special
-// types always stay.
+// named overrides nothing uses. Entry points, special types and named types
+// always stay: Rust also removes an unused named type under KeepUnused::No,
+// but our typifier resolves the predeclared __modf/__frexp result structs by
+// name until they are modeled (card P2-IR-034).
 func Compact(module *ir.Module, keep KeepUnused) {
 	CompactWithTypeOrder(module, keep, nil)
 }
@@ -33,7 +35,7 @@ func CompactWithTypeOrder(module *ir.Module, keep KeepUnused, typeOrder []ir.Typ
 	// the types nothing refers to any more.
 	compactExpressions(module)
 	compactConstants(module, keep)
-	return remapTypeOrder(typeOrder, compactTypes(module, keep))
+	return remapTypeOrder(typeOrder, compactTypes(module))
 }
 
 // CompactUnused removes globals and functions not reachable from any entry point.
@@ -231,30 +233,32 @@ func remapStmtFuncHandles(stmts []ir.Statement, remap []ir.FunctionHandle) {
 //
 // Verified: produces identical type arenas to Rust naga on 18/18 reference shaders.
 // See docs/dev/research/IR-DEEP-ANALYSIS.md for analysis.
-func compactTypes(module *ir.Module, mode KeepUnused) (remap []ir.TypeHandle) {
+func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
 	if len(module.Types) == 0 {
 		return nil
 	}
 
 	// Step 1: Find all type handles referenced directly by handles
-	// (not embedded by value in Vector/Matrix/Atomic). Under KeepUnusedYes a
-	// named type counts as used by definition, and its member types with it.
-	referenced := referencedTypes(module, mode == KeepUnusedYes)
+	// (not embedded by value in Vector/Matrix/Atomic). A named type counts as
+	// used by definition, and its member types with it.
+	referenced := referencedTypes(module)
 
 	// Step 2: Determine which types to keep.
-	// Keep referenced types and, under KeepUnusedYes, every named type.
-	// Rust naga's compact treats a named type as used by definition only
-	// under KeepUnused::Yes (compact/mod.rs:252-257); under KeepUnused::No
-	// an unused named type is removed like any other. Abstract types are
-	// force-removed under either value.
-	keepNamed := mode == KeepUnusedYes
+	// Keep referenced types and every named type. This deviates from Rust
+	// naga's compact, which treats a named type as used by definition only
+	// under KeepUnused::Yes (compact/mod.rs:252-257) and removes an unused one
+	// under KeepUnused::No: our typifier resolves the predeclared
+	// __modf_result_* / __frexp_result_* structs by name (records that carry
+	// their handles do not exist in our IR yet — card P2-IR-034), so removing
+	// them breaks type resolution of modf/frexp in a compacted module.
+	// Abstract types are force-removed under either value.
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
-		// Abstract types must not reach backends. Under KeepUnusedYes a named
-		// type is kept whatever its reference count, a present but empty name
-		// included (Rust naga's name.is_some()).
+		// Abstract types must not reach backends. A named type is kept
+		// whatever its reference count, a present but empty name included
+		// (Rust naga's name.is_some()).
 		_, hasName := ir.NamePresence(t.Name, t.NamePresent)
-		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || (keepNamed && hasName))
+		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || hasName)
 	}
 
 	// Check if anything would be removed
@@ -350,17 +354,16 @@ func remapTypeOrder(order, remap []ir.TypeHandle) []ir.TypeHandle {
 // referencedTypes returns which types something in module refers to by
 // handle, as opposed to embedding them by value as Vector, Matrix and Atomic
 // embed their scalar.
-func referencedTypes(module *ir.Module, keepNamed bool) []bool {
+func referencedTypes(module *ir.Module) []bool {
 	referenced := make([]bool, len(module.Types))
 
-	// Under KeepUnusedYes a named type is used by definition (Rust naga's
-	// compact/mod.rs:252-257 inserts every named type into types_used before
-	// the tracer runs), so its member types are used with it.
-	if keepNamed {
-		for i, t := range module.Types {
-			if _, hasName := ir.NamePresence(t.Name, t.NamePresent); hasName {
-				referenced[i] = true
-			}
+	// A named type is used by definition — compactTypes keeps every one — so
+	// its member types are used with it (Rust naga's compact/mod.rs:252-257
+	// does the same under KeepUnused::Yes; we keep named types under both
+	// values, see compactTypes).
+	for i, t := range module.Types {
+		if _, hasName := ir.NamePresence(t.Name, t.NamePresent); hasName {
+			referenced[i] = true
 		}
 	}
 
@@ -578,6 +581,13 @@ func markGlobalExpressionTypeRefs(module *ir.Module, referenced []bool) {
 			root(*init)
 		}
 	}
+	// A workgroup-size or mesh max-* expression is an override-expression of
+	// i32/u32: constants, overrides, literals and arithmetic, none of which
+	// carries a type handle, so these roots cannot change the outcome today.
+	// They are rooted for symmetry with compactConstants, which keeps their
+	// expressions alive: a future expression kind with a type handle here must
+	// not lose its type.
+	rootEntryPointOverrides(module, root)
 
 	visited := make([]bool, n)
 	for progress := true; progress; {
@@ -1032,5 +1042,27 @@ func remapExprTypeHandles(kind ir.ExpressionKind, remap []ir.TypeHandle) ir.Expr
 		return k
 	default:
 		return kind
+	}
+}
+
+// rootEntryPointOverrides roots the global expressions of an entry point that
+// are not initializers: the workgroup-size and mesh max-vertex/max-primitive
+// override expressions. See markGlobalExpressionTypeRefs for why.
+func rootEntryPointOverrides(module *ir.Module, root func(ir.ExpressionHandle)) {
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		for _, h := range ep.WorkgroupSizeOverrides {
+			if h != nil {
+				root(*h)
+			}
+		}
+		if mi := ep.MeshInfo; mi != nil {
+			if mi.MaxVerticesOverride != nil {
+				root(*mi.MaxVerticesOverride)
+			}
+			if mi.MaxPrimitivesOverride != nil {
+				root(*mi.MaxPrimitivesOverride)
+			}
+		}
 	}
 }

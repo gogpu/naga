@@ -265,7 +265,7 @@ func TestCompactUnused_MeshShaderTaskPayload(t *testing.T) {
 
 func TestCompactTypes_EmptyModule(t *testing.T) {
 	module := &ir.Module{}
-	compactTypes(module, KeepUnusedYes) // should not panic
+	compactTypes(module) // should not panic
 	if len(module.Types) != 0 {
 		t.Errorf("expected 0 types, got %d", len(module.Types))
 	}
@@ -292,7 +292,7 @@ func TestCompactTypes_RemovesUnreferencedAnonymousTypes(t *testing.T) {
 		},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	// Type 0 (unreferenced anonymous) should be removed
 	// Type 1 (named) kept, Type 2 (referenced by constant) kept
@@ -316,7 +316,7 @@ func TestCompactTypes_RemovesAbstractTypes(t *testing.T) {
 		},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	// Both abstract types removed, even though named
 	if len(module.Types) != 1 {
@@ -343,7 +343,7 @@ func TestCompactTypes_RemapsHandlesInTypes(t *testing.T) {
 		},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	// Type 0 removed, type 1->0, type 2->1
 	if len(module.Types) != 2 {
@@ -375,7 +375,7 @@ func TestCompactTypes_UnnamedUnreferenced(t *testing.T) {
 		},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	// f32 kept (referenced), u32 removed (unnamed + unreferenced)
 	if len(module.Types) != 1 {
@@ -384,10 +384,13 @@ func TestCompactTypes_UnnamedUnreferenced(t *testing.T) {
 }
 
 func TestCompactTypes_NamedTypesKept(t *testing.T) {
-	// Under KeepUnusedYes every named type is kept even without direct
-	// references, matching Rust naga's compact pass, which treats a named
-	// type as used by definition only for KeepUnused::Yes
-	// (compact/mod.rs:252-257).
+	// Every named type is kept even without direct references. This is a
+	// deliberate deviation from Rust naga's compact, which treats a named type
+	// as used by definition only under KeepUnused::Yes (compact/mod.rs:252-257):
+	// our typifier resolves the predeclared __modf/__frexp result structs by
+	// name, so removing a named type under KeepUnused::No broke type resolution
+	// of modf/frexp in a compacted module (P2-IR-034; TestCompactKeepsModulesValid
+	// pins the consequence for the whole corpus).
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "MyStruct", Inner: ir.StructType{
@@ -398,7 +401,7 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 		},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	// Both kept: MyStruct (named struct) and Vec2Alias (named alias).
 	if len(module.Types) != 2 {
@@ -406,33 +409,31 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 	}
 }
 
-// TestCompactTypes_NamedTypesRemovedUnderNo pins the other half of Rust
-// naga's rule: with KeepUnused::No an unused named type is removed like any
-// other (compact/mod.rs: the named-types-as-used pass runs only when
-// keep_unused converts to true). A named type a kept type refers to stays.
-func TestCompactTypes_NamedTypesRemovedUnderNo(t *testing.T) {
+// TestCompactTypes_DeadAnonymousChain pins the type-graph reachability: a type
+// is used when a used handle names it or a used type names it, so an
+// anonymous type reachable only from an unreferenced anonymous type is
+// removed together with it. Rust naga's tracer follows the used handles the
+// same way (compact/expressions.rs, type_expression_tandem).
+func TestCompactTypes_DeadAnonymousChain(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
-			// 0: named struct, unreferenced, holds member of type 2.
-			{Name: "Dead", Inner: ir.StructType{
+			// 0: unnamed struct referring to type 2, itself unreferenced.
+			{Inner: ir.StructType{
 				Members: []ir.StructMember{{Name: "x", Type: 2, Offset: 0}},
 				Span:    4,
 			}},
-			// 1: named type, referenced from the global below.
-			{Name: "Live", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			// 1: unnamed scalar, referenced by the global below.
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			// 2: unnamed scalar, referenced only by the dead struct.
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
 		},
 		GlobalVariables: []ir.GlobalVariable{{Name: "g", Type: 1}},
 	}
 
-	compactTypes(module, KeepUnusedNo)
+	compactTypes(module)
 
 	if len(module.Types) != 1 {
-		t.Fatalf("expected 1 type (only the referenced named one), got %d: %+v", len(module.Types), module.Types)
-	}
-	if module.Types[0].Name != "Live" {
-		t.Errorf("expected the surviving type to be Live, got %q", module.Types[0].Name)
+		t.Fatalf("expected 1 type (only the referenced one), got %d: %+v", len(module.Types), module.Types)
 	}
 	if module.GlobalVariables[0].Type != 0 {
 		t.Errorf("global type remapped to %d, want 0", module.GlobalVariables[0].Type)
@@ -507,7 +508,7 @@ func TestCompactTypes_KeepsTypesReachableFromGlobalExpressions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			module := tt.module()
-			compactTypes(module, KeepUnusedYes)
+			compactTypes(module)
 
 			// vec2 (reachable) is kept; vec3 (only used by unreachable [8]) is removed,
 			// matching Rust, which traces only used global expressions.
@@ -551,7 +552,7 @@ func TestCompactTypes_KeepsZeroValueTypeFromGlobalExpressions(t *testing.T) {
 		Constants: []ir.Constant{{Name: "C", Type: 0, Init: 2}},
 	}
 
-	compactTypes(module, KeepUnusedYes)
+	compactTypes(module)
 
 	if len(module.Types) != 2 {
 		t.Fatalf("expected vec3 used by ZeroValue to be kept (2 types), got %d", len(module.Types))
@@ -572,7 +573,7 @@ func TestCompactTypes_IgnoresOutOfRangeConstantInit(t *testing.T) {
 		Types:     matrixInitTypes(),
 		Constants: []ir.Constant{{Name: "M", Type: 0, Init: 42}},
 	}
-	compactTypes(module, KeepUnusedYes) // must not panic
+	compactTypes(module) // must not panic
 	if len(module.Types) != 1 {
 		t.Fatalf("expected only the constant's own type to survive, got %d", len(module.Types))
 	}
