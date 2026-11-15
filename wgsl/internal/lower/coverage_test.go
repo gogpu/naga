@@ -949,9 +949,12 @@ func TestLowerErrorUndefinedFunction(t *testing.T) {
 }
 
 func TestLowerDuplicateFunction(t *testing.T) {
-	// The lowerer silently overwrites duplicate functions (matching Rust naga).
+	// A second declaration of a module-scope name is Rust naga's
+	// Error::Redefinition from its frontend's index pass
+	// (front/wgsl/index.rs:24-39); the validator no longer carries the rule
+	// because GLSL overloads share a function name (valid/validate.go).
 	src := `fn foo() {} fn foo() -> i32 { return 42; }`
-	mustCompile(t, src)
+	expectError(t, src, "redefinition of `foo`")
 }
 
 func TestLowerErrorMathArgCount(t *testing.T) {

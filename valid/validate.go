@@ -380,19 +380,14 @@ func (v *validator) validateType(handle ir.TypeHandle, typ *ir.Type) {
 		}
 
 	case ir.StructType:
-		// Validate struct members. An empty name is an unnamed member, which
-		// the SPIR-V frontend produces (Rust naga's StructMember::name is
-		// None there) and every backend names for itself; it takes part in no
-		// duplicate check.
-		memberNames := make(map[string]bool)
+		// Validate struct members. Member names need not be unique: Rust
+		// naga's validator does not check them (valid/type.rs), and its GLSL
+		// frontend flattens an array of output variables into result-struct
+		// members that share the variable's name (front/glsl/functions.rs
+		// arg_type_walker). WGSL's parser rejects a duplicate member itself.
+		// An empty name is an unnamed member, which the SPIR-V frontend
+		// produces and every backend names for itself.
 		for _, member := range inner.Members {
-			if member.Name != "" {
-				if memberNames[member.Name] {
-					v.addError(fmt.Sprintf("type %d: duplicate struct member name %q", handle, member.Name))
-				}
-				memberNames[member.Name] = true
-			}
-
 			if !v.isValidTypeHandle(member.Type) {
 				v.addError(fmt.Sprintf("type %d: struct member %q type %d does not exist", handle, member.Name, member.Type))
 			}
@@ -416,6 +411,9 @@ func (v *validator) validateType(handle ir.TypeHandle, typ *ir.Type) {
 		// Sampler types are always valid
 
 	case ir.ImageType:
+		// StorageFormatUndefined and an empty StorageAccess are our spellings
+		// of "unset" (ADR-010 E2, LEAD-011 option A): every frontend sets
+		// both, so a storage image carrying a zero is refused here.
 		if inner.Class == ir.ImageClassStorage && inner.StorageFormat == ir.StorageFormatUndefined {
 			v.addError(fmt.Sprintf("type %d: storage image has no format (StorageFormatUndefined)", handle))
 		}
@@ -661,16 +659,12 @@ func (v *validator) globalVariableCapability(gv *ir.GlobalVariable) Capabilities
 
 // validateFunctions checks all functions.
 func (v *validator) validateFunctions() {
-	names := make(map[string]bool)
-
+	// Function names need not be unique: Rust naga's validator has no such
+	// rule, and a GLSL module carries one IR function per overload under the
+	// same name (Rust's front/glsl/functions.rs add_function). WGSL forbids
+	// overloading, and its parser rejects a second declaration itself.
 	for i := range v.module.Functions {
 		fn := &v.module.Functions[i]
-		if fn.Name != "" {
-			if names[fn.Name] {
-				v.addError(fmt.Sprintf("duplicate function name %q", fn.Name))
-			}
-			names[fn.Name] = true
-		}
 
 		v.context = validationContext{
 			function:       fn,
