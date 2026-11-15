@@ -268,7 +268,7 @@ func (d *directiveState) versionDirective(line []ppToken, span ir.Span) {
 		return
 	}
 	if line[0].intValue > math.MaxUint16 {
-		d.errorf(line[0].span, "invalid version: %d", line[0].intValue)
+		d.errorf(line[0].span, "Invalid version: %d", line[0].intValue)
 		return
 	}
 	value := uint16(line[0].intValue)
@@ -291,26 +291,26 @@ func (d *directiveState) versionDirective(line []ppToken, span ir.Span) {
 		case "", "core":
 			profile = ppProfileCore
 		case "es", "compatibility":
-			d.errorf(span, "invalid profile: %s", profileName)
+			d.errorf(span, "Invalid profile: %s", profileName)
 			return
 		default:
-			d.errorf(span, "invalid profile: %s", profileName)
+			d.errorf(span, "Invalid profile: %s", profileName)
 			return
 		}
 	case 330:
 		if profileName != "core" {
-			d.errorf(span, "invalid profile: %s (330 requires core)", profileName)
+			d.errorf(span, "Invalid profile: %s (330 requires core)", profileName)
 			return
 		}
 		profile = ppProfileCore
 	case 300:
 		if profileName != "es" {
-			d.errorf(span, "invalid profile: %s (300 requires es)", profileName)
+			d.errorf(span, "Invalid profile: %s (300 requires es)", profileName)
 			return
 		}
 		profile = ppProfileES
 	default:
-		d.errorf(line[0].span, "invalid version: %d", value)
+		d.errorf(line[0].span, "Invalid version: %d", value)
 		return
 	}
 	d.version = ppVersion{Value: value, Profile: profile, Span: span}

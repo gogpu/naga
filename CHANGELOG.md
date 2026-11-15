@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`glsl.Parse`: GLSL source to naga IR** (NAGA-FEAT-002, Phase 1). The frontend parses Vulkan GLSL
+  440/450/460 — declarations, statements, the expression grammar, interface blocks with std140/std430
+  layouts, storage images, specialization constants and the builtin function catalogue — and lowers it to
+  the same IR the other frontends produce. A combined image sampler (`uniform sampler2D`) becomes an image
+  global and a sampler global (Rust naga refuses the declaration; gfx-rs/wgpu#4342), with
+  `ParseInfo.CombinedSamplers` reporting each split and `ParseOptions.SamplerBindings` placing the sampler.
+  Errors have the WGSL frontend's shape: one `*ParseError` whose labels carry the first error and whose notes
+  carry the rest. 44 of the 47 Rust GLSL test shaders parse into modules that validate and compile through
+  the SPIR-V, MSL and HLSL backends; the other three carry no `#version` directive and are refused.
+
+### Changed
+
+- `wgsl.ParseError` renders through the shared `internal/errfmt`; its behaviour is unchanged.
+
+### Fixed
+
+- The validator accepts duplicate function names and duplicate struct member names, as Rust naga's validator
+  does: GLSL overloads share a function name, and the GLSL entry-point wrapper flattens an output array under
+  the variable's own name.
+- The WGSL frontend reports a redeclaration of a module-scope name or of a struct member as an error, as Rust
+  naga does; that rule used to live in the validator.
+
 ## [0.22.1] - 2026-11-14
 
 The SPIR-V input frontend's Phase 3 follow-ups: a store through a row-major matrix member is translated instead of

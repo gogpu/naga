@@ -59,16 +59,24 @@ func (t *Typifier) Inner(m *ir.Module, h ir.ExpressionHandle) ir.TypeInner {
 //
 // On an error t keeps what it had before the call.
 func (t *Typifier) Grow(m *ir.Module, fn *ir.Function, upTo ir.ExpressionHandle) error {
+	return t.GrowArena(m, fn.Expressions, fn.LocalVars, fn.Arguments, upTo)
+}
+
+// GrowArena is Grow for an expression arena that is not a function's own: a
+// module's global expressions, which a frontend lowers with the evaluator
+// before any function exists (Rust's Typifier::grow over an arena and a
+// ResolveContext with no locals or arguments).
+func (t *Typifier) GrowArena(m *ir.Module, exprs []ir.Expression, locals []ir.LocalVariable, args []ir.FunctionArgument, upTo ir.ExpressionHandle) error {
 	n := int(upTo)
-	if n > len(fn.Expressions) {
-		return fmt.Errorf("typifier: expression [%d] out of range (%d expressions)", n-1, len(fn.Expressions))
+	if n > len(exprs) {
+		return fmt.Errorf("typifier: expression [%d] out of range (%d expressions)", n-1, len(exprs))
 	}
 	start := len(t.resolutions)
 	if n <= start {
 		return nil
 	}
 	t.resolutions = append(t.resolutions, make([]ir.TypeResolution, n-start)...)
-	r := resolver{module: m, fn: fn, t: t}
+	r := resolver{module: m, exprs: exprs, locals: locals, args: args, t: t}
 	var pending []ir.ExpressionHandle
 	for i := start; i < n; i++ {
 		h := ir.ExpressionHandle(i) //nolint:gosec // i < len(fn.Expressions), which fits a 32-bit handle by IR design
@@ -113,7 +121,7 @@ func (t *Typifier) Invalidate(m *ir.Module, fn *ir.Function, h ir.ExpressionHand
 	if int(h) >= len(t.resolutions) {
 		return fmt.Errorf("typifier: expression [%d] is not typed yet", h)
 	}
-	r := resolver{module: m, fn: fn, t: t}
+	r := resolver{module: m, exprs: fn.Expressions, locals: fn.LocalVars, args: fn.Arguments, t: t}
 	res, ok, err := r.resolve(h)
 	if err != nil {
 		return &Error{Expression: h, Err: err}
@@ -226,7 +234,9 @@ func typed(res ir.TypeResolution) bool {
 // resolver types one expression from the resolutions of its operands.
 type resolver struct {
 	module *ir.Module
-	fn     *ir.Function
+	exprs  []ir.Expression
+	locals []ir.LocalVariable
+	args   []ir.FunctionArgument
 	t      *Typifier
 }
 
@@ -236,8 +246,8 @@ var errPending = errors.New("operand not typed yet")
 // operand returns the resolution of expression h, errPending when Grow has
 // not typed it yet.
 func (r *resolver) operand(h ir.ExpressionHandle) (ir.TypeResolution, error) {
-	if int(h) >= len(r.fn.Expressions) {
-		return ir.TypeResolution{}, fmt.Errorf("expression [%d] out of range (%d expressions)", h, len(r.fn.Expressions))
+	if int(h) >= len(r.exprs) {
+		return ir.TypeResolution{}, fmt.Errorf("expression [%d] out of range (%d expressions)", h, len(r.exprs))
 	}
 	if int(h) >= len(r.t.resolutions) || !typed(r.t.resolutions[h]) {
 		return ir.TypeResolution{}, errPending
@@ -258,7 +268,7 @@ func (r *resolver) inner(res ir.TypeResolution) (ir.TypeInner, error) {
 
 // resolve types expression h. ok is false when an operand is not typed yet.
 func (r *resolver) resolve(h ir.ExpressionHandle) (res ir.TypeResolution, ok bool, err error) {
-	res, err = r.resolveKind(r.fn.Expressions[h].Kind)
+	res, err = r.resolveKind(r.exprs[h].Kind)
 	if errors.Is(err, errPending) {
 		return ir.TypeResolution{}, false, nil
 	}
@@ -312,10 +322,10 @@ func (r *resolver) resolveKind(kind ir.ExpressionKind) (ir.TypeResolution, error
 	case ir.ExprSwizzle:
 		return r.swizzle(k)
 	case ir.ExprFunctionArgument:
-		if int(k.Index) >= len(r.fn.Arguments) {
+		if int(k.Index) >= len(r.args) {
 			return ir.TypeResolution{}, fmt.Errorf("function argument index %d out of range", k.Index)
 		}
-		return handleRes(r.fn.Arguments[k.Index].Type), nil
+		return handleRes(r.args[k.Index].Type), nil
 	case ir.ExprGlobalVariable:
 		if int(k.Variable) >= len(m.GlobalVariables) {
 			return ir.TypeResolution{}, fmt.Errorf("global variable %d out of range", k.Variable)
@@ -327,11 +337,11 @@ func (r *resolver) resolveKind(kind ir.ExpressionKind) (ir.TypeResolution, error
 		// Rust: GlobalVariable -> Pointer { base: var.ty, space: var.space }.
 		return valueRes(ir.PointerType{Base: gv.Type, Space: gv.Space}), nil
 	case ir.ExprLocalVariable:
-		if int(k.Variable) >= len(r.fn.LocalVars) {
+		if int(k.Variable) >= len(r.locals) {
 			return ir.TypeResolution{}, fmt.Errorf("local variable %d out of range", k.Variable)
 		}
 		// Rust: LocalVariable -> Pointer { base: var.ty, space: Function }.
-		return valueRes(ir.PointerType{Base: r.fn.LocalVars[k.Variable].Type, Space: ir.SpaceFunction}), nil
+		return valueRes(ir.PointerType{Base: r.locals[k.Variable].Type, Space: ir.SpaceFunction}), nil
 	case ir.ExprLoad:
 		return r.load(k)
 	case ssa.Alias:

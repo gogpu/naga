@@ -188,7 +188,7 @@ func (p *parser) parseInitDeclaratorList(external bool) ([]declarator, *frontErr
 			return nil, err
 		}
 		declarators = append(declarators, *declarator)
-		p.declareDeclarator(*declarator, external)
+		declarators[len(declarators)-1].Sym = p.declareDeclarator(*declarator, external)
 
 		tok, err = p.bump()
 		if err != nil {
@@ -229,18 +229,19 @@ func (p *parser) parseDeclarator(nameTok glslToken) (*declarator, *frontError) {
 }
 
 // declareDeclarator installs the name of one declarator in the scope that owns
-// it: the root scope for a module-scope declaration, the innermost one for a
-// local.
-func (p *parser) declareDeclarator(d declarator, external bool) {
+// it — the root scope for a module-scope declaration, the innermost one for a
+// local — and returns its symbol.
+func (p *parser) declareDeclarator(d declarator, external bool) *glslSymbol {
 	if external {
 		// Rust adds a module-scope name unconditionally and discards the symbol
 		// it replaces (context.rs:232, where add_global ignores the Option
 		// SymbolTable::add returns), so a repeated global name is not an error
 		// and the latest declaration wins.
-		p.symbols.declareGlobal(&glslSymbol{Kind: symGlobal, Name: d.Name})
-		return
+		sym := &glslSymbol{Kind: symGlobal, Name: d.Name}
+		p.symbols.declareGlobal(sym)
+		return sym
 	}
-	p.declareLocal(d.Name, symLocal, d.Span)
+	return p.declareLocal(d.Name, symLocal, d.Span)
 }
 
 // declareLocal records a local or a parameter name in the innermost scope and
@@ -248,10 +249,12 @@ func (p *parser) declareDeclarator(d declarator, external bool) {
 // (variables.rs:694-701): the new declaration replaces the old one and the
 // replacement is reported. A name of an enclosing scope is unrelated, because
 // shadowing is legal GLSL.
-func (p *parser) declareLocal(name string, kind symbolKind, span ir.Span) {
-	if p.symbols.declare(&glslSymbol{Kind: kind, Name: name}) != nil {
+func (p *parser) declareLocal(name string, kind symbolKind, span ir.Span) *glslSymbol {
+	sym := &glslSymbol{Kind: kind, Name: name}
+	if p.symbols.declare(sym) != nil {
 		p.errors = append(p.errors, *errVariableAlreadyDeclared(name, span))
 	}
+	return sym
 }
 
 // parseQualifiedNameDeclaration parses the declaration branch that starts with
@@ -289,8 +292,12 @@ func (p *parser) parseQualifiedNameDeclaration(qualifiers typeQualifiers) (*astD
 		// unknown one); the name alone is what lowering needs. The span covers
 		// the qualifier too, as Rust returns the qualifier span here
 		// (declarations.rs:441).
+		sym := p.symbols.lookup(tok.text)
+		if sym == nil {
+			sym = p.builtinSymbol(tok.text)
+		}
 		return &astDecl{
-			Kind: declInvariant{Name: tok.text},
+			Kind: declInvariant{Name: tok.text, Sym: sym},
 			Span: subsumeSpan(qualifiers.Span, end.span),
 		}, nil
 	}
@@ -348,10 +355,14 @@ func (p *parser) parseBlockDeclaration(qualifiers typeQualifiers, name string, n
 // records is that the names exist.
 func (p *parser) declareBlockNames(block *declBlock) {
 	if block.Instance != "" {
-		p.symbols.declareGlobal(&glslSymbol{Kind: symGlobal, Name: block.Instance})
+		sym := &glslSymbol{Kind: symGlobal, Name: block.Instance}
+		p.symbols.declareGlobal(sym)
+		block.InstanceSym = sym
 	}
-	for _, member := range block.Members {
-		p.symbols.declareGlobal(&glslSymbol{Kind: symGlobal, Name: member.Name})
+	for i := range block.Members {
+		sym := &glslSymbol{Kind: symGlobal, Name: block.Members[i].Name}
+		p.symbols.declareGlobal(sym)
+		block.Members[i].Sym = sym
 	}
 }
 
@@ -410,7 +421,7 @@ func (p *parser) parseParamList() ([]param, *frontError) {
 			return nil, err
 		}
 		if prm.Name != "" {
-			p.declareLocal(prm.Name, symParam, prm.Span)
+			prm.Sym = p.declareLocal(prm.Name, symParam, prm.Span)
 		}
 		params = append(params, *prm)
 		if !more {

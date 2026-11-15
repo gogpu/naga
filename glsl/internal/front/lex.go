@@ -6,7 +6,7 @@ import "github.com/gogpu/naga/ir"
 // a keyword or a type name, with its place in the source.
 type glslToken struct {
 	kind tokenKind
-	text string // the spelling of an identifier or a punctuation token
+	text string // the spelling of an identifier, a punctuation token or a type name
 
 	typeName *typeName // kind == tokTypeName
 
@@ -55,7 +55,9 @@ func classify(t ppToken) glslToken {
 			if kind, ok := keywords[t.text]; ok {
 				tok.kind = kind
 			} else if tn, ok := parseTypeName(t.text); ok {
-				tok.kind, tok.typeName = tokTypeName, &tn
+				// The spelling is kept: a combined sampler constructor is a
+				// call of the builtin of that name (design §11).
+				tok.kind, tok.typeName, tok.text = tokTypeName, &tn, t.text
 			} else {
 				tok.kind, tok.text = tokIdent, t.text
 			}
