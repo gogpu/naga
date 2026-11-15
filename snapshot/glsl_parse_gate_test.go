@@ -225,19 +225,12 @@ func validateGLSL(t *testing.T, module *ir.Module) error {
 	return err
 }
 
-// glslValExceptions are the pinned sources whose SPIR-V output spirv-val
-// refuses today, with the reason. Both are backend defects, not frontend ones:
-//   - images.frag: imageSize on an arrayed storage image is written as
-//     OpImageQuerySizeLod (VUID-OpImageQuerySizeLod-04659); Rust naga's output
-//     fails the same VUID.
-//   - double-math-functions.frag: the SPIR-V backend hard-codes f32 for
-//     length/distance/determinant (reachable from WGSL too).
-//
 // glslCompileExceptions are the pinned sources one backend refuses for a
 // reason that is not a frontend defect, keyed by source; the entry names the
 // backend and the reason. Each is checked against the reason's backend, so a
 // different failure on the same source still fails the gate, and an exception
-// that stops applying fails it too.
+// that stops applying fails it too. Every other pinned source compiles through
+// all three text backends and, with spirv-val installed, validates.
 var glslCompileExceptions = map[string]map[string]string{
 	"800-out-of-bounds-panic.vert": {
 		"hlsl": "push constants need the caller's ImmediatesTarget (the pinned naga panics on this shader too, SKIPPED.md)",
@@ -246,8 +239,7 @@ var glslCompileExceptions = map[string]map[string]string{
 		"hlsl": "push constants need the caller's ImmediatesTarget",
 	},
 	"double-math-functions.frag": {
-		"spirv-val": "the SPIR-V backend types Length/Distance/Determinant as f32 (card P2-SPV-001)",
-		"msl":       "the MSL backend cannot write f64 (the pinned naga refuses it too, SKIPPED.md)",
+		"msl": "the MSL backend cannot write f64 (the pinned naga refuses it too, SKIPPED.md)",
 	},
 	"vector-functions.frag": {
 		"msl": "the MSL backend cannot write f64 (the pinned naga refuses it too, SKIPPED.md)",
