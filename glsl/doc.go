@@ -30,7 +30,10 @@
 // (uniform sampler2D) becomes an image global and a sampler global, and
 // ParseInfo.CombinedSamplers reports each split; ParseOptions.SamplerBindings
 // places the sampler and CombinedImageSamplerReject refuses the declaration
-// instead. GL 3.30 core and ES 3.00 are not supported yet.
+// instead. The GL 3.30 core and ES 3.00 dialects are accepted too: they have no layout(binding), so
+// ParseOptions.ResourceBindings places a module-scope resource by its source name and the rest take the next
+// free slot of their group; each dialect's feature gates, the ES precision rules and the #extension behavior
+// follow the Khronos specifications.
 //
 //	module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
 //

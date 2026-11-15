@@ -30,6 +30,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forced SPIR-V 1.3 and subgroup semantics on an ordinary compute shader. `textureGatherOffsets` and
   `memoryBarrierAtomicCounter` are refused with a message naming the limitation, and `groupMemoryBarrier` orders
   at device scope (never narrower than glslang); both record the IR gaps they wait on.
+- **GLSL frontend, Phase 4: the GL 3.30 core and ES 3.00 dialects** (NAGA-FEAT-002). `glsl.Parse` now accepts
+  `#version 330 core` and `#version 300 es` shaders and enforces each dialect's rules instead of the Vulkan
+  ones: a source without `layout(binding)` gets its module-scope resources numbered by one counter per group
+  (uniform blocks, images and plain samplers in declaration order; the split sampler of a combined sampler after
+  the images resolve, as design §11 has it),
+  with `ParseOptions.ResourceBindings` reserving a resource's slot by source name (an unmatched entry is a
+  warning, a collision a `*ParseError`) and `ParseOptions.SamplerBindings` placing a split sampler. Feature
+  gates refuse what the dialects lack, each with glslang's evidence in the code: compute, storage buffers and
+  images, push constants, `double`, `layout(binding=/set=)` and varying locations; `float16_t` in GL 3.30
+  requires `GL_EXT_shader_explicit_arithmetic_types_float16`; `textureGather` and `textureQueryLevels` name
+  their version rules. ES 3.00's precision rules are enforced (a fragment shader needs a default float
+  precision statement; a statement may name a sampler type, GLSL ES 3.00 §4.5.4) and precision qualifiers on
+  struct and block members parse. `#extension` follows §3.3's behavior rules in the GL/ES dialects — a name
+  outside the recognized list is a warning, because the frontend cannot enumerate the Khronos registry (card
+  P2-GLSLIN-022), while `all : require|enable` is an error — and the Vulkan path keeps Rust's behaviour of not
+  interpreting the directive; the seven `GL_KHR_shader_subgroup_*` names are recognized exactly while the
+  subgroup builtins carry a named limitation. A plain uniform (`uniform float scale;`) is refused with a precise message: the IR
+  has no location-addressed uniform, and the honest fixes are default-block synthesis or refusal (card
+  P1-GLSLIN-021). The 440/450/460 behaviour is unchanged. A new own dialect corpus (`testdata/glsl-dialects`, 44 shaders) and its matrix
+  (`snapshot/glsl_dialect_matrix_test.go`) run every row through glslangValidator, validation, SPIR-V
+  (spirv-val), MSL and HLSL.
 
 ### Changed
 

@@ -111,7 +111,8 @@ naga/
 │
 ├── glsl/                          # GLSL backend and GLSL input
 │   ├── glsl.go                    # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
-│   ├── parse.go                   # Input API: Parse, ParseOptions, ParseInfo, ParseError (Vulkan GLSL 440/450/460)
+│   ├── parse.go                   # Input API: Parse, ParseOptions, ParseInfo, ParseError (Vulkan GLSL 440/450/460,
+│   │                              # GL 3.30 core, ES 3.00)
 │   ├── internal/codegen/          # Backend: ALL implementation
 │   └── internal/front/            # Input frontend: preprocessor, lexer, parser, HIR lowering, builtin catalogue
 │                                  # (image and sampling families, barriers), combined-sampler split; limits in limits.go
