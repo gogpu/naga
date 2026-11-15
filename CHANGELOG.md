@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interpreting the directive; the seven `GL_KHR_shader_subgroup_*` names are recognized exactly while the
   subgroup builtins carry a named limitation. A plain uniform (`uniform float scale;`) is refused with a precise message: the IR
   has no location-addressed uniform, and the honest fixes are default-block synthesis or refusal (card
-  P1-GLSLIN-021). The 440/450/460 behaviour is unchanged. A new own dialect corpus (`testdata/glsl-dialects`, 44 shaders) and its matrix
+  P1-GLSLIN-021). The 440/450/460 behaviour is unchanged. A new own dialect corpus (`testdata/glsl-dialects`, 49 shaders) and its matrix
   (`snapshot/glsl_dialect_matrix_test.go`) run every row through glslangValidator, validation, SPIR-V
   (spirv-val), MSL and HLSL.
 
