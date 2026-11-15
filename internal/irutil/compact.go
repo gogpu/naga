@@ -13,10 +13,10 @@ import (
 // With either keep value it removes the function expressions nothing refers
 // to, the constants, overrides and global expressions nothing uses (named
 // constants of a concrete type always stay), the abstract types and the
-// anonymous types nothing refers to any more. With KeepUnusedNo it first removes the global variables
-// and functions no entry point reaches, and the named overrides nothing uses.
-// Entry points, special types and named types always stay; Rust also removes
-// an unused named type under KeepUnused::No.
+// anonymous types nothing refers to any more. With KeepUnusedNo it first
+// removes the global variables and functions no entry point reaches, and the
+// named overrides and named types nothing uses. Entry points and special
+// types always stay.
 func Compact(module *ir.Module, keep KeepUnused) {
 	CompactWithTypeOrder(module, keep, nil)
 }
@@ -33,7 +33,7 @@ func CompactWithTypeOrder(module *ir.Module, keep KeepUnused, typeOrder []ir.Typ
 	// the types nothing refers to any more.
 	compactExpressions(module)
 	compactConstants(module, keep)
-	return remapTypeOrder(typeOrder, compactTypes(module))
+	return remapTypeOrder(typeOrder, compactTypes(module, keep))
 }
 
 // CompactUnused removes globals and functions not reachable from any entry point.
@@ -61,7 +61,19 @@ func traceEntryPoints(module *ir.Module) (usedGlobals, usedFunctions []bool) {
 	// Trace a function's expressions and statements for global/function references.
 	var traceFunction func(f *ir.Function)
 	traceFunction = func(f *ir.Function) {
-		for _, expr := range f.Expressions {
+		// Only the expressions the statements, the named expressions and the
+		// local-variable initializers reach keep a global alive: Rust naga's
+		// FunctionTracer starts from the body and follows the expression tree
+		// (compact/functions.rs), so an expression the arena holds but nothing
+		// refers to does not count. The GLSL frontend leaves such dead
+		// references behind — its module-scope context becomes the entry
+		// point's arena — and counting them kept unused globals, a push
+		// constant among them, in compacted modules.
+		reachable := usedExpressions(f)
+		for i, expr := range f.Expressions {
+			if !reachable[i] {
+				continue
+			}
 			if gv, ok := expr.Kind.(ir.ExprGlobalVariable); ok {
 				usedGlobals[gv.Variable] = true
 			}
@@ -219,26 +231,30 @@ func remapStmtFuncHandles(stmts []ir.Statement, remap []ir.FunctionHandle) {
 //
 // Verified: produces identical type arenas to Rust naga on 18/18 reference shaders.
 // See docs/dev/research/IR-DEEP-ANALYSIS.md for analysis.
-func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
+func compactTypes(module *ir.Module, mode KeepUnused) (remap []ir.TypeHandle) {
 	if len(module.Types) == 0 {
 		return nil
 	}
 
 	// Step 1: Find all type handles referenced directly by handles
-	// (not embedded by value in Vector/Matrix/Atomic).
-	referenced := referencedTypes(module)
+	// (not embedded by value in Vector/Matrix/Atomic). Under KeepUnusedYes a
+	// named type counts as used by definition, and its member types with it.
+	referenced := referencedTypes(module, mode == KeepUnusedYes)
 
 	// Step 2: Determine which types to keep.
-	// Keep referenced types AND all named types.
-	// Rust naga's compact keeps all named types (structs, aliases, etc.) regardless
-	// of reference count. Only abstract types are force-removed.
+	// Keep referenced types and, under KeepUnusedYes, every named type.
+	// Rust naga's compact treats a named type as used by definition only
+	// under KeepUnused::Yes (compact/mod.rs:252-257); under KeepUnused::No
+	// an unused named type is removed like any other. Abstract types are
+	// force-removed under either value.
+	keepNamed := mode == KeepUnusedYes
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
-		// Abstract types must not reach backends. A named type is kept
-		// whatever its reference count, a present but empty name included
-		// (Rust naga's name.is_some()).
+		// Abstract types must not reach backends. Under KeepUnusedYes a named
+		// type is kept whatever its reference count, a present but empty name
+		// included (Rust naga's name.is_some()).
 		_, hasName := ir.NamePresence(t.Name, t.NamePresent)
-		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || hasName)
+		keep[i] = !IsAbstractType(t.Inner, module.Types) && (referenced[i] || (keepNamed && hasName))
 	}
 
 	// Check if anything would be removed
@@ -334,12 +350,18 @@ func remapTypeOrder(order, remap []ir.TypeHandle) []ir.TypeHandle {
 // referencedTypes returns which types something in module refers to by
 // handle, as opposed to embedding them by value as Vector, Matrix and Atomic
 // embed their scalar.
-func referencedTypes(module *ir.Module) []bool {
+func referencedTypes(module *ir.Module, keepNamed bool) []bool {
 	referenced := make([]bool, len(module.Types))
 
-	// Types referencing other types by handle
-	for _, t := range module.Types {
-		markTypeInnerRefs(t.Inner, referenced)
+	// Under KeepUnusedYes a named type is used by definition (Rust naga's
+	// compact/mod.rs:252-257 inserts every named type into types_used before
+	// the tracer runs), so its member types are used with it.
+	if keepNamed {
+		for i, t := range module.Types {
+			if _, hasName := ir.NamePresence(t.Name, t.NamePresent); hasName {
+				referenced[i] = true
+			}
+		}
 	}
 
 	// Constants
@@ -381,6 +403,28 @@ func referencedTypes(module *ir.Module) []bool {
 	// where the IR never names them (Rust's trace_special_types).
 	for _, h := range specialTypeHandles(&module.SpecialTypes) {
 		referenced[*h] = true
+	}
+
+	// Propagate through the type graph from the handles above only: a type is
+	// used when a used handle names it or a used type names it. Rust naga's
+	// tracer follows the graph the same way (compact/expressions.rs,
+	// type_expression_tandem), so the member types of a dead type do not
+	// survive it.
+	queue := make([]ir.TypeHandle, 0, len(referenced))
+	for i, used := range referenced {
+		if used {
+			queue = append(queue, ir.TypeHandle(ArenaIndex(i)))
+		}
+	}
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		for _, ref := range typeInnerRefs(module.Types[h].Inner) {
+			if int(ref) < len(referenced) && !referenced[ref] {
+				referenced[ref] = true
+				queue = append(queue, ref)
+			}
+		}
 	}
 	return referenced
 }
@@ -432,23 +476,27 @@ func IsAbstractType(inner ir.TypeInner, types []ir.Type) bool {
 	return false
 }
 
-// markTypeInnerRefs marks type handles referenced by a TypeInner.
-// Only types that use handles (not embedded values) are marked.
-func markTypeInnerRefs(inner ir.TypeInner, referenced []bool) {
+// typeInnerRefs returns the type handles a TypeInner refers to.
+// Only types that use handles (not embedded values) are listed.
+func typeInnerRefs(inner ir.TypeInner) []ir.TypeHandle {
 	switch t := inner.(type) {
 	case ir.ArrayType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
 	case ir.StructType:
+		refs := make([]ir.TypeHandle, 0, len(t.Members))
 		for _, m := range t.Members {
-			referenced[m.Type] = true
+			refs = append(refs, m.Type)
 		}
+		return refs
 	case ir.PointerType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
 	case ir.BindingArrayType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
+	default:
 		// VectorType, MatrixType, AtomicType, ScalarType, SamplerType,
 		// ImageType, AccelerationStructureType, RayQueryType:
 		// These either have no type handle refs or embed scalars by value.
+		return nil
 	}
 }
 

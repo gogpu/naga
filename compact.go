@@ -32,8 +32,9 @@ const (
 // constants of a concrete type always stay), the abstract types and the
 // anonymous types nothing refers to any more. With KeepUnusedNo it first
 // removes the global variables and functions no entry point reaches, and the
-// named overrides nothing uses. Entry points, special types and named types
-// always stay; Rust also removes an unused named type under KeepUnused::No.
+// named overrides and named types nothing uses. Entry points and special
+// types always stay; under KeepUnusedYes every named type and named override
+// stays too, as Rust naga's compact::KeepUnused.
 //
 // Compact modifies module in place: nothing else may read or write module
 // while it runs, and handles taken from module before the call are not valid

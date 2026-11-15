@@ -185,11 +185,18 @@ const (
 	reasonIRTypeOrder = "type arena order: Rust registers a component type (the scalar of atomic<T> / vecN<T>, " +
 		"the image of binding_array<texture>) before the type containing it, we register the containing type " +
 		"first; the type handles that follow shift"
+	reasonIRPredeclaredTypes = "our IR has no SpecialTypes.PredeclaredTypes: Rust records the __modf/__frexp " +
+		"result structs there and compact's trace_special_types keeps them although nothing references them; " +
+		"our frontends register the same named structs with no reference, so compaction removes them (P2-IR-034)"
 )
 
 // irReferenceDeviations is keyed by "<shader>" (TestIRReference) and
 // "<shader>.compact" (TestIRReferenceCompact).
 var irReferenceDeviations = map[string]irDeviation{
+	// The only difference is the five unreferenced __modf/__frexp result
+	// structs Rust keeps as predeclared special types (P2-IR-034).
+	"math-functions.compact": {Card: "P2-IR-034", Reason: reasonIRPredeclaredTypes,
+		Fingerprint: "8de91e885fcf0faeae62f265ec0947d8c7743a196a4131339c68d0aa600933ac"}, // 7 differences
 	// Intentional: the WGSL spec's float to integral conversion (see
 	// reasonInt16SpecClamp); compaction removes the unused constant.
 	"int16": {Card: "P2-WGSL-102", Reason: reasonInt16SpecClamp,
@@ -312,12 +319,10 @@ func TestIRReferenceCompact(t *testing.T) {
 		name := filepath.Base(ronFile)
 		shaderName := strings.TrimPrefix(strings.TrimSuffix(name, ".compact.ron"), "wgsl-")
 
-		// Known diffs in compact comparison (same as non-compact + compact-specific)
-		knownOptimizationDiff := map[string]bool{
-			"types_with_comments": true, // naga.Compact keeps named types; Rust KeepUnused::No removes them
-			"module-scope":        true, // naga.Compact does not yet remove unused types (Vec2)
-			"type-alias":          true, // naga.Compact does not yet remove unused types
-		}
+		// No known compact-only optimization diffs: naga.Compact now removes
+		// unused named types and types reachable only from unused ones, as
+		// Rust's KeepUnused::No does. The mechanism stays for the next case.
+		knownOptimizationDiff := map[string]bool{}
 
 		t.Run(shaderName, func(t *testing.T) {
 			ronData, err := os.ReadFile(ronFile)
