@@ -108,24 +108,27 @@ func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 
 // publicError maps the frontend's error list to the public shape (design §3,
 // R1): the first error is the message and its label, every later independent
-// error becomes a note as line:col: message.
+// error becomes a note as line:col: message. The line index is built once:
+// Span.Location scans the source prefix per call, which turns quadratic when
+// a source carries one diagnostic per line (deep validation, 2026-11-15).
 func publicError(parseErr *front.ParseError, source string) *ParseError {
 	pub := &ParseError{}
 	if len(parseErr.Errors) == 0 {
 		pub.Message = "GLSL parse failed"
 		return pub
 	}
+	lines := ir.NewSourceLines(source)
 	first := parseErr.Errors[0]
 	pub.Message = first.Message
 	if first.Span.IsDefined() {
 		pub.Labels = []frontend.Label{{Span: first.Span}}
 	}
 	for _, extra := range parseErr.Errors[1:] {
-		loc := extra.Span.Location(source)
 		if !extra.Span.IsDefined() {
 			pub.Notes = append(pub.Notes, extra.Message)
 			continue
 		}
+		loc := lines.Location(source, extra.Span)
 		pub.Notes = append(pub.Notes, fmt.Sprintf("%d:%d: %s", loc.Line, loc.Column, extra.Message))
 	}
 	return pub
