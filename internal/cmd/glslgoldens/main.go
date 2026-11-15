@@ -50,6 +50,10 @@ func main() {
 	}
 }
 
+// translator runs the pinned naga-cli on one input for one backend and returns
+// the tool's error output. The output file exists only on success.
+type translator func(naga, stage, input, output string) (string, error)
+
 func run(args []string, stdout io.Writer) error {
 	fl := flag.NewFlagSet("glslgoldens", flag.ContinueOnError)
 	naga := fl.String("naga", "", "path to the pinned naga-cli")
@@ -61,21 +65,32 @@ func run(args []string, stdout io.Writer) error {
 	if *naga == "" || *in == "" || *out == "" {
 		return errors.New("glslgoldens: -naga, -in and -out are required")
 	}
+	return generate(*naga, *in, *out, translateImpl, stdout)
+}
 
-	inputs, err := glslInputs(*in)
+// translateImpl is the translator run calls: the real naga-cli in the command,
+// a fake in tests.
+var translateImpl translator = translateNaga
+
+// generate writes every input's outputs into the msl, hlsl and spv
+// subdirectories of out, replacing them wholesale, and records the refusals in
+// out/SKIPPED.md. translate is the naga-cli under the caller's control: the
+// command passes translateNaga, tests pass a fake.
+func generate(naga, in, out string, translate translator, stdout io.Writer) error {
+	inputs, err := glslInputs(in)
 	if err != nil {
 		return err
 	}
 	if len(inputs) == 0 {
-		return fmt.Errorf("glslgoldens: no .vert/.frag/.comp inputs under %s", *in)
+		return fmt.Errorf("glslgoldens: no .vert/.frag/.comp inputs under %s", in)
 	}
 
 	// Generate into a temporary tree on the destination's volume, so a failed
 	// run never leaves a half-updated corpus behind.
-	if err := os.MkdirAll(*out, 0o750); err != nil {
+	if err := os.MkdirAll(out, 0o750); err != nil {
 		return err
 	}
-	work, err := os.MkdirTemp(filepath.Dir(*out), ".glslgoldens-")
+	work, err := os.MkdirTemp(filepath.Dir(out), ".glslgoldens-")
 	if err != nil {
 		return err
 	}
@@ -96,7 +111,7 @@ func run(args []string, stdout io.Writer) error {
 		base := filepath.Base(input)
 		for _, be := range backends {
 			dst := filepath.Join(work, be.name, "glsl-"+base+be.ext)
-			stderr, err := translate(*naga, stage, input, dst)
+			stderr, err := translate(naga, stage, input, dst)
 			if err != nil {
 				skips = append(skips, skip{Shader: base, Backend: be.name, Error: firstError(stderr)})
 				continue
@@ -106,7 +121,7 @@ func run(args []string, stdout io.Writer) error {
 	}
 
 	for _, be := range backends {
-		dst := filepath.Join(*out, be.name)
+		dst := filepath.Join(out, be.name)
 		if err := os.RemoveAll(dst); err != nil {
 			return err
 		}
@@ -114,7 +129,7 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 	}
-	if err := writeSkipped(filepath.Join(*out, "SKIPPED.md"), skips); err != nil {
+	if err := writeSkipped(filepath.Join(out, "SKIPPED.md"), skips); err != nil {
 		return err
 	}
 
@@ -163,9 +178,9 @@ func stageOf(name string) (string, bool) {
 	return "", false
 }
 
-// translate runs the pinned naga-cli on one input for one backend and returns
-// its combined error output. The output file exists only on success.
-func translate(naga, stage, input, output string) (string, error) {
+// translateNaga runs the pinned naga-cli on one input for one backend and
+// returns its combined error output. The output file exists only on success.
+func translateNaga(naga, stage, input, output string) (string, error) {
 	cmd := exec.Command(naga, //nolint:gosec // the generator runs the naga-cli path the caller names
 		"--input-kind", "glsl",
 		"--shader-stage", stage,

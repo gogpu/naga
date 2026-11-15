@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,5 +132,158 @@ func TestRunRequiresFlags(t *testing.T) {
 	}
 	if err := run([]string{"-naga", "naga", "-in", "in"}, os.Stdout); err == nil {
 		t.Error("run without -out succeeded, want an error")
+	}
+	if err := run([]string{"-not-a-flag"}, os.Stdout); err == nil {
+		t.Error("run with an unknown flag succeeded, want the flag error")
+	}
+}
+
+func TestGenerateMissingInputDir(t *testing.T) {
+	err := generate("naga", filepath.Join(t.TempDir(), "absent"), t.TempDir(),
+		func(_, _, _, _ string) (string, error) { return "", nil }, os.Stdout)
+	if err == nil {
+		t.Fatal("generate over a missing -in succeeded, want an error")
+	}
+}
+
+func TestWriteSkippedError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent", "SKIPPED.md")
+	if err := writeSkipped(path, nil); err == nil {
+		t.Fatal("writeSkipped into a missing directory succeeded, want an error")
+	}
+}
+
+func TestGenerate(t *testing.T) {
+	in := t.TempDir()
+	out := t.TempDir()
+	for name, content := range map[string]string{
+		"a.vert": "#version 450 core\n",
+		"b.frag": "#version 450 core\n",
+		"a.toml": "targets = \"MSL\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(in, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Output of an earlier run must not survive a regeneration.
+	if err := os.MkdirAll(filepath.Join(out, "msl"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "msl", "glsl-old.vert.metal"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls []string
+	translate := func(_, stage, input, output string) (string, error) {
+		base := filepath.Base(input)
+		calls = append(calls, stage+":"+base)
+		// One refusal, with a terminal color and a second line: SKIPPED.md
+		// must keep the first line, without the escape.
+		if base == "b.frag" && strings.HasSuffix(output, ".hlsl") {
+			return "\x1b[0merror: nope\nmore\n", errors.New("exit 1")
+		}
+		return "", os.WriteFile(output, []byte("out "+base+" "+filepath.Ext(output)+"\n"), 0o600)
+	}
+
+	var stdout bytes.Buffer
+	if err := generate("naga", in, out, translate, &stdout); err != nil {
+		t.Fatal(err)
+	}
+
+	for rel, want := range map[string]string{
+		"msl/glsl-a.vert.metal": "out a.vert .metal\n",
+		"msl/glsl-b.frag.metal": "out b.frag .metal\n",
+		"hlsl/glsl-a.vert.hlsl": "out a.vert .hlsl\n",
+		"spv/glsl-a.vert.spv":   "out a.vert .spv\n",
+		"spv/glsl-b.frag.spv":   "out b.frag .spv\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Errorf("%s: %v", rel, err)
+			continue
+		}
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", rel, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "hlsl", "glsl-b.frag.hlsl")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("refused output exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "msl", "glsl-old.vert.metal")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stale output survived regeneration: %v", err)
+	}
+
+	skipped, err := os.ReadFile(filepath.Join(out, "SKIPPED.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(skipped), "| `b.frag` | hlsl | error: nope |") {
+		t.Errorf("SKIPPED.md does not record the refusal without its escape:\n%s", skipped)
+	}
+	if strings.Contains(string(skipped), "\x1b[") {
+		t.Errorf("SKIPPED.md kept a terminal escape:\n%s", skipped)
+	}
+
+	if got := stdout.String(); !strings.Contains(got, "generated 5 outputs for 2 shaders; 1 skipped") {
+		t.Errorf("summary = %q", got)
+	}
+	if len(calls) != 6 {
+		t.Errorf("translator called %d times, want 2 shaders x 3 backends: %v", len(calls), calls)
+	}
+	for _, call := range calls {
+		if !strings.HasPrefix(call, "vert:a.vert") && !strings.HasPrefix(call, "frag:b.frag") {
+			t.Errorf("translator called with %q, want the stage of the source", call)
+		}
+	}
+}
+
+func TestGenerateWithoutInputs(t *testing.T) {
+	err := generate("naga", t.TempDir(), t.TempDir(),
+		func(_, _, _, _ string) (string, error) { return "", nil }, os.Stdout)
+	if err == nil || !strings.Contains(err.Error(), "no .vert/.frag/.comp inputs") {
+		t.Fatalf("err = %v, want a refusal mentioning the missing inputs", err)
+	}
+}
+
+func TestGenerateFailsToCreateOutTree(t *testing.T) {
+	in := t.TempDir()
+	if err := os.WriteFile(filepath.Join(in, "a.vert"), []byte("void main() {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(out, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := generate("naga", in, out,
+		func(_, _, _, _ string) (string, error) { return "", nil }, os.Stdout)
+	if err == nil {
+		t.Fatal("generate over a file as -out succeeded, want an error")
+	}
+}
+
+func TestRunWithFakeTranslator(t *testing.T) {
+	in := t.TempDir()
+	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(in, "a.vert"), []byte("void main() {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := translateImpl
+	translateImpl = func(_, stage, _, output string) (string, error) {
+		return "", os.WriteFile(output, []byte(stage), 0o600)
+	}
+	defer func() { translateImpl = old }()
+
+	var stdout bytes.Buffer
+	if err := run([]string{"-naga", "naga", "-in", in, "-out", out}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "generated 3 outputs for 1 shaders") {
+		t.Errorf("summary = %q", got)
+	}
+	for _, rel := range []string{"msl/glsl-a.vert.metal", "hlsl/glsl-a.vert.hlsl", "spv/glsl-a.vert.spv"} {
+		got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(rel)))
+		if err != nil || string(got) != "vert" {
+			t.Errorf("%s = %q, %v; want the stage written by the fake translator", rel, got, err)
+		}
 	}
 }
