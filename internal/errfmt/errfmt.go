@@ -8,7 +8,7 @@ package errfmt
 
 import (
 	"fmt"
-	"sort"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -89,36 +89,88 @@ func Format(message string, labels []frontend.Label, notes []string, source, pat
 // O(log lines), so a frontend that reports one diagnostic per line does not
 // rescan the source per error — the quadratic cost the deep validation of the
 // GLSL frontend measured (100k diagnostics over a 1.4 MB source: 8.2 s).
+// Bytes past math.MaxUint32 are outside the span domain; a location there
+// saturates at the last addressable offset instead of wrapping.
 type SourceLines struct {
 	starts []uint32
 }
 
-// NewSourceLines indexes source for repeated location lookups.
+// NewSourceLines indexes source for repeated location lookups. Only the first
+// math.MaxUint32 bytes are indexed: ir.Span offsets are uint32, so no span can
+// name a position past them, and a uint32 entry cannot hold one.
 func NewSourceLines(source string) SourceLines {
 	starts := make([]uint32, 0, 1+strings.Count(source, "\n"))
 	starts = append(starts, 0)
 	for i := 0; i < len(source); i++ {
-		if source[i] == '\n' {
-			starts = append(starts, uint32(i+1))
+		if source[i] != '\n' {
+			continue
 		}
+		pos := uint64(i) + 1
+		if pos > math.MaxUint32 {
+			break
+		}
+		starts = append(starts, uint32(pos))
 	}
 	return SourceLines{starts: starts}
 }
 
 // Location returns the line and column of s, with [ir.Span.Location]'s
 // semantics: 1-based line and column, a span past the end clamped to it.
+//
+// The values stay in the span's own uint32 domain: the clamp and the line
+// arithmetic never pass through an int, so nothing can narrow or truncate on
+// the way. A source longer than a span can address saturates instead of
+// truncating, the one case where the two domains cannot meet.
 func (l SourceLines) Location(source string, s ir.Span) ir.SourceLocation {
-	start := min(int(s.Start), len(source))
-	line := sort.Search(len(l.starts), func(i int) bool { return int(l.starts[i]) > start })
-	lineStart := int(l.starts[line-1])
+	size, fits := narrow32(len(source))
+	if !fits {
+		// ir.Span offsets are uint32: bytes past math.MaxUint32 are beyond
+		// every span, so the location saturates at the last addressable byte.
+		size = math.MaxUint32
+	}
+	start := min(s.Start, size)
+	lineIdx := l.lineIndex(start)
+	lineStart := l.starts[lineIdx-1]
+	line, fits := narrow32(lineIdx)
+	if !fits {
+		// The same saturation for the line number: more than math.MaxUint32
+		// lines cannot be numbered in an ir.SourceLocation.
+		line = math.MaxUint32
+	}
 	length := uint32(0)
 	if s.End > s.Start {
 		length = s.End - s.Start
 	}
 	return ir.SourceLocation{
-		Line:   uint32(line),
-		Column: uint32(start-lineStart) + 1,
-		Offset: uint32(start),
+		Line:   line,
+		Column: start - lineStart + 1,
+		Offset: start,
 		Length: length,
 	}
+}
+
+// lineIndex returns the 1-based line that holds the byte offset start: the
+// last line whose first byte is not past it. The first line starts at byte
+// zero, so the result is at least one and at most the number of lines.
+func (l SourceLines) lineIndex(start uint32) int {
+	lo, hi := 0, len(l.starts)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if l.starts[mid] <= start {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
+}
+
+// narrow32 narrows a non-negative count to uint32 and reports whether the
+// value fits. A caller gets exact arithmetic when it does; when it does not,
+// the value is outside the span domain and the caller decides what that means.
+func narrow32(v int) (uint32, bool) {
+	if v < 0 || uint64(v) > math.MaxUint32 {
+		return 0, false
+	}
+	return uint32(v), true
 }

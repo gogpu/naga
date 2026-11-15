@@ -1,10 +1,43 @@
 package errfmt
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
 )
+
+// TestNarrow32 pins the checked narrowing every location field goes through:
+// exact within the uint32 domain, reported (never truncated) outside it.
+func TestNarrow32(t *testing.T) {
+	type testCase struct {
+		name   string
+		in     int
+		want   uint32
+		wantOK bool
+	}
+	tests := []testCase{
+		{"zero", 0, 0, true},
+		{"one", 1, 1, true},
+		{"negative", -1, 0, false},
+	}
+	if strconv.IntSize == 64 {
+		// A 32-bit int cannot hold the boundary values of the uint32 domain.
+		var max uint64 = math.MaxUint32
+		tests = append(tests,
+			testCase{"uint32 max", int(max), math.MaxUint32, true},
+			// The first value outside the uint32 domain.
+			testCase{"uint32 max + 1", int(max) + 1, 0, false},
+		)
+	}
+	for _, tt := range tests {
+		got, ok := narrow32(tt.in)
+		if got != tt.want || ok != tt.wantOK {
+			t.Errorf("%s: narrow32(%d) = (%d, %t), want (%d, %t)", tt.name, tt.in, got, ok, tt.want, tt.wantOK)
+		}
+	}
+}
 
 // TestSourceLinesLocationMatchesSpan pins SourceLines.Location to exactly
 // Span.Location's semantics on the edge cases (empty source, trailing newline,
