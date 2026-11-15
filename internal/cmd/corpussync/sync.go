@@ -27,6 +27,7 @@ var licenseFiles = []string{"LICENSE.APACHE", "LICENSE.MIT"}
 const (
 	upstreamInWGSL = "naga/tests/in/wgsl/"
 	upstreamInSPV  = "naga/tests/in/spv/"
+	upstreamInGLSL = "naga/tests/in/glsl/"
 	upstreamOut    = "naga/tests/out/"
 )
 
@@ -48,6 +49,17 @@ func vendoredPath(upstreamPath string) (string, bool) {
 		switch path.Ext(rel) {
 		case ".spvasm", ".toml":
 			return "in/spv/" + rel, true
+		}
+	}
+	if rel, ok := strings.CutPrefix(upstreamPath, upstreamInGLSL); ok {
+		// The GLSL sources and their parameters. Rust's committed goldens for
+		// these inputs are WGSL text (out/wgsl/glsl-*) and one GLSL output for
+		// variations.frag; our WGSL backend is post-v1.0, so the backend
+		// goldens are generated from the pinned naga-cli into rust-derived
+		// (P2-GLSLIN-001) and never vendored here.
+		switch path.Ext(rel) {
+		case ".vert", ".frag", ".comp", ".toml":
+			return "in/glsl/" + rel, true
 		}
 	}
 	for _, backend := range outputBackends {
@@ -126,7 +138,7 @@ func syncCorpus(upstreamDir, outDir string) (Report, error) {
 // readCorpus returns the selected files of HEAD keyed by vendored path. Every
 // blob is checked against its id, so the copy provably equals upstream.
 func readCorpus(repo gitRepo) (map[string][]byte, error) {
-	pathspecs := append([]string{upstreamInWGSL, upstreamInSPV}, licenseFiles...)
+	pathspecs := append([]string{upstreamInWGSL, upstreamInSPV, upstreamInGLSL}, licenseFiles...)
 	for _, backend := range outputBackends {
 		pathspecs = append(pathspecs, upstreamOut+backend+"/")
 	}
@@ -176,6 +188,7 @@ func requireCorpusShape(files map[string][]byte) error {
 	for _, want := range []struct{ dir, ext string }{
 		{"in/wgsl/", ".wgsl"},
 		{"in/spv/", ".spvasm"},
+		{"in/glsl/", ".frag"},
 	} {
 		found := false
 		for p := range files {
