@@ -1,0 +1,8 @@
+#version 330 core
+
+// GLSL 3.30 core has no compute stage: compute is GLSL 4.30 / ES 3.10
+// (design §15 "Stages").
+layout(local_size_x = 8) in;
+
+void main() {
+}

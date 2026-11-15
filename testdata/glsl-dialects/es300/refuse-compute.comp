@@ -1,0 +1,7 @@
+#version 300 es
+
+// ES 3.00 has no compute stage: compute is ES 3.10 (design §15 "Stages").
+layout(local_size_x = 8) in;
+
+void main() {
+}
