@@ -59,6 +59,31 @@ jobs:
         shell: bash
         run: echo "${{ runner.temp }}/spirv-tools/bin" >> "$GITHUB_PATH"
 
+      # glslangValidator is the reference GLSL compiler the corpus matrices
+      # cross-check their rows against (TestGLSLParseGate,
+      # TestGLSLImageSamplingMatrix, TestGLSLDialectMatrix). It is pinned to
+      # the glslang of the development Vulkan SDK 1.4.341.1, so recorded
+      # verdicts are the same locally and in CI. The Linux leg provides and
+      # requires it, so a wrong verdict fails CI instead of silently skipping;
+      # the Windows and macOS legs keep it optional.
+      - name: Cache glslang
+        if: matrix.os == 'ubuntu-latest'
+        id: glslang-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/glslang
+          key: glslang-vulkan-sdk-1.4.341.0-${{ hashFiles('.github/scripts/install-glslang.sh') }}
+
+      - name: Build glslang (Linux)
+        if: matrix.os == 'ubuntu-latest' && steps.glslang-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash .github/scripts/install-glslang.sh "${{ runner.temp }}/glslang"
+
+      - name: Add glslang to PATH
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: echo "${{ runner.temp }}/glslang/bin" >> "$GITHUB_PATH"
+
       - name: Run go vet
         if: matrix.os == 'ubuntu-latest'
         run: go vet ./...
@@ -68,7 +93,7 @@ jobs:
       - name: Run tests
         shell: bash
         env:
-          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis
+          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis${{ matrix.os == 'ubuntu-latest' && ',glslangValidator' || '' }}
         run: go test -v -count=1 -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... ./...
 
       # Race detection uses the toolchain's -race (ThreadSanitizer, needs cgo).
@@ -76,7 +101,7 @@ jobs:
         shell: bash
         env:
           CGO_ENABLED: "1"
-          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis
+          NAGA_REQUIRE_TOOLS: spirv-as,spirv-val,spirv-dis${{ matrix.os == 'ubuntu-latest' && ',glslangValidator' || '' }}
         run: go test -race -count=1 ./...
 
       - name: Verify coverage file
