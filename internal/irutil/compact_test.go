@@ -93,7 +93,12 @@ func TestCompactUnused_RemovesUnusedGlobals(t *testing.T) {
 						{Kind: ir.ExprGlobalVariable{Variable: 0}}, // references global 0
 						{Kind: ir.ExprGlobalVariable{Variable: 2}}, // references global 2
 					},
-					Body: []ir.Statement{},
+					// The stores make both references live; compaction
+					// follows the statements (TestCompactUnused_DeadRef).
+					Body: []ir.Statement{
+						{Kind: ir.StmtStore{Pointer: 0, Value: 0}},
+						{Kind: ir.StmtStore{Pointer: 1, Value: 1}},
+					},
 				},
 			},
 		},
@@ -169,7 +174,11 @@ func TestCompactUnused_AllUsed(t *testing.T) {
 					Expressions: []ir.Expression{
 						{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					},
-					Body: []ir.Statement{},
+					// The store makes the reference live: compaction follows
+					// the statements and the expression tree, as Rust naga's
+					// FunctionTracer does, so an expression nothing refers to
+					// does not keep its global (see TestCompactUnused_DeadRef).
+					Body: []ir.Statement{{Kind: ir.StmtStore{Pointer: 0, Value: 0}}},
 				},
 			},
 		},
@@ -179,6 +188,41 @@ func TestCompactUnused_AllUsed(t *testing.T) {
 
 	if len(module.GlobalVariables) != 1 {
 		t.Errorf("expected 1 global (all used), got %d", len(module.GlobalVariables))
+	}
+}
+
+// TestCompactUnused_DeadRef pins the reachability rule of Rust naga's compact
+// pass (compact/statements.rs: "since evaluating expressions has no effect, we
+// don't need to assume that everything emitted is live"): a global-variable
+// reference in the arena that no statement, named expression or local
+// initializer reaches does not keep its global. The GLSL frontend leaves such
+// dead references in the entry point's arena — its module-scope context
+// becomes that arena — and counting them kept unused globals, a push constant
+// among them, so every backend wrote them (896-push-constant.frag).
+func TestCompactUnused_DeadRef(t *testing.T) {
+	module := &ir.Module{
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "unused", Type: 0},
+		},
+		EntryPoints: []ir.EntryPoint{
+			{
+				Name:  "main",
+				Stage: ir.StageFragment,
+				Function: ir.Function{
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprGlobalVariable{Variable: 0}},
+						{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					},
+					Body: []ir.Statement{{Kind: ir.StmtReturn{}}},
+				},
+			},
+		},
+	}
+
+	CompactUnused(module)
+
+	if len(module.GlobalVariables) != 0 {
+		t.Errorf("expected 0 globals (reference is dead), got %d", len(module.GlobalVariables))
 	}
 }
 
@@ -340,8 +384,13 @@ func TestCompactTypes_UnnamedUnreferenced(t *testing.T) {
 }
 
 func TestCompactTypes_NamedTypesKept(t *testing.T) {
-	// ALL named types are kept even without direct references,
-	// matching Rust naga's compact pass which preserves named types.
+	// Every named type is kept even without direct references. This is a
+	// deliberate deviation from Rust naga's compact, which treats a named type
+	// as used by definition only under KeepUnused::Yes (compact/mod.rs:252-257):
+	// our typifier resolves the predeclared __modf/__frexp result structs by
+	// name, so removing a named type under KeepUnused::No broke type resolution
+	// of modf/frexp in a compacted module (P2-IR-034; TestCompactKeepsModulesValid
+	// pins the consequence for the whole corpus).
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "MyStruct", Inner: ir.StructType{
@@ -355,9 +404,39 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 	compactTypes(module)
 
 	// Both kept: MyStruct (named struct) and Vec2Alias (named alias).
-	// Rust naga keeps ALL named types regardless of reference count.
 	if len(module.Types) != 2 {
 		t.Errorf("expected 2 types (both named, both kept), got %d", len(module.Types))
+	}
+}
+
+// TestCompactTypes_DeadAnonymousChain pins the type-graph reachability: a type
+// is used when a used handle names it or a used type names it, so an
+// anonymous type reachable only from an unreferenced anonymous type is
+// removed together with it. Rust naga's tracer follows the used handles the
+// same way (compact/expressions.rs, type_expression_tandem).
+func TestCompactTypes_DeadAnonymousChain(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			// 0: unnamed struct referring to type 2, itself unreferenced.
+			{Inner: ir.StructType{
+				Members: []ir.StructMember{{Name: "x", Type: 2, Offset: 0}},
+				Span:    4,
+			}},
+			// 1: unnamed scalar, referenced by the global below.
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			// 2: unnamed scalar, referenced only by the dead struct.
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+		},
+		GlobalVariables: []ir.GlobalVariable{{Name: "g", Type: 1}},
+	}
+
+	compactTypes(module)
+
+	if len(module.Types) != 1 {
+		t.Fatalf("expected 1 type (only the referenced one), got %d: %+v", len(module.Types), module.Types)
+	}
+	if module.GlobalVariables[0].Type != 0 {
+		t.Errorf("global type remapped to %d, want 0", module.GlobalVariables[0].Type)
 	}
 }
 
@@ -1047,7 +1126,9 @@ func TestMarkTypeInnerRefs(t *testing.T) {
 			for i := range referenced {
 				referenced[i] = false
 			}
-			markTypeInnerRefs(tt.inner, referenced)
+			for _, h := range typeInnerRefs(tt.inner) {
+				referenced[h] = true
+			}
 			for _, idx := range tt.want {
 				if !referenced[idx] {
 					t.Errorf("expected index %d to be marked", idx)

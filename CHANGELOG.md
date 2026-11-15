@@ -22,9 +22,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `wgsl.ParseError` renders through the shared `internal/errfmt`; its behaviour is unchanged.
+- **GLSL frontend, Phase 2: MSL and HLSL output matches Rust naga's `naga-cli` byte for byte** on every derived
+  golden of the vendored GLSL corpus (design §18.2, new `TestGLSLTextReference`): 72 of 83 goldens match
+  exactly, 6 are the `#version` refusals (11 further source/backend pairs the pinned naga cannot translate
+  have no golden) and five are recorded deviations, each explained in the test — one where Rust's own output
+  is invalid HLSL, four where our compaction keeps a named type Rust drops (the typifier resolves modf/frexp
+  result structs by name until they are modeled, card P2-IR-034). The MSL writer now follows Rust's expression scoping (parentheses
+  of unary, binary, ternary and swizzle operands), renders constant composites the way Rust does (arrays as
+  `{{…}}`, structs with member padding, no splat collapsing) and writes no level/bias/gradient for a 1D image
+  sample: Metal's `texture1d` has no such `sample` overload. The HLSL writer now ports Rust's `GetDimensions`
+  rule per query and image shape (`NumLevels`/`NumSamples`/`NumLayers` read different components) and writes an
+  arrayed storage-image store as one `int3(coordinate, array_index)`, which is the only form HLSL accepts; two
+  images whose query wrappers differ in element type or storage format now get their own wrapper, as HLSL
+  overloads.
 
 ### Fixed
 
+- `naga.Compact` no longer keeps a global variable or function alive through an expression no statement
+  reaches (the GLSL frontend leaves such dead references in the entry point's arena — an unused push constant
+  stayed in every output), and traces the type graph from the used handles, so a type reachable only from an
+  unused type goes with it. Named types stay under both keep values: our typifier resolves the predeclared
+  modf/frexp result structs by name, so removing them broke compaction of any shader that uses `modf` or
+  `frexp` (card P2-IR-034 tracks the model that removes the exception).
 - The validator accepts duplicate function names and duplicate struct member names, as Rust naga's validator
   does: GLSL overloads share a function name, and the GLSL entry-point wrapper flattens an output array under
   the variable's own name.

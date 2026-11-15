@@ -312,11 +312,14 @@ func TestIRReferenceCompact(t *testing.T) {
 		name := filepath.Base(ronFile)
 		shaderName := strings.TrimPrefix(strings.TrimSuffix(name, ".compact.ron"), "wgsl-")
 
-		// Known diffs in compact comparison (same as non-compact + compact-specific)
+		// Known diffs in compact comparison: naga.Compact keeps every named
+		// type (our typifier resolves the predeclared modf/frexp result
+		// structs by name — P2-IR-034), while Rust's KeepUnused::No removes an
+		// unused named type.
 		knownOptimizationDiff := map[string]bool{
-			"types_with_comments": true, // naga.Compact keeps named types; Rust KeepUnused::No removes them
-			"module-scope":        true, // naga.Compact does not yet remove unused types (Vec2)
-			"type-alias":          true, // naga.Compact does not yet remove unused types
+			"types_with_comments": true,
+			"module-scope":        true,
+			"type-alias":          true,
 		}
 
 		t.Run(shaderName, func(t *testing.T) {

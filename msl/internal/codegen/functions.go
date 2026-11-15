@@ -1373,19 +1373,20 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 			}
 		}
 
-		// Structs use braces {}, vectors/matrices use parens ()
-		isStruct := false
+		// Scalars/vectors/matrices use parens; arrays use two brace levels
+		// (a naga array is a Metal array wrapped in a struct); structs use one,
+		// with a "{}" initializer for each padded member. Rust naga
+		// put_possibly_const_expression, Expression::Compose.
+		var inner ir.TypeInner
 		if int(k.Type) < len(w.module.Types) {
-			_, isStruct = w.module.Types[k.Type].Inner.(ir.StructType)
-			if !isStruct {
-				if _, isArr := w.arrayWrappers[k.Type]; isArr {
-					isStruct = true
-				}
-			}
+			inner = w.module.Types[k.Type].Inner
 		}
-		if isStruct {
+		switch inner.(type) {
+		case ir.ArrayType:
+			w.write("%s {{", typeName)
+		case ir.StructType:
 			w.write("%s {", typeName)
-		} else {
+		default:
 			w.write("%s(", typeName)
 		}
 		for i, comp := range k.Components {
@@ -1393,7 +1394,7 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 				w.write(", ")
 			}
 			// Insert padding initializer for struct members with padding before them
-			if isStruct {
+			if _, isStruct := inner.(ir.StructType); isStruct {
 				padKey := nameKey{kind: nameKeyStructMember, handle1: uint32(k.Type), handle2: uint32(i)}
 				if _, hasPad := w.structPads[padKey]; hasPad {
 					w.write("{}, ")
@@ -1403,9 +1404,12 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 				return err
 			}
 		}
-		if isStruct {
+		switch inner.(type) {
+		case ir.ArrayType:
+			w.write("}}")
+		case ir.StructType:
 			w.write("}")
-		} else {
+		default:
 			w.write(")")
 		}
 	case ir.ExprZeroValue:

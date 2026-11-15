@@ -17,7 +17,7 @@ struct type_1 {
 kernel void main_(
   device type_1& out [[user(fake0)]]
 ) {
-    type_1 tmp = type_1 {1, 2};
+    type_1 tmp = type_1 {{1, 2}};
     int i = 0;
     uint2 loop_bound = uint2(4294967295u);
     bool loop_init = true;

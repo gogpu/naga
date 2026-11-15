@@ -13,10 +13,12 @@ import (
 // With either keep value it removes the function expressions nothing refers
 // to, the constants, overrides and global expressions nothing uses (named
 // constants of a concrete type always stay), the abstract types and the
-// anonymous types nothing refers to any more. With KeepUnusedNo it first removes the global variables
-// and functions no entry point reaches, and the named overrides nothing uses.
-// Entry points, special types and named types always stay; Rust also removes
-// an unused named type under KeepUnused::No.
+// anonymous types nothing refers to any more. With KeepUnusedNo it first
+// removes the global variables and functions no entry point reaches, and the
+// named overrides nothing uses. Entry points, special types and named types
+// always stay: Rust also removes an unused named type under KeepUnused::No,
+// but our typifier resolves the predeclared __modf/__frexp result structs by
+// name until they are modeled (card P2-IR-034).
 func Compact(module *ir.Module, keep KeepUnused) {
 	CompactWithTypeOrder(module, keep, nil)
 }
@@ -61,7 +63,19 @@ func traceEntryPoints(module *ir.Module) (usedGlobals, usedFunctions []bool) {
 	// Trace a function's expressions and statements for global/function references.
 	var traceFunction func(f *ir.Function)
 	traceFunction = func(f *ir.Function) {
-		for _, expr := range f.Expressions {
+		// Only the expressions the statements, the named expressions and the
+		// local-variable initializers reach keep a global alive: Rust naga's
+		// FunctionTracer starts from the body and follows the expression tree
+		// (compact/functions.rs), so an expression the arena holds but nothing
+		// refers to does not count. The GLSL frontend leaves such dead
+		// references behind — its module-scope context becomes the entry
+		// point's arena — and counting them kept unused globals, a push
+		// constant among them, in compacted modules.
+		reachable := usedExpressions(f)
+		for i, expr := range f.Expressions {
+			if !reachable[i] {
+				continue
+			}
 			if gv, ok := expr.Kind.(ir.ExprGlobalVariable); ok {
 				usedGlobals[gv.Variable] = true
 			}
@@ -225,13 +239,19 @@ func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
 	}
 
 	// Step 1: Find all type handles referenced directly by handles
-	// (not embedded by value in Vector/Matrix/Atomic).
+	// (not embedded by value in Vector/Matrix/Atomic). A named type counts as
+	// used by definition, and its member types with it.
 	referenced := referencedTypes(module)
 
 	// Step 2: Determine which types to keep.
-	// Keep referenced types AND all named types.
-	// Rust naga's compact keeps all named types (structs, aliases, etc.) regardless
-	// of reference count. Only abstract types are force-removed.
+	// Keep referenced types and every named type. This deviates from Rust
+	// naga's compact, which treats a named type as used by definition only
+	// under KeepUnused::Yes (compact/mod.rs:252-257) and removes an unused one
+	// under KeepUnused::No: our typifier resolves the predeclared
+	// __modf_result_* / __frexp_result_* structs by name (records that carry
+	// their handles do not exist in our IR yet — card P2-IR-034), so removing
+	// them breaks type resolution of modf/frexp in a compacted module.
+	// Abstract types are force-removed under either value.
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
 		// Abstract types must not reach backends. A named type is kept
@@ -337,9 +357,14 @@ func remapTypeOrder(order, remap []ir.TypeHandle) []ir.TypeHandle {
 func referencedTypes(module *ir.Module) []bool {
 	referenced := make([]bool, len(module.Types))
 
-	// Types referencing other types by handle
-	for _, t := range module.Types {
-		markTypeInnerRefs(t.Inner, referenced)
+	// A named type is used by definition — compactTypes keeps every one — so
+	// its member types are used with it (Rust naga's compact/mod.rs:252-257
+	// does the same under KeepUnused::Yes; we keep named types under both
+	// values, see compactTypes).
+	for i, t := range module.Types {
+		if _, hasName := ir.NamePresence(t.Name, t.NamePresent); hasName {
+			referenced[i] = true
+		}
 	}
 
 	// Constants
@@ -381,6 +406,28 @@ func referencedTypes(module *ir.Module) []bool {
 	// where the IR never names them (Rust's trace_special_types).
 	for _, h := range specialTypeHandles(&module.SpecialTypes) {
 		referenced[*h] = true
+	}
+
+	// Propagate through the type graph from the handles above only: a type is
+	// used when a used handle names it or a used type names it. Rust naga's
+	// tracer follows the graph the same way (compact/expressions.rs,
+	// type_expression_tandem), so the member types of a dead type do not
+	// survive it.
+	queue := make([]ir.TypeHandle, 0, len(referenced))
+	for i, used := range referenced {
+		if used {
+			queue = append(queue, ir.TypeHandle(ArenaIndex(i)))
+		}
+	}
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		for _, ref := range typeInnerRefs(module.Types[h].Inner) {
+			if int(ref) < len(referenced) && !referenced[ref] {
+				referenced[ref] = true
+				queue = append(queue, ref)
+			}
+		}
 	}
 	return referenced
 }
@@ -432,23 +479,27 @@ func IsAbstractType(inner ir.TypeInner, types []ir.Type) bool {
 	return false
 }
 
-// markTypeInnerRefs marks type handles referenced by a TypeInner.
-// Only types that use handles (not embedded values) are marked.
-func markTypeInnerRefs(inner ir.TypeInner, referenced []bool) {
+// typeInnerRefs returns the type handles a TypeInner refers to.
+// Only types that use handles (not embedded values) are listed.
+func typeInnerRefs(inner ir.TypeInner) []ir.TypeHandle {
 	switch t := inner.(type) {
 	case ir.ArrayType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
 	case ir.StructType:
+		refs := make([]ir.TypeHandle, 0, len(t.Members))
 		for _, m := range t.Members {
-			referenced[m.Type] = true
+			refs = append(refs, m.Type)
 		}
+		return refs
 	case ir.PointerType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
 	case ir.BindingArrayType:
-		referenced[t.Base] = true
+		return []ir.TypeHandle{t.Base}
+	default:
 		// VectorType, MatrixType, AtomicType, ScalarType, SamplerType,
 		// ImageType, AccelerationStructureType, RayQueryType:
 		// These either have no type handle refs or embed scalars by value.
+		return nil
 	}
 }
 
@@ -530,6 +581,13 @@ func markGlobalExpressionTypeRefs(module *ir.Module, referenced []bool) {
 			root(*init)
 		}
 	}
+	// A workgroup-size or mesh max-* expression is an override-expression of
+	// i32/u32: constants, overrides, literals and arithmetic, none of which
+	// carries a type handle, so these roots cannot change the outcome today.
+	// They are rooted for symmetry with compactConstants, which keeps their
+	// expressions alive: a future expression kind with a type handle here must
+	// not lose its type.
+	rootEntryPointOverrides(module, root)
 
 	visited := make([]bool, n)
 	for progress := true; progress; {
@@ -984,5 +1042,27 @@ func remapExprTypeHandles(kind ir.ExpressionKind, remap []ir.TypeHandle) ir.Expr
 		return k
 	default:
 		return kind
+	}
+}
+
+// rootEntryPointOverrides roots the global expressions of an entry point that
+// are not initializers: the workgroup-size and mesh max-vertex/max-primitive
+// override expressions. See markGlobalExpressionTypeRefs for why.
+func rootEntryPointOverrides(module *ir.Module, root func(ir.ExpressionHandle)) {
+	for i := range module.EntryPoints {
+		ep := &module.EntryPoints[i]
+		for _, h := range ep.WorkgroupSizeOverrides {
+			if h != nil {
+				root(*h)
+			}
+		}
+		if mi := ep.MeshInfo; mi != nil {
+			if mi.MaxVerticesOverride != nil {
+				root(*mi.MaxVerticesOverride)
+			}
+			if mi.MaxPrimitivesOverride != nil {
+				root(*mi.MaxPrimitivesOverride)
+			}
+		}
 	}
 }

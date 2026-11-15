@@ -153,7 +153,7 @@ void abstract_access(
     uint b_1 = 1u;
     int c_1 = {};
     int d = {};
-    c_1 = uint(i) < 9 ? type_9 {1, 2, 3, 4, 5, 6, 7, 8, 9}.inner[i] : DefaultConstructible();
+    c_1 = uint(i) < 9 ? type_9 {{1, 2, 3, 4, 5, 6, 7, 8, 9}}.inner[i] : DefaultConstructible();
     d = uint(i) < 4 ? metal::int4(1, 2, 3, 4)[i] : DefaultConstructible();
     return;
 }

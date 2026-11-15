@@ -58,9 +58,9 @@ kernel void main_(
 ) {
     type_7 data = {};
     uint idx = 2u;
-    type_2 arr1_ = type_2 {1.0, 2.0, 3.0, 4.0};
-    type_4 arr2_ = type_4 {10, 20, 30};
-    type_6 arr3_ = type_6 {metal::float2(1.0, 2.0), metal::float2(3.0, 4.0)};
+    type_2 arr1_ = type_2 {{1.0, 2.0, 3.0, 4.0}};
+    type_4 arr2_ = type_4 {{10, 20, 30}};
+    type_6 arr3_ = type_6 {{metal::float2(1.0, 2.0), metal::float2(3.0, 4.0)}};
     float first = arr1_.inner[0];
     float last = arr1_.inner[3];
     float vec_elem = arr3_.inner[1].y;

@@ -58,13 +58,13 @@ void test_textureStore_2d(int2 coords_7, float4 value_1)
 
 void test_textureStore_2d_array_u(int2 coords_8, uint array_index, float4 value_2)
 {
-    image_storage_2d_array[coords_8, array_index] = value_2;
+    image_storage_2d_array[int3(coords_8, array_index)] = value_2;
     return;
 }
 
 void test_textureStore_2d_array_s(int2 coords_9, int array_index_1, float4 value_3)
 {
-    image_storage_2d_array[coords_9, array_index_1] = value_3;
+    image_storage_2d_array[int3(coords_9, array_index_1)] = value_3;
     return;
 }
 

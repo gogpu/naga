@@ -462,41 +462,38 @@ func (w *Writer) writeZeroValue(typeHandle ir.TypeHandle) error {
 }
 
 // writeCompose writes a composite construction.
+//
+// The three shapes are Rust naga's put_possibly_const_expression,
+// Expression::Compose (back/msl/writer.rs): scalars, vectors and matrices take
+// call parentheses; arrays take two brace levels, because a naga array is a
+// Metal array wrapped in a struct; structs take one brace level, with a "{}"
+// initializer written for every padded member. The components are never
+// collapsed: a vector whose components repeat one value is still written out in
+// full, as in `metal::float2(1.0, 1.0)`.
 func (w *Writer) writeCompose(compose ir.ExprCompose) error {
 	typeName := w.writeTypeName(compose.Type, StorageAccess(0))
-	useBraces := false
-	if _, ok := w.arrayWrappers[compose.Type]; ok {
-		useBraces = true
-	} else if int(compose.Type) < len(w.module.Types) {
-		if _, ok := w.module.Types[compose.Type].Inner.(ir.StructType); ok {
-			useBraces = true
-		}
+
+	var inner ir.TypeInner
+	if int(compose.Type) < len(w.module.Types) {
+		inner = w.module.Types[compose.Type].Inner
 	}
 
-	// Detect vector splat: all components reference the same expression handle.
-	// Emit single-arg constructor like metal::float4(1.0) instead of float4(1.0, 1.0, 1.0, 1.0).
-	// Matches Rust naga MSL output.
-	if !useBraces && len(compose.Components) > 1 && w.isVectorSplat(compose) {
-		w.write("%s(", typeName)
-		if err := w.writeExpression(compose.Components[0]); err != nil {
-			return err
-		}
-		w.write(")")
-		return nil
-	}
-
-	if useBraces {
+	switch inner.(type) {
+	case ir.ArrayType:
+		w.write("%s {{", typeName)
+	case ir.StructType:
 		w.write("%s {", typeName)
-	} else {
+	default:
 		w.write("%s(", typeName)
 	}
+
 	for i, component := range compose.Components {
 		if i > 0 {
 			w.write(", ")
 		}
 		// Insert padding initializer for struct members that have padding before them.
 		// Rust naga adds {} for each padding member in aggregate struct construction.
-		if useBraces && int(compose.Type) < len(w.module.Types) {
+		if _, isStruct := inner.(ir.StructType); isStruct {
 			padKey := nameKey{kind: nameKeyStructMember, handle1: uint32(compose.Type), handle2: uint32(i)}
 			if _, hasPad := w.structPads[padKey]; hasPad {
 				w.write("{}, ")
@@ -506,30 +503,16 @@ func (w *Writer) writeCompose(compose ir.ExprCompose) error {
 			return err
 		}
 	}
-	if useBraces {
+
+	switch inner.(type) {
+	case ir.ArrayType:
+		w.write("}}")
+	case ir.StructType:
 		w.write("}")
-	} else {
+	default:
 		w.write(")")
 	}
 	return nil
-}
-
-// isVectorSplat returns true if all components in a compose reference the
-// same expression handle, indicating a splat constructor.
-func (w *Writer) isVectorSplat(compose ir.ExprCompose) bool {
-	if int(compose.Type) >= len(w.module.Types) {
-		return false
-	}
-	if _, ok := w.module.Types[compose.Type].Inner.(ir.VectorType); !ok {
-		return false
-	}
-	first := compose.Components[0]
-	for _, c := range compose.Components[1:] {
-		if c != first {
-			return false
-		}
-	}
-	return true
 }
 
 // writeAccess writes a dynamic index access.
@@ -851,7 +834,7 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 
 	// Array, vector, or matrix access.
 	// Wrap in parens if base is a binary/select expression (matches Rust naga is_scoped=false).
-	needParens := w.needsParensInContext(access.Base)
+	needParens := w.needsParens(access.Base)
 	if needParens {
 		w.write("(")
 	}
@@ -923,12 +906,14 @@ func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 	return nil
 }
 
-// needsParens checks if a child expression needs parentheses in the context
-// of a parent binary operator. Matches Rust naga's is_scoped approach: any
-// binary expression used as an operand of another binary expression gets
-// wrapped in parentheses, regardless of precedence.
-// Exception: div/mod operations that are rewritten to naga_div/naga_mod helper
-// function calls are already scoped by the function call parentheses.
+// needsParens reports whether writing handle inline in a non-scoped position
+// needs parentheses, i.e. Rust naga's put_expression(handle, .., is_scoped=false)
+// wrapping it. Rust parenthesizes a binary or a scalar-conditional select unless
+// it is rewritten to a call, and an array length or ReadZeroSkipWrite ternary
+// (back/msl/writer.rs: put_binop, Expression::Select, Expression::ArrayLength,
+// put_bounds_checks). Every parent that passes is_scoped=false asks this:
+// binary operands, unary operands, the three operands of a scalar ternary, a
+// swizzle's vector and an access chain's terminal base.
 func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 	if w.currentFunction == nil || int(child) >= len(w.currentFunction.Expressions) {
 		return false
@@ -941,17 +926,9 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 	childExpr := w.currentFunction.Expressions[child]
 	switch k := childExpr.Kind.(type) {
 	case ir.ExprBinary:
-		// Div/mod on integers are rewritten to naga_div/naga_mod function calls,
-		// which are already parenthesized. Don't add extra parens.
-		if k.Op == ir.BinaryDivide || k.Op == ir.BinaryModulo {
-			if _, isInt := w.getIntegerOverload(k.Left); isInt && !w.options.SkipIntDivChecks {
-				return false
-			}
-		}
-		return true
+		return w.binaryNeedsParens(k)
 	case ir.ExprArrayLength:
 		// ArrayLength expands to "1 + ..." which contains a binary operator.
-		// Matches Rust naga: ArrayLength uses is_scoped wrapping.
 		return true
 	case ir.ExprSelect:
 		// A scalar-condition select is a C++ ternary, which binds looser than
@@ -963,6 +940,34 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 	default:
 		return false
 	}
+}
+
+// binaryNeedsParens reports whether writeBinary writes the expression as an
+// infix operator. Rust naga's Binary arm rewrites some operators to calls,
+// which are scoped by their own parentheses, and leaves the rest to put_binop,
+// whose outer parentheses appear only in a non-scoped position
+// (back/msl/writer.rs, Expression::Binary).
+func (w *Writer) binaryNeedsParens(k ir.ExprBinary) bool {
+	switch k.Op {
+	case ir.BinaryDivide:
+		// naga_div(a, b)
+		if _, isInt := w.getIntegerOverload(k.Left); isInt && !w.options.SkipIntDivChecks {
+			return false
+		}
+	case ir.BinaryModulo:
+		// naga_mod(a, b) for integers, metal::fmod(a, b) for floats; a plain %
+		// only when integer division checks are disabled.
+		if _, isInt := w.getIntegerOverload(k.Left); isInt {
+			return w.options.SkipIntDivChecks
+		}
+		return false
+	case ir.BinaryAdd, ir.BinarySubtract, ir.BinaryMultiply:
+		// as_type<T>(as_type<uint>(a) OP as_type<uint>(b))
+		if _, _, signed := w.getSignedWrappingTypes(k.Left); signed {
+			return false
+		}
+	}
+	return true
 }
 
 // isTernarySelect reports whether a select is written as a C++ ternary
@@ -996,40 +1001,6 @@ func (w *Writer) rendersAsRZSWTernary(handle ir.ExpressionHandle) bool {
 	return false
 }
 
-// needsParensInContext checks if an expression would need parentheses when
-// rendered in a "non-scoped" context (matching Rust naga's is_scoped=false).
-// In Rust naga, Binary and Select expressions add outer parens when !is_scoped.
-func (w *Writer) needsParensInContext(handle ir.ExpressionHandle) bool {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return false
-	}
-	// If this expression is a named expression (already baked), it's just a name reference
-	// and doesn't need parens.
-	if _, ok := w.namedExpressions[handle]; ok {
-		return false
-	}
-	if w.currentFunction.NamedExpressions != nil {
-		if _, ok := w.currentFunction.NamedExpressions[handle]; ok {
-			return false
-		}
-	}
-	expr := w.currentFunction.Expressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.ExprBinary:
-		return true
-	case ir.ExprSelect:
-		// Only the ternary form; metal::select(...) is a call and is scoped.
-		return w.isTernarySelect(k)
-	case ir.ExprArrayLength:
-		// ArrayLength expands to "1 + ..." which needs parenthesization.
-		// Matches Rust naga: ArrayLength uses is_scoped wrapping.
-		return true
-	case ir.ExprAccess, ir.ExprAccessIndex, ir.ExprLoad:
-		return w.rendersAsRZSWTernary(handle)
-	}
-	return false
-}
-
 // isMatrixType checks if the given expression resolves to a matrix type.
 func (w *Writer) isMatrixType(handle ir.ExpressionHandle) bool {
 	t := w.getExpressionType(handle)
@@ -1055,8 +1026,10 @@ func (w *Writer) writeBitcastOperand(handle ir.ExpressionHandle) error {
 }
 
 // writeWrappedBinaryOperand writes a binary operand, wrapping packed vec3 in a
-// cast to regular vec3 if wrapPackedVec3 is true. Also adds parens if needed.
-// Matches Rust naga put_wrapped_expression_for_packed_vec3_access.
+// cast to regular vec3 if wrapPackedVec3 is true. The operand is written with
+// is_scoped=false, as put_binop does; the cast, when present, takes the
+// parentheses inside itself, as Rust naga's
+// put_wrapped_expression_for_packed_vec3_access writes them.
 func (w *Writer) writeWrappedBinaryOperand(handle ir.ExpressionHandle, wrapPackedVec3 bool) error {
 	packed := false
 	// The packed member's scalar decides the cast, as Rust's
@@ -1068,16 +1041,8 @@ func (w *Writer) writeWrappedBinaryOperand(handle ir.ExpressionHandle, wrapPacke
 		}
 	}
 
-	if w.needsParens(handle) {
-		w.write("(")
-		if err := w.writeExpression(handle); err != nil {
-			return err
-		}
-		w.write(")")
-	} else {
-		if err := w.writeExpression(handle); err != nil {
-			return err
-		}
+	if err := w.writeNonScoped(handle); err != nil {
+		return err
 	}
 
 	if packed {
@@ -1123,19 +1088,11 @@ func (w *Writer) writeSwizzle(swizzle ir.ExprSwizzle) error {
 			w.write("%sfloat3(", Namespace)
 		}
 	}
-	// Wrap in parens if vector is a binary/select expression.
-	// C++ member access (.) binds tighter than arithmetic operators,
-	// so (mat * vec).xyz must not be emitted as mat * vec.xyz.
-	// Matches Rust naga is_scoped=false in put_expression → put_binop.
-	needParens := !needsUnpack && w.needsParensInContext(swizzle.Vector)
-	if needParens {
-		w.write("(")
-	}
-	if err := w.writeExpression(swizzle.Vector); err != nil {
+	// The vector is written with is_scoped=false: member access (.) binds
+	// tighter than arithmetic, so (mat * vec).xyz must not be emitted as
+	// mat * vec.xyz (Rust naga put_expression(.., false) → put_binop).
+	if err := w.writeNonScoped(swizzle.Vector); err != nil {
 		return err
-	}
-	if needParens {
-		w.write(")")
 	}
 	if needsUnpack {
 		w.write(")")
@@ -1550,7 +1507,7 @@ func (w *Writer) writeUnary(unary ir.ExprUnary) error {
 			}
 			w.registerNegHelper(*argScalar, vecSize)
 			w.write("naga_neg(")
-			if err := w.writeExpression(unary.Expr); err != nil {
+			if err := w.writeNonScoped(unary.Expr); err != nil {
 				return err
 			}
 			w.write(")")
@@ -1566,7 +1523,25 @@ func (w *Writer) writeUnary(unary ir.ExprUnary) error {
 	}
 
 	w.write("%s(", op)
-	if err := w.writeExpression(unary.Expr); err != nil {
+	if err := w.writeNonScoped(unary.Expr); err != nil {
+		return err
+	}
+	w.write(")")
+	return nil
+}
+
+// writeNonScoped writes an expression in a position where Rust naga passes
+// is_scoped=false: an operand of a unary operator, of a binary operator, of a
+// scalar ternary select, or a swizzle's vector (back/msl/writer.rs). The
+// expression carries its own parentheses in that case, as in `~((a | i))`,
+// `(a < 3u) ? (a - i) : (a + i)` and `!((a != 1u))`. An operand that is already
+// scoped — a cast, a call, a name — gains nothing.
+func (w *Writer) writeNonScoped(operand ir.ExpressionHandle) error {
+	if !w.needsParens(operand) {
+		return w.writeExpression(operand)
+	}
+	w.write("(")
+	if err := w.writeExpression(operand); err != nil {
 		return err
 	}
 	w.write(")")
@@ -1777,24 +1752,17 @@ func (w *Writer) writeSelect(sel ir.ExprSelect) error {
 	}
 
 	// Scalar bool: ternary operator. Matches Rust naga: condition ? accept : reject
-	// Rust naga passes is_scoped=false for the condition sub-expression, which adds
-	// parens around binary operations. We check explicitly and wrap if needed.
-	needCondParens := w.needsParensInContext(sel.Condition)
-	if needCondParens {
-		w.write("(")
-	}
-	if err := w.writeExpression(sel.Condition); err != nil {
+	// All three operands are written with is_scoped=false, so a binary or nested
+	// ternary among them is wrapped (back/msl/writer.rs, Expression::Select).
+	if err := w.writeNonScoped(sel.Condition); err != nil {
 		return err
 	}
-	if needCondParens {
-		w.write(")")
-	}
 	w.write(" ? ")
-	if err := w.writeExpression(sel.Accept); err != nil {
+	if err := w.writeNonScoped(sel.Accept); err != nil {
 		return err
 	}
 	w.write(" : ")
-	return w.writeExpression(sel.Reject)
+	return w.writeNonScoped(sel.Reject)
 }
 
 // writeMath writes a math function call.
@@ -2719,7 +2687,10 @@ func (w *Writer) writeImageSample(sample ir.ExprImageSample) error {
 		}
 	}
 
-	// Level of detail
+	// Level of detail. A 1D or non-mipmapped image has no Metal sample
+	// overload that takes one, so the argument is omitted as Rust naga's
+	// put_image_sample_level does (see imageNeedsLod).
+	hasLevels := w.imageNeedsLod(sample.Image)
 	switch level := sample.Level.(type) {
 	case ir.SampleLevelAuto:
 		// Default, no argument needed
@@ -2727,18 +2698,27 @@ func (w *Writer) writeImageSample(sample ir.ExprImageSample) error {
 		// Matches Rust naga: SampleLevel::Zero is a no-op in MSL.
 		// Depth textures use sample_compare which implicitly uses level 0.
 	case ir.SampleLevelExact:
+		if !hasLevels {
+			break
+		}
 		w.write(", %slevel(", Namespace)
 		if err := w.writeExpression(level.Level); err != nil {
 			return err
 		}
 		w.write(")")
 	case ir.SampleLevelBias:
+		if !hasLevels {
+			break
+		}
 		w.write(", %sbias(", Namespace)
 		if err := w.writeExpression(level.Bias); err != nil {
 			return err
 		}
 		w.write(")")
 	case ir.SampleLevelGradient:
+		if !hasLevels {
+			break
+		}
 		w.write(", %sgradient2d(", Namespace)
 		if err := w.writeExpression(level.X); err != nil {
 			return err
@@ -2851,19 +2831,31 @@ func (w *Writer) writeImageLoadUnchecked(load ir.ExprImageLoad, imgType *ir.Imag
 	return nil
 }
 
-// imageNeedsLod returns true if the image supports level-of-detail arguments.
-// 1D textures cannot have mipmaps in MSL, so LOD is always omitted for them.
-// Matches Rust naga's image_needs_lod.
+// imageNeedsLod returns true if the image supports level-of-detail arguments,
+// i.e. it is mipmapped (non-multisampled Sampled or Depth) and is not 1D.
+// Matches Rust naga's image_needs_lod (back/msl/writer.rs) over
+// proc::ImageClass::is_mipmapped.
+//
+// MSL's texture1d has no sample overload taking a level, bias or gradient: the
+// sampler overload group of Tint's MSL intrinsic table
+// (src/tint/lang/msl/intrinsic/data.cc, `sample`) lists texture_1d<f32> with
+// only sample(sampler, coords: f32), while level/bias/gradient exist for 2d,
+// 3d and cube. Writing metal::level / metal::gradient2d for a 1D image, as this
+// writer used to, does not compile on Metal.
 func (w *Writer) imageNeedsLod(imageHandle ir.ExpressionHandle) bool {
 	imgType := w.resolveImageType(imageHandle)
 	if imgType == nil {
-		return true // default to needing LOD if we can't resolve
+		return false // Rust: a non-image type is not mipmapped
 	}
 	if imgType.Dim == ir.Dim1D {
 		return false
 	}
-	// Only mipmapped images need LOD
-	return imgType.Class == ir.ImageClassSampled || imgType.Class == ir.ImageClassDepth
+	switch imgType.Class {
+	case ir.ImageClassSampled, ir.ImageClassDepth:
+		return !imgType.Multisampled
+	default:
+		return false
+	}
 }
 
 // writeImageLoadRestrict writes a texture load with Restrict bounds checking.

@@ -307,12 +307,28 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 }
 
 // wrappedImageQueryKey identifies a unique image query wrapper function.
-// Matches Rust naga's WrappedImageQuery.
+// Matches Rust naga's WrappedImageQuery, with one deliberate difference in the
+// storage access.
+//
+// The key carries everything the wrapper's parameter type depends on — the
+// sampled scalar kind and the storage format, as Rust's
+// ImageClass::Sampled { kind } and Storage { format, access } do — so two
+// images of the same shape but a different element type get their own
+// wrappers. Their names coincide, which HLSL resolves as overloads, exactly
+// as Rust's output does.
+//
+// Unlike Rust, the storage *access* is not part of the key: Rust's key
+// includes it, so two storage images of the same shape, format and access
+// difference get two wrappers with the same name and the same parameter type —
+// which HLSL rejects as a redefinition of the same function. The wrapper text
+// does not depend on the access, so one wrapper serves every access.
 type wrappedImageQueryKey struct {
 	dim     ir.ImageDimension
 	arrayed bool
 	class   ir.ImageClass
 	multi   bool // for sampled/depth multisampled
+	kind    ir.ScalarKind
+	format  ir.StorageFormat
 	query   imageQueryType
 }
 
@@ -1036,13 +1052,7 @@ func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, 
 		return
 	}
 
-	key := wrappedImageQueryKey{
-		dim:     imgType.Dim,
-		arrayed: imgType.Arrayed,
-		class:   imgType.Class,
-		multi:   imgType.Multisampled,
-		query:   qt,
-	}
+	key := wrappedImageQueryKeyFor(imgType, qt)
 
 	if _, exists := w.wrappedImageQueries[key]; exists {
 		return
@@ -1052,8 +1062,25 @@ func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, 
 	w.writeWrappedImageQueryFunction(key, imgType)
 }
 
-// handleImageLoadHelper handles a single ImageLoad expression for the inline loop.
-// Writes nagaTextureLoadExternal helper if the image is an external texture.
+// wrappedImageQueryKeyFor builds the wrapper key of one image query. Every
+// field the wrapper's text or parameter type depends on must come from here —
+// the three call sites used to build the key by hand and two of them silently
+// missed the sampled kind and the storage format.
+func wrappedImageQueryKeyFor(imgType *ir.ImageType, qt imageQueryType) wrappedImageQueryKey {
+	return wrappedImageQueryKey{
+		dim:     imgType.Dim,
+		arrayed: imgType.Arrayed,
+		class:   imgType.Class,
+		multi:   imgType.Multisampled,
+		kind:    imgType.SampledKind,
+		format:  imgType.StorageFormat,
+		query:   qt,
+	}
+}
+
+// handleImageLoadHelper handles a single ImageLoad expression for the inline
+// loop. Writes nagaTextureLoadExternal helper if the image is an external
+// texture.
 func (w *Writer) handleImageLoadHelper(fn *ir.Function, il ir.ExprImageLoad) {
 	imgType := w.resolveImageTypeFromFn(fn, il.Image)
 	if imgType != nil && imgType.Class == ir.ImageClassExternal {
@@ -1205,13 +1232,7 @@ func (w *Writer) writeWrappedImageQueryFunctions(fn *ir.Function) {
 			continue
 		}
 
-		key := wrappedImageQueryKey{
-			dim:     imgType.Dim,
-			arrayed: imgType.Arrayed,
-			class:   imgType.Class,
-			multi:   imgType.Multisampled,
-			query:   qt,
-		}
+		key := wrappedImageQueryKeyFor(imgType, qt)
 
 		if _, exists := w.wrappedImageQueries[key]; exists {
 			continue
@@ -1291,7 +1312,10 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 		extraCoords = 1
 	}
 
-	// Determine return swizzle and number of GetDimensions parameters
+	// Determine return swizzle and number of GetDimensions parameters.
+	// Mirrors help.rs write_wrapped_image_query_function exactly: the swizzle
+	// each query reads and the number of GetDimensions outputs it fills differ
+	// per query and per image shape.
 	var retSwizzle string
 	var numParams int
 
@@ -1308,14 +1332,32 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 			retSwizzle = "xy"
 		}
 		numParams = len(retSwizzle) + arrayCoords + extraCoords
-	case imageQueryNumLevels, imageQueryNumSamples, imageQueryNumLayers:
-		if key.arrayed || key.dim == ir.Dim3D {
-			retSwizzle = "w"
-			numParams = 4
-		} else {
-			retSwizzle = "z"
-			numParams = 3
+	case imageQueryNumLevels, imageQueryNumSamples:
+		// GetDimensions reports the level (or sample) count in a fixed
+		// component of the overload's outputs: y for 1D, w for 3D, and for
+		// 2D/cube w when arrayed (elements and levels) or z when not.
+		switch key.dim {
+		case ir.Dim1D:
+			retSwizzle, numParams = "y", 2
+		case ir.Dim3D:
+			retSwizzle, numParams = "w", 4
+		case ir.Dim2D, ir.DimCube:
+			if key.arrayed {
+				retSwizzle, numParams = "w", 4
+			} else {
+				retSwizzle, numParams = "z", 3
+			}
+		default:
+			// Unreachable: ImageDimension has exactly the four values above.
+			// Kept so a future dimension cannot make the GetDimensions
+			// argument loop index below zero.
+			retSwizzle, numParams = "z", 3
 		}
+	case imageQueryNumLayers:
+		// The element count is always the third output; sampled and depth
+		// images ask for the level count with it, storage images have none.
+		retSwizzle = "z"
+		numParams = 3 + extraCoords
 	}
 
 	// Write return type
