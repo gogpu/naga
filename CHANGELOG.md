@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Errors have the WGSL frontend's shape: one `*ParseError` whose labels carry the first error and whose notes
   carry the rest. 44 of the 47 Rust GLSL test shaders parse into modules that validate and compile through
   the SPIR-V, MSL and HLSL backends; the other three carry no `#version` directive and are refused.
+- **GLSL frontend, Phase 3: images and sampling end to end** (NAGA-FEAT-002). The texture and image surface covers
+  every form the image and sampling matrix exercises under `#version 450`, each verified end to end through
+  validation, SPIR-V (spirv-val), MSL and HLSL: the `texture()` family with bias, offset, gradient, LOD and projection
+  variants; shadow comparisons for 2D, 2D arrays, cubes and cube arrays; `texelFetch`/`texelFetchOffset`
+  including the multisampled form; `textureSize` for every dimension with its arrayed and multisampled shapes;
+  `textureQueryLevels`; and `imageLoad`/`imageStore`/`imageSize` on 2D, 3D and arrayed storage images with the
+  float, unorm, uint and int formats. New beyond Rust's GLSL frontend, each with its tests: `textureGather` and
+  `textureGatherOffset` (sampled, depth, and the constant `comp` argument), the `memoryBarrier*` family and
+  `groupMemoryBarrier`, and `barrier()` mapped to the workgroup barrier glslang emits — Rust's `Barrier::all()`
+  forced SPIR-V 1.3 and subgroup semantics on an ordinary compute shader. `textureGatherOffsets` and
+  `memoryBarrierAtomicCounter` are refused with a message naming the limitation, and `groupMemoryBarrier` orders
+  at device scope (never narrower than glslang); both record the IR gaps they wait on.
 
 ### Changed
 
@@ -38,6 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V: image size and layer queries on multisampled and storage images.** The layer-count query always
+  emitted `OpImageQuerySizeLod`, but the level-carrying form is only valid for a sampled or depth image with a
+  single sample; multisampled and storage images take the level-free `OpImageQuerySize`, whose last component is
+  the layer count. Reachable from WGSL `textureDimensions`/`textureNumLayers` on storage textures and from GLSL
+  `textureSize`. A 1D arrayed size query now extracts its scalar width with `OpCompositeExtract` instead of an
+  invalid vector shuffle (Rust naga's writer has the same flaw there; its GLSL frontend never reaches the shape).
+- **A texture offset must be a constant expression** (GLSL 4.50 §8.9), for the `texture*Offset` family as for
+  `textureGatherOffset`: a run-time offset used to be accepted and written as the `ConstOffset` operand of an
+  `OpImageSample*` instruction, which `spirv-val` rejects ("Expected Image Operand ConstOffset to be a const
+  object"). It is a `*ParseError` naming the rule now. glslang is laxer here and accepts the source; the spec
+  decides.
 - **The validator checks store and initializer types, and entry-point varying types**, as Rust naga's does.
   A store whose value type does not match the pointer's and a local initializer that does not match the
   variable were accepted and then failed in every backend (`mat3x2 c = m3;`, `vec4 → vec3`, `int i = 1.9`);

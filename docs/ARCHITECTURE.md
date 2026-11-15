@@ -109,9 +109,12 @@ naga/
 │   ├── msl.go                     # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
 │   └── internal/codegen/          # ALL implementation
 │
-├── glsl/                          # GLSL backend
+├── glsl/                          # GLSL backend and GLSL input
 │   ├── glsl.go                    # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
-│   └── internal/codegen/          # ALL implementation
+│   ├── parse.go                   # Input API: Parse, ParseOptions, ParseInfo, ParseError (Vulkan GLSL 440/450/460)
+│   ├── internal/codegen/          # Backend: ALL implementation
+│   └── internal/front/            # Input frontend: preprocessor, lexer, parser, HIR lowering, builtin catalogue
+│                                  # (image and sampling families, barriers), combined-sampler split; limits in limits.go
 │
 ├── hlsl/                          # HLSL backend
 │   ├── hlsl.go                    # Public API: Compile, Options, TranslationInfo, SupportedCapabilities
@@ -143,7 +146,9 @@ naga/
 
 The stages below are the WGSL path. The SPIR-V input path (`spirv.Parse`) replaces stages 1-3: it reads the
 binary sections and builds the same IR directly, including Rust naga's entry-point wrapper (inputs copied from
-arguments, outputs loaded and returned, built-in outputs defaulted).
+arguments, outputs loaded and returned, built-in outputs defaulted). The GLSL input path (`glsl.Parse`) also
+replaces stages 1-3 with its own pipeline under `glsl/internal/front` — preprocessor, lexer, parser and lowering
+to the same IR, with combined image samplers split into an image global and a sampler global.
 
 ### Stage 1: Lexer
 
