@@ -2921,13 +2921,7 @@ func (w *Writer) writeImageQueryExpression(e ir.ExprImageQuery) error {
 	}
 
 	// Build the wrapper key
-	key := wrappedImageQueryKey{
-		dim:     imgType.Dim,
-		arrayed: imgType.Arrayed,
-		class:   imgType.Class,
-		multi:   imgType.Multisampled,
-		query:   qt,
-	}
+	key := wrappedImageQueryKeyFor(imgType, qt)
 
 	// Ensure the wrapper function exists
 	if _, exists := w.wrappedImageQueries[key]; !exists {

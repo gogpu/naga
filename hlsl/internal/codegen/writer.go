@@ -307,18 +307,28 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 }
 
 // wrappedImageQueryKey identifies a unique image query wrapper function.
-// Matches Rust naga's WrappedImageQuery.
+// Matches Rust naga's WrappedImageQuery, with one deliberate difference in the
+// storage access.
 //
-// Unlike Rust, the storage format and access are not part of the key: Rust's
-// ImageClass::Storage carries both, so two storage images of the same shape but
-// a different access get two wrappers with the same name and parameter type —
+// The key carries everything the wrapper's parameter type depends on — the
+// sampled scalar kind and the storage format, as Rust's
+// ImageClass::Sampled { kind } and Storage { format, access } do — so two
+// images of the same shape but a different element type get their own
+// wrappers. Their names coincide, which HLSL resolves as overloads, exactly
+// as Rust's output does.
+//
+// Unlike Rust, the storage *access* is not part of the key: Rust's key
+// includes it, so two storage images of the same shape, format and access
+// difference get two wrappers with the same name and the same parameter type —
 // which HLSL rejects as a redefinition of the same function. The wrapper text
-// does not depend on either field, so one wrapper serves every access.
+// does not depend on the access, so one wrapper serves every access.
 type wrappedImageQueryKey struct {
 	dim     ir.ImageDimension
 	arrayed bool
 	class   ir.ImageClass
 	multi   bool // for sampled/depth multisampled
+	kind    ir.ScalarKind
+	format  ir.StorageFormat
 	query   imageQueryType
 }
 
@@ -1042,13 +1052,7 @@ func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, 
 		return
 	}
 
-	key := wrappedImageQueryKey{
-		dim:     imgType.Dim,
-		arrayed: imgType.Arrayed,
-		class:   imgType.Class,
-		multi:   imgType.Multisampled,
-		query:   qt,
-	}
+	key := wrappedImageQueryKeyFor(imgType, qt)
 
 	if _, exists := w.wrappedImageQueries[key]; exists {
 		return
@@ -1058,8 +1062,25 @@ func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, 
 	w.writeWrappedImageQueryFunction(key, imgType)
 }
 
-// handleImageLoadHelper handles a single ImageLoad expression for the inline loop.
-// Writes nagaTextureLoadExternal helper if the image is an external texture.
+// wrappedImageQueryKeyFor builds the wrapper key of one image query. Every
+// field the wrapper's text or parameter type depends on must come from here —
+// the three call sites used to build the key by hand and two of them silently
+// missed the sampled kind and the storage format.
+func wrappedImageQueryKeyFor(imgType *ir.ImageType, qt imageQueryType) wrappedImageQueryKey {
+	return wrappedImageQueryKey{
+		dim:     imgType.Dim,
+		arrayed: imgType.Arrayed,
+		class:   imgType.Class,
+		multi:   imgType.Multisampled,
+		kind:    imgType.SampledKind,
+		format:  imgType.StorageFormat,
+		query:   qt,
+	}
+}
+
+// handleImageLoadHelper handles a single ImageLoad expression for the inline
+// loop. Writes nagaTextureLoadExternal helper if the image is an external
+// texture.
 func (w *Writer) handleImageLoadHelper(fn *ir.Function, il ir.ExprImageLoad) {
 	imgType := w.resolveImageTypeFromFn(fn, il.Image)
 	if imgType != nil && imgType.Class == ir.ImageClassExternal {
@@ -1211,13 +1232,7 @@ func (w *Writer) writeWrappedImageQueryFunctions(fn *ir.Function) {
 			continue
 		}
 
-		key := wrappedImageQueryKey{
-			dim:     imgType.Dim,
-			arrayed: imgType.Arrayed,
-			class:   imgType.Class,
-			multi:   imgType.Multisampled,
-			query:   qt,
-		}
+		key := wrappedImageQueryKeyFor(imgType, qt)
 
 		if _, exists := w.wrappedImageQueries[key]; exists {
 			continue

@@ -131,3 +131,26 @@ func TestImageSampleLevelOmittedFor1D(t *testing.T) {
 		t.Errorf("metal::gradient2d written %d times, want 1 (2D only)", got)
 	}
 }
+
+// TestFunctionComposeKeepsRepeatedComponents is the function-body counterpart
+// of TestVectorComposeKeepsRepeatedComponents: writeCompose used to collapse a
+// vector whose components repeated one value into a one-argument constructor
+// (`metal::float2(a)`); Rust naga writes the components out in full. The WGSL
+// frontend produces a Compose (not a Splat) for `vec2<f32>(a, a)`, which is
+// the shape this pins.
+func TestFunctionComposeKeepsRepeatedComponents(t *testing.T) {
+	const src = `
+@fragment fn main(@location(0) a: f32) -> @location(0) vec4<f32> {
+    let v = vec2<f32>(a, a);
+    return vec4<f32>(v, 0.0, 1.0);
+}
+`
+	code := compileWGSL(t, src)
+	for _, call := range regexp.MustCompile(`metal::float2\(([^()]*)\)`).FindAllStringSubmatch(code, -1) {
+		args := strings.Split(call[1], ", ")
+		if len(args) == 2 && args[0] == args[1] {
+			return
+		}
+	}
+	t.Errorf("function-body vector compose collapsed its repeated components, want metal::float2(x, x):\n%s", code)
+}

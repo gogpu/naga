@@ -140,3 +140,83 @@ func TestWrappedImageQueryFunctionBody(t *testing.T) {
 		})
 	}
 }
+
+// TestCompile_ImageQueryMixedSampledKinds pins the scalar kind in the wrapper
+// key: two sampled textures of the same shape but different element types get
+// one wrapper each, and their names coincide — HLSL resolves that as
+// overloads, as Rust naga's output does (its ImageClass::Sampled carries the
+// kind). Without the kind in the key one wrapper of the first type received
+// the other texture and dxc rejected the call.
+func TestCompile_ImageQueryMixedSampledKinds(t *testing.T) {
+	const src = `
+@group(0) @binding(0) var tf: texture_2d<f32>;
+@group(0) @binding(1) var ti: texture_2d<i32>;
+
+@fragment fn main() -> @location(0) vec4<f32> {
+    let a = textureDimensions(tf);
+    let b = textureDimensions(ti);
+    return vec4<f32>(f32(a.x + b.x), 0.0, 0.0, 1.0);
+}
+`
+	code := compileWGSLToHLSL(t, src, nil)
+	for _, want := range []string{
+		"uint2 NagaDimensions2D(Texture2D<float4> tex)",
+		"uint2 NagaDimensions2D(Texture2D<int4> tex)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing wrapper overload %q in output:\n%s", want, code)
+		}
+	}
+}
+
+// TestCompile_ImageQueryMixedStorageFormats pins the storage format in the
+// wrapper key: the parameter type is format-specific
+// (RWTexture2D<float> vs RWTexture2D<unorm float4>), so two formats need two
+// wrappers. Rust's key carries the format for the same reason.
+func TestCompile_ImageQueryMixedStorageFormats(t *testing.T) {
+	const src = `
+@group(0) @binding(0) var rf: texture_storage_2d<r32float, write>;
+@group(0) @binding(1) var ru: texture_storage_2d<rgba8unorm, write>;
+
+@compute @workgroup_size(1)
+fn cs_main() {
+    let a = textureDimensions(rf);
+    let b = textureDimensions(ru);
+    textureStore(rf, vec2<i32>(0, 0), vec4<f32>(1.0));
+    textureStore(ru, vec2<i32>(0, 0), vec4<f32>(f32(a.x + b.x)));
+}
+`
+	code := compileWGSLToHLSL(t, src, nil)
+	for _, want := range []string{
+		"uint2 NagaRWDimensions2D(RWTexture2D<float> tex)",
+		"uint2 NagaRWDimensions2D(RWTexture2D<unorm float4> tex)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing wrapper overload %q in output:\n%s", want, code)
+		}
+	}
+}
+
+// TestCompile_ImageQueryStorageAccessSharesWrapper pins the deliberate
+// difference from Rust: the storage access is not part of the key, so two
+// storage images of the same shape and format but different access share one
+// wrapper. Rust writes two same-named, same-signature definitions there,
+// which dxc rejects as a redefinition (the images.frag deviation of
+// TestGLSLTextReference).
+func TestCompile_ImageQueryStorageAccessSharesWrapper(t *testing.T) {
+	const src = `
+@group(0) @binding(0) var rw: texture_storage_2d<rgba8unorm, read_write>;
+@group(0) @binding(1) var wo: texture_storage_2d<rgba8unorm, write>;
+
+@compute @workgroup_size(1)
+fn cs_main() {
+    let a = textureDimensions(rw);
+    let b = textureDimensions(wo);
+    textureStore(rw, vec2<i32>(0, 0), vec4<f32>(f32(a.x + b.x)));
+}
+`
+	code := compileWGSLToHLSL(t, src, nil)
+	if got := strings.Count(code, "uint2 NagaRWDimensions2D(RWTexture2D<unorm float4> tex)"); got != 1 {
+		t.Errorf("NagaRWDimensions2D defined %d times, want exactly 1 shared wrapper:\n%s", got, code)
+	}
+}
