@@ -137,6 +137,12 @@ const (
 	macroDerivate
 	macroBarrier
 	macroSmoothStep
+	// macroMemoryBarrier is a memory barrier (OpMemoryBarrier); macroBarrier is
+	// the control barrier with execution sync (OpControlBarrier).
+	macroMemoryBarrier
+	// macroTextureGather is the textureGather family, which is a sampling
+	// operation with the IR's Gather component set.
+	macroTextureGather
 )
 
 // textureLevelType says where a texture() family call takes its level of
@@ -179,6 +185,14 @@ type macroCall struct {
 	arrayed bool
 	multi   bool
 
+	// flags are the barrier flags of a macroMemoryBarrier expansion;
+	// macroBarrier asks for barrierFlags, the one workgroup barrier.
+	flags ir.BarrierFlags
+
+	// hasComp marks the textureGather overload that takes the component index
+	// as its last argument.
+	hasComp bool
+
 	// axis and control describe a macroDerivate expansion.
 	axis    ir.DerivativeAxis
 	control ir.DerivativeControl
@@ -195,8 +209,22 @@ func (m *macroCall) arity() int {
 		return 3
 	case macroBitfieldInsert:
 		return 4
-	case macroBarrier:
+	case macroBarrier, macroMemoryBarrier:
 		return 0
+	case macroTextureGather:
+		// The image and the coordinate; the depth reference, the offset and the
+		// component follow, each present only when the overload has it.
+		n := 2
+		if m.shadow {
+			n++
+		}
+		if m.offset {
+			n++
+		}
+		if m.hasComp {
+			n++
+		}
+		return n
 	case macroSplatted:
 		return max(1, m.arg+1)
 	default:
@@ -354,8 +382,16 @@ func (m *macroCall) call(c *Context, args []loweredArg, span ir.Span) (ir.Expres
 
 	case macroBarrier:
 		c.emitRestart()
-		c.body = append(c.body, ir.Statement{Kind: ir.StmtControlBarrier{Flags: barrierAll}})
+		c.body = append(c.body, ir.Statement{Kind: ir.StmtControlBarrier{Flags: barrierFlags}})
 		return 0, false, nil
+
+	case macroMemoryBarrier:
+		c.emitRestart()
+		c.body = append(c.body, ir.Statement{Kind: ir.StmtMemoryBarrier{Flags: m.flags}})
+		return 0, false, nil
+
+	case macroTextureGather:
+		return m.callTextureGather(c, args, span)
 
 	case macroSmoothStep:
 		arg0, err := c.implicitSplat(args[0].expr, span, m.size)
@@ -377,9 +413,110 @@ func (m *macroCall) call(c *Context, args []loweredArg, span ir.Span) (ir.Expres
 	return 0, false, errInternal("unknown builtin expansion", span)
 }
 
-// barrierAll is the barrier flags GLSL's barrier() asks for: every memory
-// class plus execution, Rust's Barrier::all() (builtins.rs:2039).
-const barrierAll = ir.BarrierStorage | ir.BarrierWorkGroup | ir.BarrierSubGroup | ir.BarrierTexture
+// barrierFlags is what GLSL's barrier() asks for: a workgroup barrier, and
+// nothing else.
+//
+// It is deliberately not Rust naga's Barrier::all() (front/glsl/builtins.rs:2039).
+// All four bits make the SPIR-V writer order at Subgroup execution scope, widen
+// every memory class to Device scope through the storage bit, raise the module
+// to SPIR-V 1.3 and declare CapabilitySubgroupBarrier — none of which a
+// workgroup barrier needs, and the version requirement makes an ordinary
+// #version 450 compute shader fail on a SPIR-V 1.0 device. glslang compiles the
+// same call to
+//
+//	OpControlBarrier %uint_2 %uint_2 %uint_264
+//
+// that is Workgroup execution scope, Workgroup memory scope and
+// AcquireRelease|WorkgroupMemory, which is exactly what the writer produces for
+// BarrierWorkGroup alone. The GLSL spec (§8.16) gives barrier() no scope
+// qualifier at all, so the workgroup is the whole of what it promises.
+const barrierFlags = ir.BarrierWorkGroup
+
+// The flags of the memory-barrier functions of GLSL 4.50 §8.16, chosen so that
+// the SPIR-V writer's BarrierFlags mapping reproduces glslang's scope and
+// memory semantics (glslangValidator 1.4.341, #version 450 compute probes):
+//
+//	memoryBarrier()       OpMemoryBarrier Device     {Uniform, WorkGroup, Image}+AcquireRelease
+//	memoryBarrierBuffer() OpMemoryBarrier Device     {Uniform}+AcquireRelease
+//	memoryBarrierShared() OpMemoryBarrier Device     {WorkGroup}+AcquireRelease
+//	memoryBarrierImage()  OpMemoryBarrier Device     {Image}+AcquireRelease
+//	groupMemoryBarrier()  OpMemoryBarrier Workgroup  {Uniform, WorkGroup, Image}+AcquireRelease
+//
+// glslang adds AtomicCounterMemory and orders at Device scope for the four
+// memoryBarrier* functions. Neither is expressible here: ir.BarrierFlags has
+// no atomic-counter bit, and the SPIR-V writer ties UniformMemory (which also
+// covers StorageBuffer) to BarrierStorage, which in turn raises the memory
+// scope to Device. Each constant below is therefore the closest set of flags
+// that never under-synchronizes; where it over-synchronizes the comment says so.
+const (
+	// memoryBarrierAllMemory is memoryBarrier(): every memory class the IR
+	// names, at Device scope. glslang also orders atomic counters; the IR has
+	// no such bit and Vulkan GLSL has no atomic counters anyway (§8.16).
+	memoryBarrierAllMemory = ir.BarrierStorage | ir.BarrierWorkGroup | ir.BarrierTexture
+	// memoryBarrierBufferMemory is memoryBarrierBuffer(): Uniform and
+	// StorageBuffer accesses, Device scope. Exactly glslang's semantics.
+	memoryBarrierBufferMemory = ir.BarrierStorage
+	// memoryBarrierSharedMemory is memoryBarrierShared(): WorkGroup storage,
+	// Workgroup scope. glslang orders at Device scope, but workgroup memory is
+	// only visible inside its workgroup, so the narrower scope synchronizes
+	// every access the function is meant to cover.
+	memoryBarrierSharedMemory = ir.BarrierWorkGroup
+	// memoryBarrierImageMemory is memoryBarrierImage(): Image accesses. The
+	// BarrierStorage bit is what makes the writer order at Device scope, which
+	// an image needs because storage images are shared device-wide; it also
+	// adds UniformMemory, so the barrier is wider than glslang's, never narrower.
+	memoryBarrierImageMemory = ir.BarrierStorage | ir.BarrierTexture
+	// groupMemoryBarrierMemory is groupMemoryBarrier(): the same memory classes
+	// as memoryBarrier() over Workgroup scope. The IR cannot say "Uniform at
+	// Workgroup scope", so this emits the Device-scope form. The narrower
+	// alternative (WorkGroup|Texture) would drop the Uniform/StorageBuffer class
+	// from the barrier and silently under-synchronize; over-synchronizing is
+	// always safe (Vulkan §7.3 Memory Model), under-synchronizing is not.
+	groupMemoryBarrierMemory = ir.BarrierStorage | ir.BarrierWorkGroup | ir.BarrierTexture
+)
+
+// Stage note: a barrier statement is valid only in compute-like stages.
+// glslang accepts memoryBarrier, memoryBarrierBuffer and memoryBarrierImage in
+// a fragment shader and so does this frontend, but valid.Validate then refuses
+// the module ("Uses operations forbidden at this stage") — the same rule as
+// Rust naga's validator (valid/function.rs, the COMPUTE_LIKE stage mask), so
+// the refusal is parity, not a frontend decision.
+
+// memoryBarrierFlags is the flag set of one GLSL memory-barrier function.
+func memoryBarrierFlags(name string) ir.BarrierFlags {
+	switch name {
+	case "memoryBarrier":
+		return memoryBarrierAllMemory
+	case "memoryBarrierBuffer":
+		return memoryBarrierBufferMemory
+	case "memoryBarrierShared":
+		return memoryBarrierSharedMemory
+	case "memoryBarrierImage":
+		return memoryBarrierImageMemory
+	case "groupMemoryBarrier":
+		return groupMemoryBarrierMemory
+	default:
+		return 0
+	}
+}
+
+// refusedBuiltin explains why a GLSL builtin this frontend does not implement
+// is refused, and is empty for every name it implements. A refused builtin is
+// an error at the call rather than an unknown-function diagnostic, so the
+// author learns what the limitation is.
+func refusedBuiltin(name string) string {
+	switch name {
+	case "memoryBarrierAtomicCounter":
+		return "memoryBarrierAtomicCounter is not supported: atomic counters do not exist in Vulkan GLSL " +
+			"(glslang refuses atomic_uint under #version 450 with 'atomic counter types' : not allowed when using GLSL for Vulkan), " +
+			"and its SPIR-V AtomicCounterMemory semantics bit has no ir.BarrierFlags counterpart, so the barrier's memory class cannot be expressed"
+	case "textureGatherOffsets":
+		return "textureGatherOffsets is not supported: it gathers with four independent offsets, " +
+			"but ir.ExprImageSample carries one constant Offset and the SPIR-V writer emits ConstOffset, not ConstOffsets"
+	default:
+		return ""
+	}
+}
 
 // exprPtr returns a pointer to h, for the optional operands of an expression.
 func exprPtr(h ir.ExpressionHandle) *ir.ExpressionHandle { return &h }
@@ -501,6 +638,15 @@ func (m *macroCall) callTexture(c *Context, args []loweredArg, span ir.Span) (ir
 
 	var offset *ir.ExpressionHandle
 	if m.offset {
+		// GLSL 4.50 §8.9 requires a texture offset to be a constant
+		// expression, and ir.ExprImageSample.Offset is one: a run-time offset
+		// would be written as the ConstOffset operand of an OpImageSample*
+		// instruction, and spirv-val rejects a non-constant one. glslang is
+		// laxer and accepts the source, so the check is ours, as it is for
+		// textureGatherOffset.
+		if !c.eval.IsConst(args[numArgs].expr) {
+			return 0, false, errMessage(span, "the offset argument of a texture sampling call must be a constant expression")
+		}
 		offset = exprPtr(args[numArgs].expr)
 		numArgs++
 	}
@@ -509,7 +655,72 @@ func (m *macroCall) callTexture(c *Context, args []loweredArg, span ir.Span) (ir
 		level = ir.SampleLevelBias{Bias: args[numArgs].expr}
 	}
 
-	return textureCall(c, args[0].expr, level, comps, offset, span)
+	return textureCall(c, args[0].expr, level, comps, offset, nil, span)
+}
+
+// callTextureGather lowers a textureGather or textureGatherOffset call
+// (GLSL 4.50 §8.9): the coordinate split, the separate depth reference of a
+// depth image, the constant offset, and the constant component.
+func (m *macroCall) callTextureGather(c *Context, args []loweredArg, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	comps, err := c.fe.gatherCoordinateComponents(c, args[0].expr, args[1].expr, span)
+	if err != nil {
+		return 0, false, err
+	}
+
+	next := 2
+	if m.shadow {
+		// A gather of a depth image compares against its own argument, which
+		// GLSL places after the coordinate and before the offset.
+		comps.depthRef = exprPtr(args[next].expr)
+		next++
+	}
+
+	var offset *ir.ExpressionHandle
+	if m.offset {
+		// ir.ExprImageSample.Offset is a const-expression, which is also what
+		// GLSL 4.50 §8.9 requires of a gather offset ("must be a constant
+		// expression"). glslang is laxer and emits a non-constant Offset
+		// operand, so the check is ours.
+		if !c.eval.IsConst(args[next].expr) {
+			return 0, false, errMessage(span, "the offset argument of textureGatherOffset must be a constant expression")
+		}
+		offset = exprPtr(args[next].expr)
+		next++
+	}
+
+	component := ir.SwizzleX
+	if m.hasComp {
+		component, err = gatherComponent(c, args[next].expr, span)
+		if err != nil {
+			return 0, false, err
+		}
+	}
+
+	return textureCall(c, args[0].expr, ir.SampleLevelZero{}, comps, offset, &component, span)
+}
+
+// gatherComponent evaluates textureGather's component argument, which GLSL
+// 4.50 §8.9 constrains to a constant integral expression in 0 to 3.
+func gatherComponent(c *Context, h ir.ExpressionHandle, span ir.Span) (ir.SwizzleComponent, *frontError) {
+	lit, ok := c.eval.Literal(h)
+	if !ok {
+		// glslang: "must be a compile-time constant: component argument".
+		return 0, errMessage(span, "the comp argument of textureGather must be a constant expression")
+	}
+	var index int64
+	switch v := lit.(type) {
+	case ir.LiteralI32:
+		index = int64(v)
+	case ir.LiteralU32:
+		index = int64(v)
+	default:
+		return 0, errMessage(span, "the comp argument of textureGather must be a signed or unsigned integer constant")
+	}
+	if index < 0 || index > 3 {
+		// glslang: "must be 0, 1, 2, or 3: component argument".
+		return 0, errSemantic(span, "the comp argument of textureGather is %d, which is outside the component range 0 to 3", index)
+	}
+	return [...]ir.SwizzleComponent{ir.SwizzleX, ir.SwizzleY, ir.SwizzleZ, ir.SwizzleW}[index], nil
 }
 
 // callTextureSize lowers textureSize and imageSize, whose arrayed forms build
@@ -740,10 +951,62 @@ func (f *Frontend) coordinateComponents(c *Context, image, coord ir.ExpressionHa
 	}, nil
 }
 
+// gatherCoordinateComponents splits a textureGather coordinate argument. A
+// gather of a depth image takes the depth reference as its own argument, so
+// the coordinate splits the same way for a depth image and a sampled one: the
+// vector is cut to the image's own size and, for an arrayed image, its last
+// component is the layer index.
+func (f *Frontend) gatherCoordinateComponents(c *Context, image, coord ir.ExpressionHandle, span ir.Span) (coordComponents, *frontError) {
+	inner, err := c.resolveType(image, span)
+	if err != nil {
+		return coordComponents{}, err
+	}
+	img, ok := inner.(ir.ImageType)
+	if !ok {
+		f.addError(errMessage(span, "Type is not an image"))
+		return coordComponents{coordinate: coord}, nil
+	}
+
+	// The gather overloads exist for a 2D and a cube image only.
+	var imageSize ir.VectorSize
+	switch img.Dim {
+	case ir.Dim2D:
+		imageSize = ir.Vec2
+	case ir.DimCube:
+		imageSize = ir.Vec3
+	default:
+		return coordComponents{}, errInternal("textureGather of an image dimension it has no form for", span)
+	}
+
+	coordinate := coord
+	coordInner, err := c.resolveType(coord, span)
+	if err != nil {
+		return coordComponents{}, err
+	}
+	if vector, isVector := coordInner.(ir.VectorType); isVector && vector.Size != imageSize {
+		coordinate, err = c.vectorResize(imageSize, coord, ir.Span{})
+		if err != nil {
+			return coordComponents{}, err
+		}
+	}
+
+	var arrayIndex *ir.ExpressionHandle
+	if img.Arrayed {
+		layer, aerr := c.addExpression(ir.ExprAccessIndex{Base: coord, Index: uint32(imageSize)}, ir.Span{})
+		if aerr != nil {
+			return coordComponents{}, aerr
+		}
+		arrayIndex = exprPtr(layer)
+	}
+
+	return coordComponents{coordinate: coordinate, arrayIndex: arrayIndex}, nil
+}
+
 // textureCall appends the sample itself, using the sampler of the combined
 // sampler the image came from, Rust naga's texture_call
-// (builtins.rs:2063-2098).
-func textureCall(c *Context, image ir.ExpressionHandle, level ir.SampleLevel, comps coordComponents, offset *ir.ExpressionHandle, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+// (builtins.rs:2063-2098). gather is the component a textureGather reads, and
+// nil for every other call.
+func textureCall(c *Context, image ir.ExpressionHandle, level ir.SampleLevel, comps coordComponents, offset *ir.ExpressionHandle, gather *ir.SwizzleComponent, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
 	sampler, ok := c.samplers[image]
 	if !ok {
 		// A sampled image that no combined sampler declaration created has no
@@ -763,6 +1026,7 @@ func textureCall(c *Context, image ir.ExpressionHandle, level ir.SampleLevel, co
 	h, err := c.addExpression(ir.ExprImageSample{
 		Image:      image,
 		Sampler:    sampler,
+		Gather:     gather,
 		Coordinate: comps.coordinate,
 		ArrayIndex: comps.arrayIndex,
 		Offset:     offset,
@@ -797,6 +1061,14 @@ func (f *Frontend) addBuiltinOverload(args []ir.TypeInner, macro *macroCall) *ov
 // not seen yet are generated, so a capability is requested by a shader that
 // uses it and no other.
 func (f *Frontend) injectBuiltin(decl *functionDeclaration, name string, variations builtinVariations) {
+	if reason := refusedBuiltin(name); reason != "" {
+		// The call is always an error, so no overload is injected and the
+		// reason is recorded first: it is the message the author sees, and the
+		// caller's later "Unknown function" stays a note (glsl/parse.go
+		// publicError).
+		f.addError(errMessage(ir.Span{}, reason))
+		return
+	}
 	if len(decl.overloads) == 0 {
 		// The creation call. Rust asks for the standard variation exactly
 		// once, when its map entry for the name is created
@@ -830,6 +1102,8 @@ func (f *Frontend) injectTextureBuiltin(decl *functionDeclaration, name string, 
 		f.injectTextureSampleBuiltins(decl, name, variations)
 	case "textureSize":
 		f.injectTextureSizeBuiltins(decl, variations)
+	case "textureGather", "textureGatherOffset":
+		f.injectTextureGatherBuiltins(decl, name, variations)
 	case "textureQueryLevels":
 		f.injectTextureQueryLevelsBuiltins(decl, variations)
 	case "texelFetch", "texelFetchOffset":
@@ -1017,6 +1291,76 @@ func textureSampleArgs(v textureSampleVariant) ([]ir.TypeInner, bool) {
 	}
 	return args, true
 }
+
+// injectTextureGatherBuiltins adds textureGather and textureGatherOffset,
+// GLSL 4.50 §8.9 Texture Gather Functions. Every signature here was checked
+// against glslangValidator (#version 450): a gather exists for 2D, 2D array,
+// cube and cube array images (sampled in float, int and uint, and depth), has
+// no 1D, 3D or multisampled form, and takes an offset only for a 2D image.
+//
+// Unlike texture(), a gather of a depth image takes the depth reference as its
+// own argument instead of packing it into the coordinate vector, and has no
+// component argument (glslang: no matching overloaded function).
+func (f *Frontend) injectTextureGatherBuiltins(decl *functionDeclaration, name string, variations builtinVariations) {
+	offset := name == "textureGatherOffset"
+	f.textureArgsGenerator(textureArgsShadow|textureArgsOptionsOf(variations), func(kind ir.ScalarKind, dim ir.ImageDimension, arrayed, multi, shadow bool) {
+		// glslang: no matching overloaded function for a 1D, 3D or multisampled
+		// image, or for an offset on a cube map.
+		if multi || dim == ir.Dim1D || dim == ir.Dim3D || (offset && dim != ir.Dim2D) {
+			return
+		}
+		class := ir.ImageClassSampled
+		if shadow {
+			class = ir.ImageClassDepth
+		}
+		image := ir.ImageType{Dim: dim, Arrayed: arrayed, Class: class, SampledKind: kind}
+		coordSize := imageDimsToCoordsSize(dim)
+		if arrayed {
+			coordSize++
+		}
+		// makeCoordsArg writes one component as a scalar, which is what GLSL
+		// spells for a 1D image; every gather dimension here is a vector.
+		args := []ir.TypeInner{image, makeCoordsArg(coordSize, ir.ScalarFloat)}
+
+		if shadow {
+			// textureGather(gsampler2DShadow, vec2 P, float refZ) and
+			// textureGatherOffset(gsampler2DShadow, vec2 P, float refZ, ivec2 offset):
+			// the depth reference comes before the offset and there is no comp.
+			args = append(args, scalarF32)
+			if offset {
+				args = append(args, gatherOffsetCoord())
+			}
+			decl.overloads = append(decl.overloads, f.addBuiltinOverload(args, &macroCall{
+				kind:   macroTextureGather,
+				shadow: true,
+				offset: offset,
+			}))
+			return
+		}
+
+		if offset {
+			args = append(args, gatherOffsetCoord())
+		}
+		decl.overloads = append(decl.overloads, f.addBuiltinOverload(args, &macroCall{
+			kind:   macroTextureGather,
+			offset: offset,
+		}))
+		// The component argument is optional and comes last; without it the
+		// gather reads component x.
+		withComp := make([]ir.TypeInner, len(args)+1)
+		copy(withComp, args)
+		withComp[len(args)] = scalarI32
+		decl.overloads = append(decl.overloads, f.addBuiltinOverload(withComp, &macroCall{
+			kind:    macroTextureGather,
+			offset:  offset,
+			hasComp: true,
+		}))
+	})
+}
+
+// gatherOffsetCoord is the offset argument of textureGatherOffset: GLSL's
+// ivec2 (§8.9).
+func gatherOffsetCoord() ir.TypeInner { return makeCoordsArg(2, ir.ScalarSint) }
 
 // injectTextureSizeBuiltins adds textureSize: the image's size at a level, in
 // signed integers, with the layer count appended for an arrayed image
@@ -1219,6 +1563,11 @@ func (f *Frontend) injectStandardBuiltins(decl *functionDeclaration, name string
 		f.injectClampBuiltins(decl)
 	case "barrier":
 		decl.overloads = append(decl.overloads, f.addBuiltinOverload(nil, &macroCall{kind: macroBarrier}))
+	case "memoryBarrier", "memoryBarrierBuffer", "memoryBarrierShared", "memoryBarrierImage", "groupMemoryBarrier":
+		decl.overloads = append(decl.overloads, f.addBuiltinOverload(nil, &macroCall{
+			kind:  macroMemoryBarrier,
+			flags: memoryBarrierFlags(name),
+		}))
 	default:
 		f.injectCommonBuiltins(decl, name, 4)
 	}
