@@ -117,7 +117,7 @@ func publicError(parseErr *front.ParseError, source string) *ParseError {
 		pub.Message = "GLSL parse failed"
 		return pub
 	}
-	lines := ir.NewSourceLines(source)
+	lines := errfmt.NewSourceLines(source)
 	first := parseErr.Errors[0]
 	pub.Message = first.Message
 	if first.Span.IsDefined() {
