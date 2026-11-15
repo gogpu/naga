@@ -308,6 +308,12 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 
 // wrappedImageQueryKey identifies a unique image query wrapper function.
 // Matches Rust naga's WrappedImageQuery.
+//
+// Unlike Rust, the storage format and access are not part of the key: Rust's
+// ImageClass::Storage carries both, so two storage images of the same shape but
+// a different access get two wrappers with the same name and parameter type —
+// which HLSL rejects as a redefinition of the same function. The wrapper text
+// does not depend on either field, so one wrapper serves every access.
 type wrappedImageQueryKey struct {
 	dim     ir.ImageDimension
 	arrayed bool
@@ -1291,7 +1297,10 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 		extraCoords = 1
 	}
 
-	// Determine return swizzle and number of GetDimensions parameters
+	// Determine return swizzle and number of GetDimensions parameters.
+	// Mirrors help.rs write_wrapped_image_query_function exactly: the swizzle
+	// each query reads and the number of GetDimensions outputs it fills differ
+	// per query and per image shape.
 	var retSwizzle string
 	var numParams int
 
@@ -1308,14 +1317,32 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 			retSwizzle = "xy"
 		}
 		numParams = len(retSwizzle) + arrayCoords + extraCoords
-	case imageQueryNumLevels, imageQueryNumSamples, imageQueryNumLayers:
-		if key.arrayed || key.dim == ir.Dim3D {
-			retSwizzle = "w"
-			numParams = 4
-		} else {
-			retSwizzle = "z"
-			numParams = 3
+	case imageQueryNumLevels, imageQueryNumSamples:
+		// GetDimensions reports the level (or sample) count in a fixed
+		// component of the overload's outputs: y for 1D, w for 3D, and for
+		// 2D/cube w when arrayed (elements and levels) or z when not.
+		switch key.dim {
+		case ir.Dim1D:
+			retSwizzle, numParams = "y", 2
+		case ir.Dim3D:
+			retSwizzle, numParams = "w", 4
+		case ir.Dim2D, ir.DimCube:
+			if key.arrayed {
+				retSwizzle, numParams = "w", 4
+			} else {
+				retSwizzle, numParams = "z", 3
+			}
+		default:
+			// Unreachable: ImageDimension has exactly the four values above.
+			// Kept so a future dimension cannot make the GetDimensions
+			// argument loop index below zero.
+			retSwizzle, numParams = "z", 3
 		}
+	case imageQueryNumLayers:
+		// The element count is always the third output; sampled and depth
+		// images ask for the level count with it, storage images have none.
+		retSwizzle = "z"
+		numParams = 3 + extraCoords
 	}
 
 	// Write return type

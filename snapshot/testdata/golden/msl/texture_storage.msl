@@ -19,7 +19,7 @@ kernel void main_(
 ) {
     bool local = {};
     metal::uint2 dims = metal::uint2(output_tex.get_width(), output_tex.get_height());
-    if (!(gid.x >= dims.x)) {
+    if (!((gid.x >= dims.x))) {
         local = gid.y >= dims.y;
     } else {
         local = true;

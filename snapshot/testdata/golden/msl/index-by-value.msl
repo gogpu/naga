@@ -31,7 +31,7 @@ int index_let_array(
     int i_1,
     int j
 ) {
-    type_3 a_1 = type_3 {type_2 {1, 2}, type_2 {3, 4}};
+    type_3 a_1 = type_3 {{type_2 {{1, 2}}, type_2 {{3, 4}}}};
     return uint(j) < 2 && uint(i_1) < 2 ? a_1.inner[i_1].inner[j] : DefaultConstructible();
 }
 
@@ -46,7 +46,7 @@ float index_let_matrix(
 metal::float4 index_let_array_1d(
     uint vi_1
 ) {
-    type_1 arr = type_1 {1, 2, 3, 4, 5};
+    type_1 arr = type_1 {{1, 2, 3, 4, 5}};
     int value = uint(vi_1) < 5 ? arr.inner[vi_1] : DefaultConstructible();
     return static_cast<metal::float4>(metal::int4(value));
 }
@@ -59,7 +59,7 @@ struct main_Output {
 vertex main_Output main_(
   uint vi [[vertex_id]]
 ) {
-    int _e8 = index_arg_array(type_1 {1, 2, 3, 4, 5}, 6);
+    int _e8 = index_arg_array(type_1 {{1, 2, 3, 4, 5}}, 6);
     int _e11 = index_let_array(1, 2);
     float _e14 = index_let_matrix(1, 2);
     metal::float4 _e15 = index_let_array_1d(vi);

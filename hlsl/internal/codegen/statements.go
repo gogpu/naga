@@ -1624,19 +1624,22 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 
 	w.Out.WriteByte('[')
 
-	// Write coordinate
-	if err := w.writeExpression(s.Coordinate); err != nil {
-		return fmt.Errorf("image store: coordinate: %w", err)
-	}
-
-	// Handle array index if present
+	// Write coordinate. With an array index the coordinate and the index are
+	// one int3, as in Rust (writer.rs Statement::ImageStore): an array index
+	// is accepted only for texture_storage_2d_array, so the pair is always
+	// int3(coordinate, array_index).
 	if s.ArrayIndex != nil {
-		// For arrayed textures, coordinate includes array index
-		// This is simplified - full implementation would compose int3/int4
+		w.Out.WriteString("int3(")
+		if err := w.writeExpression(s.Coordinate); err != nil {
+			return fmt.Errorf("image store: coordinate: %w", err)
+		}
 		w.Out.WriteString(", ")
 		if err := w.writeExpression(*s.ArrayIndex); err != nil {
 			return fmt.Errorf("image store: array index: %w", err)
 		}
+		w.Out.WriteByte(')')
+	} else if err := w.writeExpression(s.Coordinate); err != nil {
+		return fmt.Errorf("image store: coordinate: %w", err)
 	}
 
 	w.Out.WriteString("] = ")

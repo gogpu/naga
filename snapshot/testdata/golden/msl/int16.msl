@@ -71,7 +71,7 @@ short int16_function(
     device StorageCompatible& output_arrays
 ) {
     short val = static_cast<short>(20);
-    type_13 arr = type_13 {static_cast<short>(1), static_cast<short>(2), static_cast<short>(3), static_cast<short>(4)};
+    type_13 arr = type_13 {{static_cast<short>(1), static_cast<short>(2), static_cast<short>(3), static_cast<short>(4)}};
     short phony = private_variable;
     short _e5 = val;
     val = as_type<short>(static_cast<ushort>(as_type<ushort>(static_cast<ushort>(_e5)) + as_type<ushort>(static_cast<ushort>(static_cast<short>(5)))));

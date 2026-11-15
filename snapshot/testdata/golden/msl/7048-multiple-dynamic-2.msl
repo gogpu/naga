@@ -20,7 +20,7 @@ struct fs_mainOutput {
 fragment fs_mainOutput fs_main(
 ) {
     int index_0_ = 0;
-    type_2 my_array = type_2 {metal::float2(0.0, 0.0), metal::float2(0.0, 0.0)};
+    type_2 my_array = type_2 {{metal::float2(0.0, 0.0), metal::float2(0.0, 0.0)}};
     int _e9 = index_0_;
     metal::float2 val_0_ = uint(_e9) < 2 ? my_array.inner[_e9] : DefaultConstructible();
     int _e11 = index_0_;
