@@ -116,3 +116,17 @@ func TestCombinedSamplerSuppliedBindingCollisionIsAnError(t *testing.T) {
 		t.Fatalf("error = %q, want it to name the taken binding", err.Error())
 	}
 }
+
+// TestSplitSamplerHandleMissing pins the defensive path of the binding
+// post-pass: a split whose sampler global is absent reports "not found"
+// instead of guessing a handle.
+func TestSplitSamplerHandleMissing(t *testing.T) {
+	f := &Frontend{
+		combinedPairs: map[ir.GlobalVariableHandle]ir.GlobalVariableHandle{},
+		mod:           &ir.Module{},
+	}
+	split := combinedSamplerInfo{name: "tex", imageBinding: ir.ResourceBinding{Group: 0, Binding: 0}}
+	if _, ok := f.splitSamplerHandle(&split); ok {
+		t.Fatalf("splitSamplerHandle found a sampler in an empty module")
+	}
+}
