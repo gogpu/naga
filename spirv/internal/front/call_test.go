@@ -1,6 +1,7 @@
 package front
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -530,8 +531,17 @@ func TestCallMutations(t *testing.T) {
 							return
 						}
 						parses++
+						// A mutation can pair a store with a value of another
+						// type. The frontend, like Rust naga's, does not
+						// type-check OpStore; the validator answers for it, so a
+						// rejected mutant is the expected outcome and only a
+						// panic or an unstructured error would be a defect.
 						if _, err := valid.Validate(module, valid.Options{Capabilities: valid.CapAll}); err != nil {
-							t.Errorf("function %d, instruction %d word %d = %d: parses into invalid IR: %v", f, i, w, v, err)
+							var verr *valid.Error
+							if !errors.As(err, &verr) {
+								t.Errorf("function %d, instruction %d word %d = %d: validator error %v (%T), want *valid.Error",
+									f, i, w, v, err, err)
+							}
 						}
 					}()
 				}

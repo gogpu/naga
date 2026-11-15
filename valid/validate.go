@@ -730,6 +730,13 @@ func (v *validator) validateFunction(fn *ir.Function) {
 		if lv.Init != nil {
 			if !v.isValidExpressionHandle(*lv.Init) {
 				v.addErrorInFunction(fmt.Sprintf("local variable %q: init expression %d does not exist", lv.Name, *lv.Init))
+			} else if v.isValidTypeHandle(lv.Type) && v.context.types != nil && int(*lv.Init) < v.context.types.Len() {
+				// Rust: validate_local_var compares the variable's type with the
+				// initializer's (valid/function.rs:1858-1861,
+				// LocalVariableError::InitializerType).
+				if !v.compareTypes(ir.TypeResolution{Handle: &lv.Type}, v.context.types.Get(*lv.Init)) {
+					v.addErrorInFunction(fmt.Sprintf("Local variable [%d] '%s' is invalid: Initializer doesn't match the variable type", i, lv.Name))
+				}
 			}
 		}
 	}
@@ -1193,9 +1200,13 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		if !v.isValidExpressionHandle(kind.Value) {
 			v.addErrorInStatement(index, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
-		// Rust checks the scope of the value only: the pointer is a chain
-		// of accesses to a variable, walked without its types.
+		// Rust checks the scope of the value only: the pointer is a chain of
+		// accesses to a variable, which it walks without their types. The
+		// types of the two operands are compared below, as it does there.
 		v.useExpression(kind.Value)
+		if msg := v.storeError(kind.Pointer, kind.Value); msg != "" {
+			v.addErrorInStatement(index, msg)
+		}
 
 	case ir.StmtImageAtomic:
 		v.useExpression(kind.Coordinate)
@@ -1516,6 +1527,15 @@ func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle,
 		}
 	}
 
+	// Only an IO-shareable type may hold a location: a numeric scalar or
+	// vector (valid/interface.rs:733-739, TypeFlags::IO_SHAREABLE and
+	// VaryingError::NotIOShareableType). A matrix or an array passes validation
+	// and then no text backend can write it: MSL attributes and HLSL LOCn
+	// semantics take neither.
+	if !v.ioShareable(ty) {
+		return fmt.Sprintf("The type [%d] cannot be used for user-defined entry point inputs or outputs. Only numeric scalars and vectors are allowed.", ty)
+	}
+
 	// Only a fragment input reads a per-primitive value outside a mesh
 	// shader's primitive outputs, which are not entry point results.
 	if loc.PerPrimitive && (stage != ir.StageFragment || output) {
@@ -1572,6 +1592,30 @@ func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle,
 		}
 	}
 	return ""
+}
+
+// ioShareable reports a type usable in a location binding, Rust naga's
+// TypeFlags::IO_SHAREABLE (valid/type.rs): a scalar, or a vector, of a numeric
+// kind. A struct carries the flag only inside @blend_src, which no location
+// binding of its own reaches.
+func (v *validator) ioShareable(ty ir.TypeHandle) bool {
+	switch t := v.module.Types[ty].Inner.(type) {
+	case ir.ScalarType:
+		return numericScalarKind(t.Kind)
+	case ir.VectorType:
+		return numericScalarKind(t.Scalar.Kind)
+	}
+	return false
+}
+
+// numericScalarKind reports Rust's ScalarKind::is_numeric: a signed or unsigned
+// integer or a float, not bool and not an abstract kind.
+func numericScalarKind(kind ir.ScalarKind) bool {
+	switch kind {
+	case ir.ScalarSint, ir.ScalarUint, ir.ScalarFloat:
+		return true
+	}
+	return false
 }
 
 // hasPositionBuiltin checks if the function result contains @builtin(position).
@@ -1775,14 +1819,117 @@ func (v *validator) expressionInner(h ir.ExpressionHandle) (ir.TypeInner, bool) 
 	return res.Inner(v.module.Types), true
 }
 
+// storeError returns Rust's FunctionError text for a store whose value does
+// not fit the type the pointer points to (valid/function.rs:1063-1122), or ""
+// when the store is well-typed or cannot be typed here.
+func (v *validator) storeError(pointer, value ir.ExpressionHandle) string {
+	types := v.context.types
+	if types == nil || int(pointer) >= types.Len() || int(value) >= types.Len() {
+		return ""
+	}
+	valueRes := types.Get(value)
+	if !v.resolutionKnown(valueRes) {
+		return ""
+	}
+	valueInner := valueRes.Inner(v.module.Types)
+	switch valueInner.(type) {
+	case ir.ImageType, ir.SamplerType:
+		// Rust checks this before the types (FunctionError::InvalidStoreTexture).
+		return "Image store texture parameter type mismatch"
+	}
+	pointerInner, ok := v.expressionInner(pointer)
+	if !ok {
+		return ""
+	}
+	baseRes, ok := pointerBaseType(pointerInner)
+	if !ok || !v.resolutionKnown(baseRes) {
+		return ""
+	}
+	mismatch := fmt.Sprintf("The type of [%d] doesn't match the type stored in [%d]", value, pointer)
+	baseInner := baseRes.Inner(v.module.Types)
+	if atomic, ok := baseInner.(ir.AtomicType); ok {
+		// The IR allows storing a scalar to an atomic.
+		if valueInner != atomic.Scalar {
+			return mismatch
+		}
+		return ""
+	}
+	if _, ok := baseInner.(ir.RayQueryType); ok {
+		return fmt.Sprintf("Tried to store to pointer [%d] which is a ray query and so cannot be assigned to", pointer)
+	}
+	if !v.compareTypes(valueRes, baseRes) {
+		return mismatch
+	}
+	return ""
+}
+
+// pointerBaseType is the type a pointer points to, Rust naga's
+// TypeInner::pointer_base_type (proc/type_methods.rs): the base of a pointer,
+// or the scalar or vector behind a value pointer.
+func pointerBaseType(inner ir.TypeInner) (ir.TypeResolution, bool) {
+	switch t := inner.(type) {
+	case ir.PointerType:
+		base := t.Base
+		return ir.TypeResolution{Handle: &base}, true
+	case ir.ValuePointerType:
+		if t.Size == nil {
+			return ir.TypeResolution{Value: t.Scalar}, true
+		}
+		return ir.TypeResolution{Value: ir.VectorType{Size: *t.Size, Scalar: t.Scalar}}, true
+	}
+	return ir.TypeResolution{}, false
+}
+
+// compareTypes reports whether two type resolutions are one type, Rust naga's
+// proc::compare_types (proc/typifier.rs:841): two structs are one type only as
+// the same arena type, and every other pair compares by its inner type, where
+// a pointer to a scalar or vector is the same type as the value pointer of
+// that scalar or vector (canonicalInner).
+func (v *validator) compareTypes(lhs, rhs ir.TypeResolution) bool {
+	if !v.resolutionKnown(lhs) || !v.resolutionKnown(rhs) {
+		return false
+	}
+	if lhs.Handle != nil {
+		if _, ok := v.module.Types[*lhs.Handle].Inner.(ir.StructType); ok {
+			// A struct is unique by handle: two structs with the same members
+			// are different types.
+			return rhs.Handle != nil && *rhs.Handle == *lhs.Handle
+		}
+	}
+	return sameTypeInner(v.canonicalInner(lhs), v.canonicalInner(rhs))
+}
+
+// canonicalInner is the inner type of res in Rust's canonical form
+// (TypeInner::canonical_form, proc/type_methods.rs): a pointer to a scalar or
+// vector is the value pointer of that scalar or vector.
+func (v *validator) canonicalInner(res ir.TypeResolution) ir.TypeInner {
+	inner := res.Inner(v.module.Types)
+	p, ok := inner.(ir.PointerType)
+	if !ok || int(p.Base) >= len(v.module.Types) {
+		return inner
+	}
+	switch base := v.module.Types[p.Base].Inner.(type) {
+	case ir.ScalarType:
+		return ir.ValuePointerType{Scalar: base, Space: p.Space}
+	case ir.VectorType:
+		size := base.Size
+		return ir.ValuePointerType{Size: &size, Scalar: base.Scalar, Space: p.Space}
+	}
+	return inner
+}
+
+// resolutionKnown reports a resolution whose type handle, if it has one, is in
+// the module's type arena.
+func (v *validator) resolutionKnown(res ir.TypeResolution) bool {
+	return res.Handle == nil || v.isValidTypeHandle(*res.Handle)
+}
+
 // sameTypeInner reports whether a and b are one type, as Rust compares two
-// TypeInner values. Scalars, vectors and matrices compare by value; the
-// other kinds are module types, unique by handle in Rust's UniqueArena, and
-// compare as their struct, array or pointer contents here.
+// TypeInner values. Scalars, vectors, matrices, atomics, pointers, images,
+// samplers and the opaque ray tracing types compare by value; the kinds that
+// hold a slice or a pointer compare their contents.
 func sameTypeInner(a, b ir.TypeInner) bool {
 	switch at := a.(type) {
-	case ir.ScalarType, ir.VectorType, ir.MatrixType, ir.AtomicType:
-		return a == b
 	case ir.ArrayType:
 		bt, ok := b.(ir.ArrayType)
 		return ok && at.Base == bt.Base && at.Stride == bt.Stride && sameArraySize(at.Size, bt.Size)
@@ -1797,8 +1944,35 @@ func sameTypeInner(a, b ir.TypeInner) bool {
 			}
 		}
 		return true
+	case ir.ValuePointerType:
+		bt, ok := b.(ir.ValuePointerType)
+		return ok && sameVectorSize(at.Size, bt.Size) && at.Scalar == bt.Scalar && at.Space == bt.Space
+	case ir.BindingArrayType:
+		bt, ok := b.(ir.BindingArrayType)
+		return ok && at.Base == bt.Base && sameBindingArraySize(at.Size, bt.Size)
+	case ir.ScalarType, ir.VectorType, ir.MatrixType, ir.AtomicType, ir.PointerType,
+		ir.AccelerationStructureType, ir.RayQueryType, ir.SamplerType, ir.ImageType:
+		return a == b
 	}
 	return false
+}
+
+// sameVectorSize reports whether two value pointer sizes are one: both absent
+// (a pointer to a scalar) or the same vector size.
+func sameVectorSize(a, b *ir.VectorSize) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// sameBindingArraySize reports whether two binding array sizes are one: both
+// unbounded or the same count.
+func sameBindingArraySize(a, b *uint32) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 // sameArraySize reports whether two array sizes are one: the same count,
