@@ -410,9 +410,12 @@ type initializer struct {
 }
 
 // declarator is one name of an init_declarator_list with its dimensions and its
-// initializer.
+// initializer. Sym is the symbol the parser declared for the name; lowering
+// attaches the IR declaration to it, and every reference the parser built
+// points at it.
 type declarator struct {
 	Name   string
+	Sym    *glslSymbol
 	Arrays []arraySpec
 	Init   *initializer // nil when the declarator has no initializer
 	Span   ir.Span
@@ -441,6 +444,7 @@ type param struct {
 	Qualifier parameterQualifier
 	Typ       typeSpec
 	Name      string // empty for an unnamed parameter, which #5388 makes legal here
+	Sym       *glslSymbol
 	Arrays    []arraySpec
 	Span      ir.Span
 }
@@ -454,6 +458,10 @@ const (
 	paramInOut
 	paramConst
 )
+
+// isLHS reports whether a parameter is passed as a pointer, which out and
+// inout parameters are, Rust naga's ParameterQualifier::is_lhs.
+func (q parameterQualifier) isLHS() bool { return q == paramOut || q == paramInOut }
 
 // declFunc declares a function: a prototype when Body is nil, a definition
 // otherwise. A void return type is a nil Return.
@@ -475,10 +483,13 @@ type structDef struct {
 	Span    ir.Span
 }
 
-// structMember is one member of a struct or interface block.
+// structMember is one member of a struct or interface block. Sym is set for
+// the members of an interface block, which declare module-scope names; a
+// struct definition's members declare nothing.
 type structMember struct {
 	Typ    typeSpec
 	Name   string
+	Sym    *glslSymbol
 	Arrays []arraySpec
 	Span   ir.Span
 }
@@ -486,12 +497,13 @@ type structMember struct {
 // declBlock declares an interface block: a block type with an optional instance
 // name, as in `uniform Blk { vec4 color; } blk;` or `uniform Blk { ... };`.
 type declBlock struct {
-	Qualifiers typeQualifiers
-	Name       string // the block type name
-	Members    []structMember
-	Instance   string      // the instance name; empty when the block has none
-	Arrays     []arraySpec // dimensions of the instance name
-	Span       ir.Span
+	Qualifiers  typeQualifiers
+	Name        string // the block type name
+	Members     []structMember
+	Instance    string      // the instance name; empty when the block has none
+	InstanceSym *glslSymbol // the instance name's symbol, nil without one
+	Arrays      []arraySpec // dimensions of the instance name
+	Span        ir.Span
 }
 
 func (declBlock) declarationKind() {}
@@ -507,6 +519,7 @@ func (declQualifiers) declarationKind() {}
 // declInvariant redeclares a variable as invariant: `invariant gl_Position;`.
 type declInvariant struct {
 	Name string
+	Sym  *glslSymbol
 }
 
 func (declInvariant) declarationKind() {}

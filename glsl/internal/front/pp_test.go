@@ -193,11 +193,11 @@ func TestPreprocessVersion(t *testing.T) {
 		want   string
 	}{
 		{"void main() {}\n#version 450\n", "#version must occur first"},
-		{"#version 420 core\n", "invalid version: 420"},
+		{"#version 420 core\n", "Invalid version: 420"},
 		{"#version 330\n", "330 requires core"},
 		{"#version 300\n", "300 requires es"},
-		{"#version 450 es\n", "invalid profile: es"},
-		{"#version 450 compatibility\n", "invalid profile: compatibility"},
+		{"#version 450 es\n", "Invalid profile: es"},
+		{"#version 450 compatibility\n", "Invalid profile: compatibility"},
 		{"#version\n", "expected a version number"},
 		{"#version 450 core extra\n", "unexpected token after #version"},
 	}

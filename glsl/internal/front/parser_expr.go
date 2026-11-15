@@ -89,6 +89,10 @@ func (p *parser) parsePostfix(e *exprs) (hirHandle, *frontError) {
 	var base hirHandle
 	switch {
 	case p.peekTypeName():
+		// The written spelling is kept: a combined sampler constructor
+		// (sampler2D(tex, samp)) is a call of the builtin of that name in the
+		// IR, even though the parser meets it as a type (design §11).
+		written := p.peek().text
 		spec, span, err := p.parseTypeNonVoid()
 		if err != nil {
 			return 0, err
@@ -104,7 +108,7 @@ func (p *parser) parsePostfix(e *exprs) (hirHandle, *frontError) {
 		if spec.Builtin != nil {
 			kind = calleeTypeName
 		}
-		base = e.Arena.add(hirCall{Callee: callee{Kind: kind, Typ: &spec}, Args: args}, span)
+		base = e.Arena.add(hirCall{Callee: callee{Kind: kind, Name: written, Typ: &spec}, Args: args}, span)
 	case p.atIdent():
 		nameTok, err := p.bump()
 		if err != nil {
