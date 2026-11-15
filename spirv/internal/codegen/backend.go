@@ -7767,7 +7767,15 @@ func (e *ExpressionEmitter) emitMath(handle ir.ExpressionHandle, mathExpr ir.Exp
 			}
 		}
 	case ir.MathLength, ir.MathDistance, ir.MathDeterminant:
-		resultType, err = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+		// The result is the operand's scalar kind and width — length of an
+		// f64 vector and determinant of an f64 matrix are f64 — so it comes
+		// from the expression's own type, as Rust takes it
+		// (back/spv/block.rs: result_type_id from fun_info[expr].ty).
+		resultRes, typeErr := e.backend.exprType(e.function, handle)
+		if typeErr != nil {
+			return 0, fmt.Errorf("math result type: %w", typeErr)
+		}
+		resultType, err = e.backend.resolveTypeResolution(resultRes)
 		if err != nil {
 			return 0, err
 		}
