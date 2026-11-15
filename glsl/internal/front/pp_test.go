@@ -401,3 +401,76 @@ func TestPreprocessConditionalNestingLimit(t *testing.T) {
 	res := preprocess(b.String(), nil)
 	wantError(t, res, "nest deeper than")
 }
+
+func TestPreprocessConditionOperators(t *testing.T) {
+	tests := []struct {
+		expr string
+		want bool
+	}{
+		{"1 | 2", true},
+		{"(1 | 2) == 3", true},
+		{"(1 & 3) == 1", true},
+		{"(3 ^ 1) == 2", true},
+		{"(1 << 3) == 8", true},
+		{"(16 >> 2) == 4", true},
+		{"(1 < 2) && (2 > 1) && (1 <= 1) && (1 >= 1)", true},
+		{"(1 != 2) == 1", true},
+		{"(7 % 4) == 3", true},
+		{"(+1) == 1", true},
+		{"(-1) == -1", true},
+		{"(~0) == -1", true},
+		{"!0", true},
+		{"0 && 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expr, func(t *testing.T) {
+			res := preprocessOK(t, "#if "+tt.expr+"\nyes\n#else\nno\n#endif\n", nil)
+			want := "ident:no"
+			if tt.want {
+				want = "ident:yes"
+			}
+			checkTokens(t, res, want)
+		})
+	}
+
+	wantError(t, preprocess("#if 9223372036854775807 * 2\n#endif\n", nil), "integer overflow")
+	wantError(t, preprocess("#if 1 % 0\n#endif\n", nil), "division by zero")
+	wantError(t, preprocess("#if (1\n#endif\n", nil), "expected ')'")
+	wantError(t, preprocess("#if defined\n#endif\n", nil), "expected a macro name after defined")
+	wantError(t, preprocess("#if 1 2\n#endif\n", nil), "unexpected token")
+}
+
+func TestPreprocessDefinedPredefined(t *testing.T) {
+	for _, source := range []string{
+		"#version 450 core\n#if defined(__LINE__)\nyes\n#endif\n",
+		"#version 450 core\n#if defined(__VERSION__)\nyes\n#endif\n",
+		"#version 300 es\n#if defined(GL_ES)\nyes\n#endif\n",
+	} {
+		checkTokens(t, preprocessOK(t, source, nil), "ident:yes")
+	}
+	res := preprocessOK(t, "#version 450 core\n#if defined(GL_ES)\nyes\n#else\nno\n#endif\n", nil)
+	checkTokens(t, res, "ident:no")
+}
+
+func TestPreprocessInvalidUTF8(t *testing.T) {
+	res := preprocess("a "+string([]byte{0xff})+" b", nil)
+	wantError(t, res, "unexpected character")
+}
+
+func TestPreprocessUndefAndRedefinitionErrors(t *testing.T) {
+	wantError(t, preprocess("#undef\n", nil), "expected a macro name")
+	wantError(t, preprocess("#undef A B\n", nil), "expected a macro name")
+	wantError(t, preprocess("#define F(x) x\n#define F(x) y\n", nil), "macro redefined")
+	wantError(t, preprocess("#define F(x) x\n#define F(y) y\n", nil), "macro redefined")
+	wantError(t, preprocess("#define F(x) x\n#define F x\n", nil), "macro redefined")
+}
+
+func TestPreprocessDefineValueErrors(t *testing.T) {
+	res := preprocess("A\n", map[string]string{"A": "@"})
+	wantError(t, res, "in define A")
+}
+
+func TestPreprocessDirectiveWithoutNameWhileSkipping(t *testing.T) {
+	res := preprocessOK(t, "#if 0\n#\n#endif\nyes\n", nil)
+	checkTokens(t, res, "ident:yes")
+}
