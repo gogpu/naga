@@ -31,6 +31,12 @@ const (
 	// maxExpansionDepth bounds nested macro expansion beyond what the
 	// being-expanded set already prevents.
 	maxExpansionDepth = 128
+	// maxPreprocExprDepth bounds the recursion of a #if/#elif expression:
+	// parentheses and prefix operators each recurse through the precedence
+	// levels. 4096 nested parentheses in a preprocessor expression are far
+	// beyond real code, and without the bound a 500k-parenthesis input was a
+	// fatal stack overflow.
+	maxPreprocExprDepth = 4096
 )
 
 // ppKind is the kind of a preprocessed token.

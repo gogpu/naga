@@ -33,6 +33,7 @@ type directiveState struct {
 
 	errors    []ppError
 	budget    int
+	emitted   int
 	budgetHit bool
 }
 
@@ -468,20 +469,26 @@ func (d *directiveState) expandAll(toks []ppToken) []ppToken {
 	if d.budget > maxPPTokens {
 		d.budget = maxPPTokens
 	}
+	d.emitted = 0
 	out := make([]ppToken, 0, len(toks))
 	d.expandSeq(toks, nil, ppToken{}, 0, &out)
 	return out
 }
 
-// emit appends t unless the budget is spent, which is reported once.
+// emit appends t unless the budget is spent, which is reported once. The
+// budget is charged for every token the walk produces, including the tokens of
+// macro-argument expansions, which land in an argument slice before they reach
+// the output: charging len(*out) counted each slice separately and let a
+// macro-heavy source pass every cap.
 func (d *directiveState) emit(out *[]ppToken, t ppToken) {
-	if len(*out) >= d.budget {
+	if d.emitted >= d.budget {
 		if !d.budgetHit {
 			d.budgetHit = true
 			d.errorf(t.span, "preprocessed token limit exceeded")
 		}
 		return
 	}
+	d.emitted++
 	*out = append(*out, t)
 }
 
@@ -585,7 +592,11 @@ func (d *directiveState) expandSeq(toks []ppToken, active map[string]bool, invoc
 		}
 		expanded := make([][]ppToken, len(args))
 		for k := range args {
-			expanded[k] = d.expandArg(args[k], active)
+			// The argument is expanded at the invocation's depth + 1: expanding
+			// it from depth 0 made maxExpansionDepth unreachable for nested
+			// function-like calls (F(F(F(...)))), which then consumed memory
+			// quadratically in the input size.
+			expanded[k] = d.expandArg(args[k], active, t, depth+1)
 		}
 		body := d.substitute(m, expanded, t)
 		d.expandSeq(body, withActive(active, t.text), inv, depth+1, out)
@@ -593,10 +604,11 @@ func (d *directiveState) expandSeq(toks []ppToken, active map[string]bool, invoc
 	}
 }
 
-// expandArg expands one macro argument before substitution.
-func (d *directiveState) expandArg(toks []ppToken, active map[string]bool) []ppToken {
+// expandArg expands one macro argument before substitution, at the depth the
+// invocation sits at.
+func (d *directiveState) expandArg(toks []ppToken, active map[string]bool, invocation ppToken, depth int) []ppToken {
 	var out []ppToken
-	d.expandSeq(toks, active, ppToken{}, 0, &out)
+	d.expandSeq(toks, active, invocation, depth, &out)
 	return out
 }
 

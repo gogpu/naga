@@ -129,6 +129,13 @@ type Context struct {
 
 	emit emitter
 
+	// exprDepth counts how deep the lowering is inside an expression tree.
+	// The parser bounds nesting (parentheses, unary runs, call arguments) but
+	// parses operator chains in loops, so a chain a million terms long reaches
+	// the lowering as a million-node tree; lowering recurses per node, and
+	// without this bound the walk ends in a fatal stack overflow.
+	exprDepth int
+
 	eval *consteval.Evaluator
 
 	// vars resolves the names the parser declared to their IR references:

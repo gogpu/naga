@@ -37,6 +37,16 @@ func (c *Context) lowerInner(e *hirArena, expr hirHandle, pos exprPos) (ir.Expre
 	node := e.get(expr)
 	span := node.Span
 
+	// The parser counts nesting, not chain length (it parses operator chains in
+	// loops), so a very long chain arrives here as a very deep tree. Bound the
+	// recursion the same way the WGSL frontend does, with the parser's own
+	// limit and message: past it the walk would end in a stack overflow.
+	c.exprDepth++
+	defer func() { c.exprDepth-- }()
+	if c.exprDepth > maxExprDepth {
+		return 0, false, span, errMessage(span, errExprDepth)
+	}
+
 	switch k := node.Kind.(type) {
 	case hirAccess:
 		return c.lowerAccess(e, k, pos, span)

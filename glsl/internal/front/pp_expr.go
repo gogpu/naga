@@ -11,8 +11,21 @@ import (
 type ifParser struct {
 	tokens []ppToken
 	pos    int
+	depth  int // recursion depth of parentheses and prefix operators
 	state  *directiveState
 	span   ir.Span // the whole expression's span, for an unexpected end
+}
+
+// enter counts one level of expression recursion and refuses to go past
+// maxPreprocExprDepth: a #if expression comes from untrusted input, and
+// recursion without a bound was a fatal stack overflow.
+func (p *ifParser) enter(t ppToken) bool {
+	p.depth++
+	if p.depth > maxPreprocExprDepth {
+		p.state.errorf(t.span, "preprocessor expression nests deeper than %d", maxPreprocExprDepth)
+		return false
+	}
+	return true
 }
 
 // evalCondition evaluates a #if/#elif expression: defined() is resolved first,
@@ -387,7 +400,11 @@ func (p *ifParser) parseUnary() (int64, bool) {
 		switch t.text {
 		case "+", "-", "!", "~":
 			p.pos++
+			if !p.enter(t) {
+				return 0, false
+			}
 			value, ok := p.parseUnary()
+			p.depth--
 			if !ok {
 				return 0, false
 			}
@@ -421,7 +438,11 @@ func (p *ifParser) parseAtom() (int64, bool) {
 		if !t.isPunct("(") {
 			return p.fail(t, "unexpected token in a preprocessor expression")
 		}
+		if !p.enter(t) {
+			return 0, false
+		}
 		value, ok := p.parseLogicalOr()
+		p.depth--
 		if !ok {
 			return 0, false
 		}
