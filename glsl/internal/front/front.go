@@ -28,6 +28,15 @@ type Frontend struct {
 
 	meta shaderMeta
 
+	// dialect is the language of the source, the version/profile matrix of
+	// design §15 (dialect.go).
+	dialect dialect
+
+	// warnings are the diagnostics that do not stop the parse (an unrecognized
+	// #extension, an unmatched ResourceBindings entry); the public ParseInfo
+	// reports them.
+	warnings []frontend.Diagnostic
+
 	// globalVars are the module-scope names in declaration order, Rust's
 	// frontend.global_variables. A new context copies them into its symbol
 	// table when it starts (context.rs:121-123), so a name declared after a
@@ -54,9 +63,10 @@ type Frontend struct {
 	// free one instead of Rust's colliding 0 (design §10).
 	ioLocations [ioClassCount]map[uint32]bool
 
-	// usedBindings holds the (group, binding) pairs of bound resources, so
-	// automatic placement picks a free one.
-	usedBindings map[resourceKey]bool
+	// bindings places the module-scope resources: the counter of design §11
+	// over GL 3.30/ES 3.00 sources, the declared layout(binding) pairs of a
+	// Vulkan GLSL source, and the ParseOptions.ResourceBindings reservations.
+	bindings *bindingAllocator
 
 	// samplerBindings places the sampler of a split combined sampler, keyed
 	// by the (group, binding) of its image, as frontend.SamplerBindings does
@@ -228,17 +238,38 @@ type combinedSamplerInfo struct {
 	samplerBinding ir.ResourceBinding
 }
 
-// newFrontend returns the frontend of one module.
+// newFrontend returns the frontend of one module with the Vulkan GLSL dialect,
+// the dialect every lowering rule of Rust naga's frontend is written for. It is
+// what a lowering test that does not care about the dialect uses; Parse builds
+// its frontend with newFrontendFor.
 func newFrontend(mod *ir.Module) *Frontend {
+	return newFrontendFor(mod, dialect{version: 460, profile: ppProfileCore}, nil)
+}
+
+// newFrontendFor returns the frontend of one module: its dialect and the
+// ResourceBindings map the GL/ES binding model consults (design §11). A Vulkan
+// GLSL source binds itself, so the map is dropped before the allocator exists:
+// an entry can neither claim a slot nor move the automatic placement of a split
+// sampler, and no unmatched-name warning is produced for it.
+func newFrontendFor(mod *ir.Module, d dialect, resourceBindings map[string]ir.ResourceBinding) *Frontend {
+	if d.vulkan() {
+		resourceBindings = nil
+	}
 	return &Frontend{
 		mod:             mod,
 		registry:        registry.NewTypeRegistryWithCap(32),
 		types:           map[string]ir.TypeHandle{},
 		functions:       map[string]*functionDeclaration{},
-		usedBindings:    map[resourceKey]bool{},
+		bindings:        newBindingAllocator(resourceBindings),
 		samplerBindings: map[resourceKey]uint32{},
 		combinedPairs:   map[ir.GlobalVariableHandle]ir.GlobalVariableHandle{},
+		dialect:         d,
 	}
+}
+
+// warn records a diagnostic that does not stop the parse.
+func (f *Frontend) warn(span ir.Span, message string) {
+	f.warnings = append(f.warnings, frontend.Diagnostic{Message: message, Span: span})
 }
 
 // constContext returns the context that lowers module-scope constant

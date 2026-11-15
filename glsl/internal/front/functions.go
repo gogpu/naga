@@ -533,6 +533,12 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 		// own refusal stays as a fallback for the declaration-time call sites.
 		return 0, false, errMessage(span, reason)
 	}
+	// A builtin family the dialect's version does not have is refused here
+	// unless the shader itself declared a function of that name, which the
+	// builtin must not shadow.
+	if reason := f.dialect.builtinRefusal(name); reason != "" && !userDefinedFunction(f.functions[name]) {
+		return 0, false, errMessage(span, reason)
+	}
 	decl, variations := f.functionDeclaration(name, builtinRequiredVariations(argTypes...))
 	f.injectBuiltin(decl, name, variations)
 
@@ -674,6 +680,9 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 		f.addError(errSemantic(span, "Ambiguous best function for '%s'", name))
 	}
 	if !haveChosen {
+		if refusal := subgroupRefusal(name, span); refusal != nil {
+			return 0, false, refusal
+		}
 		return 0, false, errSemantic(span, "Unknown function '%s'", name)
 	}
 
@@ -952,6 +961,20 @@ func zeroLiteral(s ir.ScalarType) (ir.LiteralValue, bool) {
 		return ir.LiteralBool(false), true
 	}
 	return nil, false
+}
+
+// userDefinedFunction reports whether a name has an overload the shader itself
+// declared, which a version gate of a builtin family must not refuse.
+func userDefinedFunction(decl *functionDeclaration) bool {
+	if decl == nil {
+		return false
+	}
+	for i := range decl.overloads {
+		if decl.overloads[i].defined && !decl.overloads[i].internal {
+			return true
+		}
+	}
+	return false
 }
 
 // functionDeclaration returns the declaration of name and the builtin

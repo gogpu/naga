@@ -16,7 +16,7 @@ func versioned(src string) string { return "#version 460\n" + src }
 func parseSource(t *testing.T, src string) *parsedFile {
 	t.Helper()
 	res := preprocessOK(t, src, nil)
-	return parse(lex(res.Tokens), res.Version.Value)
+	return parse(lex(res.Tokens), dialect{version: res.Version.Value, profile: res.Version.Profile}, ir.StageVertex, res.Extensions)
 }
 
 // newTestParser returns a parser over the classified tokens of src, for the
@@ -24,9 +24,12 @@ func parseSource(t *testing.T, src string) *parsedFile {
 func newTestParser(t *testing.T, src string) *parser {
 	t.Helper()
 	res := preprocessOK(t, versioned(src), nil)
+	d := dialect{version: res.Version.Value, profile: res.Version.Profile}
 	return &parser{
 		tokens:  lex(res.Tokens),
-		version: res.Version.Value,
+		version: d.version,
+		dialect: d,
+		stage:   ir.StageVertex,
 		types:   map[string]bool{},
 		symbols: newSymbolTable(),
 	}

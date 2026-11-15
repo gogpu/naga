@@ -93,7 +93,7 @@ func (p *parser) parsePostfix(e *exprs) (hirHandle, *frontError) {
 		// (sampler2D(tex, samp)) is a call of the builtin of that name in the
 		// IR, even though the parser meets it as a type (design §11).
 		written := p.peek().text
-		spec, span, err := p.parseTypeNonVoid()
+		spec, span, err := p.parseConstructorType()
 		if err != nil {
 			return 0, err
 		}
@@ -128,6 +128,9 @@ func (p *parser) parsePostfix(e *exprs) (hirHandle, *frontError) {
 			sym = p.builtinSymbol(name)
 		}
 		if sym == nil {
+			if refusal := subgroupRefusal(name, span); refusal != nil {
+				return 0, refusal
+			}
 			return 0, errUnknownVariable(name, span)
 		}
 		base = e.Arena.add(hirVariable{Sym: sym}, span)

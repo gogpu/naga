@@ -4,7 +4,11 @@ package front
 // around GLSL's main, Rust naga's add_entry_point (functions.rs:1188-1386) and
 // the declaration loop of ParsingContext::parse (parser.rs:168-201).
 
-import "github.com/gogpu/naga/ir"
+import (
+	"strconv"
+
+	"github.com/gogpu/naga/ir"
+)
 
 // resetMeta sets the per-shader metadata defaults, Rust naga's
 // ShaderMetadata::reset (mod.rs:107-112): the compute workgroup size starts at
@@ -40,6 +44,14 @@ func (f *Frontend) lowerModule(file *parsedFile) *frontError {
 	// the module, so it is resolved once the declarations are all lowered.
 	if derr := f.resolveCombinedSamplerBindings(file.Decls); derr != nil {
 		return derr
+	}
+	// Every resource that needed a binding has it now, so a supplied entry no
+	// declaration used is reported (design §11, R5: a warning, never a silent
+	// fallback). A Vulkan GLSL source binds itself and consults no map, so its
+	// entries all land here.
+	for _, name := range f.bindings.unusedNames() {
+		f.warn(ir.Span{}, "the ResourceBindings entry for "+strconv.Quote(name)+
+			" did not match a resource that needs a binding")
 	}
 	// GLSL forbids recursion; Rust naga rejects a call cycle in validation.
 	// Refused here, before the module reaches a backend.

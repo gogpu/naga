@@ -26,6 +26,37 @@ type parser struct {
 	// (parser/declarations.rs:80).
 	version uint16
 
+	// dialect is the language of the source (design §15): the parser enforces
+	// the version/profile gates of features it classifies itself, and the
+	// ES 3.00 default float precision rule. stage is the caller's stage, which
+	// the precision rule needs: only the ES fragment language has no default
+	// float precision.
+	dialect dialect
+	stage   ir.ShaderStage
+
+	// defaultFloatPrecision reports whether a `precision ... float;`
+	// declaration is in scope, which an ES 3.00 fragment shader needs before
+	// its first declared float type. precisionScopes saves the value of the
+	// enclosing scopes. inPrecisionDecl marks the type of a precision
+	// declaration itself, explicitPrecision a declaration that names its own
+	// precision and inTypeConstructor a type constructor's type name, which the
+	// rule does not apply to. precisionErrorReported keeps the diagnostic to its
+	// first occurrence, as glslang stops at the first; reportedGates does the
+	// same for the dialect type gates.
+	defaultFloatPrecision  bool
+	precisionScopes        []bool
+	inPrecisionDecl        bool
+	explicitPrecision      bool
+	inTypeConstructor      bool
+	precisionErrorReported bool
+	reportedGates          map[string]bool
+
+	// f16Extension reports whether GL_EXT_shader_explicit_arithmetic_types_
+	// float16 is enabled by an #extension directive of this source, which is
+	// what lets float16_t types into GL 3.30 core (design §15: f16 is "with
+	// extension" there).
+	f16Extension bool
+
 	// types holds the struct type names declared so far: Rust naga's
 	// lookup_type. A struct must be declared before it is used.
 	types map[string]bool
@@ -47,12 +78,15 @@ type parser struct {
 // declarations. A syntax error stops the parse; it and the semantic errors
 // collected on the way are in the returned file, in occurrence order (Rust
 // naga returns the fatal error after the collected ones, mod.rs:207-219).
-func parse(tokens []glslToken, version uint16) *parsedFile {
+func parse(tokens []glslToken, dialect dialect, stage ir.ShaderStage, extensions []ppExtension) *parsedFile {
 	p := &parser{
-		tokens:  tokens,
-		version: version,
-		types:   map[string]bool{},
-		symbols: newSymbolTable(),
+		tokens:       tokens,
+		version:      dialect.version,
+		dialect:      dialect,
+		stage:        stage,
+		types:        map[string]bool{},
+		symbols:      newSymbolTable(),
+		f16Extension: extensionEnabled(extensions, "GL_EXT_shader_explicit_arithmetic_types_float16"),
 	}
 	file := &parsedFile{}
 	for p.peek() != nil {
@@ -214,11 +248,38 @@ func (p *parser) peekParameterQualifier() bool {
 		return false
 	}
 	switch tok.kind {
-	case tokIn, tokOut, tokInOut, tokConst:
+	case tokIn, tokOut, tokInOut, tokConst, tokHighP, tokMediumP, tokLowP:
 		return true
 	default:
 		return false
 	}
+}
+
+// peekPrecisionQualifier reports whether the next token is a precision
+// qualifier (highp, mediump or lowp).
+func (p *parser) peekPrecisionQualifier() bool {
+	tok := p.peek()
+	if tok == nil {
+		return false
+	}
+	switch tok.kind {
+	case tokHighP, tokMediumP, tokLowP:
+		return true
+	default:
+		return false
+	}
+}
+
+// acceptPrecisionQualifier consumes a precision qualifier if one is written, as
+// a struct member may carry (GLSL ES 3.00 §4.5.4), and reports whether it did.
+func (p *parser) acceptPrecisionQualifier() bool {
+	if !p.peekPrecisionQualifier() {
+		return false
+	}
+	if _, err := p.bump(); err != nil {
+		return false
+	}
+	return true
 }
 
 // atPunct reports whether the next token is the punctuation token written s.

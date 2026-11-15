@@ -98,7 +98,139 @@ func (p *parser) parseType() (*typeSpec, ir.Span, *frontError) {
 		// Rust returns a span that covers the type and its array specifiers.
 		spec.Span = subsumeSpan(spec.Span, arrays[len(arrays)-1].Span)
 	}
+	if spec.Builtin != nil {
+		p.checkDialectType(spec.Builtin, tok.text, tok.span)
+		p.checkFloatPrecision(spec.Builtin, tok.span)
+	}
 	return spec, spec.Span, nil
+}
+
+// checkDialectType refuses a type the dialect does not have (design §15). Each
+// diagnostic keeps glslang's wording and names the version that introduces the
+// type; it is reported once per feature, as glslang stops at the first. name is
+// the spelling the source wrote, which the cube-array message uses.
+func (p *parser) checkDialectType(tn *typeName, name string, span ir.Span) {
+	scalar, hasScalar := typeScalar(tn.Inner)
+	if hasScalar {
+		switch {
+		case scalar.Kind == ir.ScalarFloat && scalar.Width == 8 && !p.dialect.supportsDouble():
+			p.gate("double", span, p.dialect.unsupported("double", " (double requires GLSL 4.00)"))
+		case scalar.Kind == ir.ScalarFloat && scalar.Width == 2 && !p.float16Allowed():
+			p.gate("float16_t", span, p.dialect.unsupported("float16_t",
+				" (half-float arithmetic requires the GL_EXT_shader_explicit_arithmetic_types_float16 extension in GLSL 3.30 core and is not part of GLSL ES 3.00)"))
+		}
+	}
+	if image, ok := tn.Inner.(ir.ImageType); ok && image.Class == ir.ImageClassStorage && !p.dialect.supportsStorageImages() {
+		// glslang: a bare `uniform image2D img;` prints "'image2D' : Reserved
+		// word"; with a layout format qualifier it prints "'image load store' :
+		// not supported for this version or the enabled extensions"
+		// (img330bare.frag, img330.frag).
+		p.gate("image load store", span, p.dialect.unsupported("image load store",
+			" (storage images require GLSL 4.20 or ES 3.10)"))
+	}
+	if tn.Combined && tn.Dim == ir.DimCube && tn.Arrayed && !p.dialect.supportsCubeArraySamplers() {
+		// glslang: "'samplerCubeArray' : Reserved word" and the same for
+		// samplerCubeArrayShadow (cubearr330.frag, cubearr300.frag,
+		// cubearrshadow330.frag); cube array textures are GLSL 4.00 / ES 3.20.
+		p.gate("cube array sampler", span, p.dialect.unsupported(name,
+			" (cube array samplers require GLSL 4.00 or ES 3.20)"))
+	}
+}
+
+// float16Allowed reports whether float16_t types are accepted: Vulkan GLSL
+// always, GL 3.30 core when GL_EXT_shader_explicit_arithmetic_types_float16 is
+// enabled by #extension (design §15's "with extension" cell; glslang accepts
+// gl330/float16-extension.frag), and never in GLSL ES 3.00, whose cell is "no".
+func (p *parser) float16Allowed() bool {
+	if p.dialect.vulkan() {
+		return true
+	}
+	return p.dialect.gl330() && p.f16Extension
+}
+
+// gate records the first occurrence of a dialect-gate diagnostic.
+func (p *parser) gate(feature string, span ir.Span, message string) {
+	if p.reportedGates == nil {
+		p.reportedGates = map[string]bool{}
+	}
+	if p.reportedGates[feature] {
+		return
+	}
+	p.reportedGates[feature] = true
+	p.errors = append(p.errors, *errSemantic(span, "%s", message))
+}
+
+// typeScalar returns the scalar of a scalar, vector or matrix type, the shape
+// a GLSL scalar type name denotes.
+func typeScalar(inner ir.TypeInner) (ir.ScalarType, bool) {
+	switch inner := inner.(type) {
+	case ir.ScalarType:
+		return inner, true
+	case ir.VectorType:
+		return inner.Scalar, true
+	case ir.MatrixType:
+		return inner.Scalar, true
+	default:
+		return ir.ScalarType{}, false
+	}
+}
+
+// checkFloatPrecision enforces the ES 3.00 fragment rule that every declared
+// float type needs a default precision in scope (GLSL ES 3.00 §4.5.3: the
+// fragment language has no default precision for float). glslang reports
+// "'float' : type requires declaration of default precision qualifier" at the
+// first float type of the shader, and accepts a `precision ... float;`
+// statement only when it precedes that first use, so the rule is checked at
+// the type token in source order and once (frag300_noprec.frag,
+// prec_after.frag, prec_fn_before.frag). A declaration that names a precision
+// itself is exempt (`out highp vec4 c;`), which explicitPrecision carries; the
+// vertex language has default highp and the desktop dialects ignore precision.
+func (p *parser) checkFloatPrecision(tn *typeName, span ir.Span) {
+	if p.dialect.vulkan() || !p.dialect.es() || p.dialect.version != 300 || p.stage != ir.StageFragment {
+		return
+	}
+	if p.defaultFloatPrecision || p.explicitPrecision || p.inPrecisionDecl || p.inTypeConstructor || p.precisionErrorReported {
+		return
+	}
+	scalar, ok := typeScalar(tn.Inner)
+	if !ok || scalar.Kind != ir.ScalarFloat || scalar.Width != 4 {
+		return
+	}
+	p.precisionErrorReported = true
+	p.errors = append(p.errors, *errSemantic(span,
+		"'float' : type requires declaration of default precision qualifier"))
+}
+
+// parseConstructorType parses the type name of a type constructor, as in
+// vec4(...) or float[3](...). Its type is an expression and not a declaration,
+// so the ES 3.00 default float precision rule does not apply: glslang accepts
+// `vec2(1.0)` with no precision statement (p_ctor.frag).
+func (p *parser) parseConstructorType() (typeSpec, ir.Span, *frontError) {
+	p.inTypeConstructor = true
+	spec, span, err := p.parseTypeNonVoid()
+	p.inTypeConstructor = false
+	return spec, span, err
+}
+
+// parseTypeExemptingPrecision parses a type of a declaration that names a
+// precision qualifier itself, which the ES 3.00 default float precision rule
+// does not require.
+func (p *parser) parseTypeExemptingPrecision(explicit bool) (*typeSpec, ir.Span, *frontError) {
+	saved := p.explicitPrecision
+	p.explicitPrecision = explicit
+	spec, span, err := p.parseType()
+	p.explicitPrecision = saved
+	return spec, span, err
+}
+
+// parseTypeNonVoidExemptingPrecision is parseTypeExemptingPrecision for a type
+// that cannot be void.
+func (p *parser) parseTypeNonVoidExemptingPrecision(explicit bool) (typeSpec, ir.Span, *frontError) {
+	saved := p.explicitPrecision
+	p.explicitPrecision = explicit
+	spec, span, err := p.parseTypeNonVoid()
+	p.explicitPrecision = saved
+	return spec, span, err
 }
 
 // parseTypeNonVoid parses a type that cannot be void.
@@ -158,7 +290,11 @@ func (p *parser) parseStructDefinition(structToken glslToken) (*structDef, *fron
 func (p *parser) parseStructMembers() ([]structMember, *frontError) {
 	var members []structMember
 	for {
-		base, baseSpan, err := p.parseTypeNonVoid()
+		// A member may carry a precision qualifier of its own (GLSL ES 3.00
+		// §4.5.4; the desktop dialects accept and ignore it), which satisfies
+		// the default float precision rule for that member.
+		explicit := p.acceptPrecisionQualifier()
+		base, baseSpan, err := p.parseTypeNonVoidExemptingPrecision(explicit)
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +366,12 @@ func (p *parser) parseTypeQualifiers() (typeQualifiers, *frontError) {
 					"Cannot use more than one storage qualifier per declaration"))
 			}
 			q.Storage, q.StorageSpan = storageOf(tok.kind), tok.span
+			if tok.kind == tokBuffer && !p.dialect.supportsStorageBuffers() {
+				// glslang rejects the declaration as a syntax error at the
+				// `buffer` token: storage blocks are GLSL 4.30 / ES 3.10.
+				p.gate("buffer", tok.span, p.dialect.unsupported("buffer",
+					" (storage buffers require GLSL 4.30 or ES 3.10)"))
+			}
 		case tokCentroid, tokSample:
 			if q.Sampling != samplingNone {
 				p.errors = append(p.errors, *errSemantic(tok.span,

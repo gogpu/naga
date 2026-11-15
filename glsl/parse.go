@@ -30,27 +30,38 @@ type ParseOptions struct {
 
 	// SamplerBindings places the sampler of each split combined image sampler;
 	// see [frontend.SamplerBindings] for the per-module resolution and the
-	// multi-module caveat.
+	// multi-module caveat. For a GL 3.30 or ES 3.00 source it is the more
+	// specific placement: the image's binding is fixed first (by
+	// [ParseOptions.ResourceBindings] or the automatic counter), then this map
+	// may place the split sampler; an entry wins over the next free slot.
 	SamplerBindings frontend.SamplerBindings
 
 	// ResourceBindings names the resource binding of a module-scope resource
 	// that the source cannot bind itself (GL 3.30 core and ES 3.00 have no
-	// layout(binding)): a uniform block, a storage block, an image or a split
-	// sampler, by source name. Ignored where the source declares the binding
-	// itself (Vulkan GLSL).
+	// layout(binding)), by source name: a uniform block (its type name when the
+	// block has no instance name), a storage block, an image, a plain sampler,
+	// or the image of a combined image sampler. A supplied slot is reserved
+	// before any declaration is lowered, so automatic placement skips it; two
+	// names claiming one slot is a *ParseError. An entry that names no resource
+	// needing a binding is a warning in [ParseInfo.Warnings], as design §11
+	// (R5) requires.
 	//
-	// Not implemented yet, and neither is the rest of the GL/ES binding model:
-	// a resource without layout(binding) is a *ParseError today, so GL 3.30 and
-	// ES 3.00 shaders that declare one do not parse (design §11; Phase 4).
-	// Parse reports a *ParseError when this map is not empty rather than
-	// ignoring it.
+	// A Vulkan GLSL source (440/450/460) declares its own bindings and this map
+	// is not consulted there at all: layout(binding) wins, an entry can neither
+	// claim a slot nor move an automatic placement, and no diagnostic is
+	// produced for it. The split sampler of a combined image sampler is placed
+	// by [ParseOptions.SamplerBindings], not by this map.
 	ResourceBindings map[string]ir.ResourceBinding
 }
 
 // ParseInfo is what [Parse] reports besides the module.
 type ParseInfo struct {
-	// Warnings are diagnostics that do not stop parsing: an ignored pragma, an
-	// extension enabled but not required, a location assigned implicitly.
+	// Warnings are diagnostics that do not stop parsing. The producers are: an
+	// unmatched ResourceBindings entry (design §11 R5), and, in the GL 3.30
+	// core and ES 3.00 dialects, a #extension directive naming an extension the
+	// frontend cannot place — such a directive is accepted as a no-op with a
+	// warning (a deliberate deviation from GLSL 4.60 §3.3, card P2-GLSLIN-022).
+	// Vulkan GLSL produces no #extension diagnostics.
 	Warnings []frontend.Diagnostic
 
 	// CombinedSamplers lists the splits the parse applied, in source order. A

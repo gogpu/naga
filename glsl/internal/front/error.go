@@ -137,6 +137,55 @@ func errUnknownType(name string, span ir.Span) *frontError {
 	return &frontError{Message: "Unknown type: " + name, Span: span}
 }
 
+// subgroupRefusal returns the diagnostic for a subgroup builtin the frontend
+// does not implement, or nil when name is not one of them. The extension
+// directives of the GL_KHR_shader_subgroup_* family are recognized (design
+// §15), but the builtins themselves need the subgroup support of card
+// P1-GLSLIN-017; until then a use is refused with a message that names the
+// limitation instead of Rust's bare unknown-name text. glslang leaves
+// gl_SubgroupSize undeclared in 300 es and resolves it in 330 core, and the
+// frontend refuses both for now.
+func subgroupRefusal(name string, span ir.Span) *frontError {
+	if !isSubgroupBuiltin(name) {
+		return nil
+	}
+	return errSemantic(span, "'%s' : subgroup operations are not implemented by the GLSL frontend (card P1-GLSLIN-017)", name)
+}
+
+// isSubgroupBuiltin reports whether name is a subgroup builtin variable or
+// function name of GLSL 4.60 or GL_KHR_shader_subgroup.
+func isSubgroupBuiltin(name string) bool {
+	if strings.HasPrefix(name, "gl_Subgroup") || name == "gl_NumSubgroups" {
+		return true
+	}
+	return subgroupFunctions[name]
+}
+
+// subgroupFunctions is the subgroup builtin function family of GLSL 4.60 §8.18
+// and GL_KHR_shader_subgroup.
+var subgroupFunctions = map[string]bool{
+	"subgroupAdd": true, "subgroupMul": true, "subgroupMin": true, "subgroupMax": true,
+	"subgroupAnd": true, "subgroupOr": true, "subgroupXor": true,
+	"subgroupInclusiveAdd": true, "subgroupInclusiveMul": true, "subgroupInclusiveMin": true,
+	"subgroupInclusiveMax": true, "subgroupInclusiveAnd": true, "subgroupInclusiveOr": true,
+	"subgroupInclusiveXor": true,
+	"subgroupExclusiveAdd": true, "subgroupExclusiveMul": true, "subgroupExclusiveMin": true,
+	"subgroupExclusiveMax": true, "subgroupExclusiveAnd": true, "subgroupExclusiveOr": true,
+	"subgroupExclusiveXor":     true,
+	"subgroupBallot":           true,
+	"subgroupBallotBitExtract": true, "subgroupBallotBitCount": true,
+	"subgroupBallotInclusiveBitCount": true, "subgroupBallotExclusiveBitCount": true,
+	"subgroupBallotFindLSB": true, "subgroupBallotFindMSB": true,
+	"subgroupShuffle": true, "subgroupShuffleXor": true, "subgroupShuffleUp": true,
+	"subgroupShuffleDown": true, "subgroupBroadcast": true, "subgroupBroadcastFirst": true,
+	"subgroupQuadBroadcast": true, "subgroupQuadSwapHorizontal": true,
+	"subgroupQuadSwapVertical": true, "subgroupQuadSwapDiagonal": true,
+	"subgroupElect": true, "subgroupAll": true, "subgroupAny": true, "subgroupAllEqual": true,
+	"subgroupBarrier": true, "subgroupMemoryBarrier": true, "subgroupMemoryBarrierBuffer": true,
+	"subgroupMemoryBarrierShared": true, "subgroupMemoryBarrierImage": true,
+	"subgroupMemoryBarrierAtomicCounter": true,
+}
+
 // errVariableAlreadyDeclared is Rust's ErrorKind::VariableAlreadyDeclared.
 func errVariableAlreadyDeclared(name string, span ir.Span) *frontError {
 	return &frontError{Message: "Variable already declared: " + name, Span: span}

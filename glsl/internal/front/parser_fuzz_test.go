@@ -230,6 +230,19 @@ func FuzzParseGLSL(f *testing.F) {
 			"void main() { gl_Position = vec4(1.0); b.c = { 1.0, 2.0, 3.0, 4.0 }; }\n",
 		"#version 460\n",
 		"\n\n// comment only\n",
+		// The GL 3.30 core and ES 3.00 dialects (design §15): a combined
+		// sampler split and a precision statement, the two forms the dialect
+		// work added.
+		"#version 330 core\nuniform sampler2D tex;\nuniform Globals { mat4 mvp; } g;\n" +
+			"layout(location = 0) in vec2 uv;\nout vec2 vUV;\n" +
+			"void main() { vUV = uv; gl_Position = g.mvp * vec4(uv, 0.0, 1.0); }\n",
+		"#version 330 core\nuniform sampler2D tex;\nout vec4 color;\n" +
+			"void main() { color = texture(tex, vec2(0.5)); }\n",
+		"#version 300 es\nprecision mediump float;\nuniform sampler2D tex;\nout vec4 color;\n" +
+			"void main() { color = texture(tex, vec2(0.5)); }\n",
+		"#version 300 es\nprecision lowp sampler2D;\nprecision highp float;\n" +
+			"struct S { highp vec4 a; mediump float b; };\n" +
+			"void main() { { precision mediump float; float x = 1.0; } }\n",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -241,7 +254,7 @@ func FuzzParseGLSL(f *testing.F) {
 			// shader.
 			return
 		}
-		file := parse(lex(res.Tokens), res.Version.Value)
+		file := parse(lex(res.Tokens), dialect{version: res.Version.Value, profile: res.Version.Profile}, ir.StageVertex, res.Extensions)
 		check := spanCheck{t: t, limit: uint32(len(src))}
 		for _, decl := range file.Decls {
 			check.decl(decl)

@@ -419,6 +419,13 @@ func (u *layoutUse) take(key qualifierKey) (*qualifierEntry, bool) {
 	return entry, true
 }
 
+// peek returns a named entry without consuming it, so a check can run before
+// the consumer takes the value.
+func (u *layoutUse) peek(name string) (*qualifierEntry, bool) {
+	entry, ok := u.entries[qualifierKey{kind: layoutNamed, name: name}]
+	return entry, ok
+}
+
 // takeUint removes a named uint entry, Rust naga's uint_layout_qualifier
 // (ast.rs:283-311): an entry without a value is an error, and 0 is returned
 // so the caller does not report a second, less useful error.
@@ -623,11 +630,29 @@ type globalOrConstant struct {
 	override ir.OverrideHandle
 }
 
+// opaqueUniformDeclaration reports whether a declaration's type is an opaque
+// uniform — a plain sampler or an image — the only module-scope uniforms GL 3.30
+// core and ES 3.00 allow outside a block. A combined image sampler never
+// reaches this check: it has its own declaration path.
+func opaqueUniformDeclaration(spec typeSpec) bool {
+	if spec.Builtin == nil {
+		return false
+	}
+	switch spec.Builtin.Inner.(type) {
+	case ir.SamplerType, ir.ImageType:
+		return true
+	default:
+		return false
+	}
+}
+
 // addGlobalVar declares one module-scope variable, constant or override, Rust
 // naga's Frontend::add_global_var (variables.rs:415-663). sym and name are nil
 // and empty for an instance-less interface block, whose members are the
-// names that matter.
-func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQualifiers, ty ir.TypeHandle, name string, sym *glslSymbol, init *ir.ExpressionHandle, span ir.Span) (globalOrConstant, *frontError) {
+// names that matter. bindingName is the source name ParseOptions.
+// ResourceBindings keys on: the declared variable name, or an interface
+// block's type name when it has no instance name.
+func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQualifiers, ty ir.TypeHandle, name, bindingName string, sym *glslSymbol, init *ir.ExpressionHandle, span ir.Span) (globalOrConstant, *frontError) {
 	var (
 		out    globalOrConstant
 		lookup globalLookup
@@ -635,6 +660,15 @@ func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQua
 	switch storage := qualifiers.Storage; storage {
 	case storageInput, storageOutput:
 		input := storage == storageInput
+		// GL 3.30 core and ES 3.00 give an explicit location only to vertex
+		// shader inputs and fragment shader outputs; a varying location is
+		// GLSL 4.10 / ES 3.10 (design §15, dialect.go).
+		if entry, ok := used.peek("location"); ok && !f.dialect.allowsIOLocation(f.meta.stage, storage) {
+			f.addError(errMessage(entry.span, f.dialect.unsupported(
+				"location qualifier on "+ioDirection(storage),
+				" on a "+stageAdjective(f.meta.stage)+" "+ioDirection(storage)+
+					" ("+f.dialect.ioLocationRequirement(f.meta.stage, storage)+")")))
+		}
 		location := f.nextIOLocation(ioClassOf(storage), used)
 
 		var interpolation *ir.Interpolation
@@ -742,8 +776,19 @@ func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQua
 			case ir.SamplerType:
 				space = ir.SpaceHandle
 			default:
-				if used.takeNone("push_constant") {
-					space = ir.SpaceImmediate
+				if entry, ok := used.peek("push_constant"); ok {
+					used.take(qualifierKey{kind: layoutNamed, name: "push_constant"})
+					switch {
+					case entry.hasValue:
+						// The qualifier takes no value; Rust naga's text for it
+						// (none_layout_qualifier, ast.rs:314-337), and the space
+						// must not become immediate on a malformed qualifier.
+						f.addError(errMessage(entry.span, "Qualifier doesn't expect a value"))
+					case f.dialect.supportsPushConstants():
+						space = ir.SpaceImmediate
+					default:
+						f.addError(errMessage(entry.span, "'push_constant' : only allowed when using GLSL for Vulkan"))
+					}
 				}
 			}
 		case storageBuffer:
@@ -754,13 +799,7 @@ func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQua
 
 		var binding *ir.ResourceBinding
 		if space == ir.SpaceUniform || space == ir.SpaceStorage || space == ir.SpaceHandle {
-			value, ok := used.takeUint("binding")
-			if !ok {
-				f.addError(errMessage(span, "uniform/buffer blocks require layout(binding=X)"))
-			}
-			group, _ := used.takeUint("set")
-			binding = &ir.ResourceBinding{Group: group, Binding: value}
-			f.usedBindings[resourceKey{group: group, binding: value}] = true
+			binding = f.resourceBinding(bindingName, used, span)
 		}
 
 		handle := ir.GlobalVariableHandle(len(f.mod.GlobalVariables))
@@ -829,6 +868,16 @@ func (f *Frontend) lowerGlobalVarList(c *Context, d *declVarList) *frontError {
 		return nil
 	}
 
+	// GL 3.30 core and ES 3.00 have no plain-default-block uniform: a
+	// module-scope `uniform` is an interface block or an opaque resource. The IR
+	// has no default-block member model, so a plain uniform would become a
+	// synthetic one-resource uniform buffer, which is not what the shader says;
+	// Rust naga rejects these too (card P1-GLSLIN-021).
+	if d.Qualifiers.Storage == storageUniform && !f.dialect.hasLayoutBindings() && !opaqueUniformDeclaration(d.Typ) {
+		return errMessage(d.Typ.Span,
+			"plain uniform variables need default-block synthesis, which the GLSL frontend does not implement (card P1-GLSLIN-021); declare the uniform inside a uniform block")
+	}
+
 	base, err := f.resolveTypeSpec(&d.Typ, structLayoutStd140)
 	if err != nil {
 		return err
@@ -871,7 +920,7 @@ func (f *Frontend) lowerGlobalVarList(c *Context, d *declVarList) *frontError {
 			}
 		}
 
-		if _, err := f.addGlobalVar(c, used, &d.Qualifiers, ty, decl.Name, decl.Sym, init, decl.Span); err != nil {
+		if _, err := f.addGlobalVar(c, used, &d.Qualifiers, ty, decl.Name, decl.Name, decl.Sym, init, decl.Span); err != nil {
 			return err
 		}
 	}
@@ -893,13 +942,11 @@ func (f *Frontend) addCombinedSampler(c *Context, used *layoutUse, qualifiers *t
 	if f.combinedPolicy == frontend.CombinedImageSamplerReject {
 		return errMessage(span, "combined image samplers are refused by CombinedImageSamplerReject")
 	}
-	binding, ok := used.takeUint("binding")
-	if !ok {
-		f.addError(errMessage(span, "uniform/buffer blocks require layout(binding=X)"))
-	}
-	group, _ := used.takeUint("set")
-	imageBinding := ir.ResourceBinding{Group: group, Binding: binding}
-	f.usedBindings[resourceKey{group: group, binding: binding}] = true
+	// The image takes the declared layout(binding) of a Vulkan GLSL source, or
+	// is placed by the GL/ES binding model under the source name (design §11);
+	// the sampler's binding is resolved once every module-scope declaration is
+	// known (resolveCombinedSamplerBindings).
+	imageBinding := *f.resourceBinding(decl.Name, used, span)
 
 	image := ir.ImageType{
 		Dim:          spec.Dim,
@@ -1018,15 +1065,15 @@ func (f *Frontend) resolveCombinedSamplerBindings(decls []astDecl) *frontError {
 		var samplerBinding ir.ResourceBinding
 		if supplied, mapped := f.samplerBindings[resourceKey{group: group, binding: split.imageBinding.Binding}]; mapped {
 			target := resourceKey{group: group, binding: supplied}
-			if f.usedBindings[target] {
+			if f.bindings.taken(target) {
 				return errSemantic(span,
 					"the sampler of combined image sampler (group %d, binding %d) is mapped to (group %d, binding %d), which another resource of the module already uses",
 					group, split.imageBinding.Binding, group, supplied)
 			}
 			samplerBinding = ir.ResourceBinding{Group: group, Binding: supplied}
-			f.usedBindings[target] = true
+			f.bindings.claim(target)
 		} else {
-			samplerBinding = ir.ResourceBinding{Group: group, Binding: f.nextFreeBinding(group)}
+			samplerBinding = ir.ResourceBinding{Group: group, Binding: f.bindings.nextFree(group)}
 		}
 		f.mod.GlobalVariables[samplerHandle].Binding = &samplerBinding
 		split.samplerBinding = samplerBinding
@@ -1034,15 +1081,56 @@ func (f *Frontend) resolveCombinedSamplerBindings(decls []astDecl) *frontError {
 	return nil
 }
 
-// nextFreeBinding returns the lowest binding of group no bound resource uses
-// and reserves it.
-func (f *Frontend) nextFreeBinding(group uint32) uint32 {
-	for binding := uint32(0); ; binding++ {
-		key := resourceKey{group: group, binding: binding}
-		if !f.usedBindings[key] {
-			f.usedBindings[key] = true
-			return binding
+// resourceBinding places one bound module-scope resource, design §11 (R2).
+// A Vulkan GLSL source declares its layout(binding)/layout(set) and those win;
+// GL 3.30 core and ES 3.00 have no such qualifier, so the resource takes the
+// binding ParseOptions.ResourceBindings gives its source name, else the next
+// free slot of the module's one counter (bindings.go).
+func (f *Frontend) resourceBinding(bindingName string, used *layoutUse, span ir.Span) *ir.ResourceBinding {
+	if f.dialect.hasLayoutBindings() {
+		value, ok := used.takeUint("binding")
+		if !ok {
+			// Rust naga's text for a resource the source does not bind.
+			f.addError(errMessage(span, "uniform/buffer blocks require layout(binding=X)"))
 		}
+		group, _ := used.takeUint("set")
+		binding := ir.ResourceBinding{Group: group, Binding: value}
+		f.bindings.markUsed(resourceKey{group: group, binding: value})
+		return &binding
+	}
+	if entry, ok := used.take(qualifierKey{kind: layoutNamed, name: "binding"}); ok {
+		f.addError(errMessage(entry.span, f.dialect.unsupported(
+			"binding", " (requires GLSL 4.20 or GL_ARB_shading_language_420pack)")))
+	}
+	if entry, ok := used.take(qualifierKey{kind: layoutNamed, name: "set"}); ok {
+		f.addError(errMessage(entry.span, "'set' : only allowed when using GLSL for Vulkan"))
+	}
+	binding, reason := f.bindings.forResource(bindingName, 0)
+	if reason != "" {
+		f.addError(errSemantic(span, "%s", reason))
+	}
+	return &binding
+}
+
+// ioDirection names an in or out variable in a diagnostic.
+func ioDirection(storage storageQualifier) string {
+	if storage == storageInput {
+		return "input"
+	}
+	return "output"
+}
+
+// stageAdjective names a stage as a shader in a diagnostic: "vertex shader".
+func stageAdjective(stage ir.ShaderStage) string {
+	switch stage {
+	case ir.StageVertex:
+		return "vertex shader"
+	case ir.StageFragment:
+		return "fragment shader"
+	case ir.StageCompute:
+		return "compute shader"
+	default:
+		return stage.String() + " shader"
 	}
 }
 
@@ -1069,7 +1157,13 @@ func (f *Frontend) lowerBlockDeclaration(c *Context, d *declBlock) *frontError {
 	if err != nil {
 		return err
 	}
-	global, err := f.addGlobalVar(c, used, &d.Qualifiers, ty, d.Instance, d.InstanceSym, nil, d.Span)
+	// The ResourceBindings key of an interface block is its instance name, or
+	// its type name when it has none (the block is then addressed by members).
+	bindingName := d.Instance
+	if bindingName == "" {
+		bindingName = d.Name
+	}
+	global, err := f.addGlobalVar(c, used, &d.Qualifiers, ty, d.Instance, bindingName, d.InstanceSym, nil, d.Span)
 	if err != nil {
 		return err
 	}
@@ -1110,6 +1204,17 @@ func (f *Frontend) lowerBlockDeclaration(c *Context, d *declBlock) *frontError {
 // the early fragment tests request.
 func (f *Frontend) lowerQualifierDeclaration(d *declQualifiers) {
 	used := f.takeLayoutQualifiers(&d.Qualifiers)
+	// The workgroup size exists in the compute stage only; glslang, for a
+	// `layout(local_size_x = 1) in;` declaration outside compute: "'local_size_x'
+	// : there is no such layout identifier for this stage taking an assigned
+	// value". The compute stage itself is Vulkan GLSL only and refused earlier
+	// for GL 3.30 and ES 3.00 (parse.go).
+	for _, name := range [...]string{"local_size_x", "local_size_y", "local_size_z"} {
+		entry, ok := used.peek(name)
+		if ok && f.meta.stage != ir.StageCompute {
+			f.addError(errMessage(entry.span, "'"+name+"' : there is no such layout identifier for this stage taking an assigned value"))
+		}
+	}
 	if value, ok := used.takeUint("local_size_x"); ok {
 		f.meta.workgroupSize[0] = value
 	}
@@ -1126,19 +1231,42 @@ func (f *Frontend) lowerQualifierDeclaration(d *declQualifiers) {
 	used.unusedErrors()
 }
 
-// lowerPrecisionDeclaration checks a default precision statement, Rust naga's
-// precision arm of parse_declaration (declarations.rs:487-529): the precision
-// hints themselves are not in the IR yet (Rust's TODO), but a statement on a
-// type that is neither a float nor a signed int is an error.
+// lowerPrecisionDeclaration checks a default precision statement. The precision
+// hints themselves are not in the IR (Rust's TODO), but the statement's type is
+// validated: glslang accepts float, int and sampler types and refuses the rest
+// with "cannot apply precision statement to this type; use 'float', 'int' or a
+// sampler type" (GLSL 4.60 §4.5.4, GLSL ES 3.00 §4.5.4; prec_vec.frag,
+// prec_mat.frag, prec_bool.frag and prec_uint.frag fail, prec_sampler.frag
+// passes). A combined image sampler is a sampler type here — `precision lowp
+// sampler2D;` is the ES 3.00 declaration es300/precision-sampler-type.frag
+// needs — so it is classified from the type name instead of resolved into IR.
 func (f *Frontend) lowerPrecisionDeclaration(d *declPrecision) {
-	ty, err := f.resolveTypeSpec(&d.Typ, structLayoutStd140)
-	if err != nil {
-		f.addError(err)
-		return
+	if !precisionStatementTypeAllowed(d.Typ) {
+		f.addError(errMessage(d.Typ.Span, "Precision statement can only work on floats, ints and sampler types"))
 	}
-	scalar, ok := scalarComponents(f.mod.Types[ty].Inner)
-	if !ok || (scalar.Kind != ir.ScalarFloat && scalar.Kind != ir.ScalarSint) {
-		f.addError(errMessage(d.Typ.Span, "Precision statement can only work on floats and ints"))
+}
+
+// precisionStatementTypeAllowed reports whether a precision statement may name
+// the type of spec: a float or signed integer scalar (of any width), a sampler
+// type, or a combined image sampler. Anything else — vectors, matrices, bool,
+// uint, structs, arrays — is refused, as glslang refuses it.
+func precisionStatementTypeAllowed(spec typeSpec) bool {
+	if spec.Builtin == nil {
+		return false
+	}
+	if spec.Builtin.Combined {
+		return len(spec.Arrays) == 0
+	}
+	if len(spec.Arrays) != 0 {
+		return false
+	}
+	switch inner := spec.Builtin.Inner.(type) {
+	case ir.ScalarType:
+		return inner.Kind == ir.ScalarFloat || inner.Kind == ir.ScalarSint
+	case ir.SamplerType:
+		return true
+	default:
+		return false
 	}
 }
 
