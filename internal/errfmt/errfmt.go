@@ -8,6 +8,7 @@ package errfmt
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -81,4 +82,43 @@ func Format(message string, labels []frontend.Label, notes []string, source, pat
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// SourceLines is the line index of one source text: the byte offset where each
+// line starts. Its Location answers exactly as [ir.Span.Location] but in
+// O(log lines), so a frontend that reports one diagnostic per line does not
+// rescan the source per error — the quadratic cost the deep validation of the
+// GLSL frontend measured (100k diagnostics over a 1.4 MB source: 8.2 s).
+type SourceLines struct {
+	starts []uint32
+}
+
+// NewSourceLines indexes source for repeated location lookups.
+func NewSourceLines(source string) SourceLines {
+	starts := make([]uint32, 0, 1+strings.Count(source, "\n"))
+	starts = append(starts, 0)
+	for i := 0; i < len(source); i++ {
+		if source[i] == '\n' {
+			starts = append(starts, uint32(i+1))
+		}
+	}
+	return SourceLines{starts: starts}
+}
+
+// Location returns the line and column of s, with [ir.Span.Location]'s
+// semantics: 1-based line and column, a span past the end clamped to it.
+func (l SourceLines) Location(source string, s ir.Span) ir.SourceLocation {
+	start := min(int(s.Start), len(source))
+	line := sort.Search(len(l.starts), func(i int) bool { return int(l.starts[i]) > start })
+	lineStart := int(l.starts[line-1])
+	length := uint32(0)
+	if s.End > s.Start {
+		length = s.End - s.Start
+	}
+	return ir.SourceLocation{
+		Line:   uint32(line),
+		Column: uint32(start-lineStart) + 1,
+		Offset: uint32(start),
+		Length: length,
+	}
 }
