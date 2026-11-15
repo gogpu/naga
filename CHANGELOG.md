@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the layer count. Reachable from WGSL `textureDimensions`/`textureNumLayers` on storage textures and from GLSL
   `textureSize`. A 1D arrayed size query now extracts its scalar width with `OpCompositeExtract` instead of an
   invalid vector shuffle (Rust naga's writer has the same flaw there; its GLSL frontend never reaches the shape).
+- **64- and 16-bit float literals** (GLSL 4.60 §4.1.4): `1.0lf` and `1.0hf`/`1.0HF` were refused by the lexer,
+  so a Vulkan GLSL shader using the `double` and `float16_t` types the frontend already supports died at its
+  first literal. The suffixes now produce `ir.LiteralF64` and `ir.LiteralF16`, gated by the same dialect rule as
+  their types (`double` needs 4.00+, `float16_t` the float16 extension outside Vulkan), and a bare `l`/`h`
+  suffix is a precise lexer error.
 - **A texture offset must be a constant expression** (GLSL 4.50 §8.9), for the `texture*Offset` family as for
   `textureGatherOffset`: a run-time offset used to be accepted and written as the `ConstOffset` operand of an
   `OpImageSample*` instruction, which `spirv-val` rejects ("Expected Image Operand ConstOffset to be a const

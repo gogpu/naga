@@ -1,6 +1,7 @@
 package front
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -491,21 +492,70 @@ func TestParsePrimaryLiteralWidth(t *testing.T) {
 	})
 
 	t.Run("64-bit float", func(t *testing.T) {
-		p := &parser{tokens: []glslToken{{kind: tokFloat, floatValue: 1.5, floatWidth: 64}}}
+		p := &parser{
+			tokens:  []glslToken{{kind: tokFloat, floatValue: 1.5, floatWidth: 64}},
+			dialect: dialect{version: 450, profile: ppProfileCore},
+		}
 		e := &exprs{}
 		h, err := p.parsePrimary(e)
 		if err != nil {
 			t.Fatalf("parsePrimary returned %v", err)
 		}
-		if len(p.errors) != 1 {
-			t.Fatalf("%d errors, want 1: %v", len(p.errors), p.errors)
+		if len(p.errors) != 0 {
+			t.Fatalf("%d errors, want none: %v", len(p.errors), p.errors)
 		}
-		const want = "Unsupported floating-point value (expected single-precision floating-point number)"
-		if got := p.errors[0].Message; got != want {
-			t.Errorf("message = %q, want %q", got, want)
+		if got := wantExprKind[hirLiteral](t, e, h).Value; got != ir.LiteralF64(1.5) {
+			t.Errorf("literal = %v, want the double-precision value 1.5", got)
 		}
-		if got := wantExprKind[hirLiteral](t, e, h).Value; got != ir.LiteralF32(1.5) {
-			t.Errorf("literal = %v, want the single-precision value 1.5", got)
+	})
+
+	t.Run("64-bit float in GL 3.30", func(t *testing.T) {
+		p := &parser{
+			tokens:  []glslToken{{kind: tokFloat, floatValue: 1.5, floatWidth: 64}},
+			dialect: dialect{version: 330, profile: ppProfileCore},
+		}
+		e := &exprs{}
+		h, err := p.parsePrimary(e)
+		if err != nil {
+			t.Fatalf("parsePrimary returned %v", err)
+		}
+		if len(p.errors) != 1 || !strings.Contains(p.errors[0].Message, "double") {
+			t.Fatalf("errors = %v, want one naming the double rule", p.errors)
+		}
+		if got := wantExprKind[hirLiteral](t, e, h).Value; got != ir.LiteralF64(1.5) {
+			t.Errorf("literal = %v, want the double-precision value 1.5", got)
+		}
+	})
+
+	t.Run("16-bit float", func(t *testing.T) {
+		p := &parser{
+			tokens:  []glslToken{{kind: tokFloat, floatValue: 1.5, floatWidth: 16}},
+			dialect: dialect{version: 450, profile: ppProfileCore},
+		}
+		e := &exprs{}
+		h, err := p.parsePrimary(e)
+		if err != nil {
+			t.Fatalf("parsePrimary returned %v", err)
+		}
+		if len(p.errors) != 0 {
+			t.Fatalf("%d errors, want none: %v", len(p.errors), p.errors)
+		}
+		if got := wantExprKind[hirLiteral](t, e, h).Value; got != ir.LiteralF16(1.5) {
+			t.Errorf("literal = %v, want the half-precision value 1.5", got)
+		}
+	})
+
+	t.Run("16-bit float in GLSL ES 3.00", func(t *testing.T) {
+		p := &parser{
+			tokens:  []glslToken{{kind: tokFloat, floatValue: 1.5, floatWidth: 16}},
+			dialect: dialect{version: 300, profile: ppProfileES},
+		}
+		e := &exprs{}
+		if _, err := p.parsePrimary(e); err != nil {
+			t.Fatalf("parsePrimary returned %v", err)
+		}
+		if len(p.errors) != 1 || !strings.Contains(p.errors[0].Message, "float16") {
+			t.Fatalf("errors = %v, want one naming the float16 rule", p.errors)
 		}
 	})
 }

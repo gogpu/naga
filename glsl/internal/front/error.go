@@ -311,7 +311,7 @@ func tokenDebug(t glslToken) string {
 			t.intValue, signed, t.intWidth)
 	case tokFloat:
 		return fmt.Sprintf("FloatConstant(Float { value: %s, width: %d })",
-			rustFloat(t.floatValue), t.floatWidth)
+			rustFloat(t.floatValue, t.floatWidth), t.floatWidth)
 	case tokBool:
 		return "BoolConstant(" + strconv.FormatBool(t.boolValue) + ")"
 	case tokPunct:
@@ -333,12 +333,16 @@ func tokenDebug(t glslToken) string {
 // exponent for a magnitude below 1e-4 or at least 1e16 — written without a plus
 // sign and without leading zeros — and the shortest decimal with a trailing .0
 // for an integral value otherwise.
-func rustFloat(v float32) string {
-	a := math.Abs(float64(v))
-	if a != 0 && (a < 1e-4 || a >= 1e16) {
-		return rustExponent(strconv.FormatFloat(float64(v), 'e', -1, 32))
+func rustFloat(v float64, width int32) string {
+	bits := 32
+	if width == 64 {
+		bits = 64
 	}
-	s := strconv.FormatFloat(float64(v), 'f', -1, 32)
+	a := math.Abs(v)
+	if a != 0 && (a < 1e-4 || a >= 1e16) {
+		return rustExponent(strconv.FormatFloat(v, 'e', -1, bits))
+	}
+	s := strconv.FormatFloat(v, 'f', -1, bits)
 	if !strings.ContainsRune(s, '.') {
 		s += ".0"
 	}

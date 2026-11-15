@@ -64,8 +64,11 @@ type ppToken struct {
 	intSigned bool
 	intWidth  int32
 
-	// Float literal fields (kind ppFloat).
-	floatValue float32
+	// Float literal fields (kind ppFloat). The value keeps the literal's own
+	// precision: width 64 is a double (the "lf" suffix, GLSL 4.60 §4.1.4),
+	// 16 a half float (the "hf" suffix, the float16 extension), 32 the plain
+	// form.
+	floatValue float64
 	floatWidth int32
 
 	span ir.Span
