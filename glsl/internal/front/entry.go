@@ -36,6 +36,11 @@ func (f *Frontend) lowerModule(file *parsedFile) *frontError {
 			return derr
 		}
 	}
+	// A split combined sampler's binding depends on every bound resource of
+	// the module, so it is resolved once the declarations are all lowered.
+	if derr := f.resolveCombinedSamplerBindings(file.Decls); derr != nil {
+		return derr
+	}
 
 	mainDecl, ok := f.functions["main"]
 	if ok {
