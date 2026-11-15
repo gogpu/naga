@@ -3,7 +3,7 @@ package valid
 // White-box tests of the type comparison the validator uses for store and
 // initializer checks (Rust naga's proc::compare_types in canonical form):
 // sameTypeInner, canonicalInner, resolutionKnown and compareTypes. The
-// end-to-end behaviour is pinned from the outside (validate_store_test.go);
+// end-to-end behavior is pinned from the outside (validate_store_test.go);
 // these cover the comparison's own branches, including the kinds a small
 // shader cannot reach.
 
