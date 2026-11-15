@@ -9290,6 +9290,25 @@ func (e *ExpressionEmitter) emitImageLoadRZSW(
 	return phiResultID, nil
 }
 
+// imageQueryTakesLevel reports whether an extent query on an image takes a
+// level of detail. OpImageQuerySizeLod applies to a sampled or depth image
+// with a single sample (Sampled = 1, MS = 0); a multisampled image (MS = 1)
+// and a storage image (Sampled = 2) take OpImageQuerySize, which takes no
+// level and still returns the array layers as its last components.
+func imageQueryTakesLevel(img ir.ImageType) bool {
+	switch img.Class {
+	case ir.ImageClassSampled, ir.ImageClassDepth:
+		return !img.Multisampled
+	case ir.ImageClassExternal:
+		// External textures have Sampled = 1, so they take the level query.
+		return true
+	default:
+		// Storage images (Sampled = 2) and any class the IR adds later: no
+		// level. A wrong guess here is what the class check exists for.
+		return false
+	}
+}
+
 // emitImageQuery emits an image query operation.
 func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, error) {
 	// Image query operations require the ImageQuery capability.
@@ -9357,25 +9376,12 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
 
-		// Matching Rust naga: multisampled or storage images use OpImageQuerySize (no level).
-		// Sampled/depth non-multisampled images use OpImageQuerySizeLod (with explicit or default level 0).
-		// SPIR-V spec: OpImageQuerySize requires MS=1 or Sampled!=1.
-		useQuerySize := false
-		switch imgType.Class {
-		case ir.ImageClassSampled:
-			useQuerySize = imgType.Multisampled
-		case ir.ImageClassDepth:
-			useQuerySize = imgType.Multisampled
-		case ir.ImageClassExternal:
-			// External textures have Sampled=1, need OpImageQuerySizeLod like sampled
-			useQuerySize = false
-		case ir.ImageClassStorage:
-			useQuerySize = true
-		default:
-			useQuerySize = true
-		}
-
-		if useQuerySize {
+		// SPIR-V: OpImageQuerySizeLod applies to a sampled or depth image with
+		// one sample (Sampled = 1, MS = 0); a multisampled image and a storage
+		// image (Sampled = 2) take OpImageQuerySize, which returns the array
+		// layers just the same. Rust naga picks by the same class test
+		// (write_image_query, back/spv/image.rs).
+		if !imageQueryTakesLevel(imgType) {
 			e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQuerySize))
 		} else {
 			// Sampled/depth non-multisampled: use OpImageQuerySizeLod
@@ -9398,19 +9404,31 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 			e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQuerySizeLod))
 		}
 
-		// If arrayed, we need to shuffle to extract only spatial dimensions.
+		// If arrayed, drop the layer components: the IR result type keeps only
+		// the spatial size.
 		if resultTypeID != extendedTypeID {
-			var components []uint32
-			if imgType.Dim == ir.DimCube {
-				// Cube: always pick first component duplicated for both dims
-				components = []uint32{0, 0}
+			if dimCoords == 1 {
+				// A 1D arrayed image: the query result is the vector
+				// (width, layers) while the IR result is the scalar width.
+				// OpVectorShuffle's Result Type must be a vector, so the scalar
+				// comes from OpCompositeExtract component 0, as glslangValidator
+				// emits it. Rust naga shuffles here too (write_image_query uses
+				// &[0u32, 1, 2, 3][..dim_coords]) and would emit the same
+				// invalid SPIR-V; its GLSL frontend never reaches this shape.
+				resultID = e.backend.builder.AddCompositeExtract(resultTypeID, extendedID, 0)
 			} else {
-				components = make([]uint32, dimCoords)
-				for i := 0; i < dimCoords; i++ {
-					components[i] = uint32(i)
+				var components []uint32
+				if imgType.Dim == ir.DimCube {
+					// Cube: always pick first component duplicated for both dims
+					components = []uint32{0, 0}
+				} else {
+					components = make([]uint32, dimCoords)
+					for i := 0; i < dimCoords; i++ {
+						components[i] = uint32(i)
+					}
 				}
+				resultID = e.backend.builder.AddVectorShuffle(resultTypeID, extendedID, extendedID, components)
 			}
-			resultID = e.backend.builder.AddVectorShuffle(resultTypeID, extendedID, extendedID, components)
 		} else {
 			resultID = extendedID
 		}
@@ -9452,10 +9470,20 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		builder.AddWord(extendedTypeID)
 		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
-		// Always use level 0 for NumLayers query
-		zeroID := e.backend.builder.AddConstant(scalarID, 0)
-		builder.AddWord(zeroID)
-		e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQuerySizeLod))
+		// A sampled or depth image with one sample reads the layer count off
+		// the level-0 size, Rust naga's shape for every image
+		// (write_image_query, Iq::NumLayers). A multisampled image and a
+		// storage image have no level: their size query is OpImageQuerySize,
+		// whose last component is the array layer count, as glslangValidator
+		// emits it. Rust naga makes this query unconditional and would emit an
+		// invalid level-carrying query for those classes.
+		if imageQueryTakesLevel(imgType) {
+			zeroID := e.backend.builder.AddConstant(scalarID, 0)
+			builder.AddWord(zeroID)
+			e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQuerySizeLod))
+		} else {
+			e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQuerySize))
+		}
 
 		// Extract the last component (layer count)
 		resultType := scalarID
