@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.3] - 2026-11-16
+
+> **The GLSL input frontend ships as a preview.** `glsl.Parse` reads a large part of Vulkan GLSL 440/450/460
+> and of the GL 3.30 core / ES 3.00 dialects, and every form it accepts is verified end to end (see below),
+> but the frontend is **not complete**: a few subgroup forms the IR cannot express are refused with named
+> limitations (`subgroupElect`, `subgroupAllEqual`, the ballot bit helpers and the `gl_Subgroup*Mask`
+> variables, and the clustered forms); the Min/Max/And/Or/Xor scans stay refused until the text backends write
+> them; and the `ParseInfo` / `ParseOptions` shape may still change until the frontend is complete. The
+> refusals list the limits rather than lowering a source the IR cannot express.
 
 ### Added
 
@@ -41,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserts each backend's refusals.
 
 ### Fixed
+
+- **DXIL: an image query's own operands are counted, so the reassociation pass sees them** (found while
+  landing `textureQueryLod`). The writer's operand collector returned only the query's image, so the level of
+  an `imageQuerySize` (pre-existing) and the sampler and coordinate of a `textureQueryLod` were invisible to
+  the pass's use counting — a query whose operands nothing else read could be treated as dead. The collector
+  now walks the query's every operand, in both walkers, pinned by a unit test.
 
 - **MSL: a vector operand to a subgroup collective is written as one scalar `simd` call per component instead
   of a call on the vector, which Metal rejects** (card P2-GLSLIN-028). Metal's `simd_sum`/`simd_min`/… take
