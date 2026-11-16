@@ -202,9 +202,10 @@ frontend would produce, so validation and every backend above apply unchanged.
 
 The frontend is a **preview**: much of the Vulkan GLSL surface and the GL 3.30 core / ES 3.00 dialects is
 implemented and verified end to end, including the level-of-detail query (`textureQueryLod`, GLSL 4.00+; the
-GL 3.30 core and ES 3.00 dialects refuse it, as they have no such function), but a few subgroup forms the
-IR cannot express are refused with a message naming the limit; the `ParseInfo`/`ParseOptions` shape may still
-change until the frontend is complete.
+GL 3.30 core and ES 3.00 dialects refuse it, as they have no such function) and the subgroup built-in variables
+(`gl_SubgroupSize` and the basic family's other three), but a few subgroup forms the IR cannot express are
+refused with a message naming the limit; the `ParseInfo`/`ParseOptions` shape may still change until the
+frontend is complete.
 
 ```go
 module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
