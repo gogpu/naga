@@ -285,6 +285,9 @@ func (f *Frontend) imageAtomicCall(c *Context, e *hirArena, name string, b atomi
 	if err != nil {
 		return 0, false, err
 	}
+	if cerr := f.checkImageAtomicCoordinate(c, img, coord, coordSpan, name); cerr != nil {
+		return 0, false, cerr
+	}
 	comps, err := f.coordinateComponents(c, image, coord, nil, coordSpan)
 	if err != nil {
 		return 0, false, err
@@ -656,4 +659,52 @@ func (f *Frontend) atomicCompareExchangeResultType(scalar ir.ScalarType) ir.Type
 		},
 		Span: uint32(scalar.Width) * 2,
 	})
+}
+
+// checkImageAtomicCoordinate refuses a coordinate that is not the integer
+// vector of the image's own dimension. The image load and store builtins get
+// this check for free: their signatures are part of the overload set, so a
+// float or wrong-sized coordinate matches no overload. An image atomic is a
+// macro outside the overload machinery, and without the check it would accept
+//
+//	imageAtomicAdd(img, 1.0, 1u)    // float coordinate of an integer image
+//	imageAtomicAdd(img2D, 1, 1u)    // scalar coordinate of a 2D image
+//
+// both of which glslangValidator refuses with its "no matching overloaded
+// function found", and lower them into an IR the backends cannot address
+// correctly (a scalar coordinate for a 2D texel is an invalid
+// OpImageTexelPointer). The width is the image's dimension plus the array
+// layer, which a storage cube array carries inside the coordinate vector (the
+// same rule coordinateComponents applies when it splits them).
+func (f *Frontend) checkImageAtomicCoordinate(c *Context, img ir.ImageType, coord ir.ExpressionHandle, span ir.Span, name string) *frontError {
+	want := 0
+	switch img.Dim {
+	case ir.Dim1D:
+		want = 1
+	case ir.Dim2D:
+		want = 2
+	case ir.Dim3D, ir.DimCube:
+		want = 3
+	}
+	if want == 0 {
+		return errSemantic(span, "Unknown function '%s'", name)
+	}
+	if img.Arrayed && !(img.Class == ir.ImageClassStorage && img.Dim == ir.DimCube) {
+		want++
+	}
+	ty, err := c.resolveType(coord, span)
+	if err != nil {
+		return err
+	}
+	switch t := ty.(type) {
+	case ir.ScalarType:
+		if want == 1 && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint) && t.Width == 4 {
+			return nil
+		}
+	case ir.VectorType:
+		if int(t.Size) == want && (t.Scalar.Kind == ir.ScalarSint || t.Scalar.Kind == ir.ScalarUint) && t.Scalar.Width == 4 {
+			return nil
+		}
+	}
+	return errSemantic(span, "Unknown function '%s'", name)
 }

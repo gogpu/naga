@@ -449,6 +449,65 @@ void main() { imageAtomicAdd(img, ivec2(0), 1u); }
 `,
 	},
 	{
+		name:      "refuse-image-atomic-float-coord",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicAdd"},
+		refuse:    "Unknown function 'imageAtomicAdd'",
+		reason: "the image atomic's coordinate must be the image's integer vector; glslangValidator " +
+			"reports 'no matching overloaded function found' for a float coordinate, and without the " +
+			"check the frontend would silently convert it",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2D img;
+void main() { imageAtomicAdd(img, 1.0, 1u); }
+`,
+	},
+	{
+		name:      "refuse-image-atomic-scalar-coord",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicAdd"},
+		refuse:    "Unknown function 'imageAtomicAdd'",
+		reason: "a 2D image takes a two-component integer coordinate; a scalar matches no overload in " +
+			"glslangValidator, and the IR would address the texel with a scalar",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2D img;
+void main() { imageAtomicAdd(img, 1, 1u); }
+`,
+	},
+	{
+		name:      "refuse-image-atomic-wide-coord",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicAdd"},
+		refuse:    "Unknown function 'imageAtomicAdd'",
+		reason: "the overload set of an image atomic matches the image's own dimension exactly; " +
+			"glslangValidator refuses ivec3 for a 2D image, and the wider-coordinate cut the sampling " +
+			"builtins apply does not belong to the atomic signatures",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2D img;
+void main() { imageAtomicAdd(img, ivec3(0), 1u); }
+`,
+	},
+	{
+		name:      "refuse-image-atomic-missing-layer",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicAdd"},
+		refuse:    "Unknown function 'imageAtomicAdd'",
+		reason: "an arrayed image's coordinate carries the layer; a two-component coordinate for a " +
+			"2D array matches no glslangValidator overload, and without the check the frontend read " +
+			"a component past the vector's end",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2DArray img;
+void main() { imageAtomicAdd(img, ivec2(0), 1u); }
+`,
+	},
+	{
 		name:      "refuse-image-result-used",
 		stage:     ir.StageCompute,
 		extension: ".comp",

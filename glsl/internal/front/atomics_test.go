@@ -589,6 +589,91 @@ func TestAtomicRefusals(t *testing.T) {
 			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 1.5, 2u); }\n",
 			want:   "Unknown function 'imageAtomicCompSwap'",
 		},
+		{
+			// The image atomic's coordinate must be the image's own integer
+			// vector: the overload set of glslang has no other form, and the
+			// atomic path is a macro outside that machinery (atomics.go).
+			name:   "image-coordinate-float",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, 1.0, 1u); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			name:   "image-coordinate-scalar-for-2d",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, 1, 1u); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			name:   "image-coordinate-wide",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, ivec3(0), 1u); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			name:   "image-coordinate-missing-layer",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2DArray img;\nvoid main() { imageAtomicAdd(img, ivec2(0), 1u); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			// A 32-bit float variable is the "no matching overload" case of the
+			// pointee check: the atomic scalar must be int or uint.
+			name:   "shared-float-variable",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared float f;\nvoid main() { atomicAdd(f, 1.0); }\n",
+			want:   "Unknown function 'atomicAdd'",
+		},
+		{
+			// A typo inside an atomic call reports the frontend's own name error;
+			// it must not be swallowed by the atomic path.
+			name:   "undefined-value-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicAdd(c, nope); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-compare-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicCompSwap(c, nope, 2u); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-compare-value-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicCompSwap(c, 1u, nope); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-image-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nvoid main() { imageAtomicAdd(nope, ivec2(0), 1u); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-image-coordinate",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, nope, 1u); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-image-value",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, ivec2(0), nope); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-image-compare",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), nope, 2u); }\n",
+			want:   "Unknown variable: nope",
+		},
+		{
+			name:   "undefined-image-compare-value",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 1u, nope); }\n",
+			want:   "Unknown variable: nope",
+		},
 	}
 
 	for _, tt := range cases {
