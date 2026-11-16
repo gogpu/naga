@@ -3407,6 +3407,11 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 		return l.lowerSubgroupBallot(call.Args, target)
 	}
 
+	// Check if this is subgroup elect
+	if funcName == "subgroupElect" {
+		return l.lowerSubgroupElect(call.Args, target)
+	}
+
 	// Check if this is a subgroup collective operation
 	if op, cop, ok := getSubgroupOperation(funcName); ok {
 		return l.lowerSubgroupCollectiveOperation(op, cop, call.Args, target)
@@ -5554,9 +5559,7 @@ func builtinEnable(b ir.BuiltinValue) string {
 // which need `enable subgroups;` (enable-extensions table: "subgroup
 // built-in functions, and quad built-in functions ... Otherwise, any use
 // will result in a shader-creation error"). Beyond Rust, which gates none of
-// them. subgroupBarrier is no spec function and stays ungated, as in Rust;
-// subgroupElect is not implemented here: past the gate it is an unknown
-// function.
+// them. subgroupBarrier is no spec function and stays ungated, as in Rust.
 var subgroupFunctions = map[string]bool{
 	"subgroupAdd": true, "subgroupExclusiveAdd": true, "subgroupInclusiveAdd": true,
 	"subgroupAll": true, "subgroupAnd": true, "subgroupAny": true, "subgroupBallot": true,
@@ -7868,6 +7871,36 @@ func (l *Lowerer) lowerSubgroupBallot(args []parser.Expr, target *[]ir.Statement
 		Kind: ir.StmtSubgroupBallot{
 			Result:    resultHandle,
 			Predicate: predicate,
+		},
+	})
+
+	return resultHandle, nil
+}
+
+// lowerSubgroupElect converts subgroupElect() to IR: a SubgroupElect statement
+// whose result is a bool operation-result expression. WGSL's subgroups
+// proposal declares `fn subgroupElect() -> bool` ("Returns true if this
+// invocation has the lowest subgroup_invocation_id among active invocations in
+// the subgroup"); Rust naga gates the name but has no lowering and no IR
+// statement for it (card P2-IR-038, ADR-014).
+func (l *Lowerer) lowerSubgroupElect(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) != 0 {
+		return 0, fmt.Errorf("subgroupElect takes no arguments")
+	}
+
+	boolType := l.ensureTypeHandle(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}})
+
+	// SubgroupOperationResult uses interrupt_emitter in Rust naga — must be outside Emit range.
+	resultHandle, err := l.interruptEmitter(ir.Expression{
+		Kind: ir.ExprSubgroupOperationResult{Type: boolType},
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtSubgroupElect{
+			Result: resultHandle,
 		},
 	})
 

@@ -340,7 +340,7 @@ StmtImageAtomic      — Atomic operation on a storage texel
 StmtWorkGroupUniformLoad — workgroupUniformLoad
 StmtCall             — Function call (the result, if any, is an ExprCallResult)
 StmtRayQuery         — Ray query initialize/proceed/terminate
-StmtSubgroupBallot, StmtSubgroupCollectiveOperation, StmtSubgroupGather — Subgroup operations
+StmtSubgroupBallot, StmtSubgroupElect, StmtSubgroupCollectiveOperation, StmtSubgroupGather — Subgroup operations
 ```
 
 ### Address Spaces

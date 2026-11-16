@@ -19,11 +19,13 @@ package front
 //     operations.
 //
 // What the IR (or the text backends) cannot express is refused with a message
-// naming the missing capability, never lowered to a different operation:
-// subgroupElect has no IR statement, subgroupAllEqual has no IR operation, the
+// naming the missing capability, never lowered to a different operation: the
 // ballot bit and find operations have no IR expression, the clustered forms
-// have no ir.CollectiveOperation, and the Min/Max/And/Or/Xor scans have no
-// Metal or HLSL spelling.
+// have no ir.CollectiveOperation, the mask built-in variables have no
+// ir.Builtin value, and the Min/Max/And/Or/Xor scans have no Metal or HLSL
+// spelling. subgroupElect lowers to ir.StmtSubgroupElect and subgroupAllEqual
+// to a collective operation with ir.SubgroupOperationAllEqual (card P2-IR-038,
+// ADR-014).
 //
 // Every builtin is available only where glslang has it: the source must enable
 // the family's extension (GL_KHR_shader_subgroup_basic is implied by each of
@@ -100,6 +102,8 @@ const (
 	// subgroupFormCollective is the vote and arithmetic families:
 	// ir.StmtSubgroupCollectiveOperation.
 	subgroupFormCollective
+	// subgroupFormElect is subgroupElect: ir.StmtSubgroupElect.
+	subgroupFormElect
 	// subgroupFormBallot is subgroupBallot: ir.StmtSubgroupBallot.
 	subgroupFormBallot
 	// subgroupFormGather is the broadcast, shuffle and quad families:
@@ -164,7 +168,7 @@ func subgroupBuiltinFunction(name string) (subgroupBuiltin, bool) {
 		// never weaker; the barrel's scope is the part the IR models.
 		return subgroupBuiltin{family: subgroupFamilyBasic, form: subgroupFormMemoryBarrier}, true
 	case "subgroupElect":
-		return subgroupBuiltin{family: subgroupFamilyBasic, gap: subgroupElectGapText}, true
+		return subgroupBuiltin{family: subgroupFamilyBasic, form: subgroupFormElect}, true
 	case "subgroupMemoryBarrierAtomicCounter":
 		return subgroupBuiltin{family: subgroupFamilyBasic, gap: subgroupAtomicCounterGapText}, true
 
@@ -177,7 +181,8 @@ func subgroupBuiltinFunction(name string) (subgroupBuiltin, bool) {
 		return subgroupBuiltin{family: subgroupFamilyVote, form: subgroupFormCollective, arity: 1,
 			op: ir.SubgroupOperationAny, cop: ir.CollectiveReduce}, true
 	case "subgroupAllEqual":
-		return subgroupBuiltin{family: subgroupFamilyVote, gap: subgroupAllEqualGapText}, true
+		return subgroupBuiltin{family: subgroupFamilyVote, form: subgroupFormCollective, arity: 1,
+			op: ir.SubgroupOperationAllEqual, cop: ir.CollectiveReduce}, true
 
 	// --- GL_KHR_shader_subgroup_ballot --------------------------------------
 
@@ -273,33 +278,22 @@ func subgroupCollective(family subgroupFamily, op ir.SubgroupOperation, cop ir.C
 // The refusal bodies of the forms the frontend recognizes but cannot lower.
 // Each names the missing capability, as the atomic path's refusals do.
 const (
-	// subgroupElectGapText: the IR has no elect statement. glslang emits
-	// OpGroupNonUniformElect, which no ir.Statement or ir.ExpressionKind
-	// names, so the frontend cannot represent the result.
-	subgroupElectGapText = "subgroup operations are not implemented by the GLSL frontend: " +
-		"the IR has no subgroup elect statement (ir has SubgroupBallot, SubgroupCollectiveOperation and " +
-		"SubgroupGather, and OpGroupNonUniformElect has no counterpart) (card P1-GLSLIN-017)"
-
-	// subgroupAllEqualGapText: ir.SubgroupOperation has no AllEqual, and
-	// glslang emits OpGroupNonUniformAllEqual for the form.
-	subgroupAllEqualGapText = "subgroup operations are not implemented by the GLSL frontend: " +
-		"ir.SubgroupOperation has All and Any but no AllEqual, and glslang emits OpGroupNonUniformAllEqual " +
-		"for it (card P1-GLSLIN-017)"
-
 	// subgroupBallotBitsGapText: the IR builds the ballot mask but has no bit
 	// extract, bit count or find operation. glslang emits
 	// OpGroupNonUniformBallotBitExtract, OpGroupNonUniformBallotBitCount and
-	// OpGroupNonUniformBallotFindLSB / FindMSB for them.
+	// OpGroupNonUniformBallotFindLSB / FindMSB for them; ADR-014 fixes the IR
+	// shape and P2-IR-039 implements it.
 	subgroupBallotBitsGapText = "subgroup operations are not implemented by the GLSL frontend: " +
 		"ir has StmtSubgroupBallot for the mask but no ballot bit extract, bit count or find LSB/MSB " +
-		"statement or expression (card P1-GLSLIN-017)"
+		"statement or expression (card P2-IR-039)"
 
 	// subgroupClusteredGapText: ir.CollectiveOperation has no ClusteredReduce.
 	// glslang accepts the clustered forms and emits
-	// OpGroupNonUniformIAdd ... ClusteredReduce with the cluster size operand.
+	// OpGroupNonUniformIAdd ... ClusteredReduce with the cluster size operand;
+	// ADR-014 fixes the IR shape and P2-IR-040 implements it.
 	subgroupClusteredGapText = "subgroup operations are not implemented by the GLSL frontend: " +
 		"ir.CollectiveOperation has Reduce, InclusiveScan and ExclusiveScan but no ClusteredReduce and no " +
-		"cluster-size operand, so the clustered forms cannot be represented (card P1-GLSLIN-017)"
+		"cluster-size operand, so the clustered forms cannot be represented (card P2-IR-040)"
 
 	// subgroupScanGapText: the Min/Max/And/Or/Xor scans are expressible in the
 	// IR, but no text backend spells them: Metal's simd functions have no
@@ -420,6 +414,8 @@ func (f *Frontend) subgroupCall(c *Context, e *hirArena, name string, b subgroup
 		c.emitRestart()
 		c.body = append(c.body, ir.Statement{Kind: ir.StmtMemoryBarrier{Flags: ir.BarrierSubGroup}})
 		return 0, false, nil
+	case subgroupFormElect:
+		return f.subgroupElectCall(c, span)
 	case subgroupFormBallot:
 		return f.subgroupBallotCall(c, e, rawArgs[0], span)
 	case subgroupFormCollective:
@@ -427,6 +423,24 @@ func (f *Frontend) subgroupCall(c *Context, e *hirArena, name string, b subgroup
 	default:
 		return f.subgroupGatherCall(c, e, name, b, rawArgs, span)
 	}
+}
+
+// subgroupElectCall lowers subgroupElect() to ir.StmtSubgroupElect. The GLSL
+// document reads: "returns true for exactly one invocation out of the set of
+// active invocations ... the active invocation with the lowest
+// <gl_SubgroupInvocationID>"; the result is a bool the IR types
+// ir.ExprSubgroupOperationResult as.
+func (f *Frontend) subgroupElectCall(c *Context, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	boolType := f.registerType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+
+	c.emitEnd()
+	result, rerr := c.addExpression(ir.ExprSubgroupOperationResult{Type: boolType}, span)
+	if rerr != nil {
+		return 0, false, rerr
+	}
+	c.body = append(c.body, ir.Statement{Kind: ir.StmtSubgroupElect{Result: result}})
+	c.emitStart()
+	return result, true, nil
 }
 
 // subgroupBallotCall lowers subgroupBallot(predicate) to ir.StmtSubgroupBallot.
@@ -473,14 +487,24 @@ func (f *Frontend) subgroupCollectiveCall(c *Context, e *hirArena, name string, 
 		if !f.subgroupBoolScalar(c, argument) {
 			return 0, false, errSemantic(span, "Unknown function '%s'", name)
 		}
+	case ir.SubgroupOperationAllEqual:
+		// The vote's value is genType, genIType, genUType, genBType or
+		// genDType: a scalar or vector of any scalar kind.
+		if _, ok := subgroupValueScalar(c.getType(argument)); !ok {
+			return 0, false, errSemantic(span, "Unknown function '%s'", name)
+		}
 	default:
 		if !f.subgroupNumericValue(c, argument) {
 			return 0, false, errSemantic(span, "Unknown function '%s'", name)
 		}
 	}
 
-	resultType, err := c.resolveTypeHandle(argument, argumentSpan)
-	if err != nil {
+	var resultType ir.TypeHandle
+	if b.op == ir.SubgroupOperationAllEqual {
+		// All-equal's result is the vote's bool, not the argument's type
+		// (GLSL: `bool subgroupAllEqual(genType value)`).
+		resultType = f.registerType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	} else if resultType, err = c.resolveTypeHandle(argument, argumentSpan); err != nil {
 		return 0, false, err
 	}
 
@@ -649,14 +673,15 @@ func (f *Frontend) subgroupVariableGate(name string, span ir.Span) *frontError {
 // variable the IR cannot express, or nil when name is not one. The basic
 // family's four scalar variables are wired through builtinDataFor and the
 // entry point; the ballot family's mask variables have no ir.Builtin value, so
-// a use is refused with the gap named instead of an unknown-name text.
+// a use is refused with the gap named instead of an unknown-name text (ADR-014
+// fixes the IR shape; P2-IR-041 implements it).
 func subgroupVariableRefusal(name string, span ir.Span) *frontError {
 	switch name {
 	case "gl_SubgroupEqMask", "gl_SubgroupGeMask", "gl_SubgroupGtMask",
 		"gl_SubgroupLeMask", "gl_SubgroupLtMask":
 		return errSemantic(span, "'%s' : the subgroup ballot mask built-in variables of "+
 			"GL_KHR_shader_subgroup_ballot are not implemented by the GLSL frontend: ir.Builtin has no "+
-			"subgroup ballot-mask value (card P1-GLSLIN-017)", name)
+			"subgroup ballot-mask value (card P2-IR-041)", name)
 	}
 	return nil
 }

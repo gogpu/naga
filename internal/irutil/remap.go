@@ -575,6 +575,9 @@ func walkOperationStmt[O handleOp](kind ir.StatementKind, op O) ir.StatementKind
 		s.Result = op.handle(s.Result)
 		s.Predicate = opOpt(op, s.Predicate)
 		return rebuilt(op, kind, s)
+	case ir.StmtSubgroupElect:
+		s.Result = op.handle(s.Result)
+		return rebuilt(op, kind, s)
 	case ir.StmtSubgroupCollectiveOperation:
 		s.Argument = op.handle(s.Argument)
 		s.Result = op.handle(s.Result)

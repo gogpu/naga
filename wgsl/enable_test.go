@@ -3,6 +3,8 @@ package wgsl
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // notEnabled is Rust naga's Error::EnableExtensionNotEnabled message
@@ -233,6 +235,35 @@ func TestEnableSubgroups(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSubgroupElectLowering: past the gate, subgroupElect lowers to
+// ir.StmtSubgroupElect with a bool operation-result expression (card
+// P2-IR-038, ADR-014). Rust naga has no lowering for the function: it is
+// listed in the keyword table and nowhere else, so past the gate it falls out
+// as an unknown function.
+func TestSubgroupElectLowering(t *testing.T) {
+	mod, _, err := Parse("enable subgroups;\n@compute @workgroup_size(64) fn main() { _ = subgroupElect(); }", ParseOptions{})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	fn := mod.EntryPoints[0].Function
+	for _, stmt := range fn.Body {
+		elect, ok := stmt.Kind.(ir.StmtSubgroupElect)
+		if !ok {
+			continue
+		}
+		result, ok := fn.Expressions[elect.Result].Kind.(ir.ExprSubgroupOperationResult)
+		if !ok {
+			t.Fatalf("elect result is %T, want ExprSubgroupOperationResult", fn.Expressions[elect.Result].Kind)
+		}
+		scalar, ok := mod.Types[result.Type].Inner.(ir.ScalarType)
+		if !ok || scalar.Kind != ir.ScalarBool || scalar.Width != 1 {
+			t.Fatalf("elect result type is %+v, want a bool scalar", mod.Types[result.Type].Inner)
+		}
+		return
+	}
+	t.Fatal("no StmtSubgroupElect in the lowered entry point")
 }
 
 // TestDirectiveAfterDeclaration: directives come before every global

@@ -516,3 +516,79 @@ func subgroupOptions() Options {
 	opts.Version = Version1_3
 	return opts
 }
+
+// TestSubgroupElect covers emitSubgroupElect: OpGroupNonUniformElect with the
+// bool result type, no operand, Capability GroupNonUniform (spirv.core.grammar
+// opcode 333; card P2-IR-038, ADR-014).
+func TestSubgroupElect(t *testing.T) {
+	mod := buildSubgroupModule(
+		[]ir.Type{
+			{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+		[]ir.Expression{
+			// expr 0: elect result
+			{Kind: ir.ExprSubgroupOperationResult{Type: 0}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupElect{Result: 0}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+		},
+	)
+
+	backend := NewBackend(subgroupOptions())
+	spvBytes, err := backend.Compile(mod)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	assertValidSPIRV(t, spvBytes)
+	instrs := decodeSPIRVInstructions(spvBytes)
+
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformElect) {
+		t.Error("expected OpGroupNonUniformElect")
+	}
+	if !hasCapability(instrs, spvenums.CapabilityGroupNonUniform) {
+		t.Error("expected CapabilityGroupNonUniform")
+	}
+}
+
+// TestSubgroupAllEqual covers OpGroupNonUniformAllEqual: the vote capability,
+// the value operand and no group operation operand (grammar opcode 336).
+func TestSubgroupAllEqual(t *testing.T) {
+	mod := buildSubgroupModule(
+		[]ir.Type{
+			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+		[]ir.Expression{
+			// expr 0: argument = 1u
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			// expr 1: all-equal result
+			{Kind: ir.ExprSubgroupOperationResult{Type: 1}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+			{Kind: ir.StmtSubgroupCollectiveOperation{
+				Op:           ir.SubgroupOperationAllEqual,
+				CollectiveOp: ir.CollectiveReduce,
+				Argument:     0,
+				Result:       1,
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 2}}},
+		},
+	)
+
+	backend := NewBackend(subgroupOptions())
+	spvBytes, err := backend.Compile(mod)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	assertValidSPIRV(t, spvBytes)
+	instrs := decodeSPIRVInstructions(spvBytes)
+
+	if !hasOpcodeInInstrs(instrs, spvenums.OpGroupNonUniformAllEqual) {
+		t.Error("expected OpGroupNonUniformAllEqual")
+	}
+	if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformVote) {
+		t.Error("expected CapabilityGroupNonUniformVote")
+	}
+}

@@ -630,8 +630,10 @@ type ExprSubgroupBallotResult struct{}
 
 func (ExprSubgroupBallotResult) expressionKind() {}
 
-// ExprSubgroupOperationResult represents the result of a SubgroupCollectiveOperation
-// or SubgroupGather statement. The Type field holds the result type.
+// ExprSubgroupOperationResult represents the result of a subgroup operation
+// statement: SubgroupCollectiveOperation, SubgroupGather, SubgroupElect (and,
+// when the IR gains them, the ballot bit operations). The Type field holds the
+// result type.
 type ExprSubgroupOperationResult struct {
 	Type TypeHandle
 }
@@ -651,6 +653,12 @@ const (
 	SubgroupOperationAnd
 	SubgroupOperationOr
 	SubgroupOperationXor
+	// SubgroupOperationAllEqual is subgroupAllEqual / OpGroupNonUniformAllEqual:
+	// true when the argument is the same for all active invocations. It is a
+	// reduction only — no scan form exists — and its result type is bool, not
+	// the argument's type. Appended after Xor so the existing values keep
+	// their numbers. Rust naga has no AllEqual (card P2-IR-038, ADR-014).
+	SubgroupOperationAllEqual
 )
 
 // CollectiveOperation represents how subgroup results are combined.

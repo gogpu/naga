@@ -83,7 +83,40 @@ func (p *parser) isTrueConstant(id uint32) bool {
 	return ok && bool(value)
 }
 
-// subgroupCollective parses OpGroupNonUniformAll, OpGroupNonUniformAny and the
+// subgroupElect parses OpGroupNonUniformElect: result type, result, scope —
+// no value operand. ADR-014 (card P2-IR-038) gives the IR the statement.
+func (p *parser) subgroupElect(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	resultTypeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	resultID, err := p.next()
+	if err != nil {
+		return err
+	}
+	scopeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	if err := p.subgroupScope(scopeID); err != nil {
+		return err
+	}
+	resultType, err := p.typeLookup(resultTypeID)
+	if err != nil {
+		return err
+	}
+
+	flushBeforeStatement(consumer, fs.fn.Expressions, block)
+	result := appendExpression(fs.fn, ir.ExprSubgroupOperationResult{Type: resultType.handle})
+	p.storeExpression(resultID, resultTypeID, blockID, result)
+	*block = append(*block, ir.Statement{Kind: ir.StmtSubgroupElect{
+		Result: result,
+	}})
+	consumer.startWith(fs.fn.Expressions)
+	return nil
+}
+
+// subgroupCollective parses OpGroupNonUniformAll, OpGroupNonUniformAny,
 // arithmetic and bitwise reduction and scan families.
 func (p *parser) subgroupCollective(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
 	resultTypeID, err := p.next()
@@ -99,7 +132,8 @@ func (p *parser) subgroupCollective(inst instruction, fs *functionState, consume
 		return err
 	}
 	collective := ir.CollectiveReduce
-	allOrAny := inst.op == spvenums.OpGroupNonUniformAll || inst.op == spvenums.OpGroupNonUniformAny
+	allOrAny := inst.op == spvenums.OpGroupNonUniformAll || inst.op == spvenums.OpGroupNonUniformAny ||
+		inst.op == spvenums.OpGroupNonUniformAllEqual
 	if !allOrAny {
 		groupOp, err := p.next()
 		if err != nil {

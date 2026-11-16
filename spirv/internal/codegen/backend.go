@@ -6826,6 +6826,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtSubgroupBallot:
 		return e.emitSubgroupBallot(kind)
 
+	case ir.StmtSubgroupElect:
+		return e.emitSubgroupElect(kind)
+
 	case ir.StmtSubgroupCollectiveOperation:
 		return e.emitSubgroupCollectiveOperation(kind)
 
@@ -10667,6 +10670,35 @@ func (e *ExpressionEmitter) emitSubgroupResultRef(handle ir.ExpressionHandle) (u
 	return 0, fmt.Errorf("subgroup result expression %d not yet computed", handle)
 }
 
+// emitSubgroupElect emits a SubgroupElect statement:
+// OpGroupNonUniformElect %bool %scope. No operand: the result is true for the
+// active invocation with the lowest subgroup invocation id. SPIR-V requires
+// Capability GroupNonUniform and version 1.3 (spirv.core.grammar.json, the
+// Khronos SPIR-V 1.6 grammar, opcode 333).
+func (e *ExpressionEmitter) emitSubgroupElect(stmt ir.StmtSubgroupElect) error {
+	e.backend.requireVersion(Version1_3, "a subgroup operation")
+	e.backend.addCapability(spvenums.CapabilityGroupNonUniform)
+	boolTypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	if err != nil {
+		return err
+	}
+	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	if err != nil {
+		return err
+	}
+	scopeID := e.backend.builder.AddConstant(u32TypeID, uint32(spvenums.ScopeSubgroup))
+
+	resultID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(boolTypeID)
+	ib.AddWord(resultID)
+	ib.AddWord(scopeID)
+	e.backend.builder.funcAppend(ib.Build(spvenums.OpGroupNonUniformElect))
+
+	e.exprIDs[stmt.Result] = resultID
+	return nil
+}
+
 // emitSubgroupBallot emits a SubgroupBallot statement.
 func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error {
 	e.backend.requireVersion(Version1_3, "a subgroup operation")
@@ -10750,6 +10782,12 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 	case ir.SubgroupOperationAny:
 		e.backend.addCapability(spvenums.CapabilityGroupNonUniformVote)
 		opcode = spvenums.OpGroupNonUniformAny
+	case ir.SubgroupOperationAllEqual:
+		// AllEqual is a vote, not an arithmetic operation: the instruction
+		// takes the value directly and has no Group Operation operand
+		// (spirv.core.grammar.json, opcode 336, Capability GroupNonUniformVote).
+		e.backend.addCapability(spvenums.CapabilityGroupNonUniformVote)
+		opcode = spvenums.OpGroupNonUniformAllEqual
 	case ir.SubgroupOperationAdd:
 		e.backend.addCapability(spvenums.CapabilityGroupNonUniformArithmetic)
 		if scalarKind == ir.ScalarFloat {
@@ -10813,8 +10851,9 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 	ib.AddWord(resultID)
 	ib.AddWord(scopeID)
 
-	// All/Any don't use GroupOperation, they just take scope + predicate
-	if stmt.Op == ir.SubgroupOperationAll || stmt.Op == ir.SubgroupOperationAny {
+	// All/Any/AllEqual don't use GroupOperation, they just take scope + value
+	if stmt.Op == ir.SubgroupOperationAll || stmt.Op == ir.SubgroupOperationAny ||
+		stmt.Op == ir.SubgroupOperationAllEqual {
 		ib.AddWord(argID)
 	} else {
 		ib.AddWord(uint32(groupOp))

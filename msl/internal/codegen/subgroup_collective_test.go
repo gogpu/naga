@@ -99,6 +99,178 @@ func TestMSL_VectorSubgroupOperand(t *testing.T) {
 	}
 }
 
+// TestMSL_SubgroupElect pins subgroupElect's Metal form: simd_is_first(),
+// true for the first active thread of the simdgroup (the WGSL subgroups
+// proposal's Appendix B maps subgroupElect to it; card P2-IR-038, ADR-014).
+func TestMSL_SubgroupElect(t *testing.T) {
+	src, _, err := Compile(subgroupElectModule(), DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if !strings.Contains(src, "metal::simd_is_first()") {
+		t.Errorf("output lacks metal::simd_is_first():\n%s", src)
+	}
+}
+
+// TestMSL_SubgroupAllEqual pins the all-equal expansion. Metal has no simd
+// all-equal function (Appendix B has no entry), so the writer evaluates the
+// operand once, broadcasts the first active thread's value with
+// simd_broadcast_first and reduces the comparisons with simd_all; a vector
+// operand compares per component. A bool operand is widened to int, because
+// simd_broadcast_first is documented for the numeric scalar types.
+func TestMSL_SubgroupAllEqual(t *testing.T) {
+	t.Run("uint", func(t *testing.T) {
+		src, _, err := Compile(subgroupAllEqualModule(subgroupAllEqualScalarArgument), DefaultOptions())
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		for _, want := range []string{
+			"= 1u;",
+			"metal::simd_all(",
+			" == metal::simd_broadcast_first(",
+		} {
+			if !strings.Contains(src, want) {
+				t.Errorf("output lacks %q:\n%s", want, src)
+			}
+		}
+	})
+
+	t.Run("bool widened", func(t *testing.T) {
+		src, _, err := Compile(subgroupAllEqualBoolModule(), DefaultOptions())
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		for _, want := range []string{
+			"metal::simd_all((int)",
+			"metal::simd_broadcast_first((int)",
+		} {
+			if !strings.Contains(src, want) {
+				t.Errorf("output lacks %q:\n%s", want, src)
+			}
+		}
+	})
+
+	t.Run("vector per component", func(t *testing.T) {
+		src, _, err := Compile(subgroupAllEqualModule(subgroupAllEqualVectorArgument), DefaultOptions())
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		for _, want := range []string{
+			"[0] == ",
+			"[1] == ",
+			" && ",
+		} {
+			if !strings.Contains(src, want) {
+				t.Errorf("output lacks %q:\n%s", want, src)
+			}
+		}
+		if strings.Contains(src, "simd_all(") == false || strings.Count(src, "metal::simd_all(") != 2 {
+			t.Errorf("want one simd_all per component (2):\n%s", src)
+		}
+	})
+}
+
+// TestMSL_AllEqualScanRefused: all-equal has no scan form; a module that
+// carries one is refused rather than written as its reduction.
+func TestMSL_AllEqualScanRefused(t *testing.T) {
+	mod := subgroupAllEqualModule(subgroupAllEqualScalarArgument)
+	op := mod.EntryPoints[0].Function.Body[0].Kind.(ir.StmtSubgroupCollectiveOperation)
+	op.CollectiveOp = ir.CollectiveInclusiveScan
+	mod.EntryPoints[0].Function.Body[0].Kind = op
+	if _, _, err := Compile(mod, DefaultOptions()); err == nil {
+		t.Fatal("an all-equal inclusive scan compiled, want a refusal")
+	}
+}
+
+// subgroupElectModule builds a compute entry point whose only statement is
+// subgroupElect, with a bool result expression.
+func subgroupElectModule() *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name:        "main",
+				Expressions: []ir.Expression{{Kind: ir.ExprSubgroupOperationResult{Type: 0}}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupElect{Result: 0}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+}
+
+// The operand shapes subgroupAllEqualModule can carry, named by the
+// expression handle they pass as the statement's argument.
+const (
+	subgroupAllEqualScalarArgument = 0 // expression 0: uint literal
+	subgroupAllEqualVectorArgument = 2 // expression 2: uvec2 splat of expression 0
+)
+
+// subgroupAllEqualModule builds a compute entry point whose only statement is
+// one subgroup all-equal over a uint literal (or its uvec2 splat), with a bool
+// result expression.
+func subgroupAllEqualModule(argument int) *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},     // [0] scalar argument
+					{Kind: ir.ExprSubgroupOperationResult{Type: 1}}, // [1] bool result
+					{Kind: ir.ExprSplat{Size: ir.Vec2, Value: 0}},   // [2] vector argument
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupCollectiveOperation{
+						Op:           ir.SubgroupOperationAllEqual,
+						CollectiveOp: ir.CollectiveReduce,
+						Argument:     ir.ExpressionHandle(argument),
+						Result:       1,
+					}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+}
+
+// subgroupAllEqualBoolModule builds the all-equal over a bool literal, the
+// operand the writer widens to int.
+func subgroupAllEqualBoolModule() *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralBool(true)}}, // [0] argument
+					{Kind: ir.ExprSubgroupOperationResult{Type: 0}}, // [1] bool result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupCollectiveOperation{
+						Op:           ir.SubgroupOperationAllEqual,
+						CollectiveOp: ir.CollectiveReduce,
+						Argument:     0,
+						Result:       1,
+					}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+}
+
 // vectorSubgroupModule builds a compute entry point whose only statement is one
 // subgroup collective operation over a vector literal.
 func vectorSubgroupModule(op ir.SubgroupOperation, cop ir.CollectiveOperation) *ir.Module {

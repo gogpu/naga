@@ -133,6 +133,8 @@ func mapSubgroupOperation(op spvenums.Op) (ir.SubgroupOperation, error) {
 		return ir.SubgroupOperationAll, nil
 	case spvenums.OpGroupNonUniformAny:
 		return ir.SubgroupOperationAny, nil
+	case spvenums.OpGroupNonUniformAllEqual:
+		return ir.SubgroupOperationAllEqual, nil
 	case spvenums.OpGroupNonUniformIAdd, spvenums.OpGroupNonUniformFAdd:
 		return ir.SubgroupOperationAdd, nil
 	case spvenums.OpGroupNonUniformIMul, spvenums.OpGroupNonUniformFMul:

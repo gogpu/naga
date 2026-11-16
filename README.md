@@ -202,10 +202,10 @@ frontend would produce, so validation and every backend above apply unchanged.
 
 The frontend is a **preview**: much of the Vulkan GLSL surface and the GL 3.30 core / ES 3.00 dialects is
 implemented and verified end to end, including the level-of-detail query (`textureQueryLod`, GLSL 4.00+; the
-GL 3.30 core and ES 3.00 dialects refuse it, as they have no such function) and the subgroup built-in variables
-(`gl_SubgroupSize` and the basic family's other three), but a few subgroup forms the IR cannot express are
-refused with a message naming the limit; the `ParseInfo`/`ParseOptions` shape may still change until the
-frontend is complete.
+GL 3.30 core and ES 3.00 dialects refuse it, as they have no such function), the subgroup built-in variables
+(`gl_SubgroupSize` and the basic family's other three) and the subgroup elect and all-equal builtins, but a few
+subgroup forms the IR cannot express are refused with a message naming the limit; the `ParseInfo`/`ParseOptions`
+shape may still change until the frontend is complete.
 
 ```go
 module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
@@ -341,7 +341,7 @@ pkg.go.dev shows.
 - Derivatives: `dpdx`, `dpdy`, `fwidth`, `dpdxCoarse`, `dpdyCoarse`, `fwidthCoarse`, `dpdxFine`, `dpdyFine`, `fwidthFine`
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`, `subgroupBarrier`
-- Subgroup: `subgroupBallot`, `subgroupAll`, `subgroupAny`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`, `subgroupBroadcast/First`, `subgroupShuffle/XOR/Up/Down`, `quadSwap/Broadcast` (need `enable subgroups;`, as the WGSL spec requires)
+- Subgroup: `subgroupElect`, `subgroupBallot`, `subgroupAll`, `subgroupAny`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`, `subgroupBroadcast/First`, `subgroupShuffle/XOR/Up/Down`, `quadSwap/Broadcast` (need `enable subgroups;`, as the WGSL spec requires)
 - Directives: `enable` for `f16`, `clip_distances`, `dual_source_blending`, `subgroups`, `primitive_index`, `draw_index` and wgpu's extensions; a feature used without its `enable` is an error
 - Ray Query: `rayQueryInitialize`, `rayQueryProceed`, `rayQueryGetCommittedIntersection`, `rayQueryGetCandidateIntersection`, `rayQueryTerminate`
 - Uniform Load: `workgroupUniformLoad`
