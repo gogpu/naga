@@ -35,8 +35,6 @@ package front
 // subgroupAdd).
 
 import (
-	"strings"
-
 	"github.com/gogpu/naga/ir"
 )
 
@@ -623,17 +621,42 @@ func (f *Frontend) subgroupIndexScalar(c *Context, expr ir.ExpressionHandle) boo
 	return scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint
 }
 
-// subgroupVariableRefusal returns the diagnostic for a subgroup builtin
-// variable name the entry-point wiring does not implement, or nil when name is
-// not one. gl_SubgroupSize, gl_SubgroupInvocationID, gl_SubgroupID and
-// gl_NumSubgroups have ir.Builtin values (and every backend writes them), but
-// the frontend has not wired them into the entry point yet, so a use is refused
-// with a message naming the limitation instead of an unknown-name text.
-func subgroupVariableRefusal(name string, span ir.Span) *frontError {
-	if !strings.HasPrefix(name, "gl_Subgroup") && name != "gl_NumSubgroups" {
+// subgroupBuiltinVariable reports whether name is one of the four scalar
+// subgroup built-in variables of GL_KHR_shader_subgroup_basic, which
+// builtinDataFor maps to their ir.Builtin values.
+func subgroupBuiltinVariable(name string) bool {
+	switch name {
+	case "gl_SubgroupSize", "gl_SubgroupInvocationID", "gl_SubgroupID", "gl_NumSubgroups":
+		return true
+	}
+	return false
+}
+
+// subgroupVariableGate applies the availability rules of the subgroup built-in
+// variables, which are the builtins': the source must enable the basic family's
+// extension — glslang, "'gl_SubgroupSize' : required extension not requested:
+// GL_KHR_shader_subgroup_basic" (probed 2026-11-16) — and GLSL ES before 3.10
+// has no subgroup operations at all. A name that is not a subgroup variable is
+// not gated.
+func (f *Frontend) subgroupVariableGate(name string, span ir.Span) *frontError {
+	if !subgroupBuiltinVariable(name) {
 		return nil
 	}
-	return errSemantic(span, "'%s' : the subgroup built-in variables of GL_KHR_shader_subgroup_basic are not "+
-		"implemented by the GLSL frontend (their ir.Builtin values exist; the entry-point wiring is not done; "+
-		"card P1-GLSLIN-017)", name)
+	return f.subgroupGate(name, subgroupFamilyBasic, span)
+}
+
+// subgroupVariableRefusal returns the diagnostic for a subgroup built-in
+// variable the IR cannot express, or nil when name is not one. The basic
+// family's four scalar variables are wired through builtinDataFor and the
+// entry point; the ballot family's mask variables have no ir.Builtin value, so
+// a use is refused with the gap named instead of an unknown-name text.
+func subgroupVariableRefusal(name string, span ir.Span) *frontError {
+	switch name {
+	case "gl_SubgroupEqMask", "gl_SubgroupGeMask", "gl_SubgroupGtMask",
+		"gl_SubgroupLeMask", "gl_SubgroupLtMask":
+		return errSemantic(span, "'%s' : the subgroup ballot mask built-in variables of "+
+			"GL_KHR_shader_subgroup_ballot are not implemented by the GLSL frontend: ir.Builtin has no "+
+			"subgroup ballot-mask value (card P1-GLSLIN-017)", name)
+	}
+	return nil
 }

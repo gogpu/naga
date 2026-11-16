@@ -2097,6 +2097,34 @@ func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOp
 	tempName := w.allocateUnnamedVar()
 	w.namedExpressions[op.Result] = tempName
 
+	// Metal's simd collective functions take and return a scalar. A vector
+	// operand is not an operation the writer can hand to them — simd_sum on a
+	// float4 does not compile — but SPIR-V defines the subgroup operation on a
+	// vector per component (each result component is the operation over that
+	// component of the operand, OpGroupNonUniformFAdd and friends), so the
+	// writer expands a vector operand into one scalar call per component: the
+	// same computation, written in the form Metal has (P2-GLSLIN-028). The
+	// operand is evaluated once into a temporary first, so a compound argument
+	// is not written four times.
+	if vector, ok := w.getExpressionType(op.Argument).(ir.VectorType); ok {
+		argumentName := w.allocateUnnamedVar()
+		w.write("%s %s = ", vectorTypeName(vector), argumentName)
+		if err := w.writeExpression(op.Argument); err != nil {
+			return err
+		}
+		w.write(";\n")
+		w.WriteIndent()
+		w.write("%s %s = %s(", resultType, tempName, resultType)
+		for component := range int(vector.Size) {
+			if component > 0 {
+				w.write(", ")
+			}
+			w.write("%s%s(%s[%d])", Namespace, funcName, argumentName, component)
+		}
+		w.write(");\n")
+		return nil
+	}
+
 	w.write("%s %s = %s%s(", resultType, tempName, Namespace, funcName)
 	if err := w.writeExpression(op.Argument); err != nil {
 		return err

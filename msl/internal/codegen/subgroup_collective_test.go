@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -54,6 +55,79 @@ func TestMSL_SubgroupCollectiveForms(t *testing.T) {
 		if !strings.Contains(src, tt.want) {
 			t.Errorf("operation %d with collective op %d: output lacks %q:\n%s", tt.op, tt.cop, tt.want, src)
 		}
+	}
+}
+
+// TestMSL_VectorSubgroupOperand: Metal's simd collective functions take and
+// return a scalar, while the SPIR-V subgroup operations on a vector are the
+// per-component operations. The writer evaluates the operand once and expands
+// the call into one scalar simd call per component (P2-GLSLIN-028), instead of
+// writing the simd_sum(float4) the Metal compiler rejects.
+func TestMSL_VectorSubgroupOperand(t *testing.T) {
+	cases := []struct {
+		op   ir.SubgroupOperation
+		cop  ir.CollectiveOperation
+		want string
+	}{
+		{ir.SubgroupOperationAdd, ir.CollectiveReduce, "metal::simd_sum(unnamed_1[%d])"},
+		{ir.SubgroupOperationAdd, ir.CollectiveInclusiveScan, "metal::simd_prefix_inclusive_sum(unnamed_1[%d])"},
+		{ir.SubgroupOperationAnd, ir.CollectiveReduce, "metal::simd_and(unnamed_1[%d])"},
+	}
+	for _, tt := range cases {
+		t.Run("", func(t *testing.T) {
+			src, _, err := Compile(vectorSubgroupModule(tt.op, tt.cop), DefaultOptions())
+			if err != nil {
+				t.Fatalf("operation %d with collective op %d: %v", tt.op, tt.cop, err)
+			}
+			// The operand is evaluated once, into its own temporary.
+			if !strings.Contains(src, "metal::float4 unnamed_1 = metal::float4(") {
+				t.Errorf("operation %d with collective op %d: the operand is not evaluated into one temporary:\n%s",
+					tt.op, tt.cop, src)
+			}
+			// Every component is its own scalar call, and no vector call remains.
+			for component := 0; component < 4; component++ {
+				want := fmt.Sprintf(tt.want, component)
+				if !strings.Contains(src, want) {
+					t.Errorf("operation %d with collective op %d: output lacks %q:\n%s", tt.op, tt.cop, want, src)
+				}
+			}
+			if strings.Contains(src, "simd_sum(unnamed_1)\n") || strings.Contains(src, "simd_sum(metal::float4(") {
+				t.Errorf("operation %d with collective op %d: a vector operand reached a simd function whole:\n%s",
+					tt.op, tt.cop, src)
+			}
+		})
+	}
+}
+
+// vectorSubgroupModule builds a compute entry point whose only statement is one
+// subgroup collective operation over a vector literal.
+func vectorSubgroupModule(op ir.SubgroupOperation, cop ir.CollectiveOperation) *ir.Module {
+	scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	vec4 := ir.TypeHandle(1)
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: scalar},
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: scalar}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralF32(1)}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(2)}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(3)}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(4)}},
+					{Kind: ir.ExprCompose{Type: vec4, Components: []ir.ExpressionHandle{0, 1, 2, 3}}}, // [4] argument
+					{Kind: ir.ExprSubgroupOperationResult{Type: vec4}},                                // [5] result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupCollectiveOperation{Op: op, CollectiveOp: cop, Argument: 4, Result: 5}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
 	}
 }
 
