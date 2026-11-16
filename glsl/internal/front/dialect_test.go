@@ -888,12 +888,15 @@ void main() { S s = S(vec4(a), b.a.x); color = s.a + vec4(s.b); }
 `, Options{Stage: ir.StageFragment})
 }
 
-// TestSubgroupBuiltinsRefused: the GL_KHR_shader_subgroup_* directives are
-// recognized (TestExtensionBehaviour), but the builtins need card P1-GLSLIN-017
-// and are refused with a message naming it rather than an unknown-name text.
+// TestSubgroupBuiltinsRefused: the subgroup built-in variables and the forms
+// the IR or a text backend cannot express are refused with a message naming
+// card P1-GLSLIN-017 rather than an unknown-name text; an unimplemented form
+// reaches that message only after its family's extension is enabled, as
+// glslang resolves availability first.
 func TestSubgroupBuiltinsRefused(t *testing.T) {
 	const header = `#version 330 core
 #extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
 out vec4 color;
 `
 	t.Run("builtin variable", func(t *testing.T) {

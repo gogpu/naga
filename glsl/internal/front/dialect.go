@@ -210,7 +210,8 @@ func (d dialect) builtinRefusal(name string) string {
 
 // extensionNames is the set of extension names the dialect gates consult (today
 // GL_EXT_shader_explicit_arithmetic_types_float16, which lets float16_t into GL
-// 3.30 core). It is not a claim of support: the frontend implements no
+// 3.30 core, and the eight GL_KHR_shader_subgroup_* families, whose builtins
+// subgroup.go gates). It is not a claim of support: the frontend implements no
 // extension-gated syntax beyond the types, precision and builtins it already
 // has. The names are the ones the GLSL corpus and design §15 use, spelled out
 // exactly, so a typo such as GL_KHR_shader_subgroup_balot is not mistaken for a
@@ -257,6 +258,7 @@ var extensionNames = map[string]bool{
 	"GL_KHR_shader_subgroup_arithmetic":               true,
 	"GL_KHR_shader_subgroup_ballot":                   true,
 	"GL_KHR_shader_subgroup_basic":                    true,
+	"GL_KHR_shader_subgroup_clustered":                true,
 	"GL_KHR_shader_subgroup_quad":                     true,
 	"GL_KHR_shader_subgroup_shuffle":                  true,
 	"GL_KHR_shader_subgroup_shuffle_relative":         true,

@@ -32,6 +32,12 @@ type Frontend struct {
 	// design §15 (dialect.go).
 	dialect dialect
 
+	// subgroups records which GL_KHR_shader_subgroup_* families the source's
+	// #extension directives enable (subgroup.go). Vulkan GLSL gets no
+	// #extension diagnostics, but the subgroup builtins are available only
+	// where the directive asks for the family, as glslang resolves them.
+	subgroups subgroupExtensions
+
 	// warnings are the diagnostics that do not stop the parse (an unrecognized
 	// #extension, an unmatched ResourceBindings entry); the public ParseInfo
 	// reports them.
