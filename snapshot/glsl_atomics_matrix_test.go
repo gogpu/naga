@@ -557,6 +557,22 @@ void main() { atomicAdd(lanes.x, 1u); }
 `,
 	},
 	{
+		name:      "refuse-vector-indexed-component",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"atomicAdd"},
+		refuse:    "a vector component is not a valid atomic operand",
+		reason: "an index into a shared uvec4 selects the same component lanes.x does, and glslangValidator " +
+			"accepts the constant and the dynamic index alike; the IR cannot express either form: " +
+			"ir.StmtAtomic's pointer must address an ir.AtomicType, and a vector has no atomic element " +
+			"type (card P1-GLSLIN-015)",
+		source: `#version 450
+layout(local_size_x = 1) in;
+shared uvec4 lanes;
+void main() { atomicAdd(lanes[1], 1u); }
+`,
+	},
+	{
 		name:      "refuse-atomic-counter-function",
 		stage:     ir.StageCompute,
 		extension: ".comp",

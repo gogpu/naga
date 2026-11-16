@@ -474,6 +474,21 @@ func TestAtomicRefusals(t *testing.T) {
 			want:   "a vector component is not a valid atomic operand",
 		},
 		{
+			// The indexed component is the same operand as v.x: glslang accepts an
+			// index into a shared uvec4, constant or dynamic, and the IR has no
+			// atomic vector component for either form.
+			name:   "vector-component-index",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uvec4 v;\nvoid main() { atomicAdd(v[1], 1u); }\n",
+			want:   "a vector component is not a valid atomic operand",
+		},
+		{
+			name:   "vector-component-dynamic-index",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uvec4 v;\nvoid main() { uint i = gl_GlobalInvocationID.x; atomicAdd(v[i], 1u); }\n",
+			want:   "a vector component is not a valid atomic operand",
+		},
+		{
 			name:   "image-as-memory-operand",
 			stage:  ir.StageCompute,
 			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { atomicAdd(img, 1u); }\n",

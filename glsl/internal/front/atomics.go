@@ -483,11 +483,18 @@ func (f *Frontend) recordAtomicAccess(c *Context, handle ir.ExpressionHandle, sp
 		if err != nil {
 			return 0, err
 		}
-		array, ok := f.typeInner(ty).(ir.ArrayType)
-		if !ok {
-			return 0, errMessage(span, glslAtomicLValueText)
+		// A vector component selected by an index — constant or dynamic — is the
+		// same operand as the named form the ExprAccessIndex arm below refuses:
+		// glslang accepts both (an index into a shared uvec4 selects a component),
+		// and the IR has no atomic vector component. The base of an array index
+		// is the array itself, so its element type is what the walk carries up.
+		switch t := f.typeInner(ty).(type) {
+		case ir.ArrayType:
+			return t.Base, nil
+		case ir.VectorType:
+			return 0, errMessage(span, atomicVectorComponentText)
 		}
-		return array.Base, nil
+		return 0, errMessage(span, glslAtomicLValueText)
 	case ir.ExprAccessIndex:
 		ty, err := f.recordAtomicAccess(c, kind.Base, span)
 		if err != nil {
