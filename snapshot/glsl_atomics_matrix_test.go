@@ -606,6 +606,83 @@ precision highp float;
 void main() { uint counter = 0u; imageAtomicAdd(counter, 0, 1u); }
 `,
 	},
+	{
+		name:      "refuse-void-value-operand",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"atomicAdd"},
+		refuse:    "Expression returns void",
+		reason: "the value operand must be a value, and a call that yields none is refused where the " +
+			"atomic path lowers the operand; glslangValidator 11:16.2.0 reports 'atomicAdd' : no matching " +
+			"overloaded function found for the same source",
+		source: `#version 450
+layout(local_size_x = 1) in;
+shared uint counter;
+void vf() {}
+void main() { uint old = atomicAdd(counter, vf()); }
+`,
+	},
+	{
+		name:      "refuse-compare-data-type-mismatch",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"atomicCompSwap"},
+		refuse:    "Unknown function 'atomicCompSwap'",
+		reason: "the data operand of a compare exchange follows the same conversion rule as the compare " +
+			"one, and a float cannot convert to the atomic's uint; glslangValidator 11:16.2.0 reports " +
+			"'atomicCompSwap' : no matching overloaded function found for the same source",
+		source: `#version 450
+layout(local_size_x = 1) in;
+shared uint counter;
+void main() { uint old = atomicCompSwap(counter, 1u, 1.0); }
+`,
+	},
+	{
+		name:      "refuse-image-void-coordinate",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicAdd"},
+		refuse:    "Expression returns void",
+		reason: "the coordinate must be a value, and a call that yields none is refused where the image " +
+			"atomic path lowers the operand; glslangValidator 11:16.2.0 reports 'imageAtomicAdd' : " +
+			"no matching overloaded function found for the same source",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2D img;
+void vf() {}
+void main() { imageAtomicAdd(img, vf(), 1u); }
+`,
+	},
+	{
+		name:      "refuse-image-compare-data-type-mismatch",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicCompSwap"},
+		refuse:    "Unknown function 'imageAtomicCompSwap'",
+		reason: "a float cannot convert to the image's uint in the data position of a compare exchange, " +
+			"as in the compare one; glslangValidator 11:16.2.0 reports 'imageAtomicCompSwap' : no " +
+			"matching overloaded function found for the same source",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32ui, set = 0, binding = 0) uniform uimage2D img;
+void main() { imageAtomicCompSwap(img, ivec2(0), 1u, 1.0); }
+`,
+	},
+	{
+		name:      "refuse-uniform-block-dynamic-index",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"atomicAdd"},
+		refuse:    "Only l-values corresponding to shader block storage or shared variables",
+		reason: "a uniform block is read-only storage, and an array member is refused through the same " +
+			"walk whether its index is constant or not; glslangValidator 11:16.2.0 prints the same " +
+			"l-value sentence for this source",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(std140, set = 0, binding = 1) uniform UBO { uint vals[4]; } ub;
+void main() { atomicAdd(ub.vals[gl_GlobalInvocationID.x], 1u); }
+`,
+	},
 }
 
 // glslAtomicBuiltinNames reads the atomic builtin names out of

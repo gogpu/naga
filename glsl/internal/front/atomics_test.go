@@ -529,6 +529,16 @@ func TestAtomicRefusals(t *testing.T) {
 			want:   "atomic counters are not implemented",
 		},
 		{
+			// The type is refused wherever a type is parsed, not only in the
+			// uniform declaration: a struct member reaches the type parser
+			// (parser_type.go), a local declaration is caught as an unknown
+			// variable first.
+			name:   "atomic-counter-struct-member",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nstruct S { atomic_uint counter; };\nvoid main() { }\n",
+			want:   "atomic counters are not implemented",
+		},
+		{
 			name:   "gl330-shared",
 			stage:  ir.StageFragment,
 			source: "#version 330\nvoid main() { uint x = 0u; atomicAdd(x, 1u); }\n",
@@ -673,6 +683,80 @@ func TestAtomicRefusals(t *testing.T) {
 			stage:  ir.StageCompute,
 			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 1u, nope); }\n",
 			want:   "Unknown variable: nope",
+		},
+		// An operand that is a call yielding no value passes name resolution and
+		// is refused where the atomic path lowers it. Every operand position is
+		// its own lowering call, so each gets a row.
+		{
+			name:   "void-value-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid vf() {}\nvoid main() { uint old = atomicAdd(c, vf()); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "void-compare-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid vf() {}\nvoid main() { uint old = atomicCompSwap(c, vf(), 2u); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "void-compare-data-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid vf() {}\nvoid main() { uint old = atomicCompSwap(c, 1u, vf()); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			// The data operand of a compare exchange follows the same conversion
+			// rule as the compare one: a float cannot convert to the atomic's uint.
+			name:   "compare-data-type-mismatch",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { uint old = atomicCompSwap(c, 1u, 1.0); }\n",
+			want:   "Unknown function 'atomicCompSwap'",
+		},
+		{
+			name:   "image-void-operand",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid vf() {}\nvoid main() { imageAtomicAdd(vf(), ivec2(0), 1u); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "image-void-coordinate",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid vf() {}\nvoid main() { imageAtomicAdd(img, vf(), 1u); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "image-void-value",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid vf() {}\nvoid main() { imageAtomicAdd(img, ivec2(0), vf()); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "image-void-compare",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid vf() {}\nvoid main() { imageAtomicCompSwap(img, ivec2(0), vf(), 2u); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "image-void-compare-data",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid vf() {}\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 1u, vf()); }\n",
+			want:   "Expression returns void",
+		},
+		{
+			name:   "image-compare-data-type-mismatch",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 2u, 1.0); }\n",
+			want:   "Unknown function 'imageAtomicCompSwap'",
+		},
+		{
+			// A dynamically indexed array member of a uniform block: the walk
+			// recurses through the index expression and meets the same storage
+			// rule as the constant-index form.
+			name:   "uniform-block-dynamic-index",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(std140, set = 0, binding = 1) uniform UBO { uint vals[4]; } ub;\nvoid main() { atomicAdd(ub.vals[gl_GlobalInvocationID.x], 1u); }\n",
+			want:   "Only l-values corresponding to shader block storage or shared variables",
 		},
 	}
 
