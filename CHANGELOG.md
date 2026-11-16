@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.4] - 2026-11-16
+
+> **The GLSL input frontend stays a preview.** `glsl.Parse` reads a large part of Vulkan GLSL 440/450/460 and of
+> the GL 3.30 core / ES 3.00 dialects, and every form it accepts is verified end to end (see below), but the
+> frontend is **not complete**: a few subgroup forms the IR cannot express are still refused with named
+> limitations (the ballot bit helpers and the `gl_Subgroup*Mask` variables, and the clustered forms); the
+> Min/Max/And/Or/Xor scans stay refused until the text backends write them; and the `ParseInfo` /
+> `ParseOptions` shape may still change until the frontend is complete. The refusals list the limits rather
+> than lowering a source the IR cannot express.
 
 ### Added
 
