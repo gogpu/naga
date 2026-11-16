@@ -63,6 +63,17 @@ type glslMatrixRow struct {
 	refuse string
 	// reason justifies a refusal. Empty for an ok row.
 	reason string
+	// targetEnv is the glslangValidator --target-env of an ok row whose source
+	// needs a newer target than the default. A subgroup row needs vulkan1.1
+	// (SPIR-V 1.3): glslang refuses a subgroup operation with "'subgroup op' :
+	// requires SPIR-V 1.3". Empty means glslang's default.
+	targetEnv string
+	// backendSkip records a text backend that cannot write an ok row's module,
+	// keyed by "msl" or "hlsl", with the reason. The matrix asserts the backend
+	// still refuses the module, so a limitation that stops applying fails the
+	// test; it is recorded, never silently skipped. Empty for a row every
+	// backend writes.
+	backendSkip map[string]string
 }
 
 // glslImageSamplingMatrix is the matrix: the sampling families first, then the
@@ -974,7 +985,12 @@ func checkGLSLSourceWithGLSLang(t *testing.T, glslang string, available bool, ro
 	if err := os.WriteFile(source, []byte(row.source), 0o600); err != nil {
 		t.Fatalf("write the row's source: %v", err)
 	}
-	out, err := exec.Command(glslang, "-V", source, "-o", filepath.Join(dir, "row.spv")).CombinedOutput()
+	args := []string{"-V"}
+	if row.targetEnv != "" {
+		args = append(args, "--target-env", row.targetEnv)
+	}
+	args = append(args, source, "-o", filepath.Join(dir, "row.spv"))
+	out, err := exec.Command(glslang, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("glslangValidator rejects an ok row's source: %v\n%s\n\nsource:\n%s",
 			err, out, row.source)
