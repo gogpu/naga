@@ -1338,6 +1338,36 @@ func TestTypify_ImageQuery_NumLevels(t *testing.T) {
 	}
 }
 
+func TestTypify_ImageQuery_Lod(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "tex", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+			{Name: "samp", Inner: ir.SamplerType{}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "tex", Type: 0, Space: ir.SpaceHandle},
+			{Name: "samp", Type: 1, Space: ir.SpaceHandle},
+		},
+	}
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
+			{Kind: ir.ExprSplat{Size: ir.Vec2, Value: 2}},
+			{Kind: ir.ExprImageQuery{Image: 0, Query: ir.ImageQueryLod{Sampler: 1, Coordinate: 3}}},
+		},
+	}
+	got, err := resolve(module, fn, 4)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	v, ok := got.Value.(ir.VectorType)
+	if !ok || v.Size != ir.Vec2 || v.Scalar.Kind != ir.ScalarFloat || v.Scalar.Width != 4 {
+		t.Errorf("expected vec2<f32>, got %v", got.Value)
+	}
+}
+
 func TestTypify_MathModf(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{

@@ -691,6 +691,22 @@ type samplingOperand struct {
 	index    uint32 // GlobalVariableHandle, or the argument index
 }
 
+// sampledOperands returns the image and sampler expressions of an expression
+// that pairs a texture with a sampler: an image sample, or a level-of-detail
+// query, which takes the same pair (GLSL's textureQueryLod is declared for
+// combined sampler types, so its declaration must be the combined one).
+func sampledOperands(kind ir.ExpressionKind) (image, sampler ir.ExpressionHandle, ok bool) {
+	switch k := kind.(type) {
+	case ir.ExprImageSample:
+		return k.Image, k.Sampler, true
+	case ir.ExprImageQuery:
+		if lod, isLod := k.Query.(ir.ImageQueryLod); isLod {
+			return k.Image, lod.Sampler, true
+		}
+	}
+	return 0, 0, false
+}
+
 // sampling is a texture sampled with a sampler.
 type sampling struct {
 	image, sampler samplingOperand
@@ -702,12 +718,12 @@ type sampling struct {
 func (w *Writer) functionSamplings(fn *ir.Function, memo map[ir.FunctionHandle][]sampling) []sampling {
 	var out []sampling
 	for _, expr := range fn.Expressions {
-		sample, ok := expr.Kind.(ir.ExprImageSample)
+		imageExpr, samplerExpr, ok := sampledOperands(expr.Kind)
 		if !ok {
 			continue
 		}
-		image, imageOK := samplingOperandOf(fn, sample.Image)
-		smp, samplerOK := samplingOperandOf(fn, sample.Sampler)
+		image, imageOK := samplingOperandOf(fn, imageExpr)
+		smp, samplerOK := samplingOperandOf(fn, samplerExpr)
 		if imageOK && samplerOK {
 			out = append(out, sampling{image: image, sampler: smp})
 		}

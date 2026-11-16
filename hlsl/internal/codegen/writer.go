@@ -347,6 +347,12 @@ const (
 	imageQueryNumLevels                        // Get number of mip levels
 	imageQueryNumLayers                        // Get number of array layers
 	imageQueryNumSamples                       // Get number of samples
+	// imageQueryCalculateLod is the level-of-detail query: HLSL answers with
+	// CalculateLevelOfDetail for the clamped level and
+	// CalculateLevelOfDetailUnclamped for the unclamped one, packed into a
+	// float2 by the wrapper. Rust naga has no counterpart (its IR has no lod
+	// query), so the naming follows the Naga{Class}{Query}{Dim}{Array} scheme.
+	imageQueryCalculateLod
 )
 
 // String returns the generated HLSL source code.
@@ -1054,6 +1060,12 @@ func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, 
 		qt = imageQueryNumLayers
 	case ir.ImageQueryNumSamples:
 		qt = imageQueryNumSamples
+	case ir.ImageQueryLod:
+		if hlslLodQueryError(imgType) != nil {
+			// The expression writer reports the refusal; no wrapper is written.
+			return
+		}
+		qt = imageQueryCalculateLod
 	default:
 		return
 	}
@@ -1234,6 +1246,12 @@ func (w *Writer) writeWrappedImageQueryFunctions(fn *ir.Function) {
 			qt = imageQueryNumLayers
 		case ir.ImageQueryNumSamples:
 			qt = imageQueryNumSamples
+		case ir.ImageQueryLod:
+			if hlslLodQueryError(imgType) != nil {
+				// The expression writer reports the refusal; no wrapper is written.
+				continue
+			}
+			qt = imageQueryCalculateLod
 		default:
 			continue
 		}
@@ -1300,6 +1318,13 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 	// External textures have their own special dimensions helper
 	if key.class == ir.ImageClassExternal {
 		w.writeExternalTextureDimensionsHelper()
+		return
+	}
+
+	// The level-of-detail query is not a GetDimensions form: HLSL answers it
+	// with two Calculate* calls, which the wrapper packs into a float2.
+	if key.query == imageQueryCalculateLod {
+		w.writeLodQueryWrapper(key, imgType)
 		return
 	}
 
@@ -1416,6 +1441,43 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 	// Return
 	fmt.Fprintf(&w.Out, "    return ret.%s;\n", retSwizzle)
 	w.Out.WriteString("}\n\n")
+}
+
+// writeLodQueryWrapper writes the level-of-detail query wrapper. HLSL answers
+// the query with two calls, CalculateLevelOfDetail for the clamped level and
+// CalculateLevelOfDetailUnclamped for the unclamped one; the wrapper packs
+// them into the float2 the IR expression has, in the order GLSL's
+// textureQueryLod uses (x clamped, y unclamped).
+//
+// The sampler is a SamplerState: a comparison sampler needs shader model 6.8
+// for this intrinsic (dxc), and hlslLodQueryError refuses those images before
+// a wrapper is written.
+func (w *Writer) writeLodQueryWrapper(key wrappedImageQueryKey, imgType *ir.ImageType) {
+	w.Out.WriteString("float2 ")
+	w.writeImageQueryFunctionName(key)
+	w.Out.WriteString("(")
+	w.Out.WriteString(w.imageTypeToHLSL(*imgType))
+	w.Out.WriteString(" tex, SamplerState samp, ")
+	w.Out.WriteString(lodCoordinateHLSLType(key.dim))
+	w.Out.WriteString(" coord)\n{\n")
+	w.Out.WriteString("    return float2(tex.CalculateLevelOfDetail(samp, coord), " +
+		"tex.CalculateLevelOfDetailUnclamped(samp, coord));\n")
+	w.Out.WriteString("}\n\n")
+}
+
+// lodCoordinateHLSLType is the coordinate type of the level-of-detail query:
+// the spatial texture coordinate, without the array layer (the layer does not
+// affect the level of detail, and dxc's CalculateLevelOfDetail takes the same
+// spatial coordinate for an arrayed texture as for a plain one).
+func lodCoordinateHLSLType(dim ir.ImageDimension) string {
+	switch dim {
+	case ir.Dim1D:
+		return "float"
+	case ir.Dim3D, ir.DimCube:
+		return "float3"
+	default:
+		return "float2"
+	}
 }
 
 // writeImageQueryFunctionNameDirect writes the NagaXxx function name directly to output.

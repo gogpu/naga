@@ -14,6 +14,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -2948,6 +2949,11 @@ func (w *Writer) writeImageQueryExpression(e ir.ExprImageQuery) error {
 		qt = imageQueryNumLayers
 	case ir.ImageQueryNumSamples:
 		qt = imageQueryNumSamples
+	case ir.ImageQueryLod:
+		if err := hlslLodQueryError(imgType); err != nil {
+			return err
+		}
+		qt = imageQueryCalculateLod
 	default:
 		return fmt.Errorf("unsupported image query: %T", e.Query)
 	}
@@ -2966,15 +2972,59 @@ func (w *Writer) writeImageQueryExpression(e ir.ExprImageQuery) error {
 	if err := w.writeExpression(e.Image); err != nil {
 		return fmt.Errorf("image query: image: %w", err)
 	}
-	if qt == imageQuerySizeLevel {
+	switch q := e.Query.(type) {
+	case ir.ImageQuerySize:
+		if qt == imageQuerySizeLevel {
+			w.Out.WriteString(", ")
+			if err := w.writeExpression(*q.Level); err != nil {
+				return fmt.Errorf("image query: level: %w", err)
+			}
+		}
+	case ir.ImageQueryLod:
+		// The level-of-detail query passes its sampler and coordinate after the
+		// image, in the order of the wrapper's own parameters.
 		w.Out.WriteString(", ")
-		q := e.Query.(ir.ImageQuerySize)
-		if err := w.writeExpression(*q.Level); err != nil {
-			return fmt.Errorf("image query: level: %w", err)
+		if err := w.writeExpression(q.Sampler); err != nil {
+			return fmt.Errorf("image query: sampler: %w", err)
+		}
+		w.Out.WriteString(", ")
+		if err := w.writeExpression(q.Coordinate); err != nil {
+			return fmt.Errorf("image query: coordinate: %w", err)
 		}
 	}
 	w.Out.WriteString(")")
 
+	return nil
+}
+
+// hlslLodQueryError is the refusal of an ImageQueryLod the HLSL backend cannot
+// write, or nil. Every form is a gap of HLSL or of dxc, never of this writer:
+//
+//   - a depth (shadow) image's sampler is a SamplerComparisonState, and dxc
+//     accepts CalculateLevelOfDetail with one only from shader model 6.8
+//     ("overload of intrinsic CalculateLevelOfDetail with
+//     SamplerComparisonState requires shader model 6.8 or greater",
+//     dxc 1.8, -T ps_6_0); this backend writes shader model 5.1 to 6.7;
+//   - Texture2D<int4> has no CalculateLevelOfDetail member at all ("no member
+//     named 'CalculateLevelOfDetail' in 'Texture2D<int4>'", dxc);
+//   - a multisampled texture has no mip levels to query ("no member named
+//     'CalculateLevelOfDetail' in 'Texture2DMS<...>'", dxc).
+func hlslLodQueryError(imgType *ir.ImageType) error {
+	switch {
+	case imgType.Class == ir.ImageClassDepth:
+		return unsupported.Errorf("a level-of-detail query on a depth image: its sampler is a " +
+			"SamplerComparisonState, and dxc accepts CalculateLevelOfDetail with a comparison " +
+			"sampler only from shader model 6.8")
+	case imgType.Multisampled:
+		return unsupported.Errorf("a level-of-detail query on a multisampled image: a multisampled " +
+			"texture has no mip levels")
+	case imgType.Class == ir.ImageClassSampled && imgType.SampledKind != ir.ScalarFloat:
+		return unsupported.Errorf("a level-of-detail query on a non-float sampled image: HLSL's " +
+			"CalculateLevelOfDetail exists only for floating-point texture objects")
+	case imgType.Class != ir.ImageClassSampled:
+		return unsupported.Errorf("a level-of-detail query on an image of class %v: only a sampled image has one",
+			imgType.Class)
+	}
 	return nil
 }
 
@@ -3023,6 +3073,8 @@ func (w *Writer) writeImageQueryFunctionName(key wrappedImageQueryKey) {
 		queryStr = "NumLayers"
 	case imageQueryNumSamples:
 		queryStr = "NumSamples"
+	case imageQueryCalculateLod:
+		queryStr = "CalculateLod"
 	}
 
 	dimStr := ""

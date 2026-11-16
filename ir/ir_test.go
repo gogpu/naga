@@ -403,6 +403,7 @@ func TestImageQueryInterface(t *testing.T) {
 		{"NumLevels", ImageQueryNumLevels{}},
 		{"NumLayers", ImageQueryNumLayers{}},
 		{"NumSamples", ImageQueryNumSamples{}},
+		{"Lod", ImageQueryLod{}},
 	}
 
 	for _, tt := range tests {

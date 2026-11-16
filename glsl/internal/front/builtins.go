@@ -143,6 +143,8 @@ const (
 	// macroTextureGather is the textureGather family, which is a sampling
 	// operation with the IR's Gather component set.
 	macroTextureGather
+	// macroTextureQueryLod is textureQueryLod, the level-of-detail query.
+	macroTextureQueryLod
 )
 
 // textureLevelType says where a texture() family call takes its level of
@@ -203,7 +205,8 @@ type macroCall struct {
 // library must not panic, so the check turns a wrong table entry into an error.
 func (m *macroCall) arity() int {
 	switch m.kind {
-	case macroSampler, macroSamplerShadow, macroTexture, macroImageLoad, macroBinary, macroMod:
+	case macroSampler, macroSamplerShadow, macroTexture, macroImageLoad, macroBinary, macroMod,
+		macroTextureQueryLod:
 		return 2
 	case macroImageStore, macroBitfieldExtract, macroMixBoolean, macroClamp, macroSmoothStep:
 		return 3
@@ -393,6 +396,9 @@ func (m *macroCall) call(c *Context, args []loweredArg, span ir.Span) (ir.Expres
 	case macroTextureGather:
 		return m.callTextureGather(c, args, span)
 
+	case macroTextureQueryLod:
+		return m.callTextureQueryLod(c, args, span)
+
 	case macroSmoothStep:
 		arg0, err := c.implicitSplat(args[0].expr, span, m.size)
 		if err != nil {
@@ -522,6 +528,21 @@ func refusedBuiltin(name string) string {
 		}
 		return ""
 	}
+}
+
+// builtinStageRefusal returns the stage rule a builtin needs that the source's
+// stage does not meet, and is empty otherwise. textureQueryLod lowers to
+// SPIR-V's OpImageQueryLod, "only valid in the Fragment Execution Model"
+// (SPIR-V 1.6 §3.32.13), and glslang declares no overload for the other stages
+// ("'textureQueryLod' : no matching overloaded function found", a vertex
+// probe). The frontend reports the rule with the call's span, and
+// valid.Validate enforces it for a hand-built module too (expressionStages).
+func (f *Frontend) builtinStageRefusal(name string) string {
+	if name == "textureQueryLod" && f.meta.stage != ir.StageFragment {
+		return "textureQueryLod is only available in a fragment shader: it lowers to SPIR-V's " +
+			"OpImageQueryLod, which is valid only in the Fragment execution model"
+	}
+	return ""
 }
 
 // exprPtr returns a pointer to h, for the optional operands of an expression.
@@ -1122,6 +1143,8 @@ func (f *Frontend) injectTextureBuiltin(decl *functionDeclaration, name string, 
 		f.injectTextureGatherBuiltins(decl, name, variations)
 	case "textureQueryLevels":
 		f.injectTextureQueryLevelsBuiltins(decl, variations)
+	case "textureQueryLod":
+		f.injectTextureQueryLodBuiltins(decl, variations)
 	case "texelFetch", "texelFetchOffset":
 		f.injectTexelFetchBuiltins(decl, name, variations)
 	case "imageSize":
@@ -1419,6 +1442,54 @@ func (f *Frontend) injectTextureQueryLevelsBuiltins(decl *functionDeclaration, v
 		}
 		decl.overloads = append(decl.overloads, f.addBuiltinOverload([]ir.TypeInner{image}, &macroCall{kind: macroTextureQueryLevels}))
 	})
+}
+
+// injectTextureQueryLodBuiltins adds textureQueryLod, the level-of-detail
+// query of GLSL 4.00 §8.9: the level the sampler would select for a sample at
+// the coordinate, and the unclamped level (Rust naga has no counterpart: its
+// IR has no lod query).
+//
+// The coordinate is the spatial texture coordinate without the array layer,
+// which is what glslang's overloads take: a 2D arrayed image takes a vec2 and
+// a cube array a vec3, unlike textureSize, whose size vector for a cube is a
+// vec2. The shape set is the one textureQueryLevels generates — every
+// non-multisampled sampled and depth image — because glslang refuses
+// textureQueryLod on a multisampled sampler ("no matching overloaded function
+// found", sampler2DMS).
+func (f *Frontend) injectTextureQueryLodBuiltins(decl *functionDeclaration, variations builtinVariations) {
+	f.textureArgsGenerator(textureArgsShadow|textureArgsOptionsOf(variations), func(kind ir.ScalarKind, dim ir.ImageDimension, arrayed, multi, shadow bool) {
+		class := ir.ImageClassSampled
+		if shadow {
+			class = ir.ImageClassDepth
+		}
+		image := ir.ImageType{
+			Dim:          dim,
+			Arrayed:      arrayed,
+			Class:        class,
+			Multisampled: multi,
+			SampledKind:  kind,
+		}
+		coord := makeCoordsArg(imageDimsToCoordsSize(dim), ir.ScalarFloat)
+		decl.overloads = append(decl.overloads, f.addBuiltinOverload([]ir.TypeInner{image, coord},
+			&macroCall{kind: macroTextureQueryLod}))
+	})
+}
+
+// callTextureQueryLod lowers textureQueryLod into an ImageQueryLod: the image
+// the name denotes, the sampler of the combined sampler (or of the
+// sampler2D(t, s) constructor) it came through, and the coordinate.
+func (m *macroCall) callTextureQueryLod(c *Context, args []loweredArg, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	sampler, ok := c.samplers[args[0].expr]
+	if !ok {
+		// An image that no combined sampler created has no sampler to pair
+		// with, which is textureCall's "Bad call" too.
+		return 0, false, errMessage(span, "Bad call")
+	}
+	h, err := c.addExpression(ir.ExprImageQuery{
+		Image: args[0].expr,
+		Query: ir.ImageQueryLod{Sampler: sampler, Coordinate: args[1].expr},
+	}, span)
+	return h, true, err
 }
 
 // injectTexelFetchBuiltins adds texelFetch and texelFetchOffset, which take a

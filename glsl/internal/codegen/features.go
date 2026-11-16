@@ -51,6 +51,15 @@ const (
 	// no such feature: it writes gl_DrawID at every version, which no GLSL
 	// below 4.60 declares.
 	FeatureDrawIndex Features = 1 << 28
+	// FeatureTextureQueryLod is textureQueryLod, core in desktop GLSL 4.00 and
+	// absent from every GLSL ES version (glslang: "'textureQueryLod' : no
+	// matching overloaded function found" for 300, 310 and 320 es).
+	// glslangValidator also accepts the function at 3.30, a leniency this table
+	// must not follow, as with FeatureDrawIndex below 4.60: the table names the
+	// version the specification declares the function in, so the backend
+	// refuses a target whose driver would reject the output. Rust naga has no
+	// such feature: its IR has no level-of-detail query.
+	FeatureTextureQueryLod Features = 1 << 29
 )
 
 // featuresManager collects and writes required features.
@@ -99,6 +108,7 @@ var featureNames = []struct {
 	{FeatureShaderBarycentrics, "SHADER_BARYCENTRICS"},
 	{FeaturePrimitiveIndex, "PRIMITIVE_INDEX"},
 	{FeatureDrawIndex, "DRAW_INDEX"},
+	{FeatureTextureQueryLod, "TEXTURE_QUERY_LOD"},
 }
 
 // String returns the names of the features joined by " | ", as Rust naga's
@@ -157,6 +167,9 @@ func (fm *featuresManager) checkAvailability(v Version) error {
 	core(FeatureTextureLevels, 130)
 	coreES(FeatureImageSize, 430, 310)
 	coreES(FeatureTextureShadowLod, 200, 300)
+	// textureQueryLod is desktop GLSL 4.00 and exists in no ES version, which
+	// core() means by "never on ES".
+	core(FeatureTextureQueryLod, 400)
 	if !fm.drawParameters {
 		core(FeatureDrawIndex, 460)
 	} else if v.ES {
@@ -470,6 +483,8 @@ func (w *Writer) scanExpressionFeatures(ep *ir.EntryPoint) {
 					w.features.request(FeatureTextureSamples)
 				case ir.ImageQueryNumLevels:
 					w.features.request(FeatureTextureLevels)
+				case ir.ImageQueryLod:
+					w.features.request(FeatureTextureQueryLod)
 				case ir.ImageQuerySize:
 					// Check if image is a storage image — needs IMAGE_SIZE feature.
 					// Resolve the image type through the expression chain.

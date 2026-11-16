@@ -35,8 +35,9 @@
 // free slot of their group; each dialect's feature gates, the ES precision rules and the #extension behavior
 // follow the Khronos specifications.
 //
-// The frontend is a preview: every form it accepts is verified end to end, but
-// textureQueryLod is not implemented yet and a few subgroup forms the IR cannot
+// The frontend is a preview: every form it accepts is verified end to end,
+// including the level-of-detail query (textureQueryLod, GLSL 4.00+; the GL 3.30
+// core and ES 3.00 dialects refuse it), but a few subgroup forms the IR cannot
 // express are refused with a message naming the limitation (subgroupElect,
 // subgroupAllEqual, the ballot helpers, the clustered forms, the
 // Min/Max/And/Or/Xor scans, and the subgroup built-in variables); ParseInfo and

@@ -1474,6 +1474,12 @@ func imageQueryOperands(k ir.ExprImageQuery) []ir.ExpressionHandle {
 	if qs, ok := k.Query.(ir.ImageQuerySize); ok && qs.Level != nil {
 		ops = append(ops, *qs.Level)
 	}
+	if lod, ok := k.Query.(ir.ImageQueryLod); ok {
+		// The level-of-detail query carries its sampler and coordinate; the
+		// emitter refuses the query itself (emitImageQuery), but the walkers
+		// must still see its operands.
+		ops = append(ops, lod.Sampler, lod.Coordinate)
+	}
 	return ops
 }
 
@@ -1739,6 +1745,8 @@ func imageQueryReferences(query ir.ImageQuery, target ir.ExpressionHandle) bool 
 	switch q := query.(type) {
 	case ir.ImageQuerySize:
 		return ptrHandleEq(q.Level, target)
+	case ir.ImageQueryLod:
+		return q.Sampler == target || q.Coordinate == target
 	}
 	return false
 }
