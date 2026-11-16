@@ -540,6 +540,55 @@ func TestAtomicRefusals(t *testing.T) {
 			source: "#version 300 es\nprecision highp float;\nvoid main() { uint x = 0u; imageAtomicAdd(x, 0, 1u); }\n",
 			want:   "'imageAtomicAdd' : not supported by GLSL ES 3.00",
 		},
+		{
+			// GLSL has no declaration-based overload resolution for these: an
+			// argument count outside the signature set is the call's "no
+			// matching overload".
+			name:   "memory-arity-missing-value",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicAdd(c); }\n",
+			want:   "Unknown function 'atomicAdd'",
+		},
+		{
+			name:   "memory-arity-extra-argument",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicAdd(c, 1u, 2u); }\n",
+			want:   "Unknown function 'atomicAdd'",
+		},
+		{
+			// The compare operand follows the same conversion rule as the data
+			// operand: a float cannot convert to the atomic's uint.
+			name:   "compare-type-mismatch",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c;\nvoid main() { atomicCompSwap(c, 1.0, 2u); }\n",
+			want:   "Unknown function 'atomicCompSwap'",
+		},
+		{
+			name:   "image-arity-missing-value",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, ivec2(0)); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			// A scalar is not an image: the first argument must resolve to a
+			// storage image, as glslang's overload set requires.
+			name:   "image-operand-not-an-image",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nvoid main() { imageAtomicAdd(1u, ivec2(0), 2u); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			name:   "image-value-type-mismatch",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicAdd(img, ivec2(0), 1.5); }\n",
+			want:   "Unknown function 'imageAtomicAdd'",
+		},
+		{
+			name:   "image-compare-type-mismatch",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32ui, set = 0, binding = 0) uniform uimage2D img;\nvoid main() { imageAtomicCompSwap(img, ivec2(0), 1.5, 2u); }\n",
+			want:   "Unknown function 'imageAtomicCompSwap'",
+		},
 	}
 
 	for _, tt := range cases {
@@ -598,6 +647,46 @@ void main() { atomicAdd(a[gl_GlobalInvocationID.x], 1u); }
 				}
 				if array.Stride != 4 {
 					t.Errorf("the array stride is %d, want 4", array.Stride)
+				}
+			},
+		},
+		{
+			name: "shared-array-constant-index",
+			body: `
+shared uint a[4];
+void main() { atomicAdd(a[2], 1u); }
+`,
+			verify: func(t *testing.T, mod *ir.Module) {
+				// A constant index lowers to ExprAccessIndex, the dynamic one to
+				// ExprAccess; both walk to the same upgraded element type.
+				a := findGlobal(t, mod, "a")
+				array, ok := mod.Types[a.Type].Inner.(ir.ArrayType)
+				if !ok {
+					t.Fatalf("the shared array is %T, want an array", mod.Types[a.Type].Inner)
+				}
+				if _, ok := mod.Types[array.Base].Inner.(ir.AtomicType); !ok {
+					t.Errorf("the array element is %T, want an AtomicType", mod.Types[array.Base].Inner)
+				}
+			},
+		},
+		{
+			name: "buffer-block-runtime-array",
+			body: `
+layout(std430, set = 0, binding = 0) buffer B { uint data[]; } b;
+void main() { atomicAdd(b.data[0], 1u); }
+`,
+			verify: func(t *testing.T, mod *ir.Module) {
+				// The block's runtime array is an ArrayType with an empty size in
+				// this frontend (BindingArrayType is the SPIR-V frontend's shape
+				// for an explicit stride); the upgrade walks its base.
+				b := findGlobal(t, mod, "b")
+				block := mod.Types[b.Type].Inner.(ir.StructType)
+				rt, ok := mod.Types[block.Members[0].Type].Inner.(ir.ArrayType)
+				if !ok {
+					t.Fatalf("the runtime array is %T, want an ArrayType", mod.Types[block.Members[0].Type].Inner)
+				}
+				if _, ok := mod.Types[rt.Base].Inner.(ir.AtomicType); !ok {
+					t.Errorf("the runtime array element is %T, want an AtomicType", mod.Types[rt.Base].Inner)
 				}
 			},
 		},
@@ -975,5 +1064,38 @@ func TestAtomicSpirvShape(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAtomicCompareExchangeTypeReuse checks that a second compare-exchange in
+// one module reuses the first one's result struct instead of registering a
+// second type with the same name.
+func TestAtomicCompareExchangeTypeReuse(t *testing.T) {
+	mod := parseAtomicCompute(t, `
+shared uint a;
+shared uint b;
+void main() { uint x = atomicCompSwap(a, 1u, 2u); uint y = atomicCompSwap(b, 3u, 4u); }
+`)
+	fn := mainFunction(t, mod)
+	var types []ir.TypeHandle
+	for _, stmt := range fn.Body {
+		if atomic, ok := stmt.Kind.(ir.StmtAtomic); ok {
+			if xchg, ok := atomic.Fun.(ir.AtomicExchange); ok && xchg.Compare != nil && atomic.Result != nil {
+				result, ok := fn.Expressions[*atomic.Result].Kind.(ir.ExprAtomicResult)
+				if !ok {
+					t.Fatalf("the compare-exchange result is %T, want ExprAtomicResult", fn.Expressions[*atomic.Result].Kind)
+				}
+				types = append(types, result.Ty)
+			}
+		}
+	}
+	if len(types) != 2 {
+		t.Fatalf("found %d compare-exchange results, want 2", len(types))
+	}
+	if types[0] != types[1] {
+		t.Errorf("compare-exchange result types differ (%d, %d), want the same handle", types[0], types[1])
+	}
+	if name := mod.Types[types[0]].Name; name != "__atomic_compare_exchange_result<Uint,4>" {
+		t.Errorf("result type name = %q, want __atomic_compare_exchange_result<Uint,4>", name)
 	}
 }
