@@ -1,6 +1,6 @@
 # naga — GoGPU Ecosystem
 
-> Pure Go shader compiler. WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL; SPIR-V binaries and GLSL (Vulkan 440/450/460, GL 3.30 core, ES 3.00) → IR (`spirv.Parse`, `glsl.Parse`). Zero CGO.
+> Pure Go shader compiler. WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL; SPIR-V binaries and GLSL (Vulkan 440/450/460, GL 3.30 core, ES 3.00) → IR (`spirv.Parse`, `glsl.Parse`). Zero CGO. GLSL input is a preview: `textureQueryLod` is not implemented yet and some subgroup forms are refused with named limitations.
 > Tested output by output against Rust naga's WGSL corpus; SPIR-V checked with spirv-val in CI.
 
 ## Docs

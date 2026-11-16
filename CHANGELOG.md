@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-16
+
+> **The GLSL input frontend ships as a preview.** `glsl.Parse` already reads a large part of Vulkan GLSL
+> 440/450/460 and of the GL 3.30 core / ES 3.00 dialects, and every form it accepts is verified end to end
+> (see below), but the frontend is **not complete**: `textureQueryLod` is not implemented yet; a few subgroup
+> forms the IR cannot express are refused with named limitations (`subgroupElect`, `subgroupAllEqual`, the
+> ballot helpers, the clustered forms, the Min/Max/And/Or/Xor scans, and the subgroup built-in variables); a
+> few GLSL rules are not enforced on the way in (an image declared with mismatched sign/format, a `shared`
+> initializer, `gl_`-prefixed identifiers, duplicate module-scope declarations); and the `ParseInfo` /
+> `ParseOptions` shape may still change until the frontend is complete. The refusals list the limits rather
+> than lowering a source the IR cannot express.
+
 ### Added
+
+- **GLSL frontend, Phase 5: the subgroup builtins** (NAGA-FEAT-002, card P1-GLSLIN-017). The seven
+  `GL_KHR_shader_subgroup_*` extension families are recognized and their builtins lower onto the IR's subgroup
+  statements: `subgroupBarrier` and the `subgroupMemoryBarrier*` family at subgroup scope, `subgroupAll`/`Any`,
+  `subgroupBallot` with `subgroupBroadcast`/`BroadcastFirst`, the shuffle family (`subgroupShuffle`,
+  `ShuffleXor`, `ShuffleUp`, `ShuffleDown`), the quad family (`subgroupQuadBroadcast`, `subgroupQuadSwap*`)
+  and the arithmetic reductions with the inclusive/exclusive `Add` and `Mul` scans. Availability follows the
+  extension directive; GL 3.30 core gets the builtins through the extensions exactly as glslangValidator
+  compiles them, and GLSL ES 3.00 refuses with the version rule (3.10). Forms the IR cannot express are
+  refused with a message naming the missing capability: `subgroupElect`, `subgroupAllEqual`, the ballot
+  bit/extract/count/find helpers, the `subgroupClustered*` family, `subgroupMemoryBarrierAtomicCounter`, the
+  Min/Max/And/Or/Xor scans (no text backend writes them), and the basic family's built-in variables, whose
+  entry-point wiring is still to do. A 56-row matrix runs every accepted form through glslangValidator, SPIR-V
+  accepted by spirv-val, MSL, HLSL and the GLSL round trip, and pins each refusal.
 
 - **`glsl.Parse`: GLSL source to naga IR** (NAGA-FEAT-002, Phase 1). The frontend parses Vulkan GLSL
   440/450/460 — declarations, statements, the expression grammar, interface blocks with std140/std430
@@ -4395,7 +4421,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.1...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.2...HEAD
+[0.22.2]: https://github.com/gogpu/naga/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/gogpu/naga/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/gogpu/naga/compare/v0.21.12...v0.22.0
 [0.21.12]: https://github.com/gogpu/naga/compare/v0.21.11...v0.21.12

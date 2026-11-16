@@ -1,10 +1,10 @@
 # AGENTS.md — naga
 
-> Pure Go shader compiler (~330K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
+> Pure Go shader compiler (~373K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
 
 ## What is naga
 
-naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats, reads SPIR-V binaries into its IR (`spirv.Parse`, the SPIR-V input frontend), and parses GLSL into the same IR (`glsl.Parse`: Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects, the latter with `ParseOptions.ResourceBindings` instead of `layout(binding)`; `nagac -from-spirv` translates a SPIR-V binary to SPIR-V, MSL, HLSL or GLSL). Inspired by [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (236 of 267 entry points of the Rust naga and own corpora pass IDxcValidator).
+naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats, reads SPIR-V binaries into its IR (`spirv.Parse`, the SPIR-V input frontend), and parses GLSL into the same IR (`glsl.Parse`: Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects, the latter with `ParseOptions.ResourceBindings` instead of `layout(binding)`; `nagac -from-spirv` translates a SPIR-V binary to SPIR-V, MSL, HLSL or GLSL). The GLSL input is a **preview**: `textureQueryLod` is not implemented yet and a few subgroup forms the IR cannot express are refused with named limitations. Inspired by [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (236 of 267 entry points of the Rust naga and own corpora pass IDxcValidator).
 
 Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computing. v1.0 target: December 2026.
 
