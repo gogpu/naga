@@ -86,19 +86,33 @@ func (d dialect) supportsCubeArraySamplers() bool { return d.vulkan() }
 func (d dialect) supportsPushConstants() bool { return d.vulkan() }
 
 // supportsAtomicMemory reports whether the atomicAdd family of atomic memory
-// functions exists. They are GLSL 4.30 and later: a #version 420 compute probe
-// gets "'atomicAdd' : required extension not requested:
-// GL_ARB_shader_storage_buffer_object", a #version 430 probe compiles, a 330
-// core source gets "'atomicAdd' : no matching overloaded function found", and
-// glslangValidator 11:16.2.0 confirms each. Every dialect this frontend accepts
-// reaches them only through Vulkan GLSL, because the compute stage, shared
-// variables and buffer blocks are Vulkan GLSL alone here.
+// functions exists. They are GLSL 4.30 core and ES 3.10 core. Reproduced with
+// glslangValidator 11:16.2.0 (2026-11-16): a `#version 430` compute shader with
+// `shared uint c; ... atomicAdd(c, 1u);` compiles; the same source at
+// `#version 420` needs GL_ARB_compute_shader first, and then gets "'atomicAdd' :
+// required extension not requested: GL_ARB_shader_storage_buffer_object" — so
+// 4.20 reaches them only through that extension, which this frontend does not
+// implement; `#version 330 core` gets the same "required extension" sentence; a
+// `#version 310 es` compute shader with the same body compiles, and `#version
+// 300 es` is refused on the compute stage itself ("compute shaders require es
+// profile with version 310 or above, or non-es profile with version 420 or
+// above"). Every dialect this frontend accepts reaches them only through Vulkan
+// GLSL, because the compute stage, shared variables and buffer blocks are
+// Vulkan GLSL alone here.
 func (d dialect) supportsAtomicMemory() bool { return d.vulkan() }
 
 // supportsImageAtomics reports whether the imageAtomic* family exists. They are
-// GLSL 4.20 and later: a #version 420 probe with GL_ARB_shader_image_load_store
-// compiles, a 330 core source is refused, and glslangValidator 11:16.2.0
-// confirms both. This frontend's storage images are Vulkan GLSL only.
+// GLSL 4.20 core, not ES 3.10 core. Reproduced with glslangValidator 11:16.2.0
+// (2026-11-16): a `#version 420` fragment shader with an r32ui storage image and
+// `imageAtomicAdd(img, ivec2(0), 1u);` compiles with no extension requested; the
+// same source at `#version 410` is refused with "'image load store' : not
+// supported for this version or the enabled extensions" unless
+// GL_ARB_shader_image_load_store is required, which makes it compile; `#version
+// 330 core` is refused the same way. In ES, the functions need
+// GL_OES_shader_image_atomic even at ES 3.10: the `#version 310 es` form of the
+// probe gets "'imageAtomicAdd' : required extension not requested:
+// GL_OES_shader_image_atomic". This frontend's storage images are Vulkan GLSL
+// only, and it implements no ES extension.
 func (d dialect) supportsImageAtomics() bool { return d.vulkan() }
 
 // supportsDouble reports whether the double scalar type exists. glslang on
@@ -187,7 +201,8 @@ func (d dialect) builtinRefusal(name string) string {
 	case "imageAtomicAdd", "imageAtomicMin", "imageAtomicMax", "imageAtomicAnd",
 		"imageAtomicOr", "imageAtomicXor", "imageAtomicExchange", "imageAtomicCompSwap":
 		if !d.supportsImageAtomics() {
-			return d.unsupported(name, " (image atomic functions require GLSL 4.20 or ES 3.10)")
+			return d.unsupported(name, " (image atomic functions require GLSL 4.20, or ES 3.10 with "+
+				"GL_OES_shader_image_atomic)")
 		}
 	}
 	return ""

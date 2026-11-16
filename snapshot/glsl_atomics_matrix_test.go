@@ -150,8 +150,9 @@ void main() {
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"atomicAdd"},
-		// GLSL's implicit int-to-uint conversion applies to the value operand;
-		// glslang accepts this form.
+		// GLSL's implicit int-to-uint conversion applies to the value operand,
+		// through an explicit constructor here; the row below covers the
+		// implicit form, which glslang accepts too.
 		source: `#version 450
 layout(local_size_x = 64) in;
 shared uint counter;
@@ -159,6 +160,21 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     atomicAdd(counter, int(i));
 }
+`,
+	},
+	{
+		name:      "atomic-implicit-int-literal",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"atomicAdd"},
+		// A bare int literal as a uint atomic's operand: the implicit
+		// conversion the spec's implicit-conversion rules allow, measured with
+		// glslangValidator 11:16.2.0 (`atomicAdd(counter, 1);` compiles,
+		// `atomicAdd(int_counter, 1u);` does not).
+		source: `#version 450
+layout(local_size_x = 1) in;
+shared uint counter;
+void main() { atomicAdd(counter, 1); }
 `,
 	},
 	{
@@ -448,6 +464,22 @@ void main() {
     uint old = imageAtomicAdd(img, ivec2(0), 1u);
     imageAtomicOr(img, ivec2(1), old);
 }
+`,
+	},
+	{
+		name:      "refuse-image-float-exchange",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"imageAtomicExchange"},
+		refuse:    "an image atomic exchange on a float image (r32f) is not implemented",
+		reason: "imageAtomicExchange is core GLSL on an r32f image and glslangValidator accepts it " +
+			"(OpAtomicExchange %float, accepted by spirv-val), so the refusal is the IR's: it has no float " +
+			"image atomic, and MSL and HLSL cannot write a float texture atomically (card P1-GLSLIN-015). " +
+			"glslang's integer-format sentence would be false for this form and is kept for the others",
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(r32f, set = 0, binding = 0) uniform image2D img;
+void main() { imageAtomicExchange(img, ivec2(0), 1.0); }
 `,
 	},
 	{

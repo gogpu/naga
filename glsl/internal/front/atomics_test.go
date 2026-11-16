@@ -486,10 +486,23 @@ func TestAtomicRefusals(t *testing.T) {
 			want:   "'imageAtomicAdd' : only supported on image with format r32i or r32ui",
 		},
 		{
-			name:   "image-format-float",
+			// imageAtomicExchange on r32f is core GLSL and glslang compiles it
+			// (`OpAtomicExchange %float`, accepted by spirv-val), so it gets a
+			// reason of our own: the IR has no float image atomic. The other
+			// functions stay on glslang's format sentence, which is the rule
+			// that refuses them (an r32f imageAtomicAdd needs
+			// GL_EXT_shader_atomic_float at glslang, an extension this
+			// frontend does not implement).
+			name:   "image-format-float-exchange",
 			stage:  ir.StageCompute,
 			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32f, set = 0, binding = 0) uniform image2D img;\nvoid main() { imageAtomicExchange(img, ivec2(0), 1.0); }\n",
-			want:   "'imageAtomicExchange' : only supported on image with format r32i or r32ui",
+			want:   "an image atomic exchange on a float image (r32f) is not implemented",
+		},
+		{
+			name:   "image-format-float-add",
+			stage:  ir.StageCompute,
+			source: "#version 450\nlayout(local_size_x = 1) in;\nlayout(r32f, set = 0, binding = 0) uniform image2D img;\nvoid main() { imageAtomicAdd(img, ivec2(0), 1.0); }\n",
+			want:   "'imageAtomicAdd' : only supported on image with format r32i or r32ui",
 		},
 		{
 			name:   "image-sampled-texture",

@@ -91,6 +91,17 @@ const glslAtomicLValueText = "Only l-values corresponding to shader block storag
 // rgba8ui image prints "only supported on image with format r32i or r32ui").
 const glslAtomicImageFormatText = "only supported on image with format r32i or r32ui"
 
+// atomicImageFloatExchangeText refuses imageAtomicExchange on an r32f image,
+// which glslang accepts: atomic exchange on a float image is core GLSL (4.60
+// §8.12 defines imageAtomicExchange for float images), glslang emits
+// `OpAtomicExchange %float` and spirv-val accepts it. glslang's integer-format
+// sentence would therefore be false here; the reason the frontend refuses the
+// form is the IR, which has no float image atomic — MSL and HLSL cannot write a
+// float texture atomically at all — so it would have to invent one.
+const atomicImageFloatExchangeText = "an image atomic exchange on a float image (r32f) is not implemented: " +
+	"the IR has no float image atomic, and MSL and HLSL cannot write a float texture atomically " +
+	"(card P1-GLSLIN-015)"
+
 // atomicVectorComponentText refuses an atomic on a vector component. glslang
 // accepts atomicAdd(v.x, 1u) on a shared uvec4 (verified), but ir.StmtAtomic's
 // pointer must point to an ir.AtomicType and a vector has no atomic element
@@ -261,6 +272,12 @@ func (f *Frontend) imageAtomicCall(c *Context, e *hirArena, name string, b atomi
 	}
 	scalar, ok := atomicImageScalar(img.StorageFormat)
 	if !ok {
+		// imageAtomicExchange on r32f is core GLSL and glslang accepts it, so it
+		// gets its own reason — the IR, not the image format, is what refuses it.
+		if _, isExchange := b.fun.(ir.AtomicExchange); isExchange && !b.compare &&
+			img.StorageFormat == ir.StorageFormatR32Float {
+			return 0, false, errMessage(span, atomicImageFloatExchangeText)
+		}
 		return 0, false, errSemantic(span, "'%s' : %s", name, glslAtomicImageFormatText)
 	}
 
@@ -552,7 +569,12 @@ func (f *Frontend) upgradeAtomics() *frontError {
 }
 
 // upgradeAtomicType returns the type equivalent to ty with its scalar leaves
-// upgraded where the module accesses them atomically.
+// upgraded where the module accesses them atomically. It is the SPIR-V
+// frontend's upgrade_atomic_type without its ir.PointerType arm: SPIR-V keeps a
+// physical pointer type in the global's chain (OpTypePointer to the atomic
+// element), while a GLSL global's type is the variable's own type, and a GLSL
+// pointer is an expression-level ValuePointerType that no module type wraps, so
+// the arm could never match here.
 func (f *Frontend) upgradeAtomicType(ty ir.TypeHandle, upgraded map[ir.TypeHandle]ir.TypeHandle) (ir.TypeHandle, *frontError) {
 	if newType, ok := upgraded[ty]; ok {
 		return newType, nil
