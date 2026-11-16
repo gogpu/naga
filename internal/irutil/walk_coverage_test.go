@@ -53,7 +53,7 @@ var walkerRegistry = []any{
 	ir.SampleLevelBias{}, ir.SampleLevelGradient{},
 	// ir.ImageQuery
 	ir.ImageQuerySize{}, ir.ImageQueryNumLevels{}, ir.ImageQueryNumLayers{},
-	ir.ImageQueryNumSamples{},
+	ir.ImageQueryNumSamples{}, ir.ImageQueryLod{},
 	// ir.SwitchValue
 	ir.SwitchValueI32(0), ir.SwitchValueU32(0), ir.SwitchValueDefault{},
 	// ir.AtomicFunction

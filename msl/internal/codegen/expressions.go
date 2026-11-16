@@ -3253,6 +3253,50 @@ func (w *Writer) writeImageQuery(query ir.ExprImageQuery) error {
 		}
 		w.write(".get_array_size()")
 
+	case ir.ImageQueryLod:
+		// Metal answers with two calls, calculate_clamped_lod for the clamped
+		// level and calculate_unclamped_lod for the unclamped one, each a
+		// scalar; the same float2 through two texture references.
+		//
+		// Metal has no such query for a 1D texture: SPIRV-Cross refuses it too
+		// ("ImageQueryLod is not supported on 1D textures", spirv_msl.cpp,
+		// OpImageQueryLod) unless it emulates 1D textures as 2D, which this
+		// backend does not do.
+		if img := w.resolveImageType(query.Image); img != nil && img.Dim == ir.Dim1D {
+			return unsupported.Errorf("an image level-of-detail query on a 1D texture: Metal has no " +
+				"calculate_clamped_lod for texture1d")
+		}
+		// The two calls arrived in MSL 2.2 (SPIRV-Cross's supports_msl_version
+		// (2, 2) check for OpImageQueryLod).
+		if err := w.requireVersion(Version2_2, "an image level-of-detail query (textureQueryLod)"); err != nil {
+			return err
+		}
+		w.write("%sfloat2(", Namespace)
+		if err := w.writeExpression(query.Image); err != nil {
+			return err
+		}
+		w.write(".calculate_clamped_lod(")
+		if err := w.writeExpression(q.Sampler); err != nil {
+			return err
+		}
+		w.write(", ")
+		if err := w.writeExpression(q.Coordinate); err != nil {
+			return err
+		}
+		w.write("), ")
+		if err := w.writeExpression(query.Image); err != nil {
+			return err
+		}
+		w.write(".calculate_unclamped_lod(")
+		if err := w.writeExpression(q.Sampler); err != nil {
+			return err
+		}
+		w.write(", ")
+		if err := w.writeExpression(q.Coordinate); err != nil {
+			return err
+		}
+		w.write("))")
+
 	case ir.ImageQueryNumSamples:
 		if err := w.writeExpression(query.Image); err != nil {
 			return err

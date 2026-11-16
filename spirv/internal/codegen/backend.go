@@ -9489,6 +9489,47 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		resultType := scalarID
 		resultID = e.backend.builder.AddCompositeExtract(resultType, extendedID, vecSize-1)
 
+	case ir.ImageQueryLod:
+		// OpImageQueryLod %v2float %sampledImage %coord: the image and the
+		// sampler are combined into an OpTypeSampledImage first, exactly as
+		// glslangValidator emits the same GLSL textureQueryLod call. The
+		// fragment-stage rule is not expressible here (an expression carries no
+		// stage): the GLSL frontend refuses the call outside a fragment shader
+		// and valid.Validate refuses a module whose query is reachable from a
+		// non-fragment entry point (expressionStages).
+		samplerID, err := e.emitExpression(q.Sampler)
+		if err != nil {
+			return 0, err
+		}
+		coordID, err := e.emitExpression(q.Coordinate)
+		if err != nil {
+			return 0, err
+		}
+		sampledImageTypeID, err := e.backend.getSampledImageType(e.function, query.Image)
+		if err != nil {
+			return 0, err
+		}
+		sampledImageID := e.backend.builder.AllocID()
+		sampledImageBuilder := e.newIB()
+		sampledImageBuilder.AddWord(sampledImageTypeID)
+		sampledImageBuilder.AddWord(sampledImageID)
+		sampledImageBuilder.AddWord(imageID)
+		sampledImageBuilder.AddWord(samplerID)
+		e.backend.builder.funcAppend(sampledImageBuilder.Build(spvenums.OpSampledImage))
+
+		floatID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		if err != nil {
+			return 0, err
+		}
+		resultType := e.backend.emitVectorType(floatID, 2)
+		resultID = e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(sampledImageID)
+		builder.AddWord(coordID)
+		e.backend.builder.funcAppend(builder.Build(spvenums.OpImageQueryLod))
+
 	case ir.ImageQueryNumSamples:
 		resultType, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 		if err != nil {

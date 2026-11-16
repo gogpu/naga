@@ -624,6 +624,25 @@ layout(location = 0) out ivec4 fragLevels;
 void main() { fragLevels = ivec4(textureQueryLevels(s)); }
 `,
 	},
+	{
+		// textureQueryLod's ok rows live in glsl_texture_query_lod_test.go: its
+		// MSL output needs LangVersion 2.2 (calculate_clamped_lod), which this
+		// matrix's shared driver does not raise. The row here drives the name
+		// for the coverage audit and pins the fragment-only rule.
+		name:      "texture-query-lod-compute",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"textureQueryLod"},
+		source: `#version 450
+layout(local_size_x = 1) in;
+layout(set = 0, binding = 0) uniform sampler2D s;
+layout(set = 0, binding = 1) buffer Out { vec4 v; } o;
+void main() { o.v = vec4(textureQueryLod(s, vec2(0.5)), 0.0, 0.0); }
+`,
+		refuse: "textureQueryLod is only available in a fragment shader",
+		reason: "SPIR-V defines OpImageQueryLod for the Fragment execution model only, and " +
+			"glslang declares no textureQueryLod overload outside it",
+	},
 
 	// --- storage images ------------------------------------------------------
 	//

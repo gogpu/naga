@@ -26,7 +26,10 @@ func unsupportedSubgroupOperation(ops SubgroupOperationSet) string {
 // expressionStages are the stages an expression can run in: the stages
 // Rust's validate_expression returns (valid/expression.rs). Sampling with an
 // implicit level of detail and derivatives need the fragment stage's
-// neighboring invocations; a workgroup uniform load is a workgroup barrier.
+// neighboring invocations; a workgroup uniform load is a workgroup barrier;
+// the level-of-detail query is fragment-only in SPIR-V (OpImageQueryLod, whose
+// operand is a sampled image), a rule Rust's validator has no counterpart for
+// because Rust's IR has no such query.
 func (v *validator) expressionStages(kind ir.ExpressionKind) ShaderStages {
 	switch k := kind.(type) {
 	case ir.ExprSubgroupBallotResult, ir.ExprSubgroupOperationResult:
@@ -36,6 +39,13 @@ func (v *validator) expressionStages(kind ir.ExpressionKind) ShaderStages {
 	case ir.ExprImageSample:
 		switch k.Level.(type) {
 		case ir.SampleLevelAuto, ir.SampleLevelBias:
+			return ShaderStagesFragment
+		}
+	case ir.ExprImageQuery:
+		// SPIR-V defines OpImageQueryLod for the Fragment execution model only:
+		// "This instruction is only valid in the Fragment Execution Model"
+		// (SPIR-V 1.6 §3.32.13). Every other image query runs in any stage.
+		if _, isLod := k.Query.(ir.ImageQueryLod); isLod {
 			return ShaderStagesFragment
 		}
 	case ir.ExprDerivative:

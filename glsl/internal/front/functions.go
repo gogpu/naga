@@ -559,6 +559,11 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 	if reason := f.dialect.builtinRefusal(name); reason != "" && !declaredFunction(f.functions[name]) {
 		return 0, false, errMessage(span, reason)
 	}
+	// A builtin whose stage rule the source's stage does not meet is refused
+	// here for the same reason: a shader-declared function of that name wins.
+	if reason := f.builtinStageRefusal(name); reason != "" && !declaredFunction(f.functions[name]) {
+		return 0, false, errMessage(span, reason)
+	}
 	decl, variations := f.functionDeclaration(name, builtinRequiredVariations(argTypes...))
 	f.injectBuiltin(decl, name, variations)
 

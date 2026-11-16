@@ -628,6 +628,10 @@ func (r *resolver) imageQuery(k ir.ExprImageQuery) (ir.TypeResolution, error) {
 		}
 	case ir.ImageQueryNumLevels, ir.ImageQueryNumLayers, ir.ImageQueryNumSamples:
 		return valueRes(u32Scalar), nil
+	case ir.ImageQueryLod:
+		// The clamped and unclamped level of detail, SPIR-V's
+		// OpImageQueryLod result type (GLSL's textureQueryLod).
+		return valueRes(ir.VectorType{Size: ir.Vec2, Scalar: f32Scalar}), nil
 	default:
 		return ir.TypeResolution{}, fmt.Errorf("unknown image query type: %T", k.Query)
 	}

@@ -307,6 +307,33 @@ type ImageQueryNumSamples struct{}
 
 func (ImageQueryNumSamples) imageQuery() {}
 
+// ImageQueryLod queries the levels of detail a sample at Coordinate would use:
+// component x is the level the sampler selects, component y the unclamped
+// level. It is GLSL's textureQueryLod and SPIR-V's OpImageQueryLod, whose
+// result is that float2.
+//
+// Rust naga's ImageQuery has no counterpart: no Rust frontend produces this
+// query and no Rust backend writes it, so this is a deviation from Rust, kept
+// because a GLSL source this frontend accepts must lower to IR the backends
+// can write.
+//
+// The query carries its sampler and coordinate rather than deriving them from
+// ExprImageQuery.Image: SPIR-V's operand set is exactly
+// {sampled image, coordinate}, the sampled image is OpTypeSampledImage, and
+// this IR has no value that combines an image with a sampler (Rust reaches a
+// sampling instruction through Expression::ImageSample, which performs the
+// sample rather than naming the pair). The MSL and HLSL writers need both for
+// calculate_*_lod / CalculateLevelOfDetail as well, so an ImageQueryLod
+// without them could not be written by any backend. The coordinate is the
+// spatial texture coordinate without the array layer, which is what
+// textureQueryLod takes.
+type ImageQueryLod struct {
+	Sampler    ExpressionHandle
+	Coordinate ExpressionHandle
+}
+
+func (ImageQueryLod) imageQuery() {}
+
 // ExprUnary applies a unary operator to an expression.
 type ExprUnary struct {
 	Op   UnaryOperator

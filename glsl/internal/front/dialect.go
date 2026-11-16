@@ -132,6 +132,13 @@ func (d dialect) supportsTextureGather() bool { return d.vulkan() }
 // core and 300 es); GLSL 4.30 and ES 3.10 introduced it.
 func (d dialect) supportsTextureQueryLevels() bool { return d.vulkan() }
 
+// supportsTextureQueryLod reports whether textureQueryLod exists. glslang:
+// "'textureQueryLod' : no matching overloaded function found" in 330 core
+// without an extension and in 300, 310 and 320 es; GLSL 4.00 introduced it
+// (desktop 1.50 up through GL_ARB_texture_query_lod, which glslang refuses
+// below 1.50), and no GLSL ES version has it.
+func (d dialect) supportsTextureQueryLod() bool { return d.vulkan() }
+
 // allowsIOLocation reports whether layout(location=N) may be written on an in
 // or out variable of the given stage. GL 3.30 core and ES 3.00 give a location
 // to vertex shader inputs; a varying (a vertex output or a fragment input)
@@ -192,6 +199,10 @@ func (d dialect) builtinRefusal(name string) string {
 	case "textureQueryLevels":
 		if !d.supportsTextureQueryLevels() {
 			return d.unsupported(name, " (textureQueryLevels requires GLSL 4.30 or ES 3.10)")
+		}
+	case "textureQueryLod":
+		if !d.supportsTextureQueryLod() {
+			return d.unsupported(name, " (textureQueryLod requires GLSL 4.00; no GLSL ES version has it)")
 		}
 	case "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr", "atomicXor",
 		"atomicExchange", "atomicCompSwap":

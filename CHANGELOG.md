@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GLSL frontend: `textureQueryLod`** (NAGA-FEAT-002, card P1-GLSLIN-012). The level-of-detail query of GLSL
+  4.00 §8.9 is accepted where glslangValidator accepts it — the 1D, 2D, 3D, cube, 1D-array, 2D-array and
+  cube-array sampled, depth (shadow) and integer sampler classes, with the spatial coordinate and without the
+  array layer — through the combined-sampler split, in a fragment shader only (SPIR-V's `OpImageQueryLod` is
+  fragment-stage only). The GL 3.30 core and ES 3.00 dialects refuse it with the version rule, as does any
+  multisampled sampler (no GLSL overload exists). The IR gains `ir.ImageQueryLod`, carrying the query's sampler
+  and coordinate because SPIR-V, MSL and HLSL need both and the IR has no sampled-image value; it is a recorded
+  deviation from Rust naga, whose IR has no level-of-detail query. The SPIR-V backend writes
+  `OpImageQueryLod` on an `OpSampledImage` (Capability `ImageQuery`), the MSL backend
+  `calculate_clamped_lod`/`calculate_unclamped_lod` packed into a `float2` (MSL 2.2; 1D textures are refused —
+  Metal has no such query for them), the HLSL backend `CalculateLevelOfDetail`/`CalculateLevelOfDetailUnclamped`
+  in a `float2` wrapper (depth images need shader model 6.8 for a comparison sampler and non-float sampled
+  images have no such method, so both are refused), and the GLSL backend `textureQueryLod` (desktop GLSL 4.00+,
+  never ES: glslangValidator happens to accept it at 3.30, but the specification declares it at 4.00 and the
+  writer refuses a target the driver would reject). A 16-row matrix runs every accepted form through
+  glslangValidator, spirv-val, MSL, dxc and the GLSL round trip, pins the SPIR-V shape to glslang's, and
+  asserts each backend's refusals.
+
 ## [0.22.2] - 2026-11-16
 
 > **The GLSL input frontend ships as a preview.** `glsl.Parse` already reads a large part of Vulkan GLSL

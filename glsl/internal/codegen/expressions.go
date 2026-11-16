@@ -1872,6 +1872,18 @@ func (w *Writer) writeImageQuery(q ir.ExprImageQuery) (string, error) {
 		}
 		return fmt.Sprintf("uint(%s(%s))", funName, image), nil
 
+	case ir.ImageQueryLod:
+		// textureQueryLod takes the combined sampler the image and sampler
+		// globals of a split pair stand for; the coordinate is already the
+		// spatial one without the array layer, which is what the function takes
+		// (glslang emits OpImageQueryLod for it).
+		coord, err := w.writeExpression(query.Coordinate)
+		if err != nil {
+			return "", err
+		}
+		combined := w.resolveCombinedSamplerName(q.Image, query.Sampler)
+		return fmt.Sprintf("textureQueryLod(%s, %s)", combined, coord), nil
+
 	default:
 		return "", unsupported.Errorf("unsupported image query: %T", q.Query)
 	}

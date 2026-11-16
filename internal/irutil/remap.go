@@ -418,6 +418,10 @@ func walkImageQuery[O handleOp](query ir.ImageQuery, op O) ir.ImageQuery {
 	case ir.ImageQuerySize:
 		q.Level = opOpt(op, q.Level)
 		return rebuilt(op, query, q)
+	case ir.ImageQueryLod:
+		q.Sampler = op.handle(q.Sampler)
+		q.Coordinate = op.handle(q.Coordinate)
+		return rebuilt(op, query, q)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for image query %T", query))
 	}

@@ -916,6 +916,16 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 		if !v.isValidExpressionHandle(kind.Image) {
 			v.addErrorInExpression(handle, fmt.Sprintf("image expression %d does not exist", kind.Image))
 		}
+		// The level-of-detail query carries its sampler and coordinate, which
+		// the other image queries do not.
+		if query, ok := kind.Query.(ir.ImageQueryLod); ok {
+			if !v.isValidExpressionHandle(query.Sampler) {
+				v.addErrorInExpression(handle, fmt.Sprintf("sampler expression %d does not exist", query.Sampler))
+			}
+			if !v.isValidExpressionHandle(query.Coordinate) {
+				v.addErrorInExpression(handle, fmt.Sprintf("coordinate expression %d does not exist", query.Coordinate))
+			}
+		}
 
 	case ir.ExprUnary:
 		if !v.isValidExpressionHandle(kind.Expr) {
