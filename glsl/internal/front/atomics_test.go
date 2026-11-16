@@ -615,32 +615,132 @@ void main() { atomicAdd(c, 1u); c = c + 1u; }
 }
 
 // TestAtomicNameDoesNotShadowUserFunction checks that a shader that declares its
-// own atomicAdd reaches its own function, not the builtin path.
+// own function with an atomic name reaches that function, never the builtin —
+// in both declaration orders, and for a prototype of a builtin the shader could
+// not otherwise call (a float atomicAdd). A declared function is what the
+// intercept must see: on db33bc04 it required a definition, so before the
+// definition appeared a call went to the atomic path and was lowered as an
+// atomic statement (or refused as a bad lvalue).
 func TestAtomicNameDoesNotShadowUserFunction(t *testing.T) {
-	source := `#version 450
+	cases := []struct {
+		name   string
+		stage  ir.ShaderStage
+		source string
+		// sharedVariable is the variable the shader's own function is called
+		// with in place of an atomic operand; it must keep its scalar type.
+		sharedVariable string
+	}{
+		{
+			name:  "definition-before-main",
+			stage: ir.StageCompute,
+			source: `#version 450
 layout(local_size_x = 1) in;
 uint atomicAdd(uint a, uint b) { return a + b; }
 shared uint c;
 void main() { c = atomicAdd(c, 1u); }
-`
-	mod, _, err := Parse(source, Options{Stage: ir.StageCompute})
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
+`,
+			sharedVariable: "c",
+		},
+		{
+			// The prototype is all the frontend has when main is lowered.
+			name:  "prototype-before-main",
+			stage: ir.StageCompute,
+			source: `#version 450
+layout(local_size_x = 1) in;
+uint atomicAdd(uint a, uint b);
+shared uint c;
+void main() { c = atomicAdd(c, 1u); }
+uint atomicAdd(uint a, uint b) { return a + b; }
+`,
+			sharedVariable: "c",
+		},
+		{
+			// A float atomicAdd does not exist as a builtin at all, so a call
+			// that reached the atomic path could only fail; the shader's own
+			// prototype must be the one the call resolves against.
+			name:  "float-prototype-before-main",
+			stage: ir.StageFragment,
+			source: `#version 450
+float atomicAdd(float a, float b);
+out vec4 o;
+void main() { o = vec4(atomicAdd(1.0, 2.0)); }
+float atomicAdd(float a, float b) { return a + b; }
+`,
+		},
 	}
-	if _, verr := valid.Validate(mod, valid.Options{}); verr != nil {
-		t.Fatalf("the parsed module does not validate: %v", verr)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			mod, _, err := Parse(tt.source, Options{Stage: tt.stage})
+			if err != nil {
+				t.Fatalf("Parse: %v\n\nsource:\n%s", err, tt.source)
+			}
+			if _, verr := valid.Validate(mod, valid.Options{}); verr != nil {
+				t.Fatalf("the parsed module does not validate: %v\n\nsource:\n%s", verr, tt.source)
+			}
+			for _, fn := range mod.Functions {
+				if len(collectAtomicStatements(fn)) != 0 {
+					t.Fatalf("function %q carries an atomic statement, want none: the shader's own atomicAdd must win", fn.Name)
+				}
+				if len(collectImageAtomicStatements(fn)) != 0 {
+					t.Fatalf("function %q carries an image atomic statement, want none", fn.Name)
+				}
+			}
+			if !callsFunction(t, mod, "main", "atomicAdd") {
+				t.Error("main does not call the shader's own atomicAdd")
+			}
+			if tt.sharedVariable != "" {
+				// The variable is only read and written by the user function, so
+				// it keeps its scalar type.
+				c := findGlobal(t, mod, tt.sharedVariable)
+				if _, ok := mod.Types[c.Type].Inner.(ir.AtomicType); ok {
+					t.Errorf("the shared variable %s was upgraded although no atomic builtin was called",
+						tt.sharedVariable)
+				}
+			}
+		})
+	}
+}
+
+// callsFunction reports whether the module function named caller has a call of
+// the module function named callee.
+func callsFunction(t *testing.T, mod *ir.Module, caller, callee string) bool {
+	t.Helper()
+	var walk func(block ir.Block) bool
+	walk = func(block ir.Block) bool {
+		for _, stmt := range block {
+			switch kind := stmt.Kind.(type) {
+			case ir.StmtCall:
+				if int(kind.Function) < len(mod.Functions) && mod.Functions[kind.Function].Name == callee {
+					return true
+				}
+			case ir.StmtBlock:
+				if walk(kind.Block) {
+					return true
+				}
+			case ir.StmtIf:
+				if walk(kind.Accept) || walk(kind.Reject) {
+					return true
+				}
+			case ir.StmtLoop:
+				if walk(kind.Body) || walk(kind.Continuing) {
+					return true
+				}
+			case ir.StmtSwitch:
+				for _, c := range kind.Cases {
+					if walk(c.Body) {
+						return true
+					}
+				}
+			}
+		}
+		return false
 	}
 	for _, fn := range mod.Functions {
-		if len(collectAtomicStatements(fn)) != 0 {
-			t.Fatalf("function %q carries an atomic statement, want none: the shader's own atomicAdd must win", fn.Name)
+		if fn.Name == caller && walk(fn.Body) {
+			return true
 		}
 	}
-	// The shared variable is only written, never atomically accessed, so it
-	// keeps its scalar type.
-	c := findGlobal(t, mod, "c")
-	if _, ok := mod.Types[c.Type].Inner.(ir.AtomicType); ok {
-		t.Error("the shared variable c was upgraded although no atomic builtin was called")
-	}
+	return false
 }
 
 // SPIR-V opcodes and operand values, SPIR-V 1.6 §3.32.6 and the Scope and

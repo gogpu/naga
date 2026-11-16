@@ -321,8 +321,8 @@ func (f *Frontend) imageAtomicCall(c *Context, e *hirArena, name string, b atomi
 // statementOnlyAtomicText explains why an image atomic call that yielded no
 // value cannot be used as one. Without this the author would read the generic
 // "Expression returns void", which hides the actual limitation of the IR. A
-// function the shader itself defines is never the builtin, as in
-// functionOrConstructorCall.
+// function the shader itself declares — a definition or a prototype — is never
+// the builtin, as in functionOrConstructorCall.
 func (f *Frontend) statementOnlyAtomicText(node *hirNode) string {
 	if node == nil {
 		return ""
@@ -332,7 +332,7 @@ func (f *Frontend) statementOnlyAtomicText(node *hirNode) string {
 		return ""
 	}
 	b, ok := atomicBuiltinFunction(call.Callee.Name)
-	if !ok || !b.image || userDefinedFunction(f.functions[call.Callee.Name]) {
+	if !ok || !b.image || declaredFunction(f.functions[call.Callee.Name]) {
 		return ""
 	}
 	return "'" + call.Callee.Name + "' : the old value is not available: ir.StmtImageAtomic carries " +

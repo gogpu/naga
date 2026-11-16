@@ -24,10 +24,11 @@ func (f *Frontend) functionOrConstructorCall(c *Context, e *hirArena, callee cal
 	// An atomic builtin takes an lvalue, so its arguments are lowered by the
 	// atomic path: lowering the first one in an Rhs position, as the overload
 	// comparison does, would load a variable that is about to become atomic and
-	// emit a spurious atomic read. A name the shader itself defined is an
-	// ordinary function, never the builtin (atomics.go).
+	// emit a spurious atomic read. A name the shader itself declares — a
+	// definition or a prototype — is an ordinary function, never the builtin
+	// (atomics.go).
 	if callee.Kind == calleeFunction {
-		if builtin, ok := atomicBuiltinFunction(callee.Name); ok && !userDefinedFunction(f.functions[callee.Name]) {
+		if builtin, ok := atomicBuiltinFunction(callee.Name); ok && !declaredFunction(f.functions[callee.Name]) {
 			return f.atomicCall(c, e, callee.Name, builtin, rawArgs, span)
 		}
 	}
@@ -547,7 +548,7 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 	// A builtin family the dialect's version does not have is refused here
 	// unless the shader itself declared a function of that name, which the
 	// builtin must not shadow.
-	if reason := f.dialect.builtinRefusal(name); reason != "" && !userDefinedFunction(f.functions[name]) {
+	if reason := f.dialect.builtinRefusal(name); reason != "" && !declaredFunction(f.functions[name]) {
 		return 0, false, errMessage(span, reason)
 	}
 	decl, variations := f.functionDeclaration(name, builtinRequiredVariations(argTypes...))
@@ -974,14 +975,18 @@ func zeroLiteral(s ir.ScalarType) (ir.LiteralValue, bool) {
 	return nil, false
 }
 
-// userDefinedFunction reports whether a name has an overload the shader itself
-// declared, which a version gate of a builtin family must not refuse.
-func userDefinedFunction(decl *functionDeclaration) bool {
+// declaredFunction reports whether name has an overload the shader itself
+// declared — a definition or a prototype — which a builtin of the same name
+// must not shadow and a version gate must not refuse. A prototype counts from
+// the moment it is seen: a call before the definition reaches the declared
+// function, not the builtin. Builtin-injected overloads are internal and do
+// not count.
+func declaredFunction(decl *functionDeclaration) bool {
 	if decl == nil {
 		return false
 	}
 	for i := range decl.overloads {
-		if decl.overloads[i].defined && !decl.overloads[i].internal {
+		if !decl.overloads[i].internal {
 			return true
 		}
 	}
