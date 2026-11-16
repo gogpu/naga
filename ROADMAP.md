@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.22.1** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.22.2** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,9 +32,9 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.22.1)
+## Where We Are (v0.22.2)
 
-**~330K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
+**~373K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
 172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
 
 | Backend | Rust comparison | Validation | Status |
@@ -104,7 +104,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | Frontend | Priority | Status | Description |
 |----------|----------|--------|-------------|
 | SPIR-V input | P1 | Phases 1-3 complete in v0.22.0; stores through a row-major member translated (P3-SPVIN-007) | `spirv.Parse` reads a binary into IR: types, constants, decorations, globals, control flow, calls, images and sampling, atomics, subgroups, the combined image sampler split, entry-point wrappers, row-major matrix members with their reads and stores, and the Coherent/Volatile memory decorations. `nagac -from-spirv` turns a binary into SPIR-V, MSL, HLSL or GLSL. Ported from Rust naga's `front/spv` |
-| GLSL input | P2 | Phases 0–4 in Unreleased | `glsl.Parse` reads GLSL into IR: Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects — its own preprocessor and parser, interface blocks with std140/std430 layouts, storage images, specialization constants, the builtin catalogue with the image and sampling surface (texture gather, image queries) and the barrier family, the combined image sampler split, and for a source without `layout(binding)` one binding counter per group with `ParseOptions.ResourceBindings`; each dialect's feature gates, ES precision rules and `#extension` matrix follow the Khronos specifications with glslang as the recorded cross-check. MSL and HLSL output matches Rust naga's `naga-cli` on the vendored corpus with every difference recorded (NAGA-FEAT-002) |
+| GLSL input | P2 | Phases 0–5 in v0.22.2 (preview: textureQueryLod pending; some subgroup forms refused) | `glsl.Parse` reads GLSL into IR: Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects — its own preprocessor and parser, interface blocks with std140/std430 layouts, storage images, specialization constants, the builtin catalogue with the image and sampling surface (texture gather, image queries), the barrier family, the atomic families (memory and image atomics, compare-exchange included) and the subgroup builtins (the vote, ballot, shuffle, quad and arithmetic families), the combined image sampler split, and for a source without `layout(binding)` one binding counter per group with `ParseOptions.ResourceBindings`; a GL 3.30 core or ES 3.00 source's plain uniforms are collected into one generated std140 block reported by `ParseInfo.DefaultBlock`; each dialect's feature gates, ES precision rules and `#extension` matrix follow the Khronos specifications with glslang as the recorded cross-check. MSL and HLSL output matches Rust naga's `naga-cli` on the vendored corpus with every difference recorded (NAGA-FEAT-002) |
 | Slang input | P2 | Planned (Phase 1 pre-v1.0) | HLSL subset ("HLSL with import", ~80% of real Slang shaders), a native Pure Go parser — no C++ FFI, no `slangc` dependency — 30–40K lines (ADR-075); Slang adoption 34% in the Khronos 2026 survey. It reuses the GLSL frontend's C-like parser, overload resolution and preprocessor. Phase 2 (generics monomorphization) is additive after v1.0 |
 
 ### v1.0.0 Release (December 2026)

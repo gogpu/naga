@@ -16,12 +16,20 @@ Files derived from Rust naga's code
   third_party/gfx-rs-naga/LICENSE.MIT.
 
 Test corpus
-  snapshot/testdata/rust/ vendors Rust naga's WGSL test inputs, test parameters
-  and reference outputs verbatim, with their LICENSE.MIT and LICENSE.APACHE.
-  Pinned to gfx-rs/wgpu 14328f49918cce19f7cc8bf703435968c8293035 (2026-10-14,
-  naga 30.0.0); snapshot/testdata/rust/MANIFEST.json lists every file with its
-  checksum. Known differences from the reference outputs are recorded in
-  snapshot/rust_deviations_test.go.
+  snapshot/testdata/rust/ vendors Rust naga's WGSL and GLSL test inputs, test
+  parameters and reference outputs verbatim, with their LICENSE.MIT and
+  LICENSE.APACHE. Pinned to gfx-rs/wgpu 14328f49918cce19f7cc8bf703435968c8293035
+  (2026-10-14, naga 30.0.0); snapshot/testdata/rust/MANIFEST.json lists every
+  file with its checksum. Known differences from the reference outputs are
+  recorded in snapshot/rust_deviations_test.go.
+
+Reference GLSL compiler (cross-check for the GLSL frontend)
+  glslangValidator: KhronosGroup/glslang tag vulkan-sdk-1.4.341.0, commit
+  f0bd0257c308b9a26562c1a30c4748a0219cc951 (reports 11:16.2.0, the build the
+  Vulkan SDK 1.4.341.1 ships). CI builds this pinned tag
+  (.github/scripts/install-glslang.sh) and compiles the GLSL corpus and matrix
+  rows with it, so our acceptances and refusals are checked against the
+  reference compiler at one version. Recorded 2026-11-16.
 
 Current scope
   Frontends: WGSL; SPIR-V input (phases 1-3 of the design, ported from Rust
@@ -30,9 +38,12 @@ Current scope
   entry-point wrapper, row-major matrix members with their reads and stores (a
   whole-array store and a matrix that is not square stay refused), and the
   Coherent/Volatile memory decorations; nagac -from-spirv turns a binary into
-  SPIR-V, MSL, HLSL or GLSL).
+  SPIR-V, MSL, HLSL or GLSL); GLSL input — preview: Vulkan GLSL 440/450/460 and
+  the GL 3.30 core / ES 3.00 dialects, with subgroup operations and
+  textureQueryLod not implemented yet.
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
-  Rust naga's GLSL frontend and its WGSL and DOT outputs are not implemented.
+  Rust naga's WGSL and DOT outputs are not implemented; Rust naga has no GLSL
+  frontend, so ours is our own implementation.
 
 Vendored SPIR-V grammar
   testdata/upstream/github.com/KhronosGroup/SPIRV-Headers/ vendors four files

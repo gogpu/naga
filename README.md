@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **GLSL Frontend** — `glsl.Parse` reads Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects into the same IR under the WGSL frontend's error contract: its own preprocessor, interface blocks with std140/std430 layouts, storage images, specialization constants, the builtin catalogue including the image and sampling families, the atomic families (memory and image atomics, compare-exchange included), barriers and texture gather; a combined image sampler (`uniform sampler2D`) becomes an image global and a sampler global, a source without `layout(binding)` takes its bindings from one counter per group with `ParseOptions.ResourceBindings` reserving a resource's slot by name, and the plain uniforms of a GL 3.30 core or ES 3.00 source are collected into one generated std140 block whose binding, size and member offsets `ParseInfo.DefaultBlock` reports. Each dialect's feature gates, ES precision rules and the `#extension` matrix follow the Khronos specifications, with glslang as the recorded cross-check. MSL and HLSL output matches Rust naga's `naga-cli` on the vendored GLSL corpus, with every difference recorded
+- **GLSL Frontend** — `glsl.Parse` reads Vulkan GLSL 440/450/460 and the GL 3.30 core / ES 3.00 dialects into the same IR under the WGSL frontend's error contract: its own preprocessor, interface blocks with std140/std430 layouts, storage images, specialization constants, the builtin catalogue including the image and sampling families, the atomic families (memory and image atomics, compare-exchange included), barriers and texture gather; a combined image sampler (`uniform sampler2D`) becomes an image global and a sampler global, a source without `layout(binding)` takes its bindings from one counter per group with `ParseOptions.ResourceBindings` reserving a resource's slot by name, and the plain uniforms of a GL 3.30 core or ES 3.00 source are collected into one generated std140 block whose binding, size and member offsets `ParseInfo.DefaultBlock` reports. Each dialect's feature gates, ES precision rules and the `#extension` matrix follow the Khronos specifications, with glslang as the recorded cross-check. MSL and HLSL output matches Rust naga's `naga-cli` on the vendored GLSL corpus, with every difference recorded. **Preview:** the frontend is not complete — `textureQueryLod` is not implemented yet, a few subgroup forms the IR cannot express are refused with named limitations, and `ParseInfo`/`ParseOptions` may still change until it is
 - **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus (SPIR-V by instruction counts); known differences are recorded per output with a reason. 29 own test shaders; 912 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
@@ -199,6 +199,11 @@ when the module has several.
 
 Vulkan GLSL 440/450/460 reaches the same pipeline through `glsl.Parse`: the module it returns is the one the WGSL
 frontend would produce, so validation and every backend above apply unchanged.
+
+The frontend is a **preview**: much of the Vulkan GLSL surface and the GL 3.30 core / ES 3.00 dialects is
+implemented and verified end to end, but `textureQueryLod` is not implemented yet and a few subgroup forms the
+IR cannot express are refused with a message naming the limit; the `ParseInfo`/`ParseOptions` shape may still
+change until the frontend is complete.
 
 ```go
 module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
