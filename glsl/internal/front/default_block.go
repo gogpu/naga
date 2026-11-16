@@ -49,11 +49,6 @@ type defaultBlock struct {
 	offset uint32
 	// align is the block's alignment: the largest member alignment.
 	align uint32
-	// members are the member names recorded so far: a repeated module-scope
-	// uniform name is glslang's "'a' : redefinition", and two members of one
-	// struct may not share a name (the MSL and HLSL backends write the struct
-	// as it is, so a duplicate would be broken source).
-	members map[string]bool
 	// report is the block as ParseInfo reports it, kept in step with the layout.
 	report frontend.DefaultBlockInfo
 }
@@ -67,11 +62,14 @@ func (f *Frontend) addPlainUniform(c *Context, name string, sym *glslSymbol, ty 
 		return errSemantic(span, "%q : the name is reserved for the block a GL 3.30 core or ES 3.00 source's plain uniforms are collected into",
 			defaultBlockName)
 	}
-	block := f.createDefaultBlock(span)
-	if block.members[name] {
-		return errSemantic(span, "%q : redefinition", name)
+	// A plain uniform is a module-scope name like any other: a reserved or
+	// repeated one is refused here (module_names.go), and the module-wide table
+	// is what keeps the struct's members distinct — the MSL and HLSL backends
+	// write the struct as it is, so a duplicate would be broken source.
+	if err := f.declareModuleName(name, span); err != nil {
+		return err
 	}
-	block.members[name] = true
+	block := f.createDefaultBlock(span)
 
 	// std140 places the member at its alignment, which rounds a vec3, a
 	// matCxR column and an array up to 16 bytes (calculateOffset, offset.go).
@@ -124,7 +122,6 @@ func (f *Frontend) createDefaultBlock(span ir.Span) *defaultBlock {
 	block := &defaultBlock{
 		binding: binding,
 		align:   1,
-		members: map[string]bool{},
 	}
 	block.ty = f.registerNamedType(defaultBlockName, ir.StructType{})
 	block.global = ir.GlobalVariableHandle(len(f.mod.GlobalVariables))

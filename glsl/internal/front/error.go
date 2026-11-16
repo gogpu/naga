@@ -142,6 +142,13 @@ func errVariableAlreadyDeclared(name string, span ir.Span) *frontError {
 	return &frontError{Message: "Variable already declared: " + name, Span: span}
 }
 
+// errRedefinition refuses a second module-scope declaration of a name, with
+// glslang's wording. The span is the second declaration's: the first one is
+// what the name already denotes (module_names.go).
+func errRedefinition(name string, span ir.Span) *frontError {
+	return errSemantic(span, "'%s' : redefinition", name)
+}
+
 // errInternal is Rust's ErrorKind::InternalError: a bug in the frontend,
 // surfaced as an error rather than a panic (error.rs:132-135).
 func errInternal(msg string, span ir.Span) *frontError {

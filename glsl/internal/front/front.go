@@ -48,6 +48,9 @@ type Frontend struct {
 	// table when it starts (context.rs:121-123), so a name declared after a
 	// function still resolves inside it at lowering time.
 	globalVars []namedLookup
+	// moduleNames are the module-scope names declared so far: the table the
+	// reserved-prefix and redefinition checks read (module_names.go).
+	moduleNames map[string]bool
 	// functionSpans is where each module function (by FunctionHandle) was
 	// declared, so a post-lowering check reports a refused call graph at the
 	// declaration it involves.
@@ -279,6 +282,7 @@ func newFrontendFor(mod *ir.Module, d dialect, resourceBindings map[string]ir.Re
 		mod:             mod,
 		registry:        registry.NewTypeRegistryWithCap(32),
 		types:           map[string]ir.TypeHandle{},
+		moduleNames:     map[string]bool{},
 		functions:       map[string]*functionDeclaration{},
 		bindings:        newBindingAllocator(resourceBindings),
 		samplerBindings: map[resourceKey]uint32{},

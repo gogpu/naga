@@ -453,7 +453,13 @@ func TestAtomicRefusals(t *testing.T) {
 			name:   "shared-initializer",
 			stage:  ir.StageCompute,
 			source: "#version 450\nlayout(local_size_x = 1) in;\nshared uint c = 0u;\nvoid main() { atomicAdd(c, 1u); }\n",
-			want:   "an atomic variable cannot have an initializer",
+			// The initializer is refused at the declaration (P2-GLSLIN-024,
+			// GLSL 4.60 §4.3.8) before any function is lowered, so a shared
+			// variable that is also accessed atomically reports this one
+			// diagnostic and the atomic upgrade's own guard (upgradeAtomics) is
+			// never reached with an initializer: it stays a defensive check of
+			// the IR invariant, not the user-facing refusal.
+			want: "a shared variable cannot have an initializer",
 		},
 		{
 			name:   "value-type-mismatch",
