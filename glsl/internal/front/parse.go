@@ -105,6 +105,7 @@ func Parse(source string, options Options) (*ir.Module, Info, *ParseError) {
 
 	fe := newFrontendFor(&ir.Module{}, d, options.ResourceBindings)
 	fe.resetMeta(options.Stage)
+	fe.subgroups = subgroupExtensionsFrom(pp.Extensions)
 	fe.combinedPolicy = options.CombinedImageSampler
 	for from, to := range options.SamplerBindings {
 		fe.samplerBindings[resourceKey{group: from.Group, binding: from.Binding}] = to.Binding

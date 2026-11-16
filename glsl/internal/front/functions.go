@@ -31,6 +31,14 @@ func (f *Frontend) functionOrConstructorCall(c *Context, e *hirArena, callee cal
 		if builtin, ok := atomicBuiltinFunction(callee.Name); ok && !declaredFunction(f.functions[callee.Name]) {
 			return f.atomicCall(c, e, callee.Name, builtin, rawArgs, span)
 		}
+		// A subgroup builtin is a statement-producing call as well: its
+		// operands are plain values, but the result is the statement's own
+		// expression and the dialect/extension gate must run before any
+		// operand (subgroup.go). A name the shader itself declares is an
+		// ordinary function.
+		if builtin, ok := subgroupBuiltinFunction(callee.Name); ok && !declaredFunction(f.functions[callee.Name]) {
+			return f.subgroupCall(c, e, callee.Name, builtin, rawArgs, span)
+		}
 	}
 
 	args := make([]loweredArg, 0, len(rawArgs))
@@ -692,9 +700,6 @@ func (f *Frontend) functionCall(c *Context, e *hirArena, name string, args []low
 		f.addError(errSemantic(span, "Ambiguous best function for '%s'", name))
 	}
 	if !haveChosen {
-		if refusal := subgroupRefusal(name, span); refusal != nil {
-			return 0, false, refusal
-		}
 		return 0, false, errSemantic(span, "Unknown function '%s'", name)
 	}
 
