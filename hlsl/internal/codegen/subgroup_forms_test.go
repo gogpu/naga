@@ -65,7 +65,7 @@ func hlslAllEqualModule(boolOperand bool) *ir.Module {
 			Function: ir.Function{
 				Name: "main",
 				Expressions: []ir.Expression{
-					{Kind: argument},                                // [0] argument
+					{Kind: argument}, // [0] argument
 					{Kind: ir.ExprSubgroupOperationResult{Type: 1}}, // [1] bool result
 				},
 				Body: []ir.Statement{
