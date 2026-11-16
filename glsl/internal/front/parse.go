@@ -22,7 +22,8 @@ type Options struct {
 	// ResourceBindings names the binding of a resource the source cannot bind
 	// itself (GL 3.30 and ES 3.00 have no layout(binding)), by source name:
 	// design §11 (R2), bindings.go. Vulkan GLSL declares its bindings and
-	// consults no map.
+	// consults no map. The name of the block the plain uniforms are collected
+	// into (defaultBlockName) is one of the keys.
 	ResourceBindings map[string]ir.ResourceBinding
 }
 
@@ -32,6 +33,10 @@ type Info struct {
 	Warnings []frontend.Diagnostic
 	// CombinedSamplers lists the splits the parse applied, in source order.
 	CombinedSamplers []frontend.CombinedSampler
+	// DefaultBlock reports the block a GL 3.30 core or ES 3.00 source's plain
+	// uniforms were collected into, and is nil when the module declares none
+	// and for every Vulkan GLSL source (ADR-013).
+	DefaultBlock *frontend.DefaultBlockInfo
 }
 
 // ParseError is a parse or lowering failure with every error the run
@@ -113,6 +118,7 @@ func Parse(source string, options Options) (*ir.Module, Info, *ParseError) {
 	}
 
 	info := Info{Warnings: append(extensionWarnings, fe.warnings...)}
+	info.DefaultBlock = fe.defaultBlockReport
 	for _, split := range fe.combinedSamplers {
 		info.CombinedSamplers = append(info.CombinedSamplers, frontend.CombinedSampler{
 			Sampler: split.imageBinding,

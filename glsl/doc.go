@@ -35,6 +35,25 @@
 // free slot of their group; each dialect's feature gates, the ES precision rules and the #extension behavior
 // follow the Khronos specifications.
 //
+// # Plain Uniforms
+//
+// GL 3.30 core and ES 3.00 let a shader declare a uniform outside any block
+// (`uniform mat4 mvp;`). The IR has no resource for such a declaration, so the
+// frontend collects every plain uniform of a module into one generated uniform
+// block, named frontend.DefaultBlockName, whose members are the plain uniforms
+// in source declaration order with std140 offsets. ParseInfo.DefaultBlock
+// reports the block's binding, its size and each member's offset and size:
+// allocate Size bytes, write each member at its Offset with std140 encoding and
+// bind the buffer at Binding. Use the reported offsets and never re-derive the
+// layout. The block takes the slot ParseOptions.ResourceBindings gives
+// frontend.DefaultBlockName, else the next free binding of group 0 at the
+// position of the first plain-uniform declaration. ParseInfo.DefaultBlock is
+// nil when the module has no plain uniform.
+//
+// Vulkan GLSL is different: the Vulkan profile has no default uniform block, so
+// a plain uniform there is a *ParseError that asks for a block, as glslang
+// refuses it too ("non-opaque uniforms outside a block").
+//
 //	module, info, err := glsl.Parse(source, glsl.ParseOptions{Stage: ir.StageFragment})
 //
 // The frontend is implemented in glsl/internal/front.

@@ -7,7 +7,10 @@ import (
 )
 
 // TestCalculateOffsetScalarsAndVectors is the OpenGL spec's std140 rules 1-3
-// (offset.rs:55-69), which std430 shares.
+// (offset.rs:55-69), which std430 shares. A bool is the one member where the
+// reference's rule and the driver's layout part: Rust naga takes the IR width
+// (1 byte) and glslangValidator writes 4, so the reference compiler decides
+// here (layoutScalarWidth, offset.go).
 func TestCalculateOffsetScalarsAndVectors(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -16,7 +19,12 @@ func TestCalculateOffsetScalarsAndVectors(t *testing.T) {
 		span  uint32
 	}{
 		{"float", f32Scalar, 4, 4},
-		{"bool", boolScalar, 1, 1},
+		// A bool is a word in a block: glslangValidator lays the members of
+		// `bool a; bool b;` out at 0 and 4, and a bvec2 at 8 bytes with
+		// alignment 8 (snapshot/glsl_plain_uniform_test.go has the probe).
+		{"bool", boolScalar, 4, 4},
+		{"bvec2", ir.VectorType{Size: ir.Vec2, Scalar: boolScalar}, 8, 8},
+		{"bvec3", ir.VectorType{Size: ir.Vec3, Scalar: boolScalar}, 16, 12},
 		{"vec2", ir.VectorType{Size: ir.Vec2, Scalar: f32Scalar}, 8, 8},
 		{"vec3", ir.VectorType{Size: ir.Vec3, Scalar: f32Scalar}, 16, 12},
 		{"vec4", ir.VectorType{Size: ir.Vec4, Scalar: f32Scalar}, 16, 16},
@@ -102,18 +110,19 @@ func TestCalculateOffsetStruct(t *testing.T) {
 		}
 	}
 
-	// Under std430 the same members land at the same offsets here, but a
-	// struct of one float keeps its 4-byte span instead of rounding to 16.
+	// Under std430 a struct of one float keeps its 4-byte span, but std140
+	// rounds a struct's alignment up to a vec4's (rule 9): glslangValidator
+	// lays `struct S { float a; }; S s; float after_s;` out with after_s at 16,
+	// so the member occupies a 16-byte slot, not four. Rust naga's
+	// calculate_offset keeps the natural alignment here.
 	small := fe.registerType(ir.StructType{Members: []ir.StructMember{{Name: "x", Type: float}}})
 	small430 := fe.calculateOffset(small, ir.Span{}, structLayoutStd430)
-	if small430.span != 4 {
-		t.Fatalf("std430 struct{float} span = %d, want 4", small430.span)
+	if small430.align != 4 || small430.span != 4 {
+		t.Fatalf("std430 struct{float}: align %d span %d, want align 4 span 4", small430.align, small430.span)
 	}
 	small140 := fe.calculateOffset(small, ir.Span{}, structLayoutStd140)
-	if small140.span != 4 {
-		// A lone float has alignment 4 in both layouts: rule 9 does not
-		// round a struct's alignment up.
-		t.Fatalf("std140 struct{float} span = %d, want 4", small140.span)
+	if small140.align != 16 || small140.span != 16 {
+		t.Fatalf("std140 struct{float}: align %d span %d, want align 16 span 16 (rule 9)", small140.align, small140.span)
 	}
 }
 
