@@ -141,6 +141,7 @@ const (
 	OpWaveGetLaneCount  DXILOpcode = 112
 	OpWaveAnyTrue       DXILOpcode = 113
 	OpWaveAllTrue       DXILOpcode = 114
+	OpWaveAllEqual      DXILOpcode = 115
 	OpWaveBallot        DXILOpcode = 116
 	OpWaveReadLaneAt    DXILOpcode = 117
 	OpWaveReadLaneFirst DXILOpcode = 118

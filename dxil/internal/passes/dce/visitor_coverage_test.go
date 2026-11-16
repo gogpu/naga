@@ -64,7 +64,7 @@ func TestMarkStmtRootsEveryKind(t *testing.T) {
 // has a side effect, give stmtHasSideEffects a case for it, and list it.
 var sideEffects = map[string]bool{
 	"StmtEmit": false, "StmtReturn": false, "StmtBreak": false, "StmtContinue": false,
-	"StmtSubgroupBallot": false, "StmtSubgroupCollectiveOperation": false, "StmtSubgroupGather": false,
+	"StmtSubgroupBallot": false, "StmtSubgroupElect": false, "StmtSubgroupCollectiveOperation": false, "StmtSubgroupGather": false,
 	"StmtStore": true, "StmtImageStore": true, "StmtAtomic": true, "StmtImageAtomic": true,
 	"StmtKill": true, "StmtControlBarrier": true, "StmtMemoryBarrier": true,
 	"StmtCall": true, "StmtWorkGroupUniformLoad": true, "StmtRayQuery": true,

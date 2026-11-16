@@ -169,6 +169,83 @@ func TestSubgroupOperations(t *testing.T) {
 	}, "Support for subgroup operation SubgroupOperationSet(BASIC) is required")
 }
 
+// TestSubgroupElectValidation: elect needs the BASIC class — Rust's
+// SubgroupOperationSet comment puts elections under BASIC — and SUBGROUP
+// (card P2-IR-038, ADR-014).
+func TestSubgroupElectValidation(t *testing.T) {
+	m := subgroupFormModule(
+		[]ir.Type{{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}},
+		[]ir.Expression{{Kind: ir.ExprSubgroupOperationResult{Type: 0}}},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupElect{Result: 0}},
+			{Kind: ir.StmtReturn{}},
+		},
+	)
+	expectValid(t, m, valid.Options{Capabilities: valid.CapSubgroup})
+	expectRejected(t, m, valid.Options{
+		Capabilities:       valid.CapSubgroup,
+		SubgroupOperations: valid.SubgroupVote,
+	}, "Support for subgroup operation SubgroupOperationSet(BASIC) is required")
+}
+
+// TestSubgroupAllEqualValidation: all-equal needs the VOTE class, not
+// ARITHMETIC, and its only collective operation is the reduce (ADR-014).
+func TestSubgroupAllEqualValidation(t *testing.T) {
+	m := subgroupAllEqualFormModule(ir.CollectiveReduce)
+	all := valid.SubgroupBallot | valid.SubgroupVote | valid.SubgroupArithmetic
+	expectValid(t, m, valid.Options{Capabilities: valid.CapSubgroup, SubgroupOperations: all})
+	expectRejected(t, m, valid.Options{
+		Capabilities:       valid.CapSubgroup,
+		SubgroupOperations: all &^ valid.SubgroupVote,
+	}, "Support for subgroup operation SubgroupOperationSet(VOTE) is required")
+
+	scan := subgroupAllEqualFormModule(ir.CollectiveInclusiveScan)
+	expectRejected(t, scan, valid.Options{Capabilities: valid.CapSubgroup},
+		"Subgroup operation is invalid: all-equal has no scan form")
+}
+
+// subgroupFormModule builds a compute entry point with the given expressions
+// and body, for the subgroup forms the WGSL frontend cannot express.
+func subgroupFormModule(types []ir.Type, expressions []ir.Expression, body []ir.Statement) *ir.Module {
+	return &ir.Module{
+		Types: types,
+		EntryPoints: []ir.EntryPoint{{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Workgroup: [3]uint32{64, 1, 1},
+			Function: ir.Function{
+				Name:        "main",
+				Expressions: expressions,
+				Body:        body,
+			},
+		}},
+	}
+}
+
+// subgroupAllEqualFormModule builds one all-equal over a uint literal with the
+// given collective operation.
+func subgroupAllEqualFormModule(collective ir.CollectiveOperation) *ir.Module {
+	return subgroupFormModule(
+		[]ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+		[]ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprSubgroupOperationResult{Type: 1}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupCollectiveOperation{
+				Op:           ir.SubgroupOperationAllEqual,
+				CollectiveOp: collective,
+				Argument:     0,
+				Result:       1,
+			}},
+			{Kind: ir.StmtReturn{}},
+		},
+	)
+}
+
 // TestSubgroupStages: a non-zero Options.SubgroupStages replaces the stages
 // CapSubgroup derives (Rust Validator::subgroup_stages); an entry point
 // outside them that reaches a subgroup operation, directly or through a

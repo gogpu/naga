@@ -125,6 +125,9 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallot(k)
 
+	case ir.StmtSubgroupElect:
+		return w.writeSubgroupElect(k)
+
 	case ir.StmtSubgroupCollectiveOperation:
 		return w.writeSubgroupCollectiveOperation(k)
 
@@ -2003,6 +2006,86 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 	return nil
 }
 
+// writeSubgroupElect writes a subgroup elect statement.
+// Metal: bool _eN = metal::simd_is_first(); — true for the first active
+// thread of the simdgroup, the invocation the subgroup elects (the WGSL
+// subgroups proposal's Appendix B maps subgroupElect to simd_is_first).
+func (w *Writer) writeSubgroupElect(elect ir.StmtSubgroupElect) error {
+	w.WriteIndent()
+	tempName := w.allocateUnnamedVar()
+	w.namedExpressions[elect.Result] = tempName
+	w.write("%s %s = %ssimd_is_first();\n", w.getExpressionMSLTypeName(elect.Result), tempName, Namespace)
+	return nil
+}
+
+// writeSubgroupAllEqual writes the MSL form of a subgroup all-equal operation.
+// Metal has no simd all-equal function (the WGSL proposal's Appendix B has no
+// entry for it, and every WGSL subgroup function it lists maps to a simd
+// function), so the writer expands the operation: every active thread compares
+// its value with the first active thread's broadcast of it, and simd_all
+// reduces the comparisons. A vector operand compares per component — the
+// operation is the whole value, so all components must match in every
+// invocation (the per-component expansion P2-GLSLIN-028 uses for the
+// collective operations).
+//
+// NaN caveat: the equality is IEEE, so a subgroup where every thread holds a
+// NaN compares unequal and the result is false, where a hardware all-equal
+// (a vote over the value) may be true.
+func (w *Writer) writeSubgroupAllEqual(op ir.StmtSubgroupCollectiveOperation) error {
+	if op.CollectiveOp != ir.CollectiveReduce {
+		return unsupported.Errorf("a subgroup all-equal scan: all-equal has no scan form")
+	}
+
+	tempName := w.allocateUnnamedVar()
+	w.namedExpressions[op.Result] = tempName
+
+	// Evaluate the operand once: a compound argument must not be written for
+	// every component, and the broadcast reads it.
+	w.WriteIndent()
+	argumentName := w.allocateUnnamedVar()
+	w.write("%s %s = ", w.getExpressionMSLTypeName(op.Argument), argumentName)
+	if err := w.writeExpression(op.Argument); err != nil {
+		return err
+	}
+	w.write(";\n")
+
+	w.WriteIndent()
+	w.write("%s %s = ", w.getExpressionMSLTypeName(op.Result), tempName)
+	switch argument := w.getExpressionType(op.Argument).(type) {
+	case ir.VectorType:
+		for component := range int(argument.Size) {
+			if component > 0 {
+				w.write(" && ")
+			}
+			w.writeAllEqualComparison(argumentName, component, argument.Scalar)
+		}
+	default:
+		scalar, _ := w.getExpressionType(op.Argument).(ir.ScalarType)
+		w.writeAllEqualComparison(argumentName, -1, scalar)
+	}
+	w.write(";\n")
+	return nil
+}
+
+// writeAllEqualComparison writes one all-equal comparison:
+// simd_all(c == simd_broadcast_first(c)); a negative component compares the
+// scalar operand. A bool component is widened to int: simd_broadcast_first is
+// documented for the numeric scalar types, and the comparison is exact either
+// way.
+func (w *Writer) writeAllEqualComparison(argumentName string, component int, scalar ir.ScalarType) {
+	cast := ""
+	if scalar.Kind == ir.ScalarBool {
+		cast = "(int)"
+	}
+	if component < 0 {
+		w.write("%ssimd_all(%s%s == %ssimd_broadcast_first(%s%s))",
+			Namespace, cast, argumentName, Namespace, cast, argumentName)
+		return
+	}
+	w.write("%ssimd_all(%s%s[%d] == %ssimd_broadcast_first(%s%s[%d]))",
+		Namespace, cast, argumentName, component, Namespace, cast, argumentName, component)
+}
+
 // writeSubgroupBallot writes a subgroup ballot statement.
 // Metal: metal::uint4 result = metal::uint4((uint64_t)metal::simd_ballot(predicate), 0, 0, 0);
 func (w *Writer) writeSubgroupBallot(ballot ir.StmtSubgroupBallot) error {
@@ -2038,6 +2121,9 @@ func (w *Writer) writeSubgroupBallot(ballot ir.StmtSubgroupBallot) error {
 // writeSubgroupCollectiveOperation writes a subgroup collective operation statement.
 // Maps SubgroupOperation + CollectiveOperation to metal::simd_* functions.
 func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOperation) error {
+	if op.Op == ir.SubgroupOperationAllEqual {
+		return w.writeSubgroupAllEqual(op)
+	}
 	w.WriteIndent()
 
 	// Determine MSL function name

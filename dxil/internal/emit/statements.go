@@ -1144,6 +1144,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtSubgroupBallot:
 		return e.emitStmtSubgroupBallot(fn, sk)
 
+	case ir.StmtSubgroupElect:
+		return e.emitStmtSubgroupElect(fn, sk)
+
 	case ir.StmtSubgroupCollectiveOperation:
 		return e.emitStmtSubgroupCollectiveOp(fn, sk)
 
@@ -4069,6 +4072,34 @@ func (e *Emitter) emitImageAtomicCmpXchg(handleID int, coords [3]int, cmpValID, 
 // Subgroup / wave operations
 // ---------------------------------------------------------------------------
 
+// emitStmtSubgroupElect emits dx.op.waveIsFirstLane (opcode 110).
+// Signature: i1 @dx.op.waveIsFirstLane(i32 110) — no value operand: the
+// result is true for the first active lane (DXC docs/DXIL.rst line 110; Mesa
+// dxil_function.c declares the same "b(i)" signature).
+func (e *Emitter) emitStmtSubgroupElect(_ *ir.Function, elect ir.StmtSubgroupElect) error {
+	waveFn := e.getWaveIsFirstLaneFunc()
+	opcodeVal := e.getIntConstID(int64(OpWaveIsFirstLane))
+	resultID := e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal})
+	e.exprValues[elect.Result] = resultID
+	return nil
+}
+
+// getWaveIsFirstLaneFunc returns the dx.op.waveIsFirstLane declaration:
+// i1 @dx.op.waveIsFirstLane(i32 opcode).
+func (e *Emitter) getWaveIsFirstLaneFunc() *module.Function {
+	name := "dx.op.waveIsFirstLane"
+	key := dxOpKey{name: name, overload: overloadI1}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	funcTy := e.mod.GetFunctionType(i1Ty, []*module.Type{i32Ty})
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // emitStmtSubgroupBallot emits dx.op.waveActiveBallot (opcode 116).
 // Signature: %dx.types.fouri32 @dx.op.waveActiveBallot(i32 116, i1 condition) → {i32, i32, i32, i32}
 // The result is a vec4<u32>.
@@ -4180,6 +4211,23 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 			opcodeVal := e.getIntConstID(int64(OpWaveAnyTrue))
 			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
 
+		case ir.SubgroupOperationAllEqual:
+			// dx.op.waveActiveAllEqual.T(i32 115, T value) → i1. The DXIL
+			// overloads are the numeric types with their vectors and have no
+			// i1 (DxilOperations.cpp: "hfd18wil<hfd18wil"), so a bool operand
+			// is widened to i32 first. Vector operands are refused until the
+			// emitter writes per-component/vector wave overloads: it declares
+			// the scalar overload today, and a vector argument would silently
+			// mismatch the declaration.
+			if _, isVector := argInner.(ir.VectorType); isVector {
+				return unsupported.Errorf("a subgroup all-equal of a vector: the DXIL emitter has no vector wave overload")
+			}
+			if argScalar.Kind == ir.ScalarBool {
+				argID = e.addCastInstr(e.mod.GetIntType(32), CastZExt, argID)
+				ol = overloadI32
+			}
+			resultID = e.emitWaveAllEqual(argID, ol)
+
 		case ir.SubgroupOperationAnd:
 			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitAnd, ol)
 		case ir.SubgroupOperationOr:
@@ -4271,6 +4319,29 @@ func (e *Emitter) emitWavePrefixOp(_ *ir.Function, valueID int, waveOp DXILWaveO
 	opVal := e.getI8ConstID(int64(waveOp))
 	signVal := e.getI8ConstID(int64(sign))
 	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal, signVal})
+}
+
+// emitWaveAllEqual emits dx.op.waveActiveAllEqual.T(i32 115, T value) → i1.
+func (e *Emitter) emitWaveAllEqual(valueID int, ol overloadType) int {
+	waveFn := e.getWaveAllEqualFunc(ol)
+	opcodeVal := e.getIntConstID(int64(OpWaveAllEqual))
+	return e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, valueID})
+}
+
+// getWaveAllEqualFunc returns the dx.op.waveActiveAllEqual declaration for the
+// overload: i1 @dx.op.waveActiveAllEqual.T(i32 opcode, T value).
+func (e *Emitter) getWaveAllEqualFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveActiveAllEqual"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	valueTy := e.overloadReturnType(ol)
+	funcTy := e.mod.GetFunctionType(e.mod.GetIntType(1), []*module.Type{i32Ty, valueTy})
+	fn := e.mod.AddFunction(name+overloadSuffix(ol), funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }
 
 // combineForInclusive combines prefix result with current value to make an inclusive scan.

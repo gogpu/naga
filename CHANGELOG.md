@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Subgroup elect and all-equal across the IR, both frontends and every backend** (card P2-IR-038, ADR-014).
+  The IR gains `ir.StmtSubgroupElect` and `ir.SubgroupOperationAllEqual` (Rust naga has neither; elect is a
+  statement because it must run exactly once per invocation, and all-equal is a vote whose result is a bool).
+  The GLSL frontend now lowers `subgroupElect` (basic family) and `subgroupAllEqual` (vote family: bool, int,
+  uint, float and their vectors) instead of refusing them, and the WGSL frontend lowers `subgroupElect`, which
+  it previously only gated. Each backend writes the form where the target has it: SPIR-V with
+  `OpGroupNonUniformElect` and `OpGroupNonUniformAllEqual`; MSL with `simd_is_first()`, while all-equal is
+  expanded to `simd_broadcast_first` + `simd_all` per component because Metal has no all-equal simd function;
+  HLSL with `WaveIsFirstLane()` and `WaveActiveAllEqual()`; the GLSL backend with the source builtins; and DXIL
+  with `waveIsFirstLane` and `waveActiveAllEqual` (bool operands widened to i32, vector all-equal refused while
+  the emitter has no vector wave overload). The SPIR-V frontend maps both opcodes too. The remaining subgroup
+  gaps — the ballot bit operations (P2-IR-039), the clustered forms (P2-IR-040) and the `gl_Subgroup*Mask`
+  variables (P2-IR-041) — stay refused with named limitations, and the ADR fixes the IR shape each will take
+  before the v1.0 freeze.
+
 ## [0.22.3] - 2026-11-16
 
 > **The GLSL input frontend ships as a preview.** `glsl.Parse` reads a large part of Vulkan GLSL 440/450/460

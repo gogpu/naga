@@ -331,6 +331,8 @@ func (w *Writer) writeStatement(kind ir.StatementKind) error {
 		return w.writeRayQueryStatement(s)
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallotStatement(s)
+	case ir.StmtSubgroupElect:
+		return w.writeSubgroupElectStatement(s)
 	case ir.StmtSubgroupCollectiveOperation:
 		return w.writeSubgroupCollectiveOperationStatement(s)
 	case ir.StmtSubgroupGather:
@@ -2332,6 +2334,14 @@ func (w *Writer) writeSubgroupBallotStatement(s ir.StmtSubgroupBallot) error {
 	return nil
 }
 
+// writeSubgroupElectStatement writes a SubgroupElect statement.
+// Matches the WGSL subgroups proposal's mapping: `const bool _eN = WaveIsFirstLane();`
+func (w *Writer) writeSubgroupElectStatement(s ir.StmtSubgroupElect) error {
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "const %s %s = WaveIsFirstLane();\n", w.expressionTypeStr(s.Result), w.nameExpression(s.Result))
+	return nil
+}
+
 // writeSubgroupCollectiveOperationStatement writes a SubgroupCollectiveOperation statement.
 // Matches Rust naga: `const TYPE _eN = WaveActiveOp(argument);`
 func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupCollectiveOperation) error {
@@ -2361,6 +2371,12 @@ func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupColl
 			w.Out.WriteString("WaveActiveAllTrue(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAny:
 			w.Out.WriteString("WaveActiveAnyTrue(")
+		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAllEqual:
+			// WaveActiveAllEqual takes a scalar or vector value and returns the
+			// bool the IR result expression has; SM 6.0. A bool operand uses
+			// HLSL's implicit bool-to-int conversion (the intrinsic's overloads
+			// are the numeric types).
+			w.Out.WriteString("WaveActiveAllEqual(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAdd:
 			w.Out.WriteString("WaveActiveSum(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationMul:

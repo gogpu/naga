@@ -648,12 +648,17 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 			return false, nil, err
 		}
 		return false, nil, p.compositeInsert(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformElect:
+		if err := inst.expect(4); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupElect(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpGroupNonUniformBallot:
 		if err := inst.expect(5); err != nil {
 			return false, nil, err
 		}
 		return false, nil, p.subgroupBallot(inst, fs, consumer, block, bodyIdx, blockID)
-	case spvenums.OpGroupNonUniformAll, spvenums.OpGroupNonUniformAny:
+	case spvenums.OpGroupNonUniformAll, spvenums.OpGroupNonUniformAny, spvenums.OpGroupNonUniformAllEqual:
 		if err := inst.expect(5); err != nil {
 			return false, nil, err
 		}

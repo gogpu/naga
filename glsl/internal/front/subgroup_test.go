@@ -106,6 +106,86 @@ func TestSubgroupBarrierStatements(t *testing.T) {
 	}
 }
 
+// TestSubgroupElect pins subgroupElect: a SubgroupElect statement whose result
+// is a bool operation-result expression — the shape ADR-014 gives the form
+// (glslang emits OpGroupNonUniformElect, probed 2026-11-16).
+func TestSubgroupElect(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_basic : require\n"
+	mod := parseSubgroup(t, subgroupComputeSource(extensions,
+		"void main() { if (subgroupElect()) { o.v = 1u; } }\n"), ir.StageCompute)
+	fn := mainFunction(t, mod)
+
+	var elect *ir.StmtSubgroupElect
+	for _, stmt := range subgroupStatements(fn) {
+		if kind, ok := stmt.Kind.(ir.StmtSubgroupElect); ok {
+			elect = &kind
+		}
+	}
+	if elect == nil {
+		t.Fatal("no StmtSubgroupElect in the lowered function")
+	}
+	assertSubgroupBoolResult(t, mod, fn, elect.Result, "elect")
+
+	// subgroupElect takes no arguments; a call with one is not the builtin.
+	parseErr(t, subgroupComputeSource(extensions,
+		"void main() { if (subgroupElect(true)) { o.v = 1u; } }\n"),
+		Options{Stage: ir.StageCompute}, "Unknown function 'subgroupElect'")
+}
+
+// TestSubgroupAllEqual pins subgroupAllEqual: a collective operation with
+// SubgroupOperationAllEqual, a reduce, and a bool result whatever the
+// argument's type is. The argument may be any scalar or vector (GLSL's
+// genType, genIType, genUType, genBType, genDType); glslang accepts uint,
+// float, uvec2 and bool operands (probed 2026-11-16).
+func TestSubgroupAllEqual(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_vote : require\n"
+	cases := map[string]string{
+		"uint":  "gl_GlobalInvocationID.x",
+		"float": "1.5",
+		"uvec2": "uvec2(1u, 2u)",
+		"bool":  "true",
+		"ivec4": "ivec4(1, 2, 3, 4)",
+	}
+	for name, argument := range cases {
+		t.Run(name, func(t *testing.T) {
+			mod := parseSubgroup(t, subgroupComputeSource(extensions,
+				"void main() { if (subgroupAllEqual("+argument+")) { o.v = 1u; } }\n"), ir.StageCompute)
+			fn := mainFunction(t, mod)
+
+			var op *ir.StmtSubgroupCollectiveOperation
+			for _, stmt := range subgroupStatements(fn) {
+				if kind, ok := stmt.Kind.(ir.StmtSubgroupCollectiveOperation); ok {
+					op = &kind
+				}
+			}
+			if op == nil {
+				t.Fatal("no StmtSubgroupCollectiveOperation in the lowered function")
+			}
+			if op.Op != ir.SubgroupOperationAllEqual {
+				t.Fatalf("operation is %d, want SubgroupOperationAllEqual", op.Op)
+			}
+			if op.CollectiveOp != ir.CollectiveReduce {
+				t.Fatalf("collective operation is %d, want Reduce (all-equal has no scan form)", op.CollectiveOp)
+			}
+			assertSubgroupBoolResult(t, mod, fn, op.Result, "all-equal")
+		})
+	}
+}
+
+// assertSubgroupBoolResult checks that a subgroup statement's result is an
+// operation-result expression of the bool scalar type.
+func assertSubgroupBoolResult(t *testing.T, mod *ir.Module, fn ir.Function, result ir.ExpressionHandle, form string) {
+	t.Helper()
+	res, ok := fn.Expressions[result].Kind.(ir.ExprSubgroupOperationResult)
+	if !ok {
+		t.Fatalf("%s result is %T, want ExprSubgroupOperationResult", form, fn.Expressions[result].Kind)
+	}
+	scalar, ok := mod.Types[res.Type].Inner.(ir.ScalarType)
+	if !ok || scalar.Kind != ir.ScalarBool || scalar.Width != 1 {
+		t.Fatalf("%s result type is %+v, want a bool scalar", form, mod.Types[res.Type].Inner)
+	}
+}
+
 // TestSubgroupVote pins subgroupAll and subgroupAny: a collective operation with
 // the vote operation, a reduce and the argument's own bool type as result.
 func TestSubgroupVote(t *testing.T) {
@@ -446,9 +526,6 @@ func TestSubgroupGapRefusals(t *testing.T) {
 		use     string
 		refusal string
 	}{
-		{"elect", "if (subgroupElect()) { o.v = 1u; }", "no subgroup elect statement"},
-		{"all equal", "if (subgroupAllEqual(gl_GlobalInvocationID.x)) { o.v = 1u; }",
-			"ir.SubgroupOperation has All and Any but no AllEqual"},
 		{"ballot bit extract", "o.v = subgroupBallotBitExtract(subgroupBallot(true), 1u) ? 1u : 0u;",
 			"no ballot bit extract, bit count or find LSB/MSB"},
 		{"ballot bit count", "o.v = subgroupBallotBitCount(subgroupBallot(true));",

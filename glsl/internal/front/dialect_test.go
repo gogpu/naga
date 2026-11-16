@@ -889,11 +889,11 @@ void main() { S s = S(vec4(a), b.a.x); color = s.a + vec4(s.b); }
 }
 
 // TestSubgroupBuiltinsRefused: the subgroup forms the IR or a text backend
-// cannot express are refused with a message naming card P1-GLSLIN-017 rather
-// than an unknown-name text; an unimplemented form reaches that message only
-// after its family's extension is enabled, as glslang resolves availability
-// first. The subgroup built-in variables are implemented and have their own
-// tests (subgroup_test.go).
+// cannot express are refused with a message naming the card that implements
+// the missing IR capability rather than an unknown-name text; an unimplemented
+// form reaches that message only after its family's extension is enabled, as
+// glslang resolves availability first. The subgroup built-in variables are
+// implemented and have their own tests (subgroup_test.go).
 func TestSubgroupBuiltinsRefused(t *testing.T) {
 	const header = `#version 330 core
 #extension GL_KHR_shader_subgroup_basic : require
@@ -902,6 +902,6 @@ out vec4 color;
 `
 	t.Run("builtin function", func(t *testing.T) {
 		parseErr(t, header+`void main() { color = vec4(float(subgroupBallotBitCount(subgroupBallot(true)))); }
-`, Options{Stage: ir.StageFragment}, "card P1-GLSLIN-017")
+`, Options{Stage: ir.StageFragment}, "card P2-IR-039")
 	})
 }

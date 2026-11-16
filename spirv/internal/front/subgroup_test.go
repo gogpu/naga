@@ -309,3 +309,56 @@ func TestSubgroupUnsupportedGroupOperation(t *testing.T) {
 		t.Errorf("message = %q, want %q", got, errUnsupportedGroupOperation(5).Message)
 	}
 }
+
+// TestSubgroupElect: OpGroupNonUniformElect (no operand) becomes
+// StmtSubgroupElect with a bool result (card P2-IR-038, ADR-014).
+func TestSubgroupElect(t *testing.T) {
+	module, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+		instWords(spvenums.OpGroupNonUniformElect, 12, 20, 15),
+	)...)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	statement, ok := findStatement(&module.Functions[0], func(k ir.StatementKind) bool {
+		_, ok := k.(ir.StmtSubgroupElect)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no SubgroupElect statement")
+	}
+	elect := statement.(ir.StmtSubgroupElect)
+	result, ok := module.Functions[0].Expressions[elect.Result].Kind.(ir.ExprSubgroupOperationResult)
+	if !ok {
+		t.Fatalf("elect result is %T, want ExprSubgroupOperationResult",
+			module.Functions[0].Expressions[elect.Result].Kind)
+	}
+	scalar, ok := module.Types[result.Type].Inner.(ir.ScalarType)
+	if !ok || scalar.Kind != ir.ScalarBool {
+		t.Errorf("elect result type is %+v, want bool", module.Types[result.Type].Inner)
+	}
+}
+
+// TestSubgroupAllEqual: OpGroupNonUniformAllEqual has no group operation
+// operand and maps to the AllEqual vote with a reduce.
+func TestSubgroupAllEqual(t *testing.T) {
+	module, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+		instWords(spvenums.OpGroupNonUniformAllEqual, 12, 20, 15, 16),
+	)...)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	statement, ok := findStatement(&module.Functions[0], func(k ir.StatementKind) bool {
+		_, ok := k.(ir.StmtSubgroupCollectiveOperation)
+		return ok
+	})
+	if !ok {
+		t.Fatal("no SubgroupCollectiveOperation statement")
+	}
+	operation := statement.(ir.StmtSubgroupCollectiveOperation)
+	if operation.Op != ir.SubgroupOperationAllEqual {
+		t.Errorf("operation = %v, want AllEqual", operation.Op)
+	}
+	if operation.CollectiveOp != ir.CollectiveReduce {
+		t.Errorf("collective operation = %v, want reduce", operation.CollectiveOp)
+	}
+}

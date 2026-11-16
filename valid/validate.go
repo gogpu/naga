@@ -1232,7 +1232,7 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 			v.useExpression(*xchg.Compare)
 		}
 
-	case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+	case ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 		v.validateSubgroupStatement(index, kind)
 
 	case ir.StmtImageStore:

@@ -330,6 +330,22 @@ type StmtSubgroupBallot struct {
 
 func (StmtSubgroupBallot) statementKind() {}
 
+// StmtSubgroupElect elects one active thread of the subgroup: the result is
+// true for exactly one active invocation — the one with the lowest subgroup
+// invocation id — and false for the rest (GL_KHR_shader_subgroup basic's
+// subgroupElect; WGSL's subgroupElect; SPIR-V's OpGroupNonUniformElect).
+//
+// The result is an ExprSubgroupOperationResult of type bool. Elect is a
+// statement, not an expression, because it must run exactly once per
+// invocation: two elections in one invocation are observably different, and
+// expressions may be re-evaluated by backends. Rust naga has no elect
+// statement (card P2-IR-038, ADR-014).
+type StmtSubgroupElect struct {
+	Result ExpressionHandle // SubgroupOperationResult expression
+}
+
+func (StmtSubgroupElect) statementKind() {}
+
 // StmtSubgroupCollectiveOperation computes a collective operation across active threads.
 type StmtSubgroupCollectiveOperation struct {
 	Op           SubgroupOperation   // What operation to compute

@@ -565,14 +565,14 @@ void main() {
 	// --- refusals ------------------------------------------------------------
 
 	{
-		name:      "refuse-elect",
+		name:      "subgroup-elect",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupElect"},
-		refuse:    "no subgroup elect statement",
-		reason: "the IR has no subgroup elect statement (ir has SubgroupBallot, SubgroupCollectiveOperation " +
-			"and SubgroupGather); glslangValidator emits OpGroupNonUniformElect for the same source, which the " +
-			"frontend cannot represent (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// subgroupElect (basic family) lowers to ir.StmtSubgroupElect; glslang
+		// emits OpGroupNonUniformElect for the same source and the SPIR-V
+		// backend writes it back (card P2-IR-038, ADR-014).
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_basic : require
 layout(local_size_x = 64) in;
@@ -596,14 +596,16 @@ void main() { subgroupMemoryBarrierAtomicCounter(); }
 `,
 	},
 	{
-		name:      "refuse-all-equal",
+		name:      "subgroup-all-equal",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupAllEqual"},
-		refuse:    "ir.SubgroupOperation has All and Any but no AllEqual",
-		reason: "ir.SubgroupOperation has All and Any but no AllEqual; glslangValidator emits " +
-			"OpGroupNonUniformAllEqual for the same source, which no IR statement or operation names " +
-			"(card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// subgroupAllEqual (vote family) lowers to a collective operation with
+		// ir.SubgroupOperationAllEqual and a bool result; glslang emits
+		// OpGroupNonUniformAllEqual (card P2-IR-038, ADR-014). The MSL writer
+		// expands it to simd_broadcast_first + simd_all, the HLSL writer uses
+		// WaveActiveAllEqual.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_vote : require
 layout(local_size_x = 64) in;

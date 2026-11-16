@@ -116,6 +116,8 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallot(k)
+	case ir.StmtSubgroupElect:
+		return w.writeSubgroupElect(k)
 	case ir.StmtSubgroupCollectiveOperation:
 		return w.writeSubgroupCollective(k)
 	case ir.StmtSubgroupGather:
@@ -988,6 +990,22 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 	return nil
 }
 
+// writeSubgroupElect writes a subgroup elect statement:
+// bool _eN = subgroupElect(); — the basic family's builtin, whose extension
+// the backend's feature preamble already requests.
+func (w *Writer) writeSubgroupElect(s ir.StmtSubgroupElect) error {
+	typeName := "bool"
+	if w.hasExprType(s.Result) {
+		if res := w.exprType(s.Result); res.Handle != nil {
+			typeName = w.getTypeName(*res.Handle)
+		}
+	}
+	tempName := fmt.Sprintf("_e%d", s.Result)
+	w.namedExpressions[s.Result] = tempName
+	w.WriteLine("%s %s = subgroupElect();", typeName, tempName)
+	return nil
+}
+
 // writeSubgroupBallot writes a subgroup ballot statement.
 func (w *Writer) writeSubgroupBallot(s ir.StmtSubgroupBallot) error {
 	typeName := "uvec4"
@@ -1035,6 +1053,8 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 			funcName = "subgroupAll"
 		case ir.SubgroupOperationAny:
 			funcName = "subgroupAny"
+		case ir.SubgroupOperationAllEqual:
+			funcName = "subgroupAllEqual"
 		case ir.SubgroupOperationAdd:
 			funcName = "subgroupAdd"
 		case ir.SubgroupOperationMul:

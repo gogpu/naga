@@ -90,10 +90,22 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 		if k.Predicate != nil {
 			operands = append(operands, *k.Predicate)
 		}
+	case ir.StmtSubgroupElect:
+		// Elect is a basic operation: Rust's SubgroupOperationSet comment puts
+		// elections under BASIC ("Possibly elections, when that is supported",
+		// valid/mod.rs), and no closer class exists.
+		need, result = SubgroupBasic, k.Result
 	case ir.StmtSubgroupCollectiveOperation:
 		need, result = SubgroupArithmetic, k.Result
-		if k.Op == ir.SubgroupOperationAll || k.Op == ir.SubgroupOperationAny {
+		if k.Op == ir.SubgroupOperationAll || k.Op == ir.SubgroupOperationAny ||
+			k.Op == ir.SubgroupOperationAllEqual {
 			need = SubgroupVote
+		}
+		// All-equal is a vote over one value and has no scan form: SPIR-V's
+		// OpGroupNonUniformAllEqual has no Group Operation operand and no
+		// backend writes a scan of it (ADR-014).
+		if k.Op == ir.SubgroupOperationAllEqual && k.CollectiveOp != ir.CollectiveReduce {
+			v.addErrorInStatement(index, "Subgroup operation is invalid: all-equal has no scan form")
 		}
 		operands = append(operands, k.Argument)
 	case ir.StmtSubgroupGather:
