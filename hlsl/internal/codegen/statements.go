@@ -1654,9 +1654,32 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 }
 
 // writeImageAtomicStatement writes an atomic operation on a storage texture texel.
-// Matches Rust naga: InterlockedXxx(image[coord], value);
+// Matches Rust naga: InterlockedXxx(image[coord], value). A compare-exchange is
+// InterlockedCompareExchange(dest, compare_value, value, original) — HLSL's
+// order, with the comparator second — and it always passes the last argument:
+// DXC has no three-argument InterlockedCompareExchange at all ("use of
+// undeclared identifier" for a workgroup variable and a UAV element alike), and
+// the statement's original value is not an IR expression, so it goes to a
+// scratch local.
 func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
 	w.WriteIndent()
+
+	var compareExpr *ir.ExpressionHandle
+	if xchg, ok := s.Fun.(ir.AtomicExchange); ok && xchg.Compare != nil {
+		compareExpr = xchg.Compare
+	}
+	var originalName string
+	if compareExpr != nil {
+		scalarName := "uint"
+		if inner := w.getExpressionTypeInner(s.Value); inner != nil {
+			if scalar, ok := inner.(ir.ScalarType); ok {
+				scalarName = w.typeInnerToHLSLStr(scalar)
+			}
+		}
+		originalName = fmt.Sprintf("_image_atomic_original_%d", w.imageAtomicScratch)
+		w.imageAtomicScratch++
+		fmt.Fprintf(&w.Out, "%s %s; ", scalarName, originalName)
+	}
 
 	funSuffix := atomicFunSuffix(s.Fun)
 	fmt.Fprintf(&w.Out, "Interlocked%s(", funSuffix)
@@ -1697,9 +1720,21 @@ func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
 
 	w.Out.WriteString("],")
 
+	// The comparator comes before the value, and the scratch local after it.
+	if compareExpr != nil {
+		if err := w.writeExpression(*compareExpr); err != nil {
+			return fmt.Errorf("image atomic: compare value: %w", err)
+		}
+		w.Out.WriteByte(',')
+	}
+
 	// Write value
 	if err := w.writeExpression(s.Value); err != nil {
 		return fmt.Errorf("image atomic: value: %w", err)
+	}
+	if originalName != "" {
+		w.Out.WriteByte(',')
+		w.Out.WriteString(originalName)
 	}
 	w.Out.WriteString(");\n")
 

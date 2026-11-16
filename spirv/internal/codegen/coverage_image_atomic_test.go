@@ -224,3 +224,106 @@ func TestImageAtomicSignedMin(t *testing.T) {
 		t.Error("expected OpAtomicSMin for signed image atomic min")
 	}
 }
+
+// TestImageAtomicCompareExchange pins the compare form of an image atomic:
+// OpAtomicCompareExchange with the texel pointer, the scope, the two memory
+// semantics operands, the value and the comparator. Emitting OpAtomicExchange
+// instead is a valid instruction that silently drops the comparison, which no
+// validator reports, so the operands have to be checked by value.
+func TestImageAtomicCompareExchange(t *testing.T) {
+	r32uintHandle := ir.TypeHandle(0)
+	vec2i32Handle := ir.TypeHandle(2)
+	compare := ir.ExpressionHandle(3)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "tex_r32uint", Inner: ir.ImageType{
+				Dim:           ir.Dim2D,
+				Arrayed:       false,
+				Class:         ir.ImageClassStorage,
+				StorageFormat: ir.StorageFormatR32Uint,
+			}},
+			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "vec2i32", Inner: ir.VectorType{
+				Size:   2,
+				Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "img",
+				Type:    r32uintHandle,
+				Space:   ir.SpaceHandle,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+			},
+		},
+		EntryPoints: []ir.EntryPoint{
+			{
+				Name:      "main",
+				Stage:     ir.StageCompute,
+				Workgroup: [3]uint32{1, 1, 1},
+				Function: ir.Function{
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprGlobalVariable{Variable: 0}},
+						{Kind: ir.ExprZeroValue{Type: vec2i32Handle}},
+						{Kind: ir.Literal{Value: ir.LiteralU32(2)}}, // value
+						{Kind: ir.Literal{Value: ir.LiteralU32(1)}}, // comparator
+					},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 4}}},
+						{Kind: ir.StmtImageAtomic{
+							Image:      0,
+							Coordinate: 1,
+							Fun:        ir.AtomicExchange{Compare: &compare},
+							Value:      2,
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spvBytes, err := backend.Compile(mod)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	assertValidSPIRV(t, spvBytes)
+	instrs := decodeSPIRVInstructions(spvBytes)
+
+	if hasOpcodeInInstrs(instrs, spvenums.OpAtomicExchange) {
+		t.Error("emitted OpAtomicExchange for a compare-exchange: the comparator is lost")
+	}
+
+	// OpConstant: Opcode ResultType Result Value.
+	constants := make(map[uint32]uint32)
+	for _, inst := range instrs {
+		if inst.opcode == spvenums.OpConstant && len(inst.words) >= 4 {
+			constants[inst.words[2]] = inst.words[3]
+		}
+	}
+
+	var cas *spirvInstruction
+	for i := range instrs {
+		if instrs[i].opcode == spvenums.OpAtomicCompareExchange {
+			cas = &instrs[i]
+			break
+		}
+	}
+	if cas == nil {
+		t.Fatal("no OpAtomicCompareExchange for an image compare-exchange")
+	}
+	// Opcode, ResultType, Result, Pointer, Scope, Equal semantics, Unequal
+	// semantics, Value, Comparator.
+	if len(cas.words) != 9 {
+		t.Fatalf("OpAtomicCompareExchange has %d words, want 9 (opcode word plus Result Type, Result, "+
+			"Pointer, Scope, Equal and Unequal semantics, Value, Comparator)", len(cas.words))
+	}
+	valueID, compareID := cas.words[7], cas.words[8]
+	if got, ok := constants[valueID]; !ok || got != 2 {
+		t.Errorf("value operand resolves to %d (a constant: %v), want 2", got, ok)
+	}
+	if got, ok := constants[compareID]; !ok || got != 1 {
+		t.Errorf("comparator operand resolves to %d (a constant: %v), want 1", got, ok)
+	}
+}

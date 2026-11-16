@@ -114,6 +114,12 @@ type Writer struct {
 	namedExpressions    map[ir.ExpressionHandle]string
 	needBakeExpressions map[ir.ExpressionHandle]struct{}
 
+	// imageAtomicScratch numbers the scratch locals of image compare-exchanges,
+	// whose original value DXC accepts only as an out argument. The statement
+	// has no result handle to name the local after, and two statements may
+	// share a comparator expression, so a counter keeps the names apart.
+	imageAtomicScratch int
+
 	// Output tracking
 	entryPointNames     map[string]string
 	registerBindings    map[string]string

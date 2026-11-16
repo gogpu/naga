@@ -63,6 +63,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block, as glslang states — with the message now naming that rule instead of a pending feature. A `bool`
   member keeps its IR type; the HLSL and MSL targets take it, while Vulkan SPIR-V forbids an `OpTypeBool`
   inside a block (declare the flag as `uint`/`int`, the same four bytes).
+- **GLSL frontend: atomic memory functions and image atomics** (NAGA-FEAT-002, card P1-GLSLIN-015). The eight
+  atomic memory functions of GLSL 4.60 §8.11 (`atomicAdd`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`,
+  `atomicXor`, `atomicExchange`, `atomicCompSwap`) on shared variables and buffer-block members, int and uint
+  overloads with GLSL's implicit conversion on the value operand, lowered onto the IR's existing atomic
+  statements; and the eight `imageAtomic*` functions of §8.12 on `r32i`/`r32ui` storage images, compare-exchange
+  included (`OpAtomicCompareExchange` on the texel pointer, MSL `atomic_compare_exchange_weak`, HLSL
+  `InterlockedCompareExchange`, GLSL `imageAtomicCompSwap`). Image atomics are statements: the IR carries no
+  result for one, so using an image atomic's old value is refused with a message naming that limitation, and
+  `atomic_uint` counters are refused for the same class of reason (no atomic-counter resource in the IR). A
+  vector-component operand (`atomicAdd(v.x, 1u)`, which glslang accepts) is refused because the IR's atomic
+  pointer is to a scalar; `imageAtomicExchange` on `r32f` is refused because the IR has no float-atomic
+  capability. Version gates: atomic memory functions require GLSL 4.30 (ES 3.10), image atomics 4.20. A
+  workgroup atomic uses the `Workgroup` scope (Rust naga's mapping) where glslang uses `Device` — narrower and
+  valid, recorded in the tests.
 
 ### Changed
 
@@ -83,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MSL: image atomics on arrayed textures dropped the array layer.** The writer addressed the texel with the
+  coordinate alone, so `imageAtomic*` on a 2D array or a cube array targeted layer 0 in every layer — a silent
+  miscompile (Rust naga's writer has the same flaw; its GLSL frontend never reaches the shape). The layer is now
+  the second argument of the texture atomic call, and the compare-exchange form writes the same way.
 - **GLSL std140 layout of `bool` members and struct members.** A `bool` occupies four bytes in a uniform block
   and a struct member's base alignment is rounded up to a `vec4`'s under std140 (GLSL 4.60 §7.6.2.2), as
   glslangValidator lays them out; the frontend's layout put the member after a `bool` one byte past its start

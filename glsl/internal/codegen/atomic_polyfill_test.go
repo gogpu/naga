@@ -124,3 +124,45 @@ fn main() {
 		t.Errorf("output has the predecrement --1.\nGot:\n%s", output)
 	}
 }
+
+// TestImageAtomicCompareExchange pins the compare form of an image atomic:
+// imageAtomicCompSwap(image, coord, compare, data) carries both operands.
+// WGSL has no texture compare-exchange, so the test turns the IR of a
+// textureAtomicExchange into one, as a frontend with the operation would.
+func TestImageAtomicCompareExchange(t *testing.T) {
+	const source = `
+@group(0) @binding(0) var img: texture_storage_2d<r32sint, read_write>;
+
+@compute @workgroup_size(1)
+fn main() {
+    textureAtomicAdd(img, vec2<i32>(0, 0), -1i);
+}
+`
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
+	if err != nil {
+		t.Fatalf("WGSL lower error: %v", err)
+	}
+	fn := &module.EntryPoints[0].Function
+	compare := ir.ExpressionHandle(len(fn.Expressions))
+	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ir.Literal{Value: ir.LiteralI32(1)}})
+	found := false
+	for i := range fn.Body {
+		if s, ok := fn.Body[i].Kind.(ir.StmtImageAtomic); ok {
+			s.Fun = ir.AtomicExchange{Compare: &compare}
+			fn.Body[i].Kind = s
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no image atomic statement in the entry point")
+	}
+	output, _, err := Compile(module, Options{LangVersion: Version450})
+	if err != nil {
+		t.Fatalf("GLSL compile error: %v", err)
+	}
+	glslMustContain(t, output, "imageAtomicCompSwap(")
+	glslMustContain(t, output, ", 1, -1);") // compare, then data
+	if strings.Contains(output, "imageAtomicExchange(") {
+		t.Errorf("output has the unconditional imageAtomicExchange.\nGot:\n%s", output)
+	}
+}

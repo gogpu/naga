@@ -106,6 +106,11 @@ type Frontend struct {
 	// errors holds the semantic errors lowering recovers from, in occurrence
 	// order, as Rust's frontend.errors.
 	errors []frontError
+
+	// atomicUpgrades records the variables and struct members the module
+	// accesses with atomic memory functions, so upgradeAtomics can turn them
+	// atomic once every function is lowered (atomics.go).
+	atomicUpgrades atomicAccess
 }
 
 // namedLookup is one module-scope name and what it resolves to. sym is the

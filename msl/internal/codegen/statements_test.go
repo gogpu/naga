@@ -829,3 +829,103 @@ func TestMSL_RayQueryTerminate(t *testing.T) {
 	result := compileModule(t, module)
 	mustContainMSL(t, result, ".ready = false;")
 }
+
+// TestMSL_ImageAtomicCompareExchange pins the texture compare-exchange form.
+// MSL's texture atomics take the expected value as a thread address, so the
+// comparator must be materialized in a local before the call; emitting
+// .atomic_exchange(coord, value) instead would be valid MSL that silently drops
+// the comparison.
+func TestMSL_ImageAtomicCompareExchange(t *testing.T) {
+	tImage := ir.TypeHandle(0)
+	tVec2i := ir.TypeHandle(1)
+	compare := ir.ExpressionHandle(3)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "tex", Inner: ir.ImageType{
+				Dim:           ir.Dim2D,
+				Class:         ir.ImageClassStorage,
+				StorageFormat: ir.StorageFormatR32Uint,
+			}},
+			{Name: "vec2i", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "img", Type: tImage, Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}},
+		},
+		Functions: []ir.Function{
+			{
+				Name: "test_fn",
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprZeroValue{Type: tVec2i}},
+					{Kind: ir.Literal{Value: ir.LiteralU32(2)}}, // value
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}}, // comparator
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtImageAtomic{
+						Image:      0,
+						Coordinate: 1,
+						Fun:        ir.AtomicExchange{Compare: &compare},
+						Value:      2,
+					}},
+				},
+			},
+		},
+	}
+	result := compileModule(t, module)
+	mustContainMSL(t, result, ".atomic_compare_exchange_weak(")
+	mustContainMSL(t, result, "uint naga_atomic_expected = 1u;")
+	mustContainMSL(t, result, "&naga_atomic_expected, 2u)")
+	mustNotContainMSL(t, result, ".atomic_exchange(")
+}
+
+// TestMSL_ImageAtomicArrayedLayer pins the array layer of an arrayed storage
+// texture's atomic call: MSL's texture array atomics take it as the second
+// argument ("atomic_exchange(uint2 coord, uint array, Tv desired)"), and a call
+// without it would atomically exchange the wrong layer.
+func TestMSL_ImageAtomicArrayedLayer(t *testing.T) {
+	tImage := ir.TypeHandle(0)
+	tVec2i := ir.TypeHandle(1)
+	layer := ir.ExpressionHandle(3)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "tex", Inner: ir.ImageType{
+				Dim:           ir.Dim2D,
+				Arrayed:       true,
+				Class:         ir.ImageClassStorage,
+				StorageFormat: ir.StorageFormatR32Uint,
+			}},
+			{Name: "vec2i", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "img", Type: tImage, Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}},
+		},
+		Functions: []ir.Function{
+			{
+				Name: "test_fn",
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprZeroValue{Type: tVec2i}},
+					{Kind: ir.Literal{Value: ir.LiteralU32(2)}}, // value
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // array layer
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtImageAtomic{
+						Image:      0,
+						Coordinate: 1,
+						ArrayIndex: &layer,
+						Fun:        ir.AtomicExchange{},
+						Value:      2,
+					}},
+				},
+			},
+		},
+	}
+	result := compileModule(t, module)
+	mustContainMSL(t, result, ".atomic_exchange(")
+	// coordinate, then the layer, then the value.
+	if !strings.Contains(result, ", 0, 2u);") {
+		t.Errorf("the atomic call does not pass the array layer between the coordinate and the value.\nOutput:\n%s", result)
+	}
+}
