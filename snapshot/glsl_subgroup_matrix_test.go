@@ -51,9 +51,12 @@ var glslSubgroupMatrix = []glslMatrixRow{
 		extension: ".comp",
 		builtins:  []string{"subgroupBarrier"},
 		targetEnv: "vulkan1.1",
-		backendSkip: map[string]string{
-			"hlsl": "HLSL has no subgroup barrier; the backend refuses the SUBGROUP_BARRIER capability " +
-				"(msl writes a threadgroup_barrier, a superset of the subgroup barrier, and is recorded here)",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason: "HLSL has no subgroup barrier; the backend refuses the SUBGROUP_BARRIER capability " +
+					"(msl writes a threadgroup_barrier, a superset of the subgroup barrier, and is recorded here)",
+				wantError: "SUBGROUP_BARRIER",
+			},
 		},
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_basic : require
@@ -71,9 +74,12 @@ void main() { subgroupBarrier(); counter = gl_GlobalInvocationID.x; }
 			"subgroupMemoryBarrierShared", "subgroupMemoryBarrierImage",
 		},
 		targetEnv: "vulkan1.1",
-		backendSkip: map[string]string{
-			"hlsl": "HLSL has no subgroup memory barrier; the backend refuses the SUBGROUP_BARRIER " +
-				"capability (msl writes a threadgroup_barrier, a superset, and is recorded here)",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason: "HLSL has no subgroup memory barrier; the backend refuses the SUBGROUP_BARRIER " +
+					"capability (msl writes a threadgroup_barrier, a superset, and is recorded here)",
+				wantError: "SUBGROUP_BARRIER",
+			},
 		},
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_basic : require
@@ -989,23 +995,17 @@ func compileGLSLSubgroupModule(t *testing.T, row glslMatrixRow, module *ir.Modul
 
 // textBackendStep runs one text backend's step for a subgroup row: an error is
 // the step's failure unless the row records the backend as unable to write the
-// module, in which case the failure is the recorded limitation and the step
-// passes; a backend the row records as unable that nonetheless writes the
-// module fails the test.
+// module, in which case the failure must be the recorded refusal — the error
+// must carry the recorded text — and the step passes; a backend the row
+// records as unable that nonetheless writes the module, or that refuses with a
+// different cause, fails the test.
 func textBackendStep(t *testing.T, row glslMatrixRow, name string, compile func() error) (string, error) {
 	t.Helper()
-	reason, recorded := row.backendSkip[name]
-	err := compile()
-	switch {
-	case err == nil && recorded:
-		t.Fatalf("%s: the recorded %s limitation no longer applies (the backend wrote the module): %s",
-			row.name, name, reason)
-	case err != nil && recorded:
-		if reason == "" {
-			t.Fatalf("%s: records a %s limitation with no reason", row.name, name)
-		}
+	if refusal, recorded := row.backendSkip[name]; recorded {
+		assertRecordedRefusal(t, row, name, refusal, compile())
 		return "", nil
-	case err != nil:
+	}
+	if err := compile(); err != nil {
 		return name, err
 	}
 	return "", nil

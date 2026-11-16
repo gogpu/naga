@@ -69,11 +69,38 @@ type glslMatrixRow struct {
 	// requires SPIR-V 1.3". Empty means glslang's default.
 	targetEnv string
 	// backendSkip records a text backend that cannot write an ok row's module,
-	// keyed by "msl" or "hlsl", with the reason. The matrix asserts the backend
-	// still refuses the module, so a limitation that stops applying fails the
-	// test; it is recorded, never silently skipped. Empty for a row every
-	// backend writes.
-	backendSkip map[string]string
+	// keyed by "msl" or "hlsl": why, and the refusal text the backend must
+	// produce. The matrix asserts the backend still refuses the module with
+	// that text, so a limitation that stops applying — or a refusal that moves
+	// to a different cause — fails the test; it is recorded, never silently
+	// skipped. Empty for a row every backend writes.
+	backendSkip map[string]backendRefusal
+}
+
+// backendRefusal is one recorded backend limitation: the reason it exists and
+// a substring of the error the backend must return for the row. The text is
+// required: a skip that only checks "some error" passes for the wrong reason
+// when an earlier refusal fires, and the branch the row records stays dead.
+type backendRefusal struct {
+	reason    string
+	wantError string
+}
+
+// assertRecordedRefusal checks a backend the row records as unable to write
+// the module: it must refuse, and its error must carry the recorded text.
+func assertRecordedRefusal(t *testing.T, row glslMatrixRow, backend string, refusal backendRefusal, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s: the recorded %s limitation no longer applies (the backend wrote the module): %s",
+			row.name, backend, refusal.reason)
+	}
+	if refusal.wantError == "" {
+		t.Fatalf("%s: records a %s limitation with no required error text", row.name, backend)
+	}
+	if !strings.Contains(err.Error(), refusal.wantError) {
+		t.Fatalf("%s: %s refuses with %q, want the recorded refusal containing %q (%s)",
+			row.name, backend, err, refusal.wantError, refusal.reason)
+	}
 }
 
 // glslImageSamplingMatrix is the matrix: the sampling families first, then the

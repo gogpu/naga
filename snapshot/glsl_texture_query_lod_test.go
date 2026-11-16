@@ -68,9 +68,12 @@ void main() { fragColor = vec4(textureQueryLod(s, uv), 0.0, 0.0); }
 		stage:     ir.StageFragment,
 		extension: ".frag",
 		builtins:  []string{"textureQueryLod"},
-		backendSkip: map[string]string{
-			"msl": "Metal has no calculate_clamped_lod for texture1d; SPIRV-Cross refuses " +
-				"OpImageQueryLod on a 1D texture too",
+		backendSkip: map[string]backendRefusal{
+			"msl": {
+				reason: "Metal has no calculate_clamped_lod for texture1d; SPIRV-Cross refuses " +
+					"OpImageQueryLod on a 1D texture too",
+				wantError: "no calculate_clamped_lod for texture1d",
+			},
 		},
 		source: `#version 450
 layout(set = 0, binding = 0) uniform sampler1D s;
@@ -134,8 +137,11 @@ void main() { fragColor = vec4(textureQueryLod(s, d), 0.0, 0.0); }
 		stage:     ir.StageFragment,
 		extension: ".frag",
 		builtins:  []string{"textureQueryLod"},
-		backendSkip: map[string]string{
-			"hlsl": "dxc's Texture2D<int4> has no CalculateLevelOfDetail member",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason:    "dxc's Texture2D<int4> has no CalculateLevelOfDetail member",
+				wantError: "CalculateLevelOfDetail exists only for floating-point",
+			},
 		},
 		source: `#version 450
 layout(set = 0, binding = 0) uniform isampler2D s;
@@ -149,8 +155,11 @@ void main() { fragColor = vec4(textureQueryLod(s, uv), 0.0, 0.0); }
 		stage:     ir.StageFragment,
 		extension: ".frag",
 		builtins:  []string{"textureQueryLod"},
-		backendSkip: map[string]string{
-			"hlsl": "dxc's Texture2D<uint4> has no CalculateLevelOfDetail member",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason:    "dxc's Texture2D<uint4> has no CalculateLevelOfDetail member",
+				wantError: "CalculateLevelOfDetail exists only for floating-point",
+			},
 		},
 		source: `#version 450
 layout(set = 0, binding = 0) uniform usampler2D s;
@@ -164,9 +173,12 @@ void main() { fragColor = vec4(textureQueryLod(s, uv), 0.0, 0.0); }
 		stage:     ir.StageFragment,
 		extension: ".frag",
 		builtins:  []string{"textureQueryLod"},
-		backendSkip: map[string]string{
-			"hlsl": "the sampler of a depth image is a SamplerComparisonState, and dxc accepts " +
-				"CalculateLevelOfDetail with one only from shader model 6.8",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason: "the sampler of a depth image is a SamplerComparisonState, and dxc accepts " +
+					"CalculateLevelOfDetail with one only from shader model 6.8",
+				wantError: "SamplerComparisonState",
+			},
 		},
 		source: `#version 450
 layout(set = 0, binding = 0) uniform sampler2DShadow s;
@@ -180,9 +192,12 @@ void main() { fragColor = vec4(textureQueryLod(s, uv), 0.0, 0.0); }
 		stage:     ir.StageFragment,
 		extension: ".frag",
 		builtins:  []string{"textureQueryLod"},
-		backendSkip: map[string]string{
-			"hlsl": "the sampler of a depth image is a SamplerComparisonState, and dxc accepts " +
-				"CalculateLevelOfDetail with one only from shader model 6.8",
+		backendSkip: map[string]backendRefusal{
+			"hlsl": {
+				reason: "the sampler of a depth image is a SamplerComparisonState, and dxc accepts " +
+					"CalculateLevelOfDetail with one only from shader model 6.8",
+				wantError: "SamplerComparisonState",
+			},
 		},
 		source: `#version 450
 layout(set = 0, binding = 0) uniform samplerCubeShadow s;
@@ -384,10 +399,8 @@ func compileTextureQueryLodModule(t *testing.T, row glslMatrixRow, module *ir.Mo
 	// (calculate_clamped_lod / calculate_unclamped_lod) arrived in MSL 2.2
 	// (SPIRV-Cross's supports_msl_version (2, 2) check).
 	mslSrc, _, mslErr := msl.Compile(module, msl.Options{LangVersion: msl.Version{Major: 2, Minor: 2}})
-	if reason, recorded := row.backendSkip["msl"]; recorded {
-		if mslErr == nil {
-			t.Fatalf("%s: the recorded msl limitation no longer applies: %s", row.name, reason)
-		}
+	if refusal, recorded := row.backendSkip["msl"]; recorded {
+		assertRecordedRefusal(t, row, "msl", refusal, mslErr)
 	} else if mslErr != nil {
 		return "msl", mslErr
 	} else {
@@ -395,13 +408,11 @@ func compileTextureQueryLodModule(t *testing.T, row glslMatrixRow, module *ir.Mo
 	}
 
 	hlslSrc, _, hlslErr := hlsl.Compile(module, hlsl.Options{})
-	reason, recorded := row.backendSkip["hlsl"]
-	switch {
-	case hlslErr == nil && recorded:
-		t.Fatalf("%s: the recorded hlsl limitation no longer applies: %s", row.name, reason)
-	case hlslErr != nil && recorded:
+	if refusal, recorded := row.backendSkip["hlsl"]; recorded {
+		assertRecordedRefusal(t, row, "hlsl", refusal, hlslErr)
 		return "", nil
-	case hlslErr != nil:
+	}
+	if hlslErr != nil {
 		return "hlsl", hlslErr
 	}
 	assertLodBackendText(t, row, "hlsl", hlslSrc)
