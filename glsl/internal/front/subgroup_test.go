@@ -10,7 +10,6 @@ package front
 // validation, SPIR-V + spirv-val and the text backends.
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -309,6 +308,39 @@ func TestSubgroupArithmeticFloat(t *testing.T) {
 	}
 }
 
+// TestSubgroupVectorOperand: GLSL takes a vector operand for the collective
+// families and the IR carries it — the result is the argument's own vector type
+// (SPIR-V's subgroup operation on a vector is per component; the MSL writer
+// expands such an operand into one scalar simd call per component, and a
+// vector row runs through the snapshot matrix, P2-GLSLIN-028).
+func TestSubgroupVectorOperand(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_arithmetic : require\n"
+	cases := []struct {
+		name   string
+		call   string
+		size   ir.VectorSize
+		scalar ir.ScalarKind
+	}{
+		{"float vec4 reduce", "subgroupAdd(vec4(gl_GlobalInvocationID.x))", ir.Vec4, ir.ScalarFloat},
+		{"uint uvec2 scan", "subgroupInclusiveAdd(uvec2(gl_GlobalInvocationID.xy))", ir.Vec2, ir.ScalarUint},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := "void main() { vec4 sink = vec4(" + tc.call + "); o.f = sink.x; }\n"
+			if tc.scalar == ir.ScalarUint {
+				body = "void main() { uvec2 sink = " + tc.call + "; o.f = float(sink.x); }\n"
+			}
+			mod := parseSubgroup(t, subgroupComputeSource(extensions, body), ir.StageCompute)
+			op := firstSubgroupCollective(t, mod)
+			result := mainFunction(t, mod).Expressions[op.Result].Kind.(ir.ExprSubgroupOperationResult)
+			vector, isVector := mod.Types[result.Type].Inner.(ir.VectorType)
+			if !isVector || vector.Size != tc.size || vector.Scalar.Kind != tc.scalar {
+				t.Fatalf("result type is %v, want a %d-vector of %v", mod.Types[result.Type].Inner, tc.size, tc.scalar)
+			}
+		})
+	}
+}
+
 // TestSubgroupExtensionGate pins the availability rule: each family needs its
 // own extension, the basic family is enabled by any of them (each of the seven
 // requires GL_KHR_shader_subgroup_basic), and the diagnostic is glslang's
@@ -499,21 +531,62 @@ func TestSubgroupDeclaredFunctionShadows(t *testing.T) {
 	}
 }
 
-// TestSubgroupVariableRefusal: the subgroup built-in variables are not wired
-// into the entry point yet, and their use is refused with a message naming the
-// limitation rather than an unknown-name text.
-func TestSubgroupVariableRefusal(t *testing.T) {
-	for _, name := range []string{"gl_SubgroupSize", "gl_SubgroupInvocationID", "gl_SubgroupID", "gl_NumSubgroups"} {
-		t.Run(name, func(t *testing.T) {
-			_, _, err := Parse(subgroupComputeSource(
-				"#extension GL_KHR_shader_subgroup_basic : require\n",
-				"void main() { o.v = "+name+"; }\n"), Options{Stage: ir.StageCompute})
-			if err == nil {
-				t.Fatalf("parsed, want a refusal for %s", name)
-			}
-			if !strings.Contains(err.Error(), "subgroup built-in variables of GL_KHR_shader_subgroup_basic are not implemented") {
-				t.Fatalf("refusal is %q, want it to name the missing entry-point wiring", err.Error())
-			}
-		})
+// TestSubgroupBuiltinVariables: the four scalar variables of
+// GL_KHR_shader_subgroup_basic (GLSL 4.60 §8.18) are wired through the entry
+// point as glslang compiles them — Input variables decorated SubgroupSize,
+// SubgroupLocalInvocationId, SubgroupId and NumSubgroups (probed 2026-11-16) —
+// and each is a private u32 global bound as an entry argument.
+func TestSubgroupBuiltinVariables(t *testing.T) {
+	mod := parseSubgroup(t, subgroupComputeSource(
+		"#extension GL_KHR_shader_subgroup_basic : require\n",
+		"void main() { o.v = gl_SubgroupSize + gl_SubgroupInvocationID + gl_SubgroupID + gl_NumSubgroups; }\n"),
+		ir.StageCompute)
+
+	want := map[string]ir.BuiltinValue{
+		"gl_SubgroupSize":         ir.BuiltinSubgroupSize,
+		"gl_SubgroupInvocationID": ir.BuiltinSubgroupInvocationID,
+		"gl_SubgroupID":           ir.BuiltinSubgroupID,
+		"gl_NumSubgroups":         ir.BuiltinNumSubgroups,
 	}
+	bound := map[ir.BuiltinValue]bool{}
+	for _, arg := range mod.EntryPoints[0].Function.Arguments {
+		if arg.Binding == nil {
+			continue
+		}
+		if b, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
+			bound[b.Builtin] = true
+		}
+	}
+	for name, value := range want {
+		g := findGlobal(t, mod, name)
+		if g.Space != ir.SpacePrivate {
+			t.Errorf("%s: space = %v, want private", name, g.Space)
+		}
+		scalar, ok := mod.Types[g.Type].Inner.(ir.ScalarType)
+		if !ok || scalar.Kind != ir.ScalarUint || scalar.Width != 4 {
+			t.Errorf("%s: type = %v, want uint", name, mod.Types[g.Type].Inner)
+		}
+		if !bound[value] {
+			t.Errorf("%s is not bound as an entry argument", name)
+		}
+	}
+}
+
+// TestSubgroupBuiltinVariableAvailability: the variables follow the availability
+// rules of the subgroup builtins — the family's extension is required (glslang:
+// "'gl_SubgroupSize' : required extension not requested:
+// GL_KHR_shader_subgroup_basic", probed 2026-11-16) — and the ballot family's
+// mask variables, which have no ir.Builtin value, are refused with the gap
+// named.
+func TestSubgroupBuiltinVariableAvailability(t *testing.T) {
+	t.Run("the extension is required", func(t *testing.T) {
+		parseErr(t, subgroupComputeSource("", "void main() { o.v = gl_SubgroupSize; }\n"),
+			Options{Stage: ir.StageCompute},
+			"'gl_SubgroupSize' : required extension not requested: GL_KHR_shader_subgroup_basic")
+	})
+	t.Run("the ballot masks have no IR value", func(t *testing.T) {
+		parseErr(t, subgroupComputeSource("#extension GL_KHR_shader_subgroup_ballot : require\n",
+			"void main() { uvec4 m = gl_SubgroupEqMask; o.v = m.x; }\n"),
+			Options{Stage: ir.StageCompute}, "subgroup ballot mask built-in variables")
+	})
 }

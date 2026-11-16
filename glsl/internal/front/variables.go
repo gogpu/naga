@@ -42,6 +42,12 @@ var builtinVariableNames = map[string]bool{
 	"gl_SampleID":             true,
 	"gl_LocalInvocationIndex": true,
 	"gl_DrawID":               true,
+	// The GL_KHR_shader_subgroup_basic scalar variables (§8.18); their
+	// availability is the extension's, checked when they are lowered.
+	"gl_SubgroupSize":         true,
+	"gl_SubgroupInvocationID": true,
+	"gl_SubgroupID":           true,
+	"gl_NumSubgroups":         true,
 }
 
 // builtinSymbol returns the symbol of the builtin variable name denotes, or nil
@@ -279,6 +285,20 @@ func builtinDataFor(name string, stage ir.ShaderStage) (builtinData, bool) {
 		return builtinData{inner: u32, builtin: ir.BuiltinLocalInvocationIndex, storage: storageInput}, true
 	case "gl_DrawID":
 		return builtinData{inner: u32, builtin: ir.BuiltinDrawIndex, storage: storageInput}, true
+
+	// The four scalar variables of GL_KHR_shader_subgroup_basic (GLSL 4.60
+	// §8.18). Their ir.Builtin values exist and every backend writes them; like
+	// the subgroup builtins they are available only where the source enables
+	// the family's extension, which addBuiltin checks (subgroupVariableGate)
+	// because the availability rule is the frontend's, not the type table's.
+	case "gl_SubgroupSize":
+		return builtinData{inner: u32, builtin: ir.BuiltinSubgroupSize, storage: storageInput}, true
+	case "gl_SubgroupInvocationID":
+		return builtinData{inner: u32, builtin: ir.BuiltinSubgroupInvocationID, storage: storageInput}, true
+	case "gl_SubgroupID":
+		return builtinData{inner: u32, builtin: ir.BuiltinSubgroupID, storage: storageInput}, true
+	case "gl_NumSubgroups":
+		return builtinData{inner: u32, builtin: ir.BuiltinNumSubgroups, storage: storageInput}, true
 	}
 	return builtinData{}, false
 }
@@ -291,6 +311,12 @@ func (f *Frontend) addBuiltin(c *Context, sym *glslSymbol, span ir.Span) (*varia
 	data, ok := builtinDataFor(sym.Name, f.meta.stage)
 	if !ok {
 		return nil, errUnknownVariable(sym.Name, span)
+	}
+	// The subgroup variables are available only where the family's extension is
+	// enabled (and not in GLSL ES before 3.10); glslang resolves the rule before
+	// the name.
+	if err := f.subgroupVariableGate(sym.Name, span); err != nil {
+		return nil, err
 	}
 	var ty ir.TypeHandle
 	if data.clipCull {

@@ -39,8 +39,8 @@
 // including the level-of-detail query (textureQueryLod, GLSL 4.00+; the GL 3.30
 // core and ES 3.00 dialects refuse it), but a few subgroup forms the IR cannot
 // express are refused with a message naming the limitation (subgroupElect,
-// subgroupAllEqual, the ballot helpers, the clustered forms, the
-// Min/Max/And/Or/Xor scans, and the subgroup built-in variables); ParseInfo and
+// subgroupAllEqual, the ballot bit helpers and the gl_Subgroup*Mask variables,
+// the clustered forms, and the Min/Max/And/Or/Xor scans); ParseInfo and
 // ParseOptions may still change until the frontend is complete.
 //
 // # Plain Uniforms

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GLSL frontend: the subgroup built-in variables** (NAGA-FEAT-002, card P2-GLSLIN-027). The four scalar
+  variables of `GL_KHR_shader_subgroup_basic` — `gl_SubgroupSize`, `gl_SubgroupInvocationID`, `gl_SubgroupID`
+  and `gl_NumSubgroups` (GLSL 4.60 §8.18) — lower onto the IR's `BuiltinSubgroupSize`,
+  `BuiltinSubgroupInvocationID`, `BuiltinSubgroupID` and `BuiltinNumSubgroups` as private u32 globals bound as
+  entry-point arguments, which is what glslang compiles (input variables decorated `SubgroupSize`,
+  `SubgroupLocalInvocationId`, `SubgroupId`, `NumSubgroups`). Availability follows the subgroup builtins':
+  the basic family's extension must be enabled (glslang: "'gl_SubgroupSize' : required extension not
+  requested: GL_KHR_shader_subgroup_basic") and GLSL ES before 3.10 has no subgroup operations. The ballot
+  family's mask variables (`gl_SubgroupEqMask` and siblings) stay refused with a message naming the missing
+  IR value, and the remaining subgroup gaps (elect, all-equal, the ballot bit operations, the clustered forms)
+  are recorded on the new card P2-IR-038 with glslang's SPIR-V shape for each and what every backend would
+  need — they require an IR design before v1.0, not a frontend patch.
+
 - **GLSL frontend: `textureQueryLod`** (NAGA-FEAT-002, card P1-GLSLIN-012). The level-of-detail query of GLSL
   4.00 §8.9 is accepted where glslangValidator accepts it — the 1D, 2D, 3D, cube, 1D-array, 2D-array and
   cube-array sampled, depth (shadow) and integer sampler classes, with the spatial coordinate and without the
@@ -28,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserts each backend's refusals.
 
 ### Fixed
+
+- **MSL: a vector operand to a subgroup collective is written as one scalar `simd` call per component instead
+  of a call on the vector, which Metal rejects** (card P2-GLSLIN-028). Metal's `simd_sum`/`simd_min`/… take
+  and return scalars, while the subgroup operation on a vector is defined per component (SPIR-V's
+  `OpGroupNonUniformFAdd` on a vector type reduces each component independently, which glslang emits); the
+  writer now evaluates the operand once and expands the call per component, with the result rebuilt into the
+  vector. The HLSL and SPIR-V writers already carried vectors (dxc compiles `WaveActiveSum` on vectors), and
+  three matrix rows run the vector forms through glslang, spirv-val, MSL, HLSL and the GLSL round trip.
 
 - **GLSL frontend: four declaration rules are enforced instead of accepted silently** (NAGA-FEAT-002, cards
   P2-GLSLIN-023..026).

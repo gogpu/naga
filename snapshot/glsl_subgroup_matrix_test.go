@@ -94,6 +94,53 @@ void main() {
 }
 `,
 	},
+	{
+		name:      "subgroup-builtin-variables",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		targetEnv: "vulkan1.1",
+		// The four scalar variables of GL_KHR_shader_subgroup_basic (GLSL 4.60
+		// §8.18) are wired through the entry point as glslang compiles them:
+		// Input variables decorated SubgroupSize, SubgroupLocalInvocationId,
+		// SubgroupId and NumSubgroups (probed 2026-11-16).
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_basic : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
+void main() {
+    o.v = uvec4(gl_SubgroupSize, gl_SubgroupInvocationID, gl_SubgroupID, gl_NumSubgroups);
+}
+`,
+	},
+	{
+		name:      "refuse-subgroup-builtin-variable-without-extension",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		refuse:    "'gl_SubgroupSize' : required extension not requested: GL_KHR_shader_subgroup_basic",
+		reason: "the subgroup built-in variables follow the builtins' availability rule — the family's " +
+			"extension must be enabled; glslang refuses the same source with the same message (probed " +
+			"2026-11-16)",
+		source: `#version 450
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
+void main() { o.v = uvec4(gl_SubgroupSize); }
+`,
+	},
+	{
+		name:      "refuse-subgroup-ballot-mask-variable",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		refuse:    "subgroup ballot mask built-in variables",
+		reason: "gl_SubgroupEqMask and its siblings are GLSL and glslang accepts them, but ir.Builtin has " +
+			"no subgroup ballot-mask value, so the frontend refuses them with the gap named instead of " +
+			"lowering a mask the IR cannot carry (P2-GLSLIN-027)",
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_ballot : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
+void main() { o.v = gl_SubgroupEqMask; }
+`,
+	},
 
 	// --- the vote family -----------------------------------------------------
 
@@ -418,6 +465,56 @@ void main() { o.v = subgroupInclusiveMul(gl_GlobalInvocationID.x + 1u); }
 layout(local_size_x = 64) in;
 layout(set = 0, binding = 0) buffer Out { uint v; } o;
 void main() { o.v = subgroupExclusiveMul(gl_GlobalInvocationID.x + 1u); }
+`,
+	},
+
+	// --- vector operands (P2-GLSLIN-028) --------------------------------------
+	//
+	// GLSL takes vector operands for the collective families, and SPIR-V
+	// defines the operation on a vector per component (glslang emits
+	// OpGroupNonUniformFAdd on a vector type, probed 2026-11-16). The writers
+	// carry it: SPIR-V directly, HLSL's Wave* intrinsics take vectors (dxc 6.x
+	// compiles them, probed), and the MSL writer expands the operand into one
+	// scalar simd call per component, because Metal's simd functions take
+	// scalars only.
+
+	{
+		name:      "subgroup-add-vector",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"subgroupAdd"},
+		targetEnv: "vulkan1.1",
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { vec4 v; } o;
+void main() { o.v = subgroupAdd(vec4(gl_GlobalInvocationID.x)); }
+`,
+	},
+	{
+		name:      "subgroup-and-vector",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"subgroupAnd"},
+		targetEnv: "vulkan1.1",
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
+void main() { o.v = subgroupAnd(uvec4(gl_GlobalInvocationID.x)); }
+`,
+	},
+	{
+		name:      "subgroup-inclusive-add-vector",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"subgroupInclusiveAdd"},
+		targetEnv: "vulkan1.1",
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec2 v; } o;
+void main() { o.v = subgroupInclusiveAdd(uvec2(gl_GlobalInvocationID.xy)); }
 `,
 	},
 
