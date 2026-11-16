@@ -1999,7 +1999,12 @@ func exprOperandHandles(kind ir.ExpressionKind) []ir.ExpressionHandle {
 	case ir.ExprImageLoad:
 		return collectImageLoadOperands(ek)
 	case ir.ExprImageQuery:
-		return []ir.ExpressionHandle{ek.Image}
+		// The image plus the query's own operands: a Size query's level and the
+		// level-of-detail query's sampler and coordinate. Returning the image
+		// alone undercounts uses in computeExprUseCount, which the Reassociate
+		// pass reads to fold single-use chains (a level or a coordinate the
+		// query still needs would look unreferenced).
+		return imageQueryOperands(ek)
 	case ir.ExprArrayLength:
 		return []ir.ExpressionHandle{ek.Array}
 	default:
