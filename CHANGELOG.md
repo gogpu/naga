@@ -29,6 +29,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GLSL frontend: four declaration rules are enforced instead of accepted silently** (NAGA-FEAT-002, cards
+  P2-GLSLIN-023..026).
+  - A storage image whose declared class contradicts its `layout(...)` format is refused at the qualifier with
+    glslang's wording — `iimage2D` takes signed integer formats, `uimage2D` unsigned integer ones, `image2D`
+    the floating-point and normalized ones (GLSL 4.60 §4.4.8: "It is a compile-time error to declare an image
+    variable where the format qualifier does not match the image variable type"). Before, the format replaced
+    the placeholder and the declared class was dropped, so `layout(r32ui) uniform iimage2D img;` lowered with
+    the wrong sign.
+  - A `shared` variable with an initializer is refused (GLSL 4.60 §4.3.8: "Variables declared as shared may
+    not have initializers"); before, the initializer was lowered as if the GL model gave shared storage a
+    defined starting value.
+  - A user declaration of a name beginning with the reserved `gl_` prefix is refused at every declaration
+    site — module-scope and local variables, parameters, functions, block type names, block instances and
+    block members, named blocks' members included (GLSL 4.60 §3.7). The builtins keep resolving, and struct
+    type names and
+    struct members stay accepted: the reservation covers names declared as variables and functions, and
+    glslang accepts `struct gl_S { float gl_y; };` in both its GL and Vulkan modes. A predeclared builtin's
+    redeclaration (`layout(origin_upper_left) in vec4 gl_FragCoord;`) is refused with the same message — the
+    frontend does not model builtin redeclarations, and refusing beats the silent location input it used to
+    become.
+  - A repeated module-scope name is refused with glslang's `'a' : redefinition`. One table now holds every
+    module-scope declaration — plain uniforms collected into the default block, interface blocks' instances
+    and instance-less members, opaque resources, combined image samplers, module-scope constants and
+    variables. Before, the later declaration won silently while the earlier one's references still resolved
+    to it. A local that shadows a module-scope name stays legal, and the members of a block declared with an
+    instance name stay out of the table — GLSL scopes them to the instance, and glslang accepts two such
+    blocks with a member of the same name.
+  - Every refusal was probed against glslangValidator 11:16.2.0 and is pinned by a unit test and the new
+    24-row declaration-rules matrix (glslang, spirv-val, MSL, HLSL and the GLSL round trip on the accepted
+    forms); the image matrix gained the four class/format refusal rows. The atomic upgrade's
+    initializer guard can no longer be reached from source — the declaration refusal fires first, with one
+    diagnostic — and stays as a defensive check of the IR invariant.
+
 - **MSL: a subgroup scan of Min, Max, And, Or or Xor is refused instead of being silently written as a
   reduction.** The MSL writer mapped those operations to `simd_min`/`simd_max`/`simd_and`/`simd_or`/`simd_xor`
   without looking at the collective operation, so an `InclusiveScan` or `ExclusiveScan` — reachable today from

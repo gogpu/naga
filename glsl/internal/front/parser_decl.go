@@ -110,6 +110,13 @@ func (p *parser) parseTypedDeclaration(qualifiers typeQualifiers, external bool)
 func (p *parser) parseFunctionDeclaration(
 	qualifiers typeQualifiers, typ *typeSpec, typeSpan ir.Span, nameTok glslToken, external bool,
 ) (*astDecl, *frontError) {
+	// GLSL 4.60 §3.7: identifiers starting with gl_ are reserved and may not be
+	// declared; glslang refuses a function too ("'gl_f' : identifiers starting
+	// with "gl_" are reserved"). A prototype and its definition are each a
+	// declaration and are each refused.
+	if err := refuseReservedIdentifier(nameTok.text, nameTok.span); err != nil {
+		p.errors = append(p.errors, *err)
+	}
 	if _, err := p.expectPunct("("); err != nil {
 		return nil, err
 	}
@@ -249,8 +256,15 @@ func (p *parser) declareDeclarator(d declarator, external bool) *glslSymbol {
 // (variables.rs:694-701): the new declaration replaces the old one and the
 // replacement is reported. A name of an enclosing scope is unrelated, because
 // shadowing is legal GLSL.
+//
+// A local name beginning with the reserved gl_ prefix is refused like a
+// module-scope one: glslang refuses `float gl_x;` inside a function body too,
+// and a local is a variable declaration in the spec's words (GLSL 4.60 §3.7).
 func (p *parser) declareLocal(name string, kind symbolKind, span ir.Span) *glslSymbol {
 	sym := &glslSymbol{Kind: kind, Name: name}
+	if err := refuseReservedIdentifier(name, span); err != nil {
+		p.errors = append(p.errors, *err)
+	}
 	if p.symbols.declare(sym) != nil {
 		p.errors = append(p.errors, *errVariableAlreadyDeclared(name, span))
 	}
@@ -319,6 +333,13 @@ func (p *parser) parseQualifiedNameDeclaration(qualifiers typeQualifiers) (*astD
 // declaration may use it as one, and p.types is left alone here. The instance
 // name and every member name are module-scope names (declarations.rs:592-619).
 func (p *parser) parseBlockDeclaration(qualifiers typeQualifiers, name string, nameSpan ir.Span) (*astDecl, *frontError) {
+	// The block's own name is not a variable or a function, but the gl_
+	// prefix is reserved to the implementation all the same and glslang
+	// refuses `uniform gl_Blk { … };` ("'block declaration' : cannot redeclare
+	// block: gl_Blk"); the reservation's own message says why.
+	if err := refuseReservedIdentifier(name, nameSpan); err != nil {
+		p.errors = append(p.errors, *err)
+	}
 	members, err := p.parseStructMembers()
 	if err != nil {
 		return nil, err

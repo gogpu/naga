@@ -917,6 +917,73 @@ layout(location = 0) out vec4 fragColor;
 void main() { fragColor = textureOffset(s, uv, offsets.value); }
 `,
 	},
+
+	// --- the image declaration's class against its layout format -------------
+	//
+	// The declared class fixes the sign of what the image loads and stores, and
+	// the format fixes it too, so the two must agree (GLSL 4.60 §4.4.8: "It is
+	// a compile-time error to declare an image variable where the format
+	// qualifier does not match the image variable type"; iimage takes signed
+	// integer formats, uimage unsigned integer ones, image the floating-point
+	// and normalized ones). glslang refuses each form at the qualifier, e.g.
+	// "'r32ui' : does not apply to signed integer images" (P2-GLSLIN-023).
+
+	{
+		name:      "refuse-signed-image-unsigned-format",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"imageLoad"},
+		refuse:    "'r32ui' : does not apply to signed integer images",
+		reason: "iimage2D loads ivec4 and r32ui is an unsigned integer format, so the two " +
+			"contradict (GLSL 4.60 §4.4.8); glslangValidator -V refuses the declaration",
+		source: `#version 450
+layout(r32ui, set = 0, binding = 0) uniform iimage2D img;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = vec4(imageLoad(img, ivec2(0))); }
+`,
+	},
+	{
+		name:      "refuse-unsigned-image-signed-format",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"imageLoad"},
+		refuse:    "'r32i' : does not apply to unsigned integer images",
+		reason: "uimage2D loads uvec4 and r32i is a signed integer format (GLSL 4.60 §4.4.8); " +
+			"glslangValidator -V refuses the declaration",
+		source: `#version 450
+layout(r32i, set = 0, binding = 0) uniform uimage2D img;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = vec4(imageLoad(img, ivec2(0))); }
+`,
+	},
+	{
+		name:      "refuse-float-image-unsigned-format",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"imageLoad"},
+		refuse:    "'r32ui' : does not apply to floating point images",
+		reason: "image2D loads vec4 and r32ui is an unsigned integer format (GLSL 4.60 " +
+			"§4.4.8); glslangValidator -V refuses the declaration",
+		source: `#version 450
+layout(r32ui, set = 0, binding = 0) uniform image2D img;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = imageLoad(img, ivec2(0)); }
+`,
+	},
+	{
+		name:      "refuse-signed-image-float-format",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"imageLoad"},
+		refuse:    "'r32f' : does not apply to signed integer images",
+		reason: "iimage2D loads ivec4 and r32f is a floating-point format (GLSL 4.60 §4.4.8); " +
+			"glslangValidator -V refuses the declaration",
+		source: `#version 450
+layout(r32f, set = 0, binding = 0) uniform iimage2D img;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = vec4(imageLoad(img, ivec2(0))); }
+`,
+	},
 }
 
 // glslTextureBuiltinNames reads the texture, image and texture-query builtin

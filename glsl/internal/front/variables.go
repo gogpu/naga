@@ -359,7 +359,10 @@ type qualifierEntry struct {
 	hasValue bool
 	layout   structLayout
 	format   ir.StorageFormat
-	span     ir.Span
+	// formatName is the format as the source spelled it (`r32ui`), for the
+	// diagnostics that name the qualifier back to the shader.
+	formatName string
+	span       ir.Span
 }
 
 // layoutUse is one declaration's layout qualifiers as lowering consumes them:
@@ -392,6 +395,13 @@ func (f *Frontend) takeLayoutQualifiers(q *typeQualifiers) *layoutUse {
 			layout: entry.Struct,
 			format: entry.Format,
 			span:   entry.Span,
+		}
+		if entry.Kind == layoutFormat {
+			// The name of a format entry is its spelling in the source, which a
+			// refusal quotes back (`'r32ui' : does not apply to …`); the entry's
+			// key drops it like Rust's QualifierKey::Format, but the diagnostic
+			// keeps it.
+			value.formatName = entry.Name
 		}
 		if entry.HasValue && entry.Value != nil {
 			v, err := f.constU32(entry.Value)
@@ -463,13 +473,11 @@ func (u *layoutUse) takeStructure() (structLayout, bool) {
 	return entry.layout, true
 }
 
-// takeFormat removes the storage-image format entry.
-func (u *layoutUse) takeFormat() (ir.StorageFormat, bool) {
-	entry, ok := u.take(qualifierKey{kind: layoutFormat})
-	if !ok {
-		return ir.StorageFormatUndefined, false
-	}
-	return entry.format, true
+// takeFormatEntry removes the storage-image format entry and returns it whole:
+// the caller reports a class mismatch at the qualifier's own span, quoting the
+// format as the source spelled it.
+func (u *layoutUse) takeFormatEntry() (*qualifierEntry, bool) {
+	return u.take(qualifierKey{kind: layoutFormat})
 }
 
 // takeIndex removes the `index = N` entry of an output variable,
@@ -646,6 +654,20 @@ func opaqueUniformDeclaration(spec typeSpec) bool {
 	}
 }
 
+// imageClassPhrase names the scalar class of an image type's declared class in
+// glslang's words, for the refusal of a format the class cannot carry:
+// "'r32ui' : does not apply to signed integer images".
+func imageClassPhrase(kind ir.ScalarKind) string {
+	switch kind {
+	case ir.ScalarSint:
+		return "signed integer"
+	case ir.ScalarUint:
+		return "unsigned integer"
+	default:
+		return "floating point"
+	}
+}
+
 // addGlobalVar declares one module-scope variable, constant or override, Rust
 // naga's Frontend::add_global_var (variables.rs:415-663). sym and name are nil
 // and empty for an instance-less interface block, whose members are the
@@ -657,6 +679,16 @@ func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQua
 		out    globalOrConstant
 		lookup globalLookup
 	)
+	// Every named module-scope declaration claims its name before it builds
+	// anything, so a reserved or repeated one is refused with nothing left
+	// behind (module_names.go). An instance-less interface block has no name of
+	// its own; its members are the names that matter and are registered by
+	// lowerBlockDeclaration.
+	if name != "" {
+		if err := f.declareModuleName(name, span); err != nil {
+			return out, err
+		}
+	}
 	switch storage := qualifiers.Storage; storage {
 	case storageInput, storageOutput:
 		input := storage == storageInput
@@ -759,8 +791,26 @@ func (f *Frontend) addGlobalVar(c *Context, used *layoutUse, qualifiers *typeQua
 						access = ir.StorageAccessLoad | ir.StorageAccessStore
 					}
 					format := inner.StorageFormat
-					if taken, ok := used.takeFormat(); ok {
-						format = taken
+					// The declared class fixes the sign of the type the image
+					// loads and stores, and the format fixes it too, so the two
+					// must agree — GLSL 4.60 §4.4.8: "It is a compile-time error
+					// to declare an image variable where the format qualifier
+					// does not match the image variable type", with iimage
+					// taking the int-image-format-qualifiers, uimage the
+					// uint ones and image the float ones. A mismatch used to be
+					// lowered silently — the placeholder format was replaced and
+					// the declared class dropped (P2-GLSLIN-023) — where glslang
+					// refuses at the qualifier: "'r32ui' : does not apply to
+					// signed integer images". Rust naga replaces the format
+					// without comparing the two (its add_global_var's storage
+					// image arm, variables.rs:563-601), so the refusal is a
+					// deliberate difference from Rust where the spec decides.
+					if entry, ok := used.takeFormatEntry(); ok {
+						format = entry.format
+						if entry.format.ScalarKind() != inner.SampledKind {
+							f.addError(errSemantic(entry.span, "'%s' : does not apply to %s images",
+								entry.formatName, imageClassPhrase(inner.SampledKind)))
+						}
 					} else {
 						f.addError(errMessage(span, "image types require a format layout qualifier"))
 					}
@@ -893,6 +943,21 @@ func (f *Frontend) lowerGlobalVarList(c *Context, d *declVarList) *frontError {
 
 	for i := range d.Declarators {
 		decl := &d.Declarators[i]
+		// GLSL 4.60 §4.3.8: "Variables declared as shared may not have
+		// initializers and their contents are undefined at the beginning of
+		// shader execution." glslang refuses the initializer ("'shared' :
+		// initializer can only be a null initializer ('{}')", and refuses the
+		// null one too), and keeping it would promise a starting value the GL
+		// model never gives (P2-GLSLIN-024). Refused here, before the
+		// initializer is lowered, so a variable that is also accessed with
+		// atomic memory functions reports this one error and not the atomic
+		// upgrade's. Rust naga carries the initializer into the global's init
+		// without examining the storage class, so this refusal is another
+		// deliberate difference from Rust where the spec decides.
+		if d.Qualifiers.Storage == storageShared && decl.Init != nil {
+			return errMessage(decl.Span,
+				"'shared' : a shared variable cannot have an initializer (GLSL 4.60 §4.3.8)")
+		}
 		ty, err := f.resolveTypeArrays(base, decl.Arrays)
 		if err != nil {
 			return err
@@ -948,6 +1013,11 @@ func (f *Frontend) addCombinedSampler(c *Context, used *layoutUse, qualifiers *t
 	}
 	if f.combinedPolicy == frontend.CombinedImageSamplerReject {
 		return errMessage(span, "combined image samplers are refused by CombinedImageSamplerReject")
+	}
+	// The declaration's name is a module-scope name like any other: reserved and
+	// repeated ones are refused here (module_names.go).
+	if err := f.declareModuleName(decl.Name, decl.Span); err != nil {
+		return err
 	}
 	// The image takes the declared layout(binding) of a Vulkan GLSL source, or
 	// is placed by the GL/ES binding model under the source name (design §11);
@@ -1194,6 +1264,22 @@ func (f *Frontend) lowerBlockDeclaration(c *Context, d *declBlock) *frontError {
 
 	for i := range d.Members {
 		member := &d.Members[i]
+		// A member is a variable declaration, so the reserved prefix is refused
+		// whether or not the block has an instance name — glslang refuses
+		// `uniform Blk { float gl_z; } blk;` as well as the instance-less form
+		// (probed 2026-11-16). The redefinition table only takes the member of
+		// an instance-less block: GLSL 4.60 §4.3.9 scopes the members of a named
+		// block to its instance ("it puts all the members inside a scope within
+		// its own name space"), and glslang accepts them repeating a global, a
+		// sibling block's member, or even the instance's own name — so only the
+		// instance-less member is a module-scope name.
+		if d.Instance == "" {
+			if err := f.declareModuleName(member.Name, member.Span); err != nil {
+				return err
+			}
+		} else if err := refuseReservedIdentifier(member.Name, member.Span); err != nil {
+			return err
+		}
 		if member.Sym == nil {
 			continue
 		}
