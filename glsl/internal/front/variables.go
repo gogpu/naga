@@ -868,19 +868,26 @@ func (f *Frontend) lowerGlobalVarList(c *Context, d *declVarList) *frontError {
 		return nil
 	}
 
-	// GL 3.30 core and ES 3.00 have no plain-default-block uniform: a
-	// module-scope `uniform` is an interface block or an opaque resource. The IR
-	// has no default-block member model, so a plain uniform would become a
-	// synthetic one-resource uniform buffer, which is not what the shader says;
-	// Rust naga rejects these too (card P1-GLSLIN-021).
-	if d.Qualifiers.Storage == storageUniform && !f.dialect.hasLayoutBindings() && !opaqueUniformDeclaration(d.Typ) {
+	// A plain uniform — a module-scope `uniform` outside any block that is not
+	// an opaque resource — has no IR resource of its own. GL 3.30 core and
+	// ES 3.00 give it the default uniform block, which the frontend
+	// synthesizes (ADR-013, default_block.go); Vulkan GLSL has no such block,
+	// and neither has the IR, so the declaration stays refused there. Rust naga
+	// refuses it in every dialect ("uniform/buffer blocks require
+	// layout(binding=X)"); glslang: "'non-opaque uniforms outside a block' :
+	// not allowed when using GLSL for Vulkan".
+	plainUniform := d.Qualifiers.Storage == storageUniform && !opaqueUniformDeclaration(d.Typ)
+	if plainUniform && f.dialect.vulkan() {
 		return errMessage(d.Typ.Span,
-			"plain uniform variables need default-block synthesis, which the GLSL frontend does not implement (card P1-GLSLIN-021); declare the uniform inside a uniform block")
+			"plain uniform variables are not allowed in Vulkan GLSL: 'non-opaque uniforms outside a block'; declare the uniform inside a uniform block")
 	}
 
 	base, err := f.resolveTypeSpec(&d.Typ, structLayoutStd140)
 	if err != nil {
 		return err
+	}
+	if plainUniform {
+		return f.lowerPlainUniformList(c, used, d, base)
 	}
 	isConst := d.Qualifiers.Storage == storageConst
 
@@ -1098,6 +1105,16 @@ func (f *Frontend) resourceBinding(bindingName string, used *layoutUse, span ir.
 		f.bindings.markUsed(resourceKey{group: group, binding: value})
 		return &binding
 	}
+	f.rejectResourceLayoutQualifiers(used)
+	binding := f.autoResourceBinding(bindingName, span)
+	return &binding
+}
+
+// rejectResourceLayoutQualifiers reports the layout(binding) and layout(set)
+// qualifiers a GL 3.30 core or ES 3.00 declaration cannot carry, consuming them
+// so the declaration does not report them a second time as unexpected. Vulkan
+// GLSL never reaches it: it takes them as the resource's declared binding.
+func (f *Frontend) rejectResourceLayoutQualifiers(used *layoutUse) {
 	if entry, ok := used.take(qualifierKey{kind: layoutNamed, name: "binding"}); ok {
 		f.addError(errMessage(entry.span, f.dialect.unsupported(
 			"binding", " (requires GLSL 4.20 or GL_ARB_shading_language_420pack)")))
@@ -1105,11 +1122,18 @@ func (f *Frontend) resourceBinding(bindingName string, used *layoutUse, span ir.
 	if entry, ok := used.take(qualifierKey{kind: layoutNamed, name: "set"}); ok {
 		f.addError(errMessage(entry.span, "'set' : only allowed when using GLSL for Vulkan"))
 	}
+}
+
+// autoResourceBinding places a resource the source cannot bind itself: the slot
+// ParseOptions.ResourceBindings gives its source name, else the next free slot
+// of group 0 (bindings.go). A supplied entry that claims an occupied slot is
+// reported, because the caller asked for two globals to share one.
+func (f *Frontend) autoResourceBinding(bindingName string, span ir.Span) ir.ResourceBinding {
 	binding, reason := f.bindings.forResource(bindingName, 0)
 	if reason != "" {
 		f.addError(errSemantic(span, "%s", reason))
 	}
-	return &binding
+	return binding
 }
 
 // ioDirection names an in or out variable in a diagnostic.

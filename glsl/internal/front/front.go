@@ -73,6 +73,15 @@ type Frontend struct {
 	// for the SPIR-V frontend.
 	samplerBindings map[resourceKey]uint32
 
+	// defaultBlock is the block a GL 3.30 core or ES 3.00 source's plain
+	// uniforms are collected into (default_block.go); nil until the first one
+	// is declared, and always nil for Vulkan GLSL, which refuses them.
+	defaultBlock *defaultBlock
+
+	// defaultBlockReport is the block as ParseInfo reports it, filled when the
+	// block is built.
+	defaultBlockReport *frontend.DefaultBlockInfo
+
 	// combinedSamplers reports each split combined sampler in source order.
 	combinedSamplers []combinedSamplerInfo
 

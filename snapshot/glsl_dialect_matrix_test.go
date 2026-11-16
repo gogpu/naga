@@ -351,15 +351,10 @@ var glslDialectMatrix = []glslDialectRow{
 
 	{
 		dialect:      glslDialectGL330,
-		file:         "refuse-plain-uniform.frag",
+		file:         "plain-uniform.frag",
 		stage:        ir.StageFragment,
-		capabilities: []string{"refuse-plain-uniform"},
-		refuse:       "default-block synthesis",
-		reason: "the IR has no default-block member model, so a plain uniform would become a synthetic " +
-			"one-member uniform buffer instead of what the shader says; Rust naga rejects it too " +
-			"(card P1-GLSLIN-021)",
-		limitation: "glslangValidator accepts a plain uniform, which GLSL gives a default block",
-		glslang:    glslangAccepts,
+		capabilities: []string{"plain-uniform-default-block", "resource-bindings"},
+		glslang:      glslangAccepts,
 	},
 	{
 		dialect:      glslDialectGL330,
@@ -610,15 +605,10 @@ var glslDialectMatrix = []glslDialectRow{
 	},
 	{
 		dialect:      glslDialectES300,
-		file:         "refuse-plain-uniform.frag",
+		file:         "plain-uniform.frag",
 		stage:        ir.StageFragment,
-		capabilities: []string{"refuse-plain-uniform"},
-		refuse:       "default-block synthesis",
-		reason: "the IR has no default-block member model, so a plain uniform would become a synthetic " +
-			"one-member uniform buffer instead of what the shader says; Rust naga rejects it too " +
-			"(card P1-GLSLIN-021)",
-		limitation: "glslangValidator accepts a plain uniform, which GLSL gives a default block",
-		glslang:    glslangAccepts,
+		capabilities: []string{"plain-uniform-default-block", "resource-bindings"},
+		glslang:      glslangAccepts,
 	},
 	{
 		dialect:      glslDialectES300,
@@ -819,7 +809,7 @@ var glslDialectCapabilities = []glslDialectCapability{
 	{name: "refuse-storage-buffer", dialects: glslBothDialects, note: "§15 Storage buffers: no"},
 	{name: "refuse-storage-image", dialects: glslBothDialects, note: "§15 Images: no"},
 	{name: "refuse-cube-array-sampler", dialects: glslBothDialects, note: "§15: cube array samplers are GLSL 4.00 / ES 3.20"},
-	{name: "refuse-plain-uniform", dialects: glslBothDialects, note: "plain uniforms need default-block synthesis (card P1-GLSLIN-021)"},
+	{name: "plain-uniform-default-block", dialects: glslBothDialects, note: "plain uniforms outside a block: one synthesized std140 block (ADR-013)"},
 	{name: "refuse-double", dialects: glslBothDialects, note: "§15 double: no"},
 	{name: "refuse-push-constant", dialects: glslBothDialects, note: "§15 Push constants: no"},
 	{name: "refuse-push-constant-value", dialects: []glslDialect{glslDialectGL330}, note: "push_constant takes no value: Rust naga's \"Qualifier doesn't expect a value\""},

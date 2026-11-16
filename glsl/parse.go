@@ -40,7 +40,9 @@ type ParseOptions struct {
 	// that the source cannot bind itself (GL 3.30 core and ES 3.00 have no
 	// layout(binding)), by source name: a uniform block (its type name when the
 	// block has no instance name), a storage block, an image, a plain sampler,
-	// or the image of a combined image sampler. A supplied slot is reserved
+	// the image of a combined image sampler, or the block the plain uniforms of
+	// the module are collected into ([frontend.DefaultBlockName], see
+	// [ParseInfo.DefaultBlock]). A supplied slot is reserved
 	// before any declaration is lowered, so automatic placement skips it; two
 	// names claiming one slot is a *ParseError. An entry that names no resource
 	// needing a binding is a warning in [ParseInfo.Warnings], as design §11
@@ -67,6 +69,21 @@ type ParseInfo struct {
 	// CombinedSamplers lists the splits the parse applied, in source order. A
 	// caller that binds descriptors needs it to know where each sampler went.
 	CombinedSamplers []frontend.CombinedSampler
+
+	// DefaultBlock reports the uniform block the parse synthesized for the
+	// plain (non-block) uniforms of a GL 3.30 core or ES 3.00 source, as
+	// [frontend.DefaultBlockInfo] describes: the block's name and binding, its
+	// std140 size and every member's offset. A caller allocates that many bytes,
+	// writes each member at its reported offset and binds the buffer at the
+	// reported binding; it must use the reported offsets rather than re-derive
+	// the layout.
+	//
+	// It is nil when the module declares no plain uniform — a module with no
+	// plain uniform consumes no binding for one — and always nil for a Vulkan
+	// GLSL source, whose plain uniforms are refused: the Vulkan profile has no
+	// default uniform block. To place the block explicitly, name
+	// [frontend.DefaultBlockName] in [ParseOptions.ResourceBindings].
+	DefaultBlock *frontend.DefaultBlockInfo
 }
 
 // ParseError is the error [Parse] returns, in the WGSL frontend's shape: a
@@ -114,6 +131,7 @@ func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	return module, ParseInfo{
 		Warnings:         info.Warnings,
 		CombinedSamplers: info.CombinedSamplers,
+		DefaultBlock:     info.DefaultBlock,
 	}, nil
 }
 

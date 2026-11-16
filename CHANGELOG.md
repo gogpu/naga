@@ -46,11 +46,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outside the recognized list is a warning, because the frontend cannot enumerate the Khronos registry (card
   P2-GLSLIN-022), while `all : require|enable` is an error — and the Vulkan path keeps Rust's behaviour of not
   interpreting the directive; the seven `GL_KHR_shader_subgroup_*` names are recognized exactly while the
-  subgroup builtins carry a named limitation. A plain uniform (`uniform float scale;`) is refused with a precise message: the IR
-  has no location-addressed uniform, and the honest fixes are default-block synthesis or refusal (card
-  P1-GLSLIN-021). The 440/450/460 behaviour is unchanged. A new own dialect corpus (`testdata/glsl-dialects`, 49 shaders) and its matrix
+  subgroup builtins carry a named limitation. The 440/450/460 behaviour is unchanged. A new own dialect corpus (`testdata/glsl-dialects`, 49 shaders) and its matrix
   (`snapshot/glsl_dialect_matrix_test.go`) run every row through glslangValidator, validation, SPIR-V
   (spirv-val), MSL and HLSL.
+- **GLSL frontend: plain (non-block) uniforms in GL 3.30 core and ES 3.00 sources** (NAGA-FEAT-002, card
+  P1-GLSLIN-021). `uniform mat4 mvp;` outside any block is the most common declaration form in OpenGL and
+  WebGL sources, and the IR has no location-addressed resource — every resource is a descriptor. The frontend
+  now collects every plain uniform of a module into one synthesized uniform block, `gl_DefaultUniformBlock`,
+  members in source declaration order with std140 offsets (GLSL 4.60 §7.6.2.2). `glsl.ParseInfo.DefaultBlock`
+  reports the block's binding, size and every member's offset and size, so a caller fills the buffer from the
+  report instead of re-deriving the layout; `frontend.DefaultBlockName` is the key for
+  `ParseOptions.ResourceBindings` when the slot must be chosen explicitly (otherwise the one-counter model
+  places the block at the first plain declaration's position, a collision stays a `*ParseError`). The offsets
+  match glslangValidator's, member for member, including `vec3` padding, 16-byte array strides and `matCxR`
+  column strides. Vulkan GLSL keeps refusing a plain uniform — the Vulkan profile has no default uniform
+  block, as glslang states — with the message now naming that rule instead of a pending feature. A `bool`
+  member keeps its IR type; the HLSL and MSL targets take it, while Vulkan SPIR-V forbids an `OpTypeBool`
+  inside a block (declare the flag as `uint`/`int`, the same four bytes).
 
 ### Changed
 
@@ -71,6 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GLSL std140 layout of `bool` members and struct members.** A `bool` occupies four bytes in a uniform block
+  and a struct member's base alignment is rounded up to a `vec4`'s under std140 (GLSL 4.60 §7.6.2.2), as
+  glslangValidator lays them out; the frontend's layout put the member after a `bool` one byte past its start
+  and a struct member at its natural alignment, so an interface block with such members and a caller filling
+  its buffer disagreed about where the data goes. Both rules now apply to every std140 block, the synthesized
+  default block and the user's interface blocks alike (std430 keeps its natural alignment; Rust naga's layout
+  keeps the old numbers here, a recorded deviation where the specification decides).
 - **SPIR-V: image size and layer queries on multisampled and storage images.** The layer-count query always
   emitted `OpImageQuerySizeLod`, but the level-carrying form is only valid for a sampled or depth image with a
   single sample; multisampled and storage images take the level-free `OpImageQuerySize`, whose last component is

@@ -254,6 +254,10 @@ func TestSamplerBindingsPlacementWins(t *testing.T) {
 
 // TestDialectGates is the refusal table of design §15. Each row's comment is
 // the glslang output for the same source (glslangValidator 11:16.2.0, no -G).
+//
+// A plain uniform is no longer one of them: GL 3.30 core and ES 3.00 collect
+// theirs into a generated default uniform block (ADR-013), and the accepted
+// forms are in default_block_test.go.
 func TestDialectGates(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -494,31 +498,6 @@ void main() { gl_Position = vec4(1.0); }
 `,
 			stage: ir.StageVertex,
 			want:  "there is no such layout identifier for this stage taking an assigned value",
-		},
-		{
-			name: "plain uniform in 330",
-			// glslang accepts a plain uniform (it has a default block); the IR
-			// has no default-block member model, so the frontend refuses it
-			// with card P1-GLSLIN-021 rather than synthesizing a one-member
-			// uniform buffer (Rust naga rejects it too).
-			source: `#version 330 core
-uniform float scale;
-out vec4 color;
-void main() { color = vec4(scale); }
-`,
-			stage: ir.StageFragment,
-			want:  "default-block synthesis",
-		},
-		{
-			name: "plain uniform in 300 es",
-			source: `#version 300 es
-precision mediump float;
-uniform float scale;
-out vec4 color;
-void main() { color = vec4(scale); }
-`,
-			stage: ir.StageFragment,
-			want:  "default-block synthesis",
 		},
 		{
 			name: "cube array sampler in 330",
