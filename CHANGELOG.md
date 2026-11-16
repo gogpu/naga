@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glslangValidator, spirv-val, MSL, dxc and the GLSL round trip, pins the SPIR-V shape to glslang's, and
   asserts each backend's refusals.
 
+### Fixed
+
+- **MSL: a subgroup scan of Min, Max, And, Or or Xor is refused instead of being silently written as a
+  reduction.** The MSL writer mapped those operations to `simd_min`/`simd_max`/`simd_and`/`simd_or`/`simd_xor`
+  without looking at the collective operation, so an `InclusiveScan` or `ExclusiveScan` — reachable today from
+  SPIR-V input through `OpGroupNonUniform*` with a scan group operation — compiled to a plain reduction: the
+  shader built and returned the wrong value. Metal has no prefix form for these operations, so the writer now
+  refuses the scan with a message naming the gap. The reductions are unchanged, and the Add and Mul scans keep
+  their `simd_prefix_*` forms. The GLSL frontend keeps refusing the scans, with its message updated to match.
+
 ## [0.22.2] - 2026-11-16
 
 > **The GLSL input frontend ships as a preview.** `glsl.Parse` already reads a large part of Vulkan GLSL

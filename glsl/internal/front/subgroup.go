@@ -304,15 +304,15 @@ const (
 		"cluster-size operand, so the clustered forms cannot be represented (card P1-GLSLIN-017)"
 
 	// subgroupScanGapText: the Min/Max/And/Or/Xor scans are expressible in the
-	// IR, but no text backend spells them: the MSL writer emits a plain
-	// simd_min / simd_max / simd_and / simd_or / simd_xor for them (a
-	// reduction, which would silently change the result) and the HLSL writer
-	// refuses every inclusive scan other than Add and Mul. Refusing the form is
-	// the honest surface until the backends write the scan.
+	// IR, but no text backend spells them: Metal's simd functions have no
+	// prefix form for them (the MSL writer refuses the scan rather than
+	// emitting its reduction, which would silently change the result), and the
+	// HLSL writer refuses every scan other than the Add and Mul ones. Refusing
+	// the form is the honest surface until the backends write the scan.
 	subgroupScanGapText = "subgroup operations are not implemented by the GLSL frontend: " +
-		"the Min/Max/And/Or/Xor scans are expressible in the IR, but the MSL writer emits a plain reduction " +
-		"for them and the HLSL writer refuses every inclusive scan other than Add and Mul, so no text backend " +
-		"writes the scan (card P1-GLSLIN-017)"
+		"the Min/Max/And/Or/Xor scans are expressible in the IR, but Metal's simd functions have no prefix " +
+		"form for them and the HLSL writer refuses every scan other than the Add and Mul ones, so no text " +
+		"backend writes the scan (card P1-GLSLIN-017)"
 
 	// subgroupAtomicCounterGapText: no atomic counters in Vulkan GLSL and no
 	// atomic-counter memory class in ir.BarrierFlags.

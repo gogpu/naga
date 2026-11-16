@@ -2065,16 +2065,29 @@ func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOp
 		case ir.CollectiveInclusiveScan:
 			funcName = "simd_prefix_inclusive_product"
 		}
-	case ir.SubgroupOperationMin:
-		funcName = "simd_min"
-	case ir.SubgroupOperationMax:
-		funcName = "simd_max"
-	case ir.SubgroupOperationAnd:
-		funcName = "simd_and"
-	case ir.SubgroupOperationOr:
-		funcName = "simd_or"
-	case ir.SubgroupOperationXor:
-		funcName = "simd_xor"
+	case ir.SubgroupOperationMin, ir.SubgroupOperationMax, ir.SubgroupOperationAnd,
+		ir.SubgroupOperationOr, ir.SubgroupOperationXor:
+		// Metal's simd functions have these as reductions only. The SPIR-V
+		// frontend maps the scan group operations for every subgroup op, so a
+		// scan written as the reduction would be a silently wrong result: the
+		// shader compiles and returns the wrong value (card P0-MSL-111; a real
+		// scan needs a shuffle-based emulation, its own card).
+		if op.CollectiveOp != ir.CollectiveReduce {
+			return unsupported.Errorf("a subgroup scan of operation %d: the MSL simd functions "+
+				"have no prefix form for min, max, and, or or xor", op.Op)
+		}
+		switch op.Op {
+		case ir.SubgroupOperationMin:
+			funcName = "simd_min"
+		case ir.SubgroupOperationMax:
+			funcName = "simd_max"
+		case ir.SubgroupOperationAnd:
+			funcName = "simd_and"
+		case ir.SubgroupOperationOr:
+			funcName = "simd_or"
+		case ir.SubgroupOperationXor:
+			funcName = "simd_xor"
+		}
 	default:
 		return unsupported.Errorf("unsupported subgroup operation: %d", op.Op)
 	}
