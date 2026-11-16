@@ -758,6 +758,8 @@ func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
 
 // writeImageAtomic writes an image atomic operation statement.
 // Matches Rust naga's write_image_atomic: imageAtomicFun(image, coord, value);
+// an operation with a comparator is imageAtomicCompSwap(image, coord, compare,
+// data), which takes both operands.
 func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 	image, err := w.writeExpression(imgAtomic.Image)
 	if err != nil {
@@ -772,9 +774,11 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		return err
 	}
 
+	var compareHandle *ir.ExpressionHandle
+
 	// Map atomic function to GLSL imageAtomic name
 	funStr := ""
-	switch imgAtomic.Fun.(type) {
+	switch fun := imgAtomic.Fun.(type) {
 	case ir.AtomicAdd:
 		funStr = "Add"
 	case ir.AtomicSubtract:
@@ -790,7 +794,12 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 	case ir.AtomicMax:
 		funStr = "Max"
 	case ir.AtomicExchange:
-		funStr = "Exchange"
+		if fun.Compare != nil {
+			funStr = "CompSwap"
+			compareHandle = fun.Compare
+		} else {
+			funStr = "Exchange"
+		}
 	default:
 		return unsupported.Errorf("unsupported image atomic function: %T", imgAtomic.Fun)
 	}
@@ -812,6 +821,14 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		coord = fmt.Sprintf("ivec3(%s, %s)", coordinate, arrayIdx)
 	}
 
+	if compareHandle != nil {
+		compare, cerr := w.writeExpression(*compareHandle)
+		if cerr != nil {
+			return cerr
+		}
+		w.WriteLine("imageAtomic%s(%s, %s, %s, %s);", funStr, image, coord, compare, value)
+		return nil
+	}
 	w.WriteLine("imageAtomic%s(%s, %s, %s);", funStr, image, coord, value)
 	return nil
 }

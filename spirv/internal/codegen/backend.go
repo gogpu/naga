@@ -9802,8 +9802,10 @@ func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle)
 	return e.resolveAtomicScalar(pointer).Kind
 }
 
-// atomicOpcode returns the SPIR-V opcode for an atomic function.
-// Returns 0 if the function is AtomicExchange with a compare value (handled separately).
+// atomicOpcode returns the SPIR-V opcode for an atomic function. AtomicExchange
+// with a compare operand returns OpAtomicExchange here: the compare form is
+// OpAtomicCompareExchange, which the callers (emitAtomic, emitImageAtomic)
+// build themselves before asking for an opcode.
 func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (spvenums.Op, bool) {
 	switch fun.(type) {
 	case ir.AtomicAdd:
@@ -10153,9 +10155,14 @@ func (e *ExpressionEmitter) emitImageAtomic(stmt ir.StmtImageAtomic) error {
 	}
 
 	// Determine the atomic opcode.
-	opcode, ok := atomicOpcode(stmt.Fun, scalar.Kind)
-	if !ok {
-		return unsupported.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
+	exchange, isCompareExchange := stmt.Fun.(ir.AtomicExchange)
+	isCompareExchange = isCompareExchange && exchange.Compare != nil
+	var opcode spvenums.Op
+	if !isCompareExchange {
+		var ok bool
+		if opcode, ok = atomicOpcode(stmt.Fun, scalar.Kind); !ok {
+			return unsupported.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
+		}
 	}
 
 	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
@@ -10166,9 +10173,24 @@ func (e *ExpressionEmitter) emitImageAtomic(stmt ir.StmtImageAtomic) error {
 		ib.AddWord(resultID)
 		ib.AddWord(pointerID)
 		ib.AddWord(scopeID)
-		ib.AddWord(semanticsID)
-		ib.AddWord(valueID)
-		e.backend.builder.funcAppend(ib.Build(opcode))
+		if isCompareExchange {
+			// OpAtomicCompareExchange ResultType Result Pointer Scope
+			// Semantics(Equal) Semantics(Unequal) Value Comparator. The texel
+			// is exchanged only where it already holds the comparator.
+			compareID, cerr := e.emitExpression(*exchange.Compare)
+			if cerr != nil {
+				return fmt.Errorf("image atomic comparator: %w", cerr)
+			}
+			ib.AddWord(semanticsID) // Equal
+			ib.AddWord(semanticsID) // Unequal
+			ib.AddWord(valueID)
+			ib.AddWord(compareID)
+			e.backend.builder.funcAppend(ib.Build(spvenums.OpAtomicCompareExchange))
+		} else {
+			ib.AddWord(semanticsID)
+			ib.AddWord(valueID)
+			e.backend.builder.funcAppend(ib.Build(opcode))
+		}
 	}
 
 	// Image atomic results are unused (void statement), so we don't cache the result.

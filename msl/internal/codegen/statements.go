@@ -1467,8 +1467,18 @@ func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
 	return nil
 }
 
-// writeImageAtomic writes an image atomic operation statement.
+// writeImageAtomic writes an image atomic operation statement. An operation
+// with a comparator (AtomicExchange{Compare}) is the texture compare-exchange
+// form, which is a different member function: MSL's texture atomics take the
+// expected value as a thread address, so it lives in a local the call can point
+// at (Metal Shading Language Specification, "atomic_compare_exchange_weak(uint2
+// coord, thread Tv *expected, Tv desired)").
 func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
+	exchange, isCompareExchange := imgAtomic.Fun.(ir.AtomicExchange)
+	if isCompareExchange && exchange.Compare != nil {
+		return w.writeImageAtomicCompareExchange(imgAtomic, *exchange.Compare)
+	}
+
 	w.WriteIndent()
 	if err := w.writeExpression(imgAtomic.Image); err != nil {
 		return err
@@ -1517,9 +1527,13 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 
 	w.write(".atomic_%s(", opName)
 
-	// Coordinate (cast to uint)
-	imgType := w.getImageType(imgAtomic.Image)
-	if err := w.writeCoordCast(imgAtomic.Coordinate, imgType); err != nil {
+	// Coordinate (cast to uint), then the array layer when the image is an
+	// array: MSL's texture array atomics take it as the second argument
+	// ("atomic_exchange(uint2 coord, uint array, Tv desired)"). Rust naga
+	// writes no layer here — put_image_atomic ignores address.array_index,
+	// which cannot reach it from WGSL — so the layer is our addition, and the
+	// MSL signature decides.
+	if err := w.writeImageAtomicCoordinates(imgAtomic); err != nil {
 		return err
 	}
 
@@ -1531,6 +1545,54 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 	}
 
 	w.write(");\n")
+	return nil
+}
+
+// writeImageAtomicCompareExchange writes the texture compare-exchange form,
+// which exchanges the value only where the texel holds the comparator and
+// reports whether it did. The statement has no result, so the bool is dropped.
+func (w *Writer) writeImageAtomicCompareExchange(imgAtomic ir.StmtImageAtomic, compare ir.ExpressionHandle) error {
+	expectedType := "uint"
+	if scalar := w.getExpressionScalarType(imgAtomic.Value); scalar != nil {
+		expectedType = scalarTypeName(*scalar)
+	}
+	expected := w.namer.call("naga_atomic_expected")
+
+	w.WriteIndent()
+	w.write("%s %s = ", expectedType, expected)
+	if err := w.writeExpression(compare); err != nil {
+		return err
+	}
+	w.write(";\n")
+
+	w.WriteIndent()
+	if err := w.writeExpression(imgAtomic.Image); err != nil {
+		return err
+	}
+	w.write(".atomic_compare_exchange_weak(")
+	if err := w.writeImageAtomicCoordinates(imgAtomic); err != nil {
+		return err
+	}
+	w.write(", &%s, ", expected)
+	if err := w.writeExpression(imgAtomic.Value); err != nil {
+		return err
+	}
+	w.write(");\n")
+	return nil
+}
+
+// writeImageAtomicCoordinates writes an image atomic's coordinate cast to uint
+// and, for an arrayed image, the array layer after it.
+func (w *Writer) writeImageAtomicCoordinates(imgAtomic ir.StmtImageAtomic) error {
+	if err := w.writeCoordCast(imgAtomic.Coordinate, w.getImageType(imgAtomic.Image)); err != nil {
+		return err
+	}
+	if imgAtomic.ArrayIndex != nil {
+		w.write(", ")
+		if err := w.writeExpression(*imgAtomic.ArrayIndex); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

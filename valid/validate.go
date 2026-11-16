@@ -1215,6 +1215,12 @@ func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 		}
 		v.checkImageAtomic(index, kind)
 		v.useExpression(kind.Value)
+		// Rust's handle check skips the atomic function (`fun: _`), because its
+		// WGSL frontend has no image compare-exchange; ours has one (the GLSL
+		// frontend's imageAtomicCompSwap), so its comparator is a live operand.
+		if xchg, ok := kind.Fun.(ir.AtomicExchange); ok && xchg.Compare != nil {
+			v.useExpression(*xchg.Compare)
+		}
 
 	case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 		v.validateSubgroupStatement(index, kind)

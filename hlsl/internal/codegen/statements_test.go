@@ -513,6 +513,83 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 	}
 }
 
+// TestWriteImageAtomicCompareExchangeStatement pins the compare form of an
+// image atomic: InterlockedCompareExchange(dest, compare_value, value,
+// original), the comparator second and the value third. DXC has no
+// three-argument form — `InterlockedCompareExchange(dest, cmp, value)` fails
+// with "use of undeclared identifier" for a workgroup variable and a UAV
+// element alike — so the original goes to a scratch local. An InterlockedExchange
+// written instead would silently drop the comparison.
+func TestWriteImageAtomicCompareExchangeStatement(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                                       // 0: u32
+			{Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage}},                           // 1: texture_storage_2d
+			{Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}}, // 2: vec2<i32>
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "img", Type: ir.TypeHandle(1), Space: ir.SpaceHandle},
+		},
+	}
+
+	names := map[nameKey]string{
+		{kind: nameKeyGlobalVariable, handle1: 0}: "img",
+	}
+
+	compare := ir.ExpressionHandle(4)
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                                                    // 0: img
+			{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{ir.ExpressionHandle(3), 3}}}, // 1: coord
+			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},                                                  // 2: value
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                                                   // 3: coord component
+			{Kind: ir.Literal{Value: ir.LiteralU32(7)}},                                                   // 4: comparator
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
+	setCurrentFunction(t, w, fn)
+	w.Out.Reset()
+	w.Indent = 0
+
+	stmt := ir.StmtImageAtomic{
+		Image:      0,
+		Coordinate: 1,
+		Fun:        ir.AtomicExchange{Compare: &compare},
+		Value:      2,
+	}
+	if err := w.writeImageAtomicStatement(stmt); err != nil {
+		t.Fatalf("writeImageAtomicStatement: %v", err)
+	}
+	got := w.Out.String()
+
+	if !strings.Contains(got, "InterlockedCompareExchange(img[") {
+		t.Errorf("expected InterlockedCompareExchange(img[, got %q", got)
+	}
+	// The scratch local, declared before the call, then the comparator and the
+	// value, then the original: InterlockedCompareExchange(dest, compare_value,
+	// value, original). A bare exchange would end after the value.
+	if !strings.Contains(got, "uint _image_atomic_original_0; InterlockedCompareExchange(") {
+		t.Errorf("expected the original's scratch local declared before the call, got %q", got)
+	}
+	if !strings.Contains(got, ",7u,42u,_image_atomic_original_0);\n") {
+		t.Errorf("expected the comparator, the value and the original (\",7u,42u,_image_atomic_original_0);\\n\"), got %q", got)
+	}
+
+	// Two statements may share the comparator expression, and one function
+	// scope cannot declare the same local twice.
+	w.Out.Reset()
+	w.Indent = 0
+	if err := w.writeImageAtomicStatement(stmt); err != nil {
+		t.Fatalf("writeImageAtomicStatement (second): %v", err)
+	}
+	second := w.Out.String()
+	if !strings.Contains(second, "uint _image_atomic_original_1; InterlockedCompareExchange(") {
+		t.Errorf("the second statement reuses the first scratch name, got %q", second)
+	}
+}
+
 // =============================================================================
 // TestWriteWorkGroupUniformLoadStatement — barrier+load+barrier pattern
 // =============================================================================

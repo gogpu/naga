@@ -273,14 +273,17 @@ func (f *Frontend) imageAtomicCall(c *Context, e *hirArena, name string, b atomi
 		return 0, false, err
 	}
 
-	var value ir.ExpressionHandle
+	var compare, value ir.ExpressionHandle
 	if b.compare {
-		// imageAtomicCompSwap(image, P, compare, data).
+		// imageAtomicCompSwap(image, P, compare, data). The compare operand is
+		// part of the operation: ir.AtomicExchange carries it, and dropping it
+		// turns the compare-and-swap into an unconditional exchange in every
+		// backend without any validator noticing.
 		cmpRaw, cmpSpan, cerr := c.lowerExpect(e, rawArgs[2], rhsPos)
 		if cerr != nil {
 			return 0, false, cerr
 		}
-		if _, cerr = atomicOperand(c, name, cmpRaw, cmpSpan, scalar); cerr != nil {
+		if compare, cerr = atomicOperand(c, name, cmpRaw, cmpSpan, scalar); cerr != nil {
 			return 0, false, cerr
 		}
 		valRaw, valSpan, verr := c.lowerExpect(e, rawArgs[3], rhsPos)
@@ -301,11 +304,15 @@ func (f *Frontend) imageAtomicCall(c *Context, e *hirArena, name string, b atomi
 	}
 
 	c.emitRestart()
+	fun := b.fun
+	if b.compare {
+		fun = ir.AtomicExchange{Compare: exprPtr(compare)}
+	}
 	c.body = append(c.body, ir.Statement{Kind: ir.StmtImageAtomic{
 		Image:      image,
 		Coordinate: comps.coordinate,
 		ArrayIndex: comps.arrayIndex,
-		Fun:        b.fun,
+		Fun:        fun,
 		Value:      value,
 	}})
 	return 0, false, nil

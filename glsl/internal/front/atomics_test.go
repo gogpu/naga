@@ -305,7 +305,9 @@ void main() { bump(); atomicMin(c, 2u); }
 
 // TestAtomicImageStatement checks the image atomic IR: a statement, with the
 // coordinate split the image load path uses and the value converted to the
-// image format's scalar.
+// image format's scalar. A compare-swap keeps its comparator as well: it is
+// part of the operation (ir.AtomicExchange.Compare), and an exchange emitted
+// without it is a different, but equally valid, instruction.
 func TestAtomicImageStatement(t *testing.T) {
 	cases := []struct {
 		name string
@@ -315,6 +317,9 @@ func TestAtomicImageStatement(t *testing.T) {
 		// a literal of the image's scalar, or an ExprAs for GLSL's implicit
 		// int-to-uint conversion.
 		wantValue any
+		// wantCompare is the literal the comparator lowered to, nil for every
+		// operation that takes none.
+		wantCompare any
 	}{
 		{
 			name: "uint-2d",
@@ -341,8 +346,9 @@ func TestAtomicImageStatement(t *testing.T) {
 			name: "uint-compare",
 			body: "layout(r32ui, set = 0, binding = 0) uniform uimage2D img;\n" +
 				"void main() { imageAtomicCompSwap(img, ivec2(0), 1u, 2u); }\n",
-			fun:       "AtomicExchange",
-			wantValue: ir.LiteralU32(2),
+			fun:         "AtomicExchangeCompare",
+			wantValue:   ir.LiteralU32(2),
+			wantCompare: ir.LiteralU32(1),
 		},
 		{
 			name: "uint-converted",
@@ -363,27 +369,54 @@ func TestAtomicImageStatement(t *testing.T) {
 			if got := atomicFunctionName(stmts[0].Fun); got != tt.fun {
 				t.Errorf("image atomic function = %s, want %s", got, tt.fun)
 			}
-			switch want := tt.wantValue.(type) {
-			case ir.LiteralValue:
-				lit, ok := fn.Expressions[stmts[0].Value].Kind.(ir.Literal)
-				if !ok {
-					t.Fatalf("value is %T, want a literal", fn.Expressions[stmts[0].Value].Kind)
+			assertAtomicOperand(t, fn, stmts[0].Value, tt.wantValue)
+			compare := atomicCompareHandle(stmts[0])
+			if tt.wantCompare == nil {
+				if compare != nil {
+					t.Errorf("the operation carries a comparator (expression %d), want none", *compare)
 				}
-				if lit.Value != want {
-					t.Errorf("value = %v, want %v", lit.Value, want)
-				}
-			case ir.ExprAs:
-				as, ok := fn.Expressions[stmts[0].Value].Kind.(ir.ExprAs)
-				if !ok {
-					t.Fatalf("value is %T, want ExprAs", fn.Expressions[stmts[0].Value].Kind)
-				}
-				if as.Kind != want.Kind {
-					t.Errorf("conversion kind = %v, want %v", as.Kind, want.Kind)
-				}
-			default:
-				t.Fatalf("unsupported expectation %T", tt.wantValue)
+				return
 			}
+			if compare == nil {
+				t.Fatalf("the operation carries no comparator, want the compare operand %v", tt.wantCompare)
+			}
+			assertAtomicOperand(t, fn, *compare, tt.wantCompare)
 		})
+	}
+}
+
+// atomicCompareHandle returns the comparator of an image atomic operation, or
+// nil when it takes none.
+func atomicCompareHandle(stmt ir.StmtImageAtomic) *ir.ExpressionHandle {
+	if xchg, ok := stmt.Fun.(ir.AtomicExchange); ok {
+		return xchg.Compare
+	}
+	return nil
+}
+
+// assertAtomicOperand checks that h is the expression the test expects: a
+// literal with the given value, or an ExprAs of the given scalar kind.
+func assertAtomicOperand(t *testing.T, fn ir.Function, h ir.ExpressionHandle, want any) {
+	t.Helper()
+	switch want := want.(type) {
+	case ir.LiteralValue:
+		lit, ok := fn.Expressions[h].Kind.(ir.Literal)
+		if !ok {
+			t.Fatalf("expression %d is %T, want a literal", h, fn.Expressions[h].Kind)
+		}
+		if lit.Value != want {
+			t.Errorf("expression %d is %v, want %v", h, lit.Value, want)
+		}
+	case ir.ExprAs:
+		as, ok := fn.Expressions[h].Kind.(ir.ExprAs)
+		if !ok {
+			t.Fatalf("expression %d is %T, want ExprAs", h, fn.Expressions[h].Kind)
+		}
+		if as.Kind != want.Kind {
+			t.Errorf("expression %d conversion kind = %v, want %v", h, as.Kind, want.Kind)
+		}
+	default:
+		t.Fatalf("unsupported expectation %T", want)
 	}
 }
 
@@ -624,18 +657,23 @@ const (
 	opAtomicXor             = 242
 )
 
-// atomicInstruction is one decoded atomic instruction: its opcode and the
-// scope and equal-semantics operands.
+// atomicInstruction is one decoded atomic instruction: its opcode, the scope
+// and equal-semantics operands, and the values of its trailing value and
+// comparator operands (the comparator is 0 for every instruction that has
+// none).
 type atomicInstruction struct {
 	opcode    uint32
 	scope     uint32
 	semantics uint32
+	value     uint32
+	compare   uint32
 }
 
 // decodeAtomicInstructions returns every atomic instruction of a SPIR-V binary
 // with its scope and memory-semantics operands resolved through the module's
 // OpConstant instructions, as the barrier decoder in builtins_barrier_test.go
-// resolves its own operands.
+// resolves its own operands. The value and comparator operands are resolved the
+// same way; every source the tests decode passes them as literals.
 func decodeAtomicInstructions(t *testing.T, blob []byte) []atomicInstruction {
 	t.Helper()
 	if len(blob)%4 != 0 {
@@ -671,9 +709,22 @@ func decodeAtomicInstructions(t *testing.T, blob []byte) []atomicInstruction {
 		switch op := words[i] & 0xFFFF; op {
 		case opAtomicExchange, opAtomicIAdd, opAtomicSMin, opAtomicUMin, opAtomicUMax,
 			opAtomicAnd, opAtomicOr, opAtomicXor:
-			out = append(out, atomicInstruction{opcode: op, scope: lookup(words[i+4]), semantics: lookup(words[i+5])})
+			out = append(out, atomicInstruction{
+				opcode:    op,
+				scope:     lookup(words[i+4]),
+				semantics: lookup(words[i+5]),
+				value:     lookup(words[i+6]),
+			})
 		case opAtomicCompareExchange:
-			out = append(out, atomicInstruction{opcode: op, scope: lookup(words[i+4]), semantics: lookup(words[i+5])})
+			// ResultType Result Pointer Scope EqualSemantics UnequalSemantics
+			// Value Comparator.
+			out = append(out, atomicInstruction{
+				opcode:    op,
+				scope:     lookup(words[i+4]),
+				semantics: lookup(words[i+5]),
+				value:     lookup(words[i+7]),
+				compare:   lookup(words[i+8]),
+			})
 		}
 		i += count
 	}
@@ -693,6 +744,11 @@ func TestAtomicSpirvShape(t *testing.T) {
 		body  string
 		op    uint32
 		scope uint32
+		// value and compare are the literals the instruction's operand words
+		// resolve to; compare is checked only when hasCompare is set.
+		value      uint32
+		compare    uint32
+		hasCompare bool
 	}{
 		{
 			name: "buffer-member-add",
@@ -741,12 +797,23 @@ func TestAtomicSpirvShape(t *testing.T) {
 			body: "layout(set = 0, binding = 0) buffer B { uint n; } b;\n" +
 				"void main() { atomicCompSwap(b.n, 1u, 2u); }\n",
 			op: opAtomicCompareExchange, scope: scopeDevice,
+			value: 2, compare: 1, hasCompare: true,
 		},
 		{
 			name: "image-atomic-add",
 			body: "layout(r32ui, set = 0, binding = 0) uniform uimage2D img;\n" +
 				"void main() { imageAtomicAdd(img, ivec2(0), 1u); }\n",
 			op: opAtomicIAdd, scope: scopeDevice,
+		},
+		{
+			// The comparator is an operand of the instruction, not of the
+			// address computation: imageAtomicCompSwap(img, P, 1u, 2u) must
+			// exchange 2u only where the texel already holds 1u.
+			name: "image-compare-exchange",
+			body: "layout(r32ui, set = 0, binding = 0) uniform uimage2D img;\n" +
+				"void main() { imageAtomicCompSwap(img, ivec2(0), 1u, 2u); }\n",
+			op: opAtomicCompareExchange, scope: scopeDevice,
+			value: 2, compare: 1, hasCompare: true,
 		},
 		{
 			// The recorded deviation: Workgroup scope, Rust's mapping.
@@ -784,6 +851,15 @@ func TestAtomicSpirvShape(t *testing.T) {
 			// for every one of these calls.
 			if got.semantics != 0 {
 				t.Errorf("memory semantics = %d, want 0 (relaxed)", got.semantics)
+			}
+			if tt.hasCompare {
+				if got.compare != tt.compare {
+					t.Errorf("comparator operand = %d, want %d: the compare-and-swap lost its comparator",
+						got.compare, tt.compare)
+				}
+				if got.value != tt.value {
+					t.Errorf("value operand = %d, want %d", got.value, tt.value)
+				}
 			}
 		})
 	}
