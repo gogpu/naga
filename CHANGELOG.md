@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.5] - 2026-11-17
 
 ### Fixed
 
@@ -2880,7 +2880,7 @@ All 8 fixes verified against Rust naga — identical rejection behavior.
   `DLL_THREAD_ATTACH`, which Windows only fires for threads created AFTER
   `LoadLibrary`), and falls back to Windows 10 SDK paths when `dxil.dll`
   is not on `PATH`. The empirical "first-ever `VALID (S_OK)`" check on
-  the golden `tmp/min1_final.dxil` fixture is now a permanent unit test
+  the golden min1 DXIL fixture is now a permanent unit test
   (`TestSmokeValidateGoldenFixture`) instead of a one-off PoC.
 
 - **`internal/dxcvalidator` — three-layer defensive validation stack**
@@ -4563,7 +4563,10 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.2...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.22.5...HEAD
+[0.22.5]: https://github.com/gogpu/naga/compare/v0.22.4...v0.22.5
+[0.22.4]: https://github.com/gogpu/naga/compare/v0.22.3...v0.22.4
+[0.22.3]: https://github.com/gogpu/naga/compare/v0.22.2...v0.22.3
 [0.22.2]: https://github.com/gogpu/naga/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/gogpu/naga/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/gogpu/naga/compare/v0.21.12...v0.22.0
