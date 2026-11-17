@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Subgroup scans and vector wave operands no longer miscompile in DXIL and GLSL** (cards P1-DXIL-115,
+  P1-DXIL-116, P1-GLSL-016). The DXIL emitter wrote a reduction (`dx.op.waveActiveBit`) for an And/Or/Xor
+  scan and dropped the inclusive part of a Min/Max scan, and the GLSL writer fell back to `subgroupAdd`
+  for any scan it had no builtin for — every lane got a silently wrong value, reachable from SPIR-V input
+  (the GLSL frontend already refuses these scans). Both now refuse the min/max/and/or/xor scans with a
+  named limitation, matching the MSL/HLSL writers (the P0-MSL-111 precedent); the Add/Mul scans keep their
+  prefix form (`dx.op.wavePrefixOp`, `subgroupExclusive/InclusiveAdd/Mul`). A vector subgroup operand in
+  DXIL (e.g. `subgroupAdd(vec4<f32>)` from GLSL or SPIR-V input) was computed for the first component only;
+  it is now expanded into one scalar wave op per component and reassembled — the form DXC itself emits for
+  a vector wave intrinsic. Verified end to end: GLSL → `dxil.Compile` → IDxcValidator accepts the vector
+  reductions and the Add/Mul scans; emitter and writer unit tests pin the refusals and the per-component
+  expansion, each proven to fail on the previous code.
+
 ## [0.22.4] - 2026-11-16
 
 > **The GLSL input frontend stays a preview.** `glsl.Parse` reads a large part of Vulkan GLSL 440/450/460 and of

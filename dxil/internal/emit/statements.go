@@ -4181,20 +4181,67 @@ func (e *Emitter) getWaveBallotFunc() *module.Function {
 //   - All/Any (reduce) → dx.op.waveAllTrue(114) / dx.op.waveAnyTrue(113)
 //   - Add/Mul/Min/Max (reduce) → dx.op.waveActiveOp(119, value, op, sign)
 //   - And/Or/Xor (reduce) → dx.op.waveActiveBit(120, value, bitOp)
-//   - Add/Mul/Min/Max (inclusive/exclusive scan) → dx.op.wavePrefixOp(121, value, op, sign)
+//   - Add/Mul (inclusive/exclusive scan) → dx.op.wavePrefixOp(121, value, op, sign)
+//
+// Min/Max/And/Or/Xor scans are refused: DXIL has no prefix form for them, and
+// writing the reduction (or an unverified wavePrefixOp min/max) would be a
+// silently wrong result. The MSL/HLSL/GLSL writers refuse the same scans
+// (P0-MSL-111, P1-DXIL-115). A vector operand is expanded into one scalar wave
+// op per component, the form DXC itself emits for a vector wave intrinsic and
+// the MSL writer uses (P2-GLSLIN-028, P1-DXIL-116).
 func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgroupCollectiveOperation) error {
-	argID, err := e.emitExpression(fn, op.Argument)
-	if err != nil {
+	if _, err := e.emitExpression(fn, op.Argument); err != nil {
 		return fmt.Errorf("StmtSubgroupCollectiveOp: argument: %w", err)
 	}
 
-	// Resolve the argument type to determine overload.
 	argInner := e.resolveExprType(fn, op.Argument)
-	argScalar, _ := scalarAndComponentCount(argInner)
+	argScalar, numComps := scalarAndComponentCount(argInner)
 	ol := overloadForScalar(argScalar)
 
-	var resultID int
+	// Refuse the scans DXIL cannot express, never substituting the reduction
+	// (P1-DXIL-115, the P0-MSL-111 precedent). Add/Mul scans have a prefix form.
+	if op.CollectiveOp != ir.CollectiveReduce {
+		switch op.Op {
+		case ir.SubgroupOperationMin, ir.SubgroupOperationMax,
+			ir.SubgroupOperationAnd, ir.SubgroupOperationOr, ir.SubgroupOperationXor:
+			return unsupported.Errorf("a subgroup scan of operation %d: the DXIL wave ops have no prefix form for min, max, and, or or xor", op.Op)
+		}
+	}
 
+	// A vector operand is one scalar wave op per component, reassembled into the
+	// vector result (DXC scalarizes vector wave intrinsics; MSL does the same).
+	// All-equal has a scalar bool result, not a per-component vector, so it keeps
+	// its explicit vector refusal.
+	if numComps > 1 {
+		if op.Op == ir.SubgroupOperationAllEqual {
+			return unsupported.Errorf("a subgroup all-equal of a vector: the DXIL emitter has no vector wave overload")
+		}
+		comps := make([]int, numComps)
+		for c := 0; c < numComps; c++ {
+			compID := e.getComponentID(op.Argument, c)
+			r, err := e.emitSubgroupCollectiveScalar(compID, op, argScalar, ol)
+			if err != nil {
+				return err
+			}
+			comps[c] = r
+		}
+		e.exprValues[op.Result] = comps[0]
+		e.exprComponents[op.Result] = comps
+		return nil
+	}
+
+	resultID, err := e.emitSubgroupCollectiveScalar(e.getComponentID(op.Argument, 0), op, argScalar, ol)
+	if err != nil {
+		return err
+	}
+	e.exprValues[op.Result] = resultID
+	return nil
+}
+
+// emitSubgroupCollectiveScalar emits one scalar wave collective operation on
+// argID. The caller handles the vector expansion and the scan refusals, so only
+// the writable forms reach here: every reduction, and the Add/Mul scans.
+func (e *Emitter) emitSubgroupCollectiveScalar(argID int, op ir.StmtSubgroupCollectiveOperation, argScalar ir.ScalarType, ol overloadType) (int, error) {
 	switch op.CollectiveOp {
 	case ir.CollectiveReduce:
 		switch op.Op {
@@ -4204,71 +4251,49 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 			// widens it only where the source converts it).
 			waveFn := e.getWaveBoolFunc("dx.op.waveAllTrue", OpWaveAllTrue)
 			opcodeVal := e.getIntConstID(int64(OpWaveAllTrue))
-			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			return e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID}), nil
 
 		case ir.SubgroupOperationAny:
 			waveFn := e.getWaveBoolFunc("dx.op.waveAnyTrue", OpWaveAnyTrue)
 			opcodeVal := e.getIntConstID(int64(OpWaveAnyTrue))
-			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			return e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID}), nil
 
 		case ir.SubgroupOperationAllEqual:
 			// dx.op.waveActiveAllEqual.T(i32 115, T value) → i1. The DXIL
 			// overloads are the numeric types with their vectors and have no
 			// i1 (DxilOperations.cpp: "hfd18wil<hfd18wil"), so a bool operand
-			// is widened to i32 first. Vector operands are refused until the
-			// emitter writes per-component/vector wave overloads: it declares
-			// the scalar overload today, and a vector argument would silently
-			// mismatch the declaration.
-			if _, isVector := argInner.(ir.VectorType); isVector {
-				return unsupported.Errorf("a subgroup all-equal of a vector: the DXIL emitter has no vector wave overload")
-			}
+			// is widened to i32 first.
 			if argScalar.Kind == ir.ScalarBool {
 				argID = e.addCastInstr(e.mod.GetIntType(32), CastZExt, argID)
 				ol = overloadI32
 			}
-			resultID = e.emitWaveAllEqual(argID, ol)
+			return e.emitWaveAllEqual(argID, ol), nil
 
 		case ir.SubgroupOperationAnd:
-			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitAnd, ol)
+			return e.emitWaveActiveBit(nil, argID, DXILWaveBitAnd, ol), nil
 		case ir.SubgroupOperationOr:
-			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitOr, ol)
+			return e.emitWaveActiveBit(nil, argID, DXILWaveBitOr, ol), nil
 		case ir.SubgroupOperationXor:
-			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitXor, ol)
+			return e.emitWaveActiveBit(nil, argID, DXILWaveBitXor, ol), nil
 
 		default:
 			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
-			resultID = e.emitWaveActiveOp(fn, argID, waveOp, sign, ol)
+			return e.emitWaveActiveOp(nil, argID, waveOp, sign, ol), nil
 		}
 
 	case ir.CollectiveInclusiveScan, ir.CollectiveExclusiveScan:
-		// And/Or/Xor scans are not available in DXIL wavePrefixOp.
-		// Only arithmetic ops (sum, product, min, max) are supported.
-		switch op.Op {
-		case ir.SubgroupOperationAnd, ir.SubgroupOperationOr, ir.SubgroupOperationXor:
-			// Fallback: use reduce result as approximation (best-effort).
-			bitOp := DXILWaveBitAnd
-			switch op.Op {
-			case ir.SubgroupOperationOr:
-				bitOp = DXILWaveBitOr
-			case ir.SubgroupOperationXor:
-				bitOp = DXILWaveBitXor
-			}
-			resultID = e.emitWaveActiveBit(fn, argID, bitOp, ol)
-		default:
-			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
-			resultID = e.emitWavePrefixOp(fn, argID, waveOp, sign, ol)
-			// Inclusive scan = prefix + current value. DXIL wavePrefixOp is exclusive.
-			if op.CollectiveOp == ir.CollectiveInclusiveScan {
-				resultID = e.combineForInclusive(argID, resultID, op.Op, ol)
-			}
+		// Only Add/Mul reach here: the min/max/and/or/xor scans are refused by
+		// the caller. DXIL wavePrefixOp is the exclusive prefix.
+		waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
+		resultID := e.emitWavePrefixOp(nil, argID, waveOp, sign, ol)
+		if op.CollectiveOp == ir.CollectiveInclusiveScan {
+			return e.combineForInclusive(argID, resultID, op.Op, ol)
 		}
+		return resultID, nil
 
 	default:
-		return unsupported.Errorf("unsupported collective operation: %d", op.CollectiveOp)
+		return 0, unsupported.Errorf("unsupported collective operation: %d", op.CollectiveOp)
 	}
-
-	e.exprValues[op.Result] = resultID
-	return nil
 }
 
 // subgroupOpToWaveOp converts a naga SubgroupOperation to DXIL WaveOp + sign.
@@ -4344,26 +4369,27 @@ func (e *Emitter) getWaveAllEqualFunc(ol overloadType) *module.Function {
 	return fn
 }
 
-// combineForInclusive combines prefix result with current value to make an inclusive scan.
-// inclusive = exclusive + current (for add/mul/min/max).
-func (e *Emitter) combineForInclusive(currentID, prefixID int, op ir.SubgroupOperation, ol overloadType) int {
+// combineForInclusive combines the exclusive prefix with the current value to
+// make an inclusive scan: inclusive = prefix OP current. Only Add/Mul scans
+// reach here — the min/max/and/or/xor scans are refused upstream (P1-DXIL-115),
+// so there is no silent "return the prefix" fallback for an operation that
+// cannot be combined.
+func (e *Emitter) combineForInclusive(currentID, prefixID int, op ir.SubgroupOperation, ol overloadType) (int, error) {
 	retTy := e.overloadReturnType(ol)
 	isFloat := ol == overloadF16 || ol == overloadF32 || ol == overloadF64
 	switch op {
 	case ir.SubgroupOperationAdd:
 		if isFloat {
-			return e.addBinOpInstr(retTy, BinOpFAdd, prefixID, currentID)
+			return e.addBinOpInstr(retTy, BinOpFAdd, prefixID, currentID), nil
 		}
-		return e.addBinOpInstr(retTy, BinOpAdd, prefixID, currentID)
+		return e.addBinOpInstr(retTy, BinOpAdd, prefixID, currentID), nil
 	case ir.SubgroupOperationMul:
 		if isFloat {
-			return e.addBinOpInstr(retTy, BinOpFMul, prefixID, currentID)
+			return e.addBinOpInstr(retTy, BinOpFMul, prefixID, currentID), nil
 		}
-		return e.addBinOpInstr(retTy, BinOpMul, prefixID, currentID)
+		return e.addBinOpInstr(retTy, BinOpMul, prefixID, currentID), nil
 	default:
-		// For min/max, the inclusive and exclusive results differ but
-		// we can't easily combine them. Return prefix as-is (best-effort).
-		return prefixID
+		return 0, unsupported.Errorf("inclusive scan combine for operation %d: only add and mul have a DXIL prefix form", op)
 	}
 }
 

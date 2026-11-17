@@ -1045,7 +1045,7 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 		return err
 	}
 
-	funcName := "subgroupAdd" // default
+	funcName := ""
 	switch s.CollectiveOp {
 	case ir.CollectiveReduce:
 		switch s.Op {
@@ -1084,6 +1084,14 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 		case ir.SubgroupOperationMul:
 			funcName = "subgroupInclusiveMul"
 		}
+	}
+
+	// A scan the GLSL subgroup functions have no prefix form for (min, max,
+	// and, or, xor) leaves funcName unset: refuse it, never silently writing
+	// subgroupAdd or another operation in its place (P1-GLSL-016, the
+	// P0-MSL-111 silent-substitution class).
+	if funcName == "" {
+		return unsupported.Errorf("a subgroup scan of operation %d: the GLSL subgroup functions have no prefix form for min, max, and, or or xor", s.Op)
 	}
 
 	w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
