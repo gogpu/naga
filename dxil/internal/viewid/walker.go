@@ -75,7 +75,7 @@ func (s *analysisState) walkStatement(stmt *ir.Statement) {
 		// Ray queries touch external state; any result feeds conservative
 		// deps through taintOf on the result expression.
 
-	case ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+	case ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupBallotBit, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 		// Subgroup ops — result expressions pick up taints on read.
 
 	default:

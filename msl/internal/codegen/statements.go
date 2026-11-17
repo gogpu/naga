@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/unsupported"
@@ -124,6 +125,9 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallot(k)
+
+	case ir.StmtSubgroupBallotBit:
+		return w.writeSubgroupBallotBit(k)
 
 	case ir.StmtSubgroupElect:
 		return w.writeSubgroupElect(k)
@@ -1797,6 +1801,25 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 		}
 	}
 
+	// Ballot bit pass-through: the callee reads the subgroup size / lane
+	// index from the current function's values, by value (card P2-IR-039).
+	if calleeNeed := w.funcBallotBitNeed(call.Function); calleeNeed.size || calleeNeed.lane {
+		if calleeNeed.size {
+			if hasArgs {
+				w.write(", ")
+			}
+			w.write("%s", w.subgroupSizeName)
+			hasArgs = true
+		}
+		if calleeNeed.lane {
+			if hasArgs {
+				w.write(", ")
+			}
+			w.write("%s", w.subgroupLaneName)
+			hasArgs = true
+		}
+	}
+
 	// Pass-through _buffer_sizes for helper functions that access runtime-sized arrays
 	if w.funcNeedsBufferSizes(call.Function) {
 		if hasArgs {
@@ -2016,6 +2039,126 @@ func (w *Writer) writeSubgroupElect(elect ir.StmtSubgroupElect) error {
 	w.namedExpressions[elect.Result] = tempName
 	w.write("%s %s = %ssimd_is_first();\n", w.getExpressionMSLTypeName(elect.Result), tempName, Namespace)
 	return nil
+}
+
+// writeSubgroupBallotBit writes a subgroup ballot bit statement: arithmetic
+// over the four mask words with metal::popcount, metal::ctz / metal::clz and
+// shifts (card P2-IR-039, ADR-014 D3). Metal has no function that reads a
+// ballot value's bits — the simd functions vote over the live threads — so
+// the forms are computed from the value. The subgroup size and lane index
+// are kernel inputs the writer threads in (writeEntryPoint / writeFunction);
+// the count and find forms mask the words to the size, as the SPIR-V and GLSL
+// specs consider only the bits below it. A zero mask gives 0xFFFFFFFF for the
+// finds, the undefined result the specs allow.
+func (w *Writer) writeSubgroupBallotBit(s ir.StmtSubgroupBallotBit) error {
+	tempName, ok := w.namedExpressions[s.Result]
+	if !ok {
+		tempName = w.allocateUnnamedVar()
+		w.namedExpressions[s.Result] = tempName
+	}
+
+	// Evaluate the mask once: a compound argument must not be re-written.
+	w.WriteIndent()
+	maskVar := w.allocateUnnamedVar()
+	w.write("%suint4 %s = ", Namespace, maskVar)
+	if err := w.writeExpression(s.Mask); err != nil {
+		return err
+	}
+	w.write(";\n")
+
+	switch s.Op {
+	case ir.SubgroupBallotBitExtract, ir.SubgroupInverseBallot:
+		w.WriteIndent()
+		idxVar := w.allocateUnnamedVar()
+		if s.Op == ir.SubgroupBallotBitExtract {
+			w.write("%suint %s = ", Namespace, idxVar)
+			if err := w.writeExpression(s.Index); err != nil {
+				return err
+			}
+			w.write(";\n")
+		} else {
+			w.write("%suint %s = %s;\n", Namespace, idxVar, w.subgroupLaneName)
+		}
+		w.WriteIndent()
+		w.write("%s %s = ((%s[%s / 32u] >> (%s %% 32u)) & 1u) != 0u;\n",
+			w.getExpressionMSLTypeName(s.Result), tempName, maskVar, idxVar, idxVar)
+		return nil
+
+	case ir.SubgroupBallotBitCount, ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB:
+		words := w.writeBallotBitMaskedWords(maskVar)
+		w.WriteIndent()
+		w.write("%s %s = ", w.getExpressionMSLTypeName(s.Result), tempName)
+		switch s.Op {
+		case ir.SubgroupBallotBitCount:
+			w.write("%spopcount(%s) + %spopcount(%s) + %spopcount(%s) + %spopcount(%s);\n",
+				Namespace, words[0], Namespace, words[1], Namespace, words[2], Namespace, words[3])
+		case ir.SubgroupBallotFindLSB:
+			w.write("(%s != 0u) ? %sctz(%s) : ((%s != 0u) ? (32u + %sctz(%s)) : ((%s != 0u) ? (64u + %sctz(%s)) : ((%s != 0u) ? (96u + %sctz(%s)) : 0xFFFFFFFFu)));\n",
+				words[0], Namespace, words[0], words[1], Namespace, words[1], words[2], Namespace, words[2], words[3], Namespace, words[3])
+		case ir.SubgroupBallotFindMSB:
+			w.write("(%s != 0u) ? (96u + (31u - %sclz(%s))) : ((%s != 0u) ? (64u + (31u - %sclz(%s))) : ((%s != 0u) ? (32u + (31u - %sclz(%s))) : ((%s != 0u) ? (31u - %sclz(%s)) : 0xFFFFFFFFu)));\n",
+				words[3], Namespace, words[3], words[2], Namespace, words[2], words[1], Namespace, words[1], words[0], Namespace, words[0])
+		}
+		return nil
+
+	case ir.SubgroupBallotBitInclusiveCount, ir.SubgroupBallotBitExclusiveCount:
+		w.WriteIndent()
+		laneVar := w.allocateUnnamedVar()
+		w.write("%suint %s = %s;\n", Namespace, laneVar, w.subgroupLaneName)
+		sum := ballotBitExclusiveSum(maskVar, laneVar)
+		w.WriteIndent()
+		w.write("%s %s = ", w.getExpressionMSLTypeName(s.Result), tempName)
+		if s.Op == ir.SubgroupBallotBitInclusiveCount {
+			w.write("%s + ((%s[%s / 32u] >> (%s %% 32u)) & 1u);\n", sum, maskVar, laneVar, laneVar)
+		} else {
+			w.write("%s;\n", sum)
+		}
+		return nil
+
+	default:
+		return unsupported.Errorf("a subgroup ballot bit operation %d: unknown operation", s.Op)
+	}
+}
+
+// writeBallotBitMaskedWords writes the four mask words restricted to the bits
+// below the subgroup size and returns their names: word c keeps its low
+// clamp(size - 32*c, 0, 32) bits. The remaining-bit count is signed so a size
+// below 32*c clamps to zero rather than wrapping unsigned.
+func (w *Writer) writeBallotBitMaskedWords(maskVar string) [4]string {
+	w.WriteIndent()
+	szVar := w.allocateUnnamedVar()
+	w.write("int %s = int(%s);\n", szVar, w.subgroupSizeName)
+	var words [4]string
+	for c := 0; c < 4; c++ {
+		w.WriteIndent()
+		rVar := w.allocateUnnamedVar()
+		w.write("int %s = %sclamp(%s - %d, 0, 32);\n", rVar, Namespace, szVar, 32*c)
+		w.WriteIndent()
+		words[c] = w.allocateUnnamedVar()
+		comp := "xyzw"[c]
+		w.write("%suint %s = (%s >= 32) ? %s.%c : (%s.%c & ((1u << %suint(%s)) - 1u));\n",
+			Namespace, words[c], rVar, maskVar, comp, maskVar, comp, Namespace, rVar)
+	}
+	return words
+}
+
+// ballotBitExclusiveSum is the MSL expression for the number of set mask bits
+// below the lane index: each word contributes its bits below the index, whole
+// when the index is past the word, none when it is at or below the word's
+// first bit. The shift stays in 1..31, never the undefined 32.
+func ballotBitExclusiveSum(maskVar, laneVar string) string {
+	parts := make([]string, 4)
+	for c := 0; c < 4; c++ {
+		base := 32 * c
+		comp := "xyzw"[c]
+		shift := laneVar
+		if base > 0 {
+			shift = fmt.Sprintf("(%s - %du)", laneVar, base)
+		}
+		parts[c] = fmt.Sprintf("((%s <= %du) ? 0u : ((%s >= %du) ? %spopcount(%s.%c) : %spopcount(%s.%c & ((1u << %s) - 1u))))",
+			laneVar, base, laneVar, base+32, Namespace, maskVar, comp, Namespace, maskVar, comp, shift)
+	}
+	return strings.Join(parts, " + ")
 }
 
 // writeSubgroupAllEqual writes the MSL form of a subgroup all-equal operation.

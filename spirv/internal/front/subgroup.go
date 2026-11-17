@@ -116,6 +116,95 @@ func (p *parser) subgroupElect(inst instruction, fs *functionState, consumer *em
 	return nil
 }
 
+// subgroupBallotBit parses OpGroupNonUniformInverseBallot,
+// OpGroupNonUniformBallotBitExtract, OpGroupNonUniformBallotBitCount and
+// OpGroupNonUniformBallotFindLSB / FindMSB: the ballot bit operations of the
+// GroupNonUniformBallot capability (card P2-IR-039, ADR-014 D3). Rust naga's
+// SPIR-V frontend has none of them. The counts carry their group operation
+// as an operand, as glslang writes them; a clustered count is refused with
+// the group-operation error, the IR having no clustered form yet.
+func (p *parser) subgroupBallotBit(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
+	resultTypeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	resultID, err := p.next()
+	if err != nil {
+		return err
+	}
+	scopeID, err := p.next()
+	if err != nil {
+		return err
+	}
+	if err := p.subgroupScope(scopeID); err != nil {
+		return err
+	}
+
+	var op ir.SubgroupBallotBitOperation
+	switch inst.op {
+	case spvenums.OpGroupNonUniformInverseBallot:
+		op = ir.SubgroupInverseBallot
+	case spvenums.OpGroupNonUniformBallotBitExtract:
+		op = ir.SubgroupBallotBitExtract
+	case spvenums.OpGroupNonUniformBallotFindLSB:
+		op = ir.SubgroupBallotFindLSB
+	case spvenums.OpGroupNonUniformBallotFindMSB:
+		op = ir.SubgroupBallotFindMSB
+	case spvenums.OpGroupNonUniformBallotBitCount:
+		groupOp, err := p.next()
+		if err != nil {
+			return err
+		}
+		switch spvenums.GroupOperation(groupOp) {
+		case spvenums.GroupOperationReduce:
+			op = ir.SubgroupBallotBitCount
+		case spvenums.GroupOperationInclusiveScan:
+			op = ir.SubgroupBallotBitInclusiveCount
+		case spvenums.GroupOperationExclusiveScan:
+			op = ir.SubgroupBallotBitExclusiveCount
+		default:
+			return errUnsupportedGroupOperation(groupOp)
+		}
+	default:
+		return errUnsupportedInstruction(stateFunction, inst.op)
+	}
+
+	maskID, err := p.next()
+	if err != nil {
+		return err
+	}
+	mask, err := p.handleOf(maskID, fs, consumer, block, bodyIdx)
+	if err != nil {
+		return err
+	}
+	var index ir.ExpressionHandle
+	if op == ir.SubgroupBallotBitExtract {
+		indexID, err := p.next()
+		if err != nil {
+			return err
+		}
+		if index, err = p.handleOf(indexID, fs, consumer, block, bodyIdx); err != nil {
+			return err
+		}
+	}
+	resultType, err := p.typeLookup(resultTypeID)
+	if err != nil {
+		return err
+	}
+
+	flushBeforeStatement(consumer, fs.fn.Expressions, block)
+	result := appendExpression(fs.fn, ir.ExprSubgroupOperationResult{Type: resultType.handle})
+	p.storeExpression(resultID, resultTypeID, blockID, result)
+	*block = append(*block, ir.Statement{Kind: ir.StmtSubgroupBallotBit{
+		Op:     op,
+		Mask:   mask,
+		Index:  index,
+		Result: result,
+	}})
+	consumer.startWith(fs.fn.Expressions)
+	return nil
+}
+
 // subgroupCollective parses OpGroupNonUniformAll, OpGroupNonUniformAny,
 // arithmetic and bitwise reduction and scan families.
 func (p *parser) subgroupCollective(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {

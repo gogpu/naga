@@ -331,6 +331,8 @@ func (w *Writer) writeStatement(kind ir.StatementKind) error {
 		return w.writeRayQueryStatement(s)
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallotStatement(s)
+	case ir.StmtSubgroupBallotBit:
+		return w.writeSubgroupBallotBitStatement(s)
 	case ir.StmtSubgroupElect:
 		return w.writeSubgroupElectStatement(s)
 	case ir.StmtSubgroupCollectiveOperation:
@@ -2340,6 +2342,129 @@ func (w *Writer) writeSubgroupElectStatement(s ir.StmtSubgroupElect) error {
 	w.WriteIndent()
 	fmt.Fprintf(&w.Out, "const %s %s = WaveIsFirstLane();\n", w.expressionTypeStr(s.Result), w.nameExpression(s.Result))
 	return nil
+}
+
+// writeSubgroupBallotBitStatement writes a SubgroupBallotBit statement: the
+// ballot bit operations over an arbitrary mask value (card P2-IR-039,
+// ADR-014 D3). HLSL has no intrinsic that reads a ballot value's bits —
+// WaveActiveCountBits and WavePrefixCountBits count the live wave's
+// predicate, not a value's bits — so the forms are arithmetic over the four
+// words: countbits, firstbitlow / firstbithigh and shifts, SM 6.0.
+//
+// The SPIR-V and GLSL specs consider only the bits below the subgroup size,
+// so the count and find forms mask the words to WaveGetLaneCount() first.
+// The scans count bits below the lane index and extract reads a single bit,
+// neither of which can reach a bit at or above the size. A zero mask gives
+// 0xFFFFFFFF for the finds, the undefined result the specs allow (HLSL's
+// firstbitlow / firstbithigh return it for zero).
+func (w *Writer) writeSubgroupBallotBitStatement(s ir.StmtSubgroupBallotBit) error {
+	n := s.Result
+	maskName := fmt.Sprintf("_e%d_b", n)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "const uint4 %s = ", maskName)
+	if err := w.writeExpression(s.Mask); err != nil {
+		return err
+	}
+	w.Out.WriteString(";\n")
+
+	name := w.nameExpression(s.Result)
+	typeName := w.expressionTypeStr(s.Result)
+
+	switch s.Op {
+	case ir.SubgroupBallotBitExtract, ir.SubgroupInverseBallot:
+		indexName := fmt.Sprintf("_e%d_li", n)
+		w.WriteIndent()
+		if s.Op == ir.SubgroupBallotBitExtract {
+			indexName = fmt.Sprintf("_e%d_i", n)
+			fmt.Fprintf(&w.Out, "const uint %s = ", indexName)
+			if err := w.writeExpression(s.Index); err != nil {
+				return err
+			}
+			w.Out.WriteString(";\n")
+		} else {
+			fmt.Fprintf(&w.Out, "const uint %s = WaveGetLaneIndex();\n", indexName)
+		}
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "const %s %s = ((%s[%s / 32u] >> (%s %% 32u)) & 1u) != 0u;\n",
+			typeName, name, maskName, indexName, indexName)
+		return nil
+
+	case ir.SubgroupBallotBitCount, ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB:
+		w.writeBallotBitMaskedWords(n, maskName)
+		w0 := fmt.Sprintf("_e%d_w0", n)
+		w1 := fmt.Sprintf("_e%d_w1", n)
+		w2 := fmt.Sprintf("_e%d_w2", n)
+		w3 := fmt.Sprintf("_e%d_w3", n)
+		w.WriteIndent()
+		switch s.Op {
+		case ir.SubgroupBallotBitCount:
+			fmt.Fprintf(&w.Out, "const %s %s = countbits(%s) + countbits(%s) + countbits(%s) + countbits(%s);\n",
+				typeName, name, w0, w1, w2, w3)
+		case ir.SubgroupBallotFindLSB:
+			fmt.Fprintf(&w.Out, "const %s %s = (%s != 0u) ? firstbitlow(%s) : ((%s != 0u) ? (32u + firstbitlow(%s)) : ((%s != 0u) ? (64u + firstbitlow(%s)) : ((%s != 0u) ? (96u + firstbitlow(%s)) : 0xFFFFFFFFu)));\n",
+				typeName, name, w0, w0, w1, w1, w2, w2, w3, w3)
+		case ir.SubgroupBallotFindMSB:
+			fmt.Fprintf(&w.Out, "const %s %s = (%s != 0u) ? (96u + firstbithigh(%s)) : ((%s != 0u) ? (64u + firstbithigh(%s)) : ((%s != 0u) ? (32u + firstbithigh(%s)) : ((%s != 0u) ? firstbithigh(%s) : 0xFFFFFFFFu)));\n",
+				typeName, name, w3, w3, w2, w2, w1, w1, w0, w0)
+		}
+		return nil
+
+	case ir.SubgroupBallotBitInclusiveCount, ir.SubgroupBallotBitExclusiveCount:
+		laneName := fmt.Sprintf("_e%d_li", n)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "const uint %s = WaveGetLaneIndex();\n", laneName)
+		sum := ballotBitExclusiveSum(maskName, laneName)
+		w.WriteIndent()
+		if s.Op == ir.SubgroupBallotBitInclusiveCount {
+			fmt.Fprintf(&w.Out, "const %s %s = %s + ((%s[%s / 32u] >> (%s %% 32u)) & 1u);\n",
+				typeName, name, sum, maskName, laneName, laneName)
+		} else {
+			fmt.Fprintf(&w.Out, "const %s %s = %s;\n", typeName, name, sum)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported subgroup ballot bit op: %d", s.Op)
+	}
+}
+
+// writeBallotBitMaskedWords writes the four mask words restricted to the bits
+// below the subgroup size: word c keeps its low clamp(size - 32*c, 0, 32)
+// bits. The remaining-bit count is signed so a size below 32*c clamps to zero
+// rather than wrapping unsigned.
+func (w *Writer) writeBallotBitMaskedWords(n ir.ExpressionHandle, maskName string) {
+	sz := fmt.Sprintf("_e%d_sz", n)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "const int %s = int(WaveGetLaneCount());\n", sz)
+	for c := 0; c < 4; c++ {
+		r := fmt.Sprintf("_e%d_r%d", n, c)
+		wm := fmt.Sprintf("_e%d_w%d", n, c)
+		comp := "xyzw"[c]
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "const int %s = clamp(%s - %d, 0, 32);\n", r, sz, 32*c)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "const uint %s = (%s >= 32) ? %s.%c : (%s.%c & ((1u << uint(%s)) - 1u));\n",
+			wm, r, maskName, comp, maskName, comp, r)
+	}
+}
+
+// ballotBitExclusiveSum is the HLSL expression for the number of set mask
+// bits below the lane index: each word contributes its bits below the index,
+// whole when the index is past the word, none when it is at or below the
+// word's first bit. The shift stays in 1..31, never the undefined 32.
+func ballotBitExclusiveSum(maskName, laneName string) string {
+	parts := make([]string, 4)
+	for c := 0; c < 4; c++ {
+		base := 32 * c
+		comp := "xyzw"[c]
+		shift := laneName
+		if base > 0 {
+			shift = fmt.Sprintf("(%s - %du)", laneName, base)
+		}
+		parts[c] = fmt.Sprintf("((%s <= %du) ? 0u : ((%s >= %du) ? countbits(%s.%c) : countbits(%s.%c & ((1u << %s) - 1u))))",
+			laneName, base, laneName, base+32, maskName, comp, maskName, comp, shift)
+	}
+	return strings.Join(parts, " + ")
 }
 
 // writeSubgroupCollectiveOperationStatement writes a SubgroupCollectiveOperation statement.

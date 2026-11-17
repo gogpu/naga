@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Ballot bit operations across the IR, both frontends and every backend** (card P2-IR-039, ADR-014 D3).
+  The IR gains `ir.StmtSubgroupBallotBit` and the `ir.SubgroupBallotBitOperation` enum (Extract, Count,
+  InclusiveCount, ExclusiveCount, FindLSB, FindMSB, InverseBallot) — the seven ballot bit forms of
+  `GL_KHR_shader_subgroup_ballot` and SPIR-V's `GroupNonUniformBallot` capability, none of which Rust naga
+  has. The result reuses `ir.ExprSubgroupOperationResult` (bool for extract and inverse ballot, u32 for the
+  counts and finds); validation is the existing BALLOT class with `Mask` vec4<u32> and `Index` a u32 scalar
+  read by extract only. The GLSL frontend lowers `subgroupBallotBitExtract`, `subgroupBallotBitCount`,
+  `subgroupBallotInclusiveBitCount`, `subgroupBallotExclusiveBitCount`, `subgroupBallotFindLSB`,
+  `subgroupBallotFindMSB` and `subgroupInverseBallot` (previously refused or unrecognized), converting an
+  ivec4 mask or int index to uint as glslang does; the SPIR-V frontend maps the five `OpGroupNonUniform*`
+  opcodes. Every backend writes the forms: SPIR-V natively (opcodes 340–344), GLSL text as the builtins, and
+  HLSL, MSL and DXIL as arithmetic over the four mask words (`countbits`/`firstbitlow`/`firstbithigh`,
+  `metal::popcount`/`ctz`/`clz`, `dx.op.unaryBits` Countbits/FirstbitLo/FirstbitHi), masked to the subgroup
+  size as the SPIR-V and GLSL specs require — the wave count intrinsics count the live wave's predicate, not
+  a mask value, so they are not used. MSL threads the subgroup size and lane index kernel inputs to callees
+  by value. Verified end to end: spirv-val on the emitted SPIR-V, dxc `cs_6_0` on the emitted HLSL,
+  IDxcValidator on the emitted DXIL (including the conversions and a mixed-builtin module), and the GLSL
+  subgroup matrix; unit tests per layer pin the IR shape, the operand rules and each backend's output.
+
+### Fixed
+
+- **`valid.MissingCapabilities` now reports SUBGROUP for an elect-only module** (found while implementing
+  P2-IR-039; card P2-IR-038 follow-up). The capability collector listed the ballot, collective and gather
+  statements but not `StmtSubgroupElect`, so a module whose only subgroup operation was an elect passed a
+  backend's `MissingCapabilities` gate even when subgroups were unsupported. Elect and the new ballot bit
+  statement are now collected; a gate-table case pins it, proven to fail on the previous code.
+
 ## [0.22.5] - 2026-11-17
 
 ### Fixed

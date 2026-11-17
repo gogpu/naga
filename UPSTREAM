@@ -41,11 +41,11 @@ Current scope
   SPIR-V, MSL, HLSL or GLSL); GLSL input — preview: Vulkan GLSL 440/450/460 and
   the GL 3.30 core / ES 3.00 dialects, with the builtin catalogue (the image and
   sampling surface including textureQueryLod, barriers, atomics, the subgroup
-  vote/ballot/elect/shuffle/quad/arithmetic families and built-in variables), the
-  combined image sampler split, plain-uniform collection and per-dialect feature
-  gates; a few subgroup forms the IR cannot express stay refused (the ballot bit
-  helpers, the gl_Subgroup*Mask variables, the clustered forms and the
-  Min/Max/And/Or/Xor scans).
+  vote/ballot/elect/shuffle/quad/arithmetic families and built-in variables, the
+  ballot bit operations and subgroupInverseBallot included), the combined image
+  sampler split, plain-uniform collection and per-dialect feature gates; a few
+  subgroup forms the IR cannot express stay refused (the gl_Subgroup*Mask
+  variables, the clustered forms and the Min/Max/And/Or/Xor scans).
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
   Rust naga's WGSL and DOT outputs are not implemented; Rust naga has no GLSL
   frontend, so ours is our own implementation.

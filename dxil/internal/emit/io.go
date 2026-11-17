@@ -1077,19 +1077,40 @@ func (e *Emitter) getDxOpStorePrimitiveOutputFunc(ol overloadType) *module.Funct
 // Used for WaveGetLaneIndex (111) and WaveGetLaneCount (112).
 func (e *Emitter) emitScalarWaveLoad(_ *ir.Function, exprHandle ir.ExpressionHandle, funcName string, opcode DXILOpcode) error {
 	i32Ty := e.mod.GetIntType(32)
-	key := dxOpKey{name: funcName, overload: overloadI32}
-	fn, ok := e.dxOpFuncs[key]
-	if !ok {
-		params := []*module.Type{i32Ty}
-		funcTy := e.mod.GetFunctionType(i32Ty, params)
-		fn = e.mod.AddFunction(funcName, funcTy, true)
-		e.dxOpFuncs[key] = fn
-	}
-
+	// Route through the centralized declarations so a built-in read and a
+	// ballot bit operation (card P2-IR-039) share one dx.op.waveGetLane*
+	// symbol: AddFunction does not deduplicate, so two cache keys for the
+	// same name would emit two declarations.
+	fn := e.waveLaneFunc(funcName)
 	opcodeVal := e.getIntConstID(int64(opcode))
 	resultID := e.addCallInstr(fn, i32Ty, []int{opcodeVal})
 	e.exprValues[exprHandle] = resultID
 	return nil
+}
+
+// waveLaneFunc returns the shared dx.op.waveGetLaneCount / waveGetLaneIndex
+// declaration. Both intrinsics have overload count 0 in DXC's
+// DxilOperations.cpp, so their symbols carry no type suffix.
+func (e *Emitter) waveLaneFunc(funcName string) *module.Function {
+	if funcName == "dx.op.waveGetLaneCount" {
+		return e.getOrCreateWaveGetLaneCountFunc()
+	}
+	return e.getOrCreateWaveGetLaneIndexFunc()
+}
+
+// getOrCreateWaveGetLaneIndexFunc declares (or returns the cached)
+// dx.op.waveGetLaneIndex: overload count 0, so no type suffix, as
+// getOrCreateWaveGetLaneCountFunc.
+func (e *Emitter) getOrCreateWaveGetLaneIndexFunc() *module.Function {
+	key := dxOpKey{name: "dx.op.waveGetLaneIndex", overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	funcTy := e.mod.GetFunctionType(i32Ty, []*module.Type{i32Ty})
+	fn := e.mod.AddFunction("dx.op.waveGetLaneIndex", funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }
 
 // getOrCreateWaveGetLaneCountFunc declares (or returns the cached)

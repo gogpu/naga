@@ -267,6 +267,140 @@ func TestSubgroupBallot(t *testing.T) {
 	t.Fatal("no StmtSubgroupBallot in the lowered function")
 }
 
+// TestSubgroupBallotBitForms pins the seven ballot bit builtins: each lowers
+// to ir.StmtSubgroupBallotBit with its operation over the ballot mask, and a
+// bool result for extract and inverse ballot, u32 for the counts and finds.
+// glslang emits OpGroupNonUniformBallotBitExtract, BitCount with Reduce /
+// InclusiveScan / ExclusiveScan, FindLSB, FindMSB and InverseBallot for them
+// (probed 2026-11-17; card P2-IR-039, ADR-014 D3).
+func TestSubgroupBallotBitForms(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_ballot : require\n"
+	cases := []struct {
+		name       string
+		call       string
+		op         ir.SubgroupBallotBitOperation
+		boolResult bool
+	}{
+		{"extract", "subgroupBallotBitExtract(subgroupBallot(true), 1u) ? 1u : 0u", ir.SubgroupBallotBitExtract, true},
+		{"count", "subgroupBallotBitCount(subgroupBallot(true))", ir.SubgroupBallotBitCount, false},
+		{"inclusive count", "subgroupBallotInclusiveBitCount(subgroupBallot(true))", ir.SubgroupBallotBitInclusiveCount, false},
+		{"exclusive count", "subgroupBallotExclusiveBitCount(subgroupBallot(true))", ir.SubgroupBallotBitExclusiveCount, false},
+		{"find lsb", "subgroupBallotFindLSB(subgroupBallot(true))", ir.SubgroupBallotFindLSB, false},
+		{"find msb", "subgroupBallotFindMSB(subgroupBallot(true))", ir.SubgroupBallotFindMSB, false},
+		{"inverse ballot", "subgroupInverseBallot(subgroupBallot(true)) ? 1u : 0u", ir.SubgroupInverseBallot, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mod := parseSubgroup(t, subgroupComputeSource(extensions,
+				"void main() { o.v = "+tc.call+"; }\n"), ir.StageCompute)
+			fn := mainFunction(t, mod)
+			var bit *ir.StmtSubgroupBallotBit
+			for _, stmt := range subgroupStatements(fn) {
+				if kind, ok := stmt.Kind.(ir.StmtSubgroupBallotBit); ok {
+					bit = &kind
+				}
+			}
+			if bit == nil {
+				t.Fatal("no StmtSubgroupBallotBit in the lowered function")
+			}
+			if bit.Op != tc.op {
+				t.Fatalf("operation is %d, want %d", bit.Op, tc.op)
+			}
+			if _, ok := fn.Expressions[bit.Mask].Kind.(ir.ExprSubgroupBallotResult); !ok {
+				t.Fatalf("mask expression is %T, want the ballot result", fn.Expressions[bit.Mask].Kind)
+			}
+			res, ok := fn.Expressions[bit.Result].Kind.(ir.ExprSubgroupOperationResult)
+			if !ok {
+				t.Fatalf("result expression is %T, want ExprSubgroupOperationResult", fn.Expressions[bit.Result].Kind)
+			}
+			scalar, ok := mod.Types[res.Type].Inner.(ir.ScalarType)
+			wantKind := ir.ScalarUint
+			if tc.boolResult {
+				wantKind = ir.ScalarBool
+			}
+			if !ok || scalar.Kind != wantKind {
+				t.Fatalf("result type is %+v, want scalar kind %d", mod.Types[res.Type].Inner, wantKind)
+			}
+			if tc.op == ir.SubgroupBallotBitExtract {
+				lit, ok := fn.Expressions[bit.Index].Kind.(ir.Literal)
+				if !ok || lit.Value != ir.LiteralU32(1) {
+					t.Fatalf("index expression is %T, want the u32 literal 1", fn.Expressions[bit.Index].Kind)
+				}
+			}
+		})
+	}
+}
+
+// TestSubgroupBallotBitConversions: glslang implicitly converts an ivec4 mask
+// and an int extract index to uint (OpBitcast %v4uint before the operation,
+// probed 2026-11-17); the frontend converts rather than refuses, and the
+// module validates.
+func TestSubgroupBallotBitConversions(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_ballot : require\n"
+	mod := parseSubgroup(t, subgroupComputeSource(extensions,
+		"void main() { ivec4 sm = ivec4(subgroupBallot(true));"+
+			" o.v = subgroupBallotBitCount(sm);"+
+			" o.v = subgroupBallotBitExtract(sm, 1) ? 1u : 0u; }\n"), ir.StageCompute)
+	fn := mainFunction(t, mod)
+	var count, extract *ir.StmtSubgroupBallotBit
+	for _, stmt := range subgroupStatements(fn) {
+		if kind, ok := stmt.Kind.(ir.StmtSubgroupBallotBit); ok {
+			switch kind.Op {
+			case ir.SubgroupBallotBitCount:
+				count = &kind
+			case ir.SubgroupBallotBitExtract:
+				extract = &kind
+			}
+		}
+	}
+	if count == nil || extract == nil {
+		t.Fatal("the count and extract statements are not both lowered")
+	}
+	// The ivec4 masks convert to uint; a runtime value cannot fold away.
+	for _, h := range []ir.ExpressionHandle{count.Mask, extract.Mask} {
+		as, ok := fn.Expressions[h].Kind.(ir.ExprAs)
+		if !ok || as.Kind != ir.ScalarUint {
+			t.Fatalf("mask operand is %T, want an ExprAs to uint", fn.Expressions[h].Kind)
+		}
+	}
+	// The int index converts to uint, or folds to a u32 literal.
+	switch idx := fn.Expressions[extract.Index].Kind.(type) {
+	case ir.ExprAs:
+		if idx.Kind != ir.ScalarUint {
+			t.Fatalf("index converts to scalar kind %d, want uint", idx.Kind)
+		}
+	case ir.Literal:
+		if idx.Value != ir.LiteralU32(1) {
+			t.Fatalf("index literal is %v, want u32(1)", idx.Value)
+		}
+	default:
+		t.Fatalf("index operand is %T, want an ExprAs to uint or a u32 literal", fn.Expressions[extract.Index].Kind)
+	}
+}
+
+// TestSubgroupBallotBitOperandTypes: the mask is a 32-bit integer vec4 and
+// the extract index a 32-bit integer scalar; anything else is not the
+// builtin (glslang: "no matching overloaded function found").
+func TestSubgroupBallotBitOperandTypes(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_ballot : require\n"
+	cases := []struct{ name, use string }{
+		{"scalar mask", "o.v = subgroupBallotBitCount(1u);"},
+		{"vec3 mask", "o.v = subgroupBallotBitCount(uvec3(1u));"},
+		{"float mask", "o.v = subgroupBallotBitCount(vec4(1.0));"},
+		{"bool mask", "o.v = subgroupBallotBitCount(bvec4(true));"},
+		{"float index", "o.v = subgroupBallotBitExtract(subgroupBallot(true), 1.0) ? 1u : 0u;"},
+		{"vector index", "o.v = subgroupBallotBitExtract(subgroupBallot(true), uvec2(1u)) ? 1u : 0u;"},
+		{"extract without index", "o.v = subgroupBallotBitExtract(subgroupBallot(true)) ? 1u : 0u;"},
+		{"count with two args", "o.v = subgroupBallotBitCount(subgroupBallot(true), 1u);"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parseErr(t, subgroupComputeSource(extensions, "void main() { "+tc.use+" }\n"),
+				Options{Stage: ir.StageCompute}, "Unknown function")
+		})
+	}
+}
+
 // TestSubgroupGather pins the gather modes of the broadcast, shuffle and quad
 // families: each builtin maps to the ir.GatherMode glslang's SPIR-V opcode
 // names (OpGroupNonUniformBroadcast, ...ShuffleXor, ...QuadSwap with
@@ -438,6 +572,12 @@ func TestSubgroupExtensionGate(t *testing.T) {
 			"'subgroupAll' : required extension not requested: GL_KHR_shader_subgroup_vote"},
 		{"ballot without extension", "", "uvec4 m = subgroupBallot(true); o.v = m.x;",
 			"'subgroupBallot' : required extension not requested: GL_KHR_shader_subgroup_ballot"},
+		{"ballot bit without extension", "", "uvec4 m = uvec4(0u); o.v = subgroupBallotBitCount(m);",
+			"'subgroupBallotBitCount' : required extension not requested: GL_KHR_shader_subgroup_ballot"},
+		{"inverse ballot needs the ballot extension",
+			"#extension GL_KHR_shader_subgroup_basic : require\n",
+			"uvec4 m = uvec4(0u); o.v = subgroupInverseBallot(m) ? 1u : 0u;",
+			"'subgroupInverseBallot' : required extension not requested: GL_KHR_shader_subgroup_ballot"},
 		{"barrier without any extension", "", "subgroupBarrier();",
 			"'subgroupBarrier' : required extension not requested: GL_KHR_shader_subgroup_basic"},
 		{"shuffle relative needs its own extension",
@@ -526,18 +666,6 @@ func TestSubgroupGapRefusals(t *testing.T) {
 		use     string
 		refusal string
 	}{
-		{"ballot bit extract", "o.v = subgroupBallotBitExtract(subgroupBallot(true), 1u) ? 1u : 0u;",
-			"no ballot bit extract, bit count or find LSB/MSB"},
-		{"ballot bit count", "o.v = subgroupBallotBitCount(subgroupBallot(true));",
-			"no ballot bit extract, bit count or find LSB/MSB"},
-		{"ballot inclusive bit count", "o.v = subgroupBallotInclusiveBitCount(subgroupBallot(true));",
-			"no ballot bit extract, bit count or find LSB/MSB"},
-		{"ballot exclusive bit count", "o.v = subgroupBallotExclusiveBitCount(subgroupBallot(true));",
-			"no ballot bit extract, bit count or find LSB/MSB"},
-		{"ballot find lsb", "o.v = subgroupBallotFindLSB(subgroupBallot(true));",
-			"no ballot bit extract, bit count or find LSB/MSB"},
-		{"ballot find msb", "o.v = subgroupBallotFindMSB(subgroupBallot(true));",
-			"no ballot bit extract, bit count or find LSB/MSB"},
 		{"clustered add", "o.v = subgroupClusteredAdd(1u, 4u);", "no ClusteredReduce"},
 		{"clustered mul", "o.v = subgroupClusteredMul(1u, 4u);", "no ClusteredReduce"},
 		{"clustered min", "o.v = subgroupClusteredMin(1u, 4u);", "no ClusteredReduce"},

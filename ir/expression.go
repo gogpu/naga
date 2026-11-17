@@ -631,9 +631,8 @@ type ExprSubgroupBallotResult struct{}
 func (ExprSubgroupBallotResult) expressionKind() {}
 
 // ExprSubgroupOperationResult represents the result of a subgroup operation
-// statement: SubgroupCollectiveOperation, SubgroupGather, SubgroupElect (and,
-// when the IR gains them, the ballot bit operations). The Type field holds the
-// result type.
+// statement: SubgroupCollectiveOperation, SubgroupGather, SubgroupElect and
+// SubgroupBallotBit. The Type field holds the result type.
 type ExprSubgroupOperationResult struct {
 	Type TypeHandle
 }

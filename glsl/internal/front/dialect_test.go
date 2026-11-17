@@ -892,16 +892,24 @@ void main() { S s = S(vec4(a), b.a.x); color = s.a + vec4(s.b); }
 // cannot express are refused with a message naming the card that implements
 // the missing IR capability rather than an unknown-name text; an unimplemented
 // form reaches that message only after its family's extension is enabled, as
-// glslang resolves availability first. The subgroup built-in variables are
-// implemented and have their own tests (subgroup_test.go).
+// glslang resolves availability first. The ballot bit operations are
+// implemented (card P2-IR-039) and available in the GL 3.30 core dialect
+// through the ballot extension, as glslang accepts them there (probed
+// 2026-11-17). The subgroup built-in variables are implemented and have their
+// own tests (subgroup_test.go).
 func TestSubgroupBuiltinsRefused(t *testing.T) {
 	const header = `#version 330 core
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
-out vec4 color;
+#extension GL_KHR_shader_subgroup_clustered : require
+layout(location = 0) out vec4 color;
 `
 	t.Run("builtin function", func(t *testing.T) {
-		parseErr(t, header+`void main() { color = vec4(float(subgroupBallotBitCount(subgroupBallot(true)))); }
-`, Options{Stage: ir.StageFragment}, "card P2-IR-039")
+		parseErr(t, header+`void main() { color = vec4(float(subgroupClusteredAdd(1u, 4u))); }
+`, Options{Stage: ir.StageFragment}, "card P2-IR-040")
+	})
+	t.Run("ballot bit count accepted in GL 3.30", func(t *testing.T) {
+		parseOK(t, header+`void main() { color = vec4(float(subgroupBallotBitCount(subgroupBallot(true)))); }
+`, Options{Stage: ir.StageFragment})
 	})
 }

@@ -364,3 +364,65 @@ type StmtSubgroupGather struct {
 }
 
 func (StmtSubgroupGather) statementKind() {}
+
+// SubgroupBallotBitOperation is the operation of a StmtSubgroupBallotBit:
+// the ballot bit operations of GL_KHR_shader_subgroup_ballot and SPIR-V's
+// GroupNonUniformBallot capability (opcodes 340-344). Rust naga has none of
+// them (card P2-IR-039, ADR-014 D3).
+type SubgroupBallotBitOperation uint8
+
+const (
+	// SubgroupBallotBitExtract is subgroupBallotBitExtract /
+	// OpGroupNonUniformBallotBitExtract: the bit of the mask at Index, as
+	// bool. An Index at or above the subgroup size gives an undefined result.
+	SubgroupBallotBitExtract SubgroupBallotBitOperation = iota
+	// SubgroupBallotBitCount is subgroupBallotBitCount /
+	// OpGroupNonUniformBallotBitCount with Reduce: the number of set bits.
+	SubgroupBallotBitCount
+	// SubgroupBallotBitInclusiveCount is subgroupBallotInclusiveBitCount /
+	// OpGroupNonUniformBallotBitCount with InclusiveScan: the set bits at
+	// lanes up to and including this invocation's.
+	SubgroupBallotBitInclusiveCount
+	// SubgroupBallotBitExclusiveCount is subgroupBallotExclusiveBitCount /
+	// OpGroupNonUniformBallotBitCount with ExclusiveScan: the set bits at
+	// lanes below this invocation's.
+	SubgroupBallotBitExclusiveCount
+	// SubgroupBallotFindLSB is subgroupBallotFindLSB /
+	// OpGroupNonUniformBallotFindLSB: the bit number of the least significant
+	// set bit; undefined when no considered bit is set.
+	SubgroupBallotFindLSB
+	// SubgroupBallotFindMSB is subgroupBallotFindMSB /
+	// OpGroupNonUniformBallotFindMSB: the bit number of the most significant
+	// set bit; undefined when no considered bit is set.
+	SubgroupBallotFindMSB
+	// SubgroupInverseBallot is subgroupInverseBallot /
+	// OpGroupNonUniformInverseBallot: the bit of the mask at this
+	// invocation's subgroup invocation id, as bool.
+	SubgroupInverseBallot
+)
+
+// StmtSubgroupBallotBit computes a ballot bit operation over a mask: the
+// seven forms of GL_KHR_shader_subgroup_ballot and SPIR-V's
+// GroupNonUniformBallot capability (card P2-IR-039, ADR-014 D3). Rust naga
+// has no ballot bit operations.
+//
+// Mask is a vec4<u32> ballot value: invocation i is bit i%32 of component
+// i/32. Every operation considers only the bits below the subgroup size —
+// the SPIR-V and GLSL specs ignore the bits beyond the invocations the
+// subgroup holds — so a backend without a native form masks the value to
+// the subgroup size itself. Index is a u32 scalar read by Extract only.
+// Result is an ExprSubgroupOperationResult: bool for Extract and
+// InverseBallot, u32 for the counts and finds.
+//
+// Like every subgroup operation this is a statement, not an expression: it
+// runs exactly once per invocation, and the mask must be the same for all
+// invocations that execute the same dynamic instance (SPIR-V makes a
+// differing mask undefined behavior).
+type StmtSubgroupBallotBit struct {
+	Op     SubgroupBallotBitOperation
+	Mask   ExpressionHandle // vec4<u32> ballot value
+	Index  ExpressionHandle // u32 scalar; read by Extract only
+	Result ExpressionHandle // SubgroupOperationResult expression
+}
+
+func (StmtSubgroupBallotBit) statementKind() {}

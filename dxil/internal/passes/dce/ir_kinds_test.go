@@ -49,7 +49,7 @@ var irKindRegistry = []any{
 	ir.StmtControlBarrier{}, ir.StmtMemoryBarrier{}, ir.StmtStore{},
 	ir.StmtImageStore{}, ir.StmtAtomic{}, ir.StmtImageAtomic{},
 	ir.StmtWorkGroupUniformLoad{}, ir.StmtCall{}, ir.StmtRayQuery{},
-	ir.StmtSubgroupBallot{}, ir.StmtSubgroupElect{}, ir.StmtSubgroupCollectiveOperation{},
+	ir.StmtSubgroupBallot{}, ir.StmtSubgroupElect{}, ir.StmtSubgroupBallotBit{}, ir.StmtSubgroupCollectiveOperation{},
 	ir.StmtSubgroupGather{},
 	// ir.LiteralValue
 	ir.LiteralF64(0), ir.LiteralF32(0), ir.LiteralF16(0), ir.LiteralU32(0),

@@ -6829,6 +6829,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtSubgroupElect:
 		return e.emitSubgroupElect(kind)
 
+	case ir.StmtSubgroupBallotBit:
+		return e.emitSubgroupBallotBit(kind)
+
 	case ir.StmtSubgroupCollectiveOperation:
 		return e.emitSubgroupCollectiveOperation(kind)
 
@@ -10694,6 +10697,73 @@ func (e *ExpressionEmitter) emitSubgroupElect(stmt ir.StmtSubgroupElect) error {
 	ib.AddWord(resultID)
 	ib.AddWord(scopeID)
 	e.backend.builder.funcAppend(ib.Build(spvenums.OpGroupNonUniformElect))
+
+	e.exprIDs[stmt.Result] = resultID
+	return nil
+}
+
+// emitSubgroupBallotBit emits a SubgroupBallotBit statement: the ballot bit
+// operations of Capability GroupNonUniformBallot, SPIR-V 1.3 (opcodes
+// 340-344). The counts carry their group operation as an operand, as glslang
+// writes them; extract carries its index after the mask. Rust naga has no
+// ballot bit operations (card P2-IR-039, ADR-014 D3).
+func (e *ExpressionEmitter) emitSubgroupBallotBit(stmt ir.StmtSubgroupBallotBit) error {
+	e.backend.requireVersion(Version1_3, "a subgroup operation")
+	e.backend.addCapability(spvenums.CapabilityGroupNonUniformBallot)
+	u32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	if err != nil {
+		return err
+	}
+	scopeID := e.backend.builder.AddConstant(u32TypeID, uint32(spvenums.ScopeSubgroup))
+
+	maskID, err := e.emitExpression(stmt.Mask)
+	if err != nil {
+		return err
+	}
+	resultTypeID, err := e.resolveSubgroupTypeID(stmt.Result)
+	if err != nil {
+		return err
+	}
+
+	var opcode spvenums.Op
+	groupOp := spvenums.GroupOperationReduce
+	hasGroupOp := false
+	switch stmt.Op {
+	case ir.SubgroupInverseBallot:
+		opcode = spvenums.OpGroupNonUniformInverseBallot
+	case ir.SubgroupBallotBitExtract:
+		opcode = spvenums.OpGroupNonUniformBallotBitExtract
+	case ir.SubgroupBallotBitCount:
+		opcode, hasGroupOp = spvenums.OpGroupNonUniformBallotBitCount, true
+	case ir.SubgroupBallotBitInclusiveCount:
+		opcode, groupOp, hasGroupOp = spvenums.OpGroupNonUniformBallotBitCount, spvenums.GroupOperationInclusiveScan, true
+	case ir.SubgroupBallotBitExclusiveCount:
+		opcode, groupOp, hasGroupOp = spvenums.OpGroupNonUniformBallotBitCount, spvenums.GroupOperationExclusiveScan, true
+	case ir.SubgroupBallotFindLSB:
+		opcode = spvenums.OpGroupNonUniformBallotFindLSB
+	case ir.SubgroupBallotFindMSB:
+		opcode = spvenums.OpGroupNonUniformBallotFindMSB
+	default:
+		return unsupported.Errorf("a subgroup ballot bit operation %d: unknown operation", stmt.Op)
+	}
+
+	resultID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(resultTypeID)
+	ib.AddWord(resultID)
+	ib.AddWord(scopeID)
+	if hasGroupOp {
+		ib.AddWord(uint32(groupOp))
+	}
+	ib.AddWord(maskID)
+	if stmt.Op == ir.SubgroupBallotBitExtract {
+		indexID, err := e.emitExpression(stmt.Index)
+		if err != nil {
+			return err
+		}
+		ib.AddWord(indexID)
+	}
+	e.backend.builder.funcAppend(ib.Build(opcode))
 
 	e.exprIDs[stmt.Result] = resultID
 	return nil
