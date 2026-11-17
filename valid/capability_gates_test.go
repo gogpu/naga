@@ -78,6 +78,13 @@ var capabilityGateCases = []struct {
 		want: "in function main, statement 0: Shader requires capability Capabilities(SUBGROUP)",
 	},
 	{
+		// Elect is beyond Rust naga (ADR-014 D1): the BASIC class, SUBGROUP.
+		name: "subgroup elect", rust: "beyond Rust naga: ADR-014 D1, GL_KHR_shader_subgroup basic",
+		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main() { _ = subgroupElect(); }`,
+		with: valid.Options{Capabilities: valid.CapSubgroup},
+		want: "Shader requires capability Capabilities(SUBGROUP)",
+	},
+	{
 		name: "subgroup collective operation", rust: "function.rs:1632 Statement::SubgroupCollectiveOperation",
 		src:  "enable subgroups;\n" + `@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) i: u32) { _ = subgroupAdd(i); }`,
 		with: valid.Options{Capabilities: valid.CapSubgroup},
