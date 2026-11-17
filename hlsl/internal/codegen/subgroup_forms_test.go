@@ -81,3 +81,89 @@ func hlslAllEqualModule(boolOperand bool) *ir.Module {
 		}},
 	}
 }
+
+// TestHLSL_SubgroupBallotBit: the ballot bit forms are arithmetic over the
+// four mask words — countbits, firstbitlow / firstbithigh and shifts — with
+// the count and find forms masked to the subgroup size (card P2-IR-039,
+// ADR-014 D3). The wave count intrinsics read the live wave's predicate, not
+// a mask value, so they must not appear: they would silently change the
+// result for any mask other than the current ballot.
+func TestHLSL_SubgroupBallotBit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		op   ir.SubgroupBallotBitOperation
+		want []string
+	}{
+		{"extract", ir.SubgroupBallotBitExtract, []string{
+			"const uint4 _e2_b", "const uint _e2_i",
+			"const bool _e2 = ((_e2_b[_e2_i / 32u] >> (_e2_i % 32u)) & 1u) != 0u;",
+		}},
+		{"inverse ballot", ir.SubgroupInverseBallot, []string{
+			"WaveGetLaneIndex()",
+			"const bool _e2 = ((_e2_b[_e2_li / 32u] >> (_e2_li % 32u)) & 1u) != 0u;",
+		}},
+		{"count", ir.SubgroupBallotBitCount, []string{
+			"int(WaveGetLaneCount())",
+			"countbits(_e2_w0) + countbits(_e2_w1) + countbits(_e2_w2) + countbits(_e2_w3)",
+		}},
+		{"inclusive count", ir.SubgroupBallotBitInclusiveCount, []string{
+			"WaveGetLaneIndex()", "countbits(_e2_b.x",
+			"+ ((_e2_b[_e2_li / 32u] >> (_e2_li % 32u)) & 1u)",
+		}},
+		{"exclusive count", ir.SubgroupBallotBitExclusiveCount, []string{
+			"WaveGetLaneIndex()", "countbits(_e2_b.x",
+		}},
+		{"find lsb", ir.SubgroupBallotFindLSB, []string{
+			"firstbitlow(_e2_w0)", "96u + firstbitlow(_e2_w3)", "0xFFFFFFFFu",
+		}},
+		{"find msb", ir.SubgroupBallotFindMSB, []string{
+			"96u + firstbithigh(_e2_w3)", "firstbithigh(_e2_w0)", "0xFFFFFFFFu",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, _, err := Compile(hlslBallotBitModule(tc.op), DefaultOptions())
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			mustContain(t, code, tc.want)
+			if strings.Contains(code, "WaveActiveCountBits") || strings.Contains(code, "WavePrefixCountBits") {
+				t.Errorf("the form counts the live wave's predicate, not the mask value:\n%s", code)
+			}
+		})
+	}
+}
+
+// hlslBallotBitModule builds a compute entry point with a ballot followed by
+// one ballot bit operation over its mask: expr 0 the mask, expr 1 a u32
+// index, expr 2 the result (bool for extract/inverse ballot, u32 otherwise).
+func hlslBallotBitModule(op ir.SubgroupBallotBitOperation) *ir.Module {
+	resultType := ir.TypeHandle(0) // u32
+	if op == ir.SubgroupBallotBitExtract || op == ir.SubgroupInverseBallot {
+		resultType = 1 // bool
+	}
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Workgroup: [3]uint32{64, 1, 1},
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprSubgroupBallotResult{}},                    // [0] mask
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},              // [1] index
+					{Kind: ir.ExprSubgroupOperationResult{Type: resultType}}, // [2] result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupBallot{Result: 0}},
+					{Kind: ir.StmtSubgroupBallotBit{Op: op, Mask: 0, Index: 1, Result: 2}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+}

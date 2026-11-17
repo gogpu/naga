@@ -3,6 +3,7 @@ package valid_test
 import (
 	"testing"
 
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/valid"
 )
 
@@ -63,6 +64,20 @@ struct Out { @builtin(position) p: vec4<f32>, @builtin(clip_distances) c: array<
 				t.Errorf("MissingCapabilities = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestMissingCapabilitiesSubgroupBallotBit: a ballot bit operation needs
+// SUBGROUP, so a backend that gates on MissingCapabilities refuses it when
+// subgroups are unsupported (card P2-IR-039). The module is built directly:
+// WGSL has no ballot bit forms.
+func TestMissingCapabilitiesSubgroupBallotBit(t *testing.T) {
+	m := subgroupBallotBitFormModule(ir.SubgroupBallotBitCount)
+	if got := valid.MissingCapabilities(m, 0); got != valid.CapSubgroup {
+		t.Errorf("MissingCapabilities(0) = %v, want CapSubgroup", got)
+	}
+	if got := valid.MissingCapabilities(m, valid.CapSubgroup); got != 0 {
+		t.Errorf("MissingCapabilities(CapSubgroup) = %v, want 0", got)
 	}
 }
 

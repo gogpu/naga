@@ -4,8 +4,8 @@ package front
 // and the GL_KHR_shader_subgroup_* extensions. Rust naga's GLSL frontend has no
 // subgroups at all (upstream #7571), so glslangValidator is the reference for
 // the GLSL surface and the SPIR-V shape, and the IR comes from the WGSL and
-// SPIR-V paths (ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation and
-// ir.StmtSubgroupGather).
+// SPIR-V paths (ir.StmtSubgroupBallot, ir.StmtSubgroupBallotBit,
+// ir.StmtSubgroupCollectiveOperation and ir.StmtSubgroupGather).
 //
 // What the IR expresses, the frontend lowers:
 //
@@ -13,19 +13,20 @@ package front
 //     ir.StmtControlBarrier / ir.StmtMemoryBarrier at subgroup scope;
 //   - subgroupAll and subgroupAny become a collective operation with
 //     ir.SubgroupOperationAll / Any and the vote extension;
-//   - subgroupBallot becomes ir.StmtSubgroupBallot, and the broadcast,
-//     shuffle and quad families become ir.StmtSubgroupGather;
+//   - subgroupBallot becomes ir.StmtSubgroupBallot, the ballot bit operations
+//     and subgroupInverseBallot become ir.StmtSubgroupBallotBit, and the
+//     broadcast, shuffle and quad families become ir.StmtSubgroupGather;
 //   - the arithmetic reductions and the Add/Mul scans become collective
 //     operations.
 //
 // What the IR (or the text backends) cannot express is refused with a message
 // naming the missing capability, never lowered to a different operation: the
-// ballot bit and find operations have no IR expression, the clustered forms
-// have no ir.CollectiveOperation, the mask built-in variables have no
-// ir.Builtin value, and the Min/Max/And/Or/Xor scans have no Metal or HLSL
-// spelling. subgroupElect lowers to ir.StmtSubgroupElect and subgroupAllEqual
-// to a collective operation with ir.SubgroupOperationAllEqual (card P2-IR-038,
-// ADR-014).
+// clustered forms have no ir.CollectiveOperation, the mask built-in variables
+// have no ir.Builtin value, and the Min/Max/And/Or/Xor scans have no Metal or
+// HLSL spelling. subgroupElect lowers to ir.StmtSubgroupElect and
+// subgroupAllEqual to a collective operation with ir.SubgroupOperationAllEqual
+// (card P2-IR-038, ADR-014); the ballot bit operations lower to
+// ir.StmtSubgroupBallotBit (card P2-IR-039, ADR-014 D3).
 //
 // Every builtin is available only where glslang has it: the source must enable
 // the family's extension (GL_KHR_shader_subgroup_basic is implied by each of
@@ -106,6 +107,9 @@ const (
 	subgroupFormElect
 	// subgroupFormBallot is subgroupBallot: ir.StmtSubgroupBallot.
 	subgroupFormBallot
+	// subgroupFormBallotBit is the ballot bit operations and
+	// subgroupInverseBallot: ir.StmtSubgroupBallotBit.
+	subgroupFormBallotBit
 	// subgroupFormGather is the broadcast, shuffle and quad families:
 	// ir.StmtSubgroupGather.
 	subgroupFormGather
@@ -135,6 +139,8 @@ type subgroupBuiltin struct {
 	// op and cop are the collective operation of subgroupFormCollective.
 	op  ir.SubgroupOperation
 	cop ir.CollectiveOperation
+	// ballotBit is the operation of subgroupFormBallotBit.
+	ballotBit ir.SubgroupBallotBitOperation
 	// gather and direction are the gather mode of subgroupFormGather.
 	gather    subgroupGatherForm
 	direction ir.QuadDirection
@@ -194,10 +200,27 @@ func subgroupBuiltinFunction(name string) (subgroupBuiltin, bool) {
 	case "subgroupBroadcastFirst":
 		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormGather, arity: 1,
 			gather: subgroupGatherBroadcastFirst}, true
-	case "subgroupBallotBitExtract", "subgroupBallotBitCount",
-		"subgroupBallotInclusiveBitCount", "subgroupBallotExclusiveBitCount",
-		"subgroupBallotFindLSB", "subgroupBallotFindMSB":
-		return subgroupBuiltin{family: subgroupFamilyBallot, gap: subgroupBallotBitsGapText}, true
+	case "subgroupBallotBitExtract":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 2,
+			ballotBit: ir.SubgroupBallotBitExtract}, true
+	case "subgroupBallotBitCount":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupBallotBitCount}, true
+	case "subgroupBallotInclusiveBitCount":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupBallotBitInclusiveCount}, true
+	case "subgroupBallotExclusiveBitCount":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupBallotBitExclusiveCount}, true
+	case "subgroupBallotFindLSB":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupBallotFindLSB}, true
+	case "subgroupBallotFindMSB":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupBallotFindMSB}, true
+	case "subgroupInverseBallot":
+		return subgroupBuiltin{family: subgroupFamilyBallot, form: subgroupFormBallotBit, arity: 1,
+			ballotBit: ir.SubgroupInverseBallot}, true
 
 	// --- GL_KHR_shader_subgroup_shuffle and _shuffle_relative ----------------
 
@@ -278,15 +301,6 @@ func subgroupCollective(family subgroupFamily, op ir.SubgroupOperation, cop ir.C
 // The refusal bodies of the forms the frontend recognizes but cannot lower.
 // Each names the missing capability, as the atomic path's refusals do.
 const (
-	// subgroupBallotBitsGapText: the IR builds the ballot mask but has no bit
-	// extract, bit count or find operation. glslang emits
-	// OpGroupNonUniformBallotBitExtract, OpGroupNonUniformBallotBitCount and
-	// OpGroupNonUniformBallotFindLSB / FindMSB for them; ADR-014 fixes the IR
-	// shape and P2-IR-039 implements it.
-	subgroupBallotBitsGapText = "subgroup operations are not implemented by the GLSL frontend: " +
-		"ir has StmtSubgroupBallot for the mask but no ballot bit extract, bit count or find LSB/MSB " +
-		"statement or expression (card P2-IR-039)"
-
 	// subgroupClusteredGapText: ir.CollectiveOperation has no ClusteredReduce.
 	// glslang accepts the clustered forms and emits
 	// OpGroupNonUniformIAdd ... ClusteredReduce with the cluster size operand;
@@ -418,6 +432,8 @@ func (f *Frontend) subgroupCall(c *Context, e *hirArena, name string, b subgroup
 		return f.subgroupElectCall(c, span)
 	case subgroupFormBallot:
 		return f.subgroupBallotCall(c, e, rawArgs[0], span)
+	case subgroupFormBallotBit:
+		return f.subgroupBallotBitCall(c, e, name, b, rawArgs, span)
 	case subgroupFormCollective:
 		return f.subgroupCollectiveCall(c, e, name, b, rawArgs[0], span)
 	default:
@@ -466,6 +482,68 @@ func (f *Frontend) subgroupBallotCall(c *Context, e *hirArena, rawPredicate hirH
 	c.body = append(c.body, ir.Statement{Kind: ir.StmtSubgroupBallot{
 		Result:    result,
 		Predicate: exprPtr(predicate),
+	}})
+	c.emitStart()
+	return result, true, nil
+}
+
+// subgroupBallotBitCall lowers the ballot bit operations and
+// subgroupInverseBallot to ir.StmtSubgroupBallotBit. The mask is a uvec4
+// ballot value; glslang implicitly converts an ivec4 mask and an int extract
+// index to uint (probed 2026-11-17: OpBitcast %v4uint before the operation),
+// so an i32 operand is converted, never refused. The result is bool for
+// extract and inverse ballot, u32 for the counts and finds
+// (GL_KHR_shader_subgroup_ballot; card P2-IR-039, ADR-014 D3).
+func (f *Frontend) subgroupBallotBitCall(c *Context, e *hirArena, name string, b subgroupBuiltin, rawArgs []hirHandle, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	mask, _, err := c.lowerExpect(e, rawArgs[0], rhsPos)
+	if err != nil {
+		return 0, false, err
+	}
+	if terr := c.typifierGrow(span); terr != nil {
+		return 0, false, terr
+	}
+	vec, isVec := c.getType(mask).(ir.VectorType)
+	if !isVec || vec.Size != ir.Vec4 || vec.Scalar.Width != 4 ||
+		(vec.Scalar.Kind != ir.ScalarUint && vec.Scalar.Kind != ir.ScalarSint) {
+		return 0, false, errSemantic(span, "Unknown function '%s'", name)
+	}
+	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	if mask, err = c.implicitConversion(mask, span, u32); err != nil {
+		return 0, false, err
+	}
+
+	var index ir.ExpressionHandle
+	if b.ballotBit == ir.SubgroupBallotBitExtract {
+		if index, _, err = c.lowerExpect(e, rawArgs[1], rhsPos); err != nil {
+			return 0, false, err
+		}
+		if terr := c.typifierGrow(span); terr != nil {
+			return 0, false, terr
+		}
+		if !f.subgroupIndexScalar(c, index) {
+			return 0, false, errSemantic(span, "Unknown function '%s'", name)
+		}
+		if index, err = c.implicitConversion(index, span, u32); err != nil {
+			return 0, false, err
+		}
+	}
+
+	resultScalar := u32
+	if b.ballotBit == ir.SubgroupBallotBitExtract || b.ballotBit == ir.SubgroupInverseBallot {
+		resultScalar = ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
+	}
+	resultType := f.registerType(resultScalar)
+
+	c.emitEnd()
+	result, rerr := c.addExpression(ir.ExprSubgroupOperationResult{Type: resultType}, span)
+	if rerr != nil {
+		return 0, false, rerr
+	}
+	c.body = append(c.body, ir.Statement{Kind: ir.StmtSubgroupBallotBit{
+		Op:     b.ballotBit,
+		Mask:   mask,
+		Index:  index,
+		Result: result,
 	}})
 	c.emitStart()
 	return result, true, nil

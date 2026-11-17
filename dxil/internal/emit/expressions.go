@@ -160,7 +160,8 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		return 0, fmt.Errorf("ExprSubgroupBallotResult [%d] not yet populated by StmtSubgroupBallot", handle)
 
 	case ir.ExprSubgroupOperationResult:
-		// Pre-populated by emitStmtSubgroupCollectiveOp or emitStmtSubgroupGather.
+		// Pre-populated by emitStmtSubgroupCollectiveOp, emitStmtSubgroupGather,
+		// emitStmtSubgroupElect or emitStmtSubgroupBallotBit.
 		return 0, fmt.Errorf("ExprSubgroupOperationResult [%d] not yet populated", handle)
 
 	case ir.ExprRayQueryProceedResult:

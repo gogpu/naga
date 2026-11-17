@@ -246,6 +246,118 @@ func subgroupAllEqualFormModule(collective ir.CollectiveOperation) *ir.Module {
 	)
 }
 
+// TestSubgroupBallotBitValidation: every ballot bit operation needs the
+// BALLOT class and SUBGROUP (card P2-IR-039, ADR-014 D3). Rust naga has none
+// of these forms — the GLSL KHR ballot extension and SPIR-V's
+// GroupNonUniformBallot instructions define them.
+func TestSubgroupBallotBitValidation(t *testing.T) {
+	for _, op := range []ir.SubgroupBallotBitOperation{
+		ir.SubgroupBallotBitExtract, ir.SubgroupBallotBitCount,
+		ir.SubgroupBallotBitInclusiveCount, ir.SubgroupBallotBitExclusiveCount,
+		ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB, ir.SubgroupInverseBallot,
+	} {
+		m := subgroupBallotBitFormModule(op)
+		expectValid(t, m, valid.Options{Capabilities: valid.CapSubgroup})
+		expectRejected(t, m, valid.Options{
+			Capabilities:       valid.CapSubgroup,
+			SubgroupOperations: valid.SubgroupVote | valid.SubgroupArithmetic,
+		}, "Support for subgroup operation SubgroupOperationSet(BALLOT) is required")
+	}
+	expectRejected(t, subgroupBallotBitFormModule(ir.SubgroupBallotBitCount),
+		valid.Options{}, "Shader requires capability Capabilities(SUBGROUP)")
+}
+
+// TestSubgroupBallotBitOperandRules: Mask is vec4<u32>, Index a 32-bit
+// integer scalar that only Extract reads, and the result bool for Extract
+// and InverseBallot, u32 for the counts and finds (ADR-014 D3).
+func TestSubgroupBallotBitOperandRules(t *testing.T) {
+	opts := valid.Options{Capabilities: valid.CapSubgroup}
+
+	// A scalar mask is not a ballot.
+	scalarMask := subgroupFormModule(
+		[]ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+		[]ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
+			{Kind: ir.ExprSubgroupOperationResult{Type: 0}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupBallotBit{Op: ir.SubgroupBallotBitCount, Mask: 0, Index: 1, Result: 2}},
+			{Kind: ir.StmtReturn{}},
+		},
+	)
+	expectRejected(t, scalarMask, opts, "Subgroup operation is invalid: ballot bit mask must be vec4<u32>")
+
+	// Extract reads its Index: a float index is invalid.
+	badIndex := subgroupBallotBitFormModule(ir.SubgroupBallotBitExtract)
+	badIndex.EntryPoints[0].Function.Expressions[1] = ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(0)}}
+	expectRejected(t, badIndex, opts, "Subgroup operation is invalid: ballot bit index must be a u32 scalar")
+
+	// SPIR-V requires Signedness 0 for Index: a signed index is invalid too.
+	signedIndex := subgroupBallotBitFormModule(ir.SubgroupBallotBitExtract)
+	signedIndex.EntryPoints[0].Function.Expressions[1] = ir.Expression{Kind: ir.Literal{Value: ir.LiteralI32(0)}}
+	expectRejected(t, signedIndex, opts, "Subgroup operation is invalid: ballot bit index must be a u32 scalar")
+
+	// The other operations never read Index, so its type does not matter.
+	unreadIndex := subgroupBallotBitFormModule(ir.SubgroupBallotBitCount)
+	unreadIndex.EntryPoints[0].Function.Expressions[1] = ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(0)}}
+	expectValid(t, unreadIndex, opts)
+
+	// Extract and InverseBallot result bool, never u32.
+	for _, op := range []ir.SubgroupBallotBitOperation{ir.SubgroupBallotBitExtract, ir.SubgroupInverseBallot} {
+		m := subgroupBallotBitFormModule(op)
+		m.EntryPoints[0].Function.Expressions[2] = ir.Expression{Kind: ir.ExprSubgroupOperationResult{Type: 0}}
+		expectRejected(t, m, opts, "Subgroup operation is invalid: ballot bit extract and inverse ballot results must be bool")
+	}
+	// The counts and finds result u32, never bool.
+	for _, op := range []ir.SubgroupBallotBitOperation{
+		ir.SubgroupBallotBitCount, ir.SubgroupBallotBitInclusiveCount,
+		ir.SubgroupBallotBitExclusiveCount, ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB,
+	} {
+		m := subgroupBallotBitFormModule(op)
+		m.EntryPoints[0].Function.Expressions[2] = ir.Expression{Kind: ir.ExprSubgroupOperationResult{Type: 1}}
+		expectRejected(t, m, opts, "Subgroup operation is invalid: ballot bit count and find results must be u32")
+	}
+
+	// An operation value outside the enum is invalid.
+	badOp := subgroupBallotBitFormModule(ir.SubgroupBallotBitCount)
+	badOp.EntryPoints[0].Function.Body[1] = ir.Statement{Kind: ir.StmtSubgroupBallotBit{
+		Op: ir.SubgroupBallotBitOperation(99), Mask: 0, Index: 1, Result: 2,
+	}}
+	expectRejected(t, badOp, opts, "Subgroup operation is invalid: unknown ballot bit operation 99")
+}
+
+// subgroupBallotBitFormModule builds a ballot followed by one ballot bit
+// operation over its mask: types 0 = u32, 1 = bool, 2 = vec4<u32>;
+// expressions 0 = the ballot mask, 1 = a u32 index, 2 = the operation result
+// (bool for Extract/InverseBallot, u32 otherwise).
+func subgroupBallotBitFormModule(op ir.SubgroupBallotBitOperation) *ir.Module {
+	resultType := ir.TypeHandle(0)
+	if op == ir.SubgroupBallotBitExtract || op == ir.SubgroupInverseBallot {
+		resultType = 1
+	}
+	return subgroupFormModule(
+		[]ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+		[]ir.Expression{
+			{Kind: ir.ExprSubgroupBallotResult{}},
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
+			{Kind: ir.ExprSubgroupOperationResult{Type: resultType}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupBallot{Result: 0}},
+			{Kind: ir.StmtSubgroupBallotBit{Op: op, Mask: 0, Index: 1, Result: 2}},
+			{Kind: ir.StmtReturn{}},
+		},
+	)
+}
+
 // TestSubgroupStages: a non-zero Options.SubgroupStages replaces the stages
 // CapSubgroup derives (Rust Validator::subgroup_stages); an entry point
 // outside them that reaches a subgroup operation, directly or through a

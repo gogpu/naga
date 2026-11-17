@@ -658,6 +658,17 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 			return false, nil, err
 		}
 		return false, nil, p.subgroupBallot(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformInverseBallot, spvenums.OpGroupNonUniformBallotFindLSB,
+		spvenums.OpGroupNonUniformBallotFindMSB:
+		if err := inst.expect(5); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupBallotBit(inst, fs, consumer, block, bodyIdx, blockID)
+	case spvenums.OpGroupNonUniformBallotBitExtract, spvenums.OpGroupNonUniformBallotBitCount:
+		if err := inst.expect(6); err != nil {
+			return false, nil, err
+		}
+		return false, nil, p.subgroupBallotBit(inst, fs, consumer, block, bodyIdx, blockID)
 	case spvenums.OpGroupNonUniformAll, spvenums.OpGroupNonUniformAny, spvenums.OpGroupNonUniformAllEqual:
 		if err := inst.expect(5); err != nil {
 			return false, nil, err

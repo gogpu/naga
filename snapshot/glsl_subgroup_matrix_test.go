@@ -614,13 +614,15 @@ void main() { if (subgroupAllEqual(gl_GlobalInvocationID.x)) { o.v = 1u; } }
 `,
 	},
 	{
-		name:      "refuse-ballot-bit-extract",
+		name:      "subgroup-ballot-bit-extract",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotBitExtract"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotBitExtract for the same source; the IR builds " +
-			"the ballot mask (ir.StmtSubgroupBallot) but has no bit extract expression (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// The ballot bit operations lower to ir.StmtSubgroupBallotBit (card
+		// P2-IR-039, ADR-014 D3); glslang emits OpGroupNonUniformBallotBitExtract.
+		// SPIR-V and GLSL text write the native builtin; HLSL, MSL and DXIL
+		// compute it from the mask words — extract reads one bit.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
@@ -629,13 +631,14 @@ void main() { o.v = subgroupBallotBitExtract(subgroupBallot(true), 1u) ? 1u : 0u
 `,
 	},
 	{
-		name:      "refuse-ballot-bit-count",
+		name:      "subgroup-ballot-bit-count",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotBitCount"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotBitCount Reduce for the same source; no IR " +
-			"statement or expression names a ballot bit count (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformBallotBitCount Reduce. The arithmetic
+		// backends mask the words to the subgroup size and sum countbits /
+		// popcount / dx.op.unaryBits Countbits over them.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
@@ -644,13 +647,13 @@ void main() { o.v = subgroupBallotBitCount(subgroupBallot(true)); }
 `,
 	},
 	{
-		name:      "refuse-ballot-inclusive-bit-count",
+		name:      "subgroup-ballot-inclusive-bit-count",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotInclusiveBitCount"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotBitCount InclusiveScan for the same source; no " +
-			"IR statement or expression names it (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformBallotBitCount InclusiveScan. The
+		// arithmetic backends count the bits up to and including the lane index.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
@@ -659,13 +662,13 @@ void main() { o.v = subgroupBallotInclusiveBitCount(subgroupBallot(true)); }
 `,
 	},
 	{
-		name:      "refuse-ballot-exclusive-bit-count",
+		name:      "subgroup-ballot-exclusive-bit-count",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotExclusiveBitCount"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotBitCount ExclusiveScan for the same source; no " +
-			"IR statement or expression names it (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformBallotBitCount ExclusiveScan. The
+		// arithmetic backends count the bits below the lane index.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
@@ -674,13 +677,14 @@ void main() { o.v = subgroupBallotExclusiveBitCount(subgroupBallot(true)); }
 `,
 	},
 	{
-		name:      "refuse-ballot-find-lsb",
+		name:      "subgroup-ballot-find-lsb",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotFindLSB"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotFindLSB for the same source; no IR statement or " +
-			"expression names it (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformBallotFindLSB. The arithmetic backends
+		// find the lowest set bit with firstbitlow / ctz / dx.op.unaryBits
+		// FirstbitLo over the masked words.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
@@ -689,18 +693,36 @@ void main() { o.v = subgroupBallotFindLSB(subgroupBallot(true)); }
 `,
 	},
 	{
-		name:      "refuse-ballot-find-msb",
+		name:      "subgroup-ballot-find-msb",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupBallotFindMSB"},
-		refuse:    "no ballot bit extract, bit count or find LSB/MSB",
-		reason: "glslangValidator emits OpGroupNonUniformBallotFindMSB for the same source; no IR statement or " +
-			"expression names it (card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformBallotFindMSB. The arithmetic backends
+		// find the highest set bit with firstbithigh / clz / dx.op.unaryBits
+		// FirstbitHi over the masked words.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;
 layout(set = 0, binding = 0) buffer Out { uint v; } o;
 void main() { o.v = subgroupBallotFindMSB(subgroupBallot(true)); }
+`,
+	},
+	{
+		name:      "subgroup-inverse-ballot",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		builtins:  []string{"subgroupInverseBallot"},
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformInverseBallot: the mask bit at the
+		// current invocation's lane index. The arithmetic backends read that
+		// bit, the lane index from WaveGetLaneIndex / thread_index_in_simdgroup
+		// / dx.op.waveGetLaneIndex.
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_ballot : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uint v; } o;
+void main() { o.v = subgroupInverseBallot(subgroupBallot(true)) ? 1u : 0u; }
 `,
 	},
 	{

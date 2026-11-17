@@ -95,6 +95,12 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 		// elections under BASIC ("Possibly elections, when that is supported",
 		// valid/mod.rs), and no closer class exists.
 		need, result = SubgroupBasic, k.Result
+	case ir.StmtSubgroupBallotBit:
+		need, result = SubgroupBallot, k.Result
+		operands = append(operands, k.Mask)
+		if k.Op == ir.SubgroupBallotBitExtract {
+			operands = append(operands, k.Index)
+		}
 	case ir.StmtSubgroupCollectiveOperation:
 		need, result = SubgroupArithmetic, k.Result
 		if k.Op == ir.SubgroupOperationAll || k.Op == ir.SubgroupOperationAny ||
@@ -125,10 +131,52 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 	case v.subgroupOperations&need != need:
 		v.addErrorInStatement(index, unsupportedSubgroupOperation(need))
 	}
+	if bb, ok := kind.(ir.StmtSubgroupBallotBit); ok {
+		v.checkBallotBitOperands(index, bb)
+	}
 	for _, h := range operands {
 		v.useExpression(h)
 	}
 	v.introduce(result)
+}
+
+// checkBallotBitOperands checks the operand rules of a ballot bit operation
+// (ADR-014 D3, the SPIR-V GroupNonUniformBallot instructions): Mask is
+// vec4<u32>, Index a u32 scalar that only Extract reads (SPIR-V requires
+// Signedness 0 for it), and the result bool for Extract and InverseBallot,
+// u32 for the counts and finds. Rust naga has no ballot bit operations to
+// port these checks from.
+func (v *validator) checkBallotBitOperands(index int, k ir.StmtSubgroupBallotBit) {
+	if k.Op > ir.SubgroupInverseBallot {
+		v.addErrorInStatement(index, fmt.Sprintf("Subgroup operation is invalid: unknown ballot bit operation %d", k.Op))
+		return
+	}
+	if inner, ok := v.expressionInner(k.Mask); ok {
+		vec, isVec := inner.(ir.VectorType)
+		if !isVec || vec.Size != ir.Vec4 || vec.Scalar.Kind != ir.ScalarUint || vec.Scalar.Width != 4 {
+			v.addErrorInStatement(index, "Subgroup operation is invalid: ballot bit mask must be vec4<u32>")
+		}
+	}
+	if k.Op == ir.SubgroupBallotBitExtract {
+		if inner, ok := v.expressionInner(k.Index); ok {
+			scalar, isScalar := inner.(ir.ScalarType)
+			if !isScalar || scalar.Kind != ir.ScalarUint || scalar.Width != 4 {
+				v.addErrorInStatement(index, "Subgroup operation is invalid: ballot bit index must be a u32 scalar")
+			}
+		}
+	}
+	inner, ok := v.expressionInner(k.Result)
+	if !ok {
+		return
+	}
+	scalar, isScalar := inner.(ir.ScalarType)
+	if k.Op == ir.SubgroupBallotBitExtract || k.Op == ir.SubgroupInverseBallot {
+		if !isScalar || scalar.Kind != ir.ScalarBool {
+			v.addErrorInStatement(index, "Subgroup operation is invalid: ballot bit extract and inverse ballot results must be bool")
+		}
+	} else if !isScalar || scalar.Kind != ir.ScalarUint || scalar.Width != 4 {
+		v.addErrorInStatement(index, "Subgroup operation is invalid: ballot bit count and find results must be u32")
+	}
 }
 
 // gatherOperation returns the operation class a gather mode needs (Rust's

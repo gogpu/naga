@@ -578,6 +578,13 @@ func walkOperationStmt[O handleOp](kind ir.StatementKind, op O) ir.StatementKind
 	case ir.StmtSubgroupElect:
 		s.Result = op.handle(s.Result)
 		return rebuilt(op, kind, s)
+	case ir.StmtSubgroupBallotBit:
+		s.Mask = op.handle(s.Mask)
+		if s.Op == ir.SubgroupBallotBitExtract {
+			s.Index = op.handle(s.Index)
+		}
+		s.Result = op.handle(s.Result)
+		return rebuilt(op, kind, s)
 	case ir.StmtSubgroupCollectiveOperation:
 		s.Argument = op.handle(s.Argument)
 		s.Result = op.handle(s.Result)

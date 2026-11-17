@@ -999,7 +999,7 @@ func stmtHasSideEffects(stmt ir.Statement, localPtrs map[ir.ExpressionHandle]uin
 		ir.StmtCall, ir.StmtWorkGroupUniformLoad, ir.StmtRayQuery:
 		return true
 	case ir.StmtEmit, ir.StmtReturn, ir.StmtBreak, ir.StmtContinue,
-		ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+		ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupBallotBit, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 		// Evaluation and control flow inside the callee, and subgroup
 		// operations, which only compute their result: nothing a caller
 		// observes unless it uses the call's result.

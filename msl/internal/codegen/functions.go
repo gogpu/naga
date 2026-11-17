@@ -312,6 +312,66 @@ func (w *Writer) walkStmts(stmts ir.Block, visitCall func(ir.StmtCall)) {
 	}
 }
 
+// ballotBitNeed records whether a function reads the subgroup size or the
+// lane index for a ballot bit operation. The count and find forms mask the
+// ballot to the subgroup size; the scans and inverse ballot read the lane
+// index. Extract reads neither (card P2-IR-039, ADR-014 D3).
+type ballotBitNeed struct{ size, lane bool }
+
+// funcBallotBitNeed is ballotBitNeedOf for a module function, cached.
+func (w *Writer) funcBallotBitNeed(handle ir.FunctionHandle) ballotBitNeed {
+	if w.funcBallotBitNeeds == nil {
+		w.funcBallotBitNeeds = make(map[ir.FunctionHandle]ballotBitNeed)
+	}
+	if cached, ok := w.funcBallotBitNeeds[handle]; ok {
+		return cached
+	}
+	w.funcBallotBitNeeds[handle] = ballotBitNeed{} // recursion guard
+	need := w.ballotBitNeedOf(&w.module.Functions[handle])
+	w.funcBallotBitNeeds[handle] = need
+	return need
+}
+
+// ballotBitNeedOf reports whether fn's body, directly or through a callee,
+// has a ballot bit operation that reads the subgroup size or lane index.
+func (w *Writer) ballotBitNeedOf(fn *ir.Function) ballotBitNeed {
+	need := ballotBitNeed{}
+	var walk func(ir.Block)
+	walk = func(block ir.Block) {
+		for _, stmt := range block {
+			switch s := stmt.Kind.(type) {
+			case ir.StmtSubgroupBallotBit:
+				switch s.Op {
+				case ir.SubgroupBallotBitCount, ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB:
+					need.size = true
+				case ir.SubgroupInverseBallot, ir.SubgroupBallotBitInclusiveCount, ir.SubgroupBallotBitExclusiveCount:
+					need.lane = true
+				}
+			case ir.StmtCall:
+				if int(s.Function) < len(w.module.Functions) {
+					sub := w.funcBallotBitNeed(s.Function)
+					need.size = need.size || sub.size
+					need.lane = need.lane || sub.lane
+				}
+			case ir.StmtBlock:
+				walk(s.Block)
+			case ir.StmtIf:
+				walk(s.Accept)
+				walk(s.Reject)
+			case ir.StmtLoop:
+				walk(s.Body)
+				walk(s.Continuing)
+			case ir.StmtSwitch:
+				for _, c := range s.Cases {
+					walk(c.Body)
+				}
+			}
+		}
+	}
+	walk(fn.Body)
+	return need
+}
+
 // writeFunctions writes all non-entry-point function definitions.
 func (w *Writer) writeFunctions() error {
 	for handle := range w.module.Functions {
@@ -351,6 +411,18 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.guardedIndices = make(map[ir.ExpressionHandle]struct{})
 	w.unnamedCount = 0
 
+	// Ballot bit pass-through: a callee reads the subgroup size / lane index
+	// from by-value parameters the caller passes (card P2-IR-039).
+	calleeNeed := w.funcBallotBitNeed(handle)
+	w.subgroupSizeName = ""
+	w.subgroupLaneName = ""
+	if calleeNeed.size {
+		w.subgroupSizeName = "__subgroup_size"
+	}
+	if calleeNeed.lane {
+		w.subgroupLaneName = "__subgroup_invocation_id"
+	}
+
 	// Pre-scan function body to mark expressions that need baking.
 	// Matches Rust naga's collect_needs_bake_expressions pass.
 	w.collectNeedBakeExpressions(fn)
@@ -368,6 +440,8 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		w.needBakeExpression = nil
 		w.guardedIndices = nil
 		w.oobLocals = nil
+		w.subgroupSizeName = ""
+		w.subgroupLaneName = ""
 	}()
 
 	// Function name
@@ -408,6 +482,27 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 			w.writePassThroughParam(gHandle)
 			paramCount++
 		}
+	}
+
+	// Ballot bit pass-through parameters (by value), before _buffer_sizes
+	// (card P2-IR-039).
+	if w.subgroupSizeName != "" {
+		if paramCount > 0 {
+			w.write(",\n")
+		} else {
+			w.write("\n")
+		}
+		w.write("    %suint %s", Namespace, w.subgroupSizeName)
+		paramCount++
+	}
+	if w.subgroupLaneName != "" {
+		if paramCount > 0 {
+			w.write(",\n")
+		} else {
+			w.write("\n")
+		}
+		w.write("    %suint %s", Namespace, w.subgroupLaneName)
+		paramCount++
 	}
 
 	// _buffer_sizes pass-through for helper functions that access runtime-sized arrays.
@@ -508,6 +603,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.entryPointInputStructArg = -1
 		w.flattenedMemberNames = nil
 		w.hasVaryings = false
+		w.subgroupSizeName = ""
+		w.subgroupLaneName = ""
 		w.fragDepthRange = ""
 		w.sampleMaskOutput = ""
 		w.voidOutputStruct = ""
@@ -637,6 +734,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	existingLocalInvocationID := ""
 	vptExistingVertexID := ""
 	vptExistingInstanceID := ""
+	existingSubgroupSize := ""
+	existingSubgroupLane := ""
 	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			// Direct argument with builtin binding
@@ -656,6 +755,12 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 					}
 					if builtin.Builtin == ir.BuiltinInstanceIndex {
 						vptExistingInstanceID = argName
+					}
+					if builtin.Builtin == ir.BuiltinSubgroupSize {
+						existingSubgroupSize = argName
+					}
+					if builtin.Builtin == ir.BuiltinSubgroupInvocationID {
+						existingSubgroupLane = argName
 					}
 				}
 			}
@@ -696,6 +801,12 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			if builtin.Builtin == ir.BuiltinInstanceIndex {
 				vptExistingInstanceID = memberName
 			}
+			if builtin.Builtin == ir.BuiltinSubgroupSize {
+				existingSubgroupSize = memberName
+			}
+			if builtin.Builtin == ir.BuiltinSubgroupInvocationID {
+				existingSubgroupLane = memberName
+			}
 		}
 	}
 
@@ -711,6 +822,36 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			localInvocationIDName = "__local_invocation_id"
 			w.writeEntryPointParam(paramCount, fmt.Sprintf("%suint3 %s [[thread_position_in_threadgroup]]",
 				Namespace, localInvocationIDName))
+			paramCount++
+		}
+	}
+
+	// Ballot bit parameters: the subgroup size and lane index are kernel
+	// inputs, so a ballot bit operation that reads them needs them as
+	// entry-point parameters. Reuse a declared gl_SubgroupSize /
+	// gl_SubgroupInvocationID argument when present, else synthesize one, as
+	// the workgroup zero-init parameter above. Callees receive them by value
+	// (card P2-IR-039, ADR-014 D3).
+	ballotNeed := w.ballotBitNeedOf(fn)
+	w.subgroupSizeName = ""
+	w.subgroupLaneName = ""
+	if ballotNeed.size {
+		if existingSubgroupSize != "" {
+			w.subgroupSizeName = existingSubgroupSize
+		} else {
+			w.subgroupSizeName = "__subgroup_size"
+			w.writeEntryPointParam(paramCount, fmt.Sprintf("%suint %s [[threads_per_simdgroup]]",
+				Namespace, w.subgroupSizeName))
+			paramCount++
+		}
+	}
+	if ballotNeed.lane {
+		if existingSubgroupLane != "" {
+			w.subgroupLaneName = existingSubgroupLane
+		} else {
+			w.subgroupLaneName = "__subgroup_invocation_id"
+			w.writeEntryPointParam(paramCount, fmt.Sprintf("%suint %s [[thread_index_in_simdgroup]]",
+				Namespace, w.subgroupLaneName))
 			paramCount++
 		}
 	}

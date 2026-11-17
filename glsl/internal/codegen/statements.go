@@ -116,6 +116,8 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 
 	case ir.StmtSubgroupBallot:
 		return w.writeSubgroupBallot(k)
+	case ir.StmtSubgroupBallotBit:
+		return w.writeSubgroupBallotBit(k)
 	case ir.StmtSubgroupElect:
 		return w.writeSubgroupElect(k)
 	case ir.StmtSubgroupCollectiveOperation:
@@ -1026,6 +1028,60 @@ func (w *Writer) writeSubgroupBallot(s ir.StmtSubgroupBallot) error {
 		predicate = p
 	}
 	w.WriteLine("%s %s = subgroupBallot(%s);", typeName, tempName, predicate)
+	return nil
+}
+
+// writeSubgroupBallotBit writes a subgroup ballot bit statement: the ballot
+// family's builtins, whose extension the backend's feature preamble already
+// requests (card P2-IR-039, ADR-014 D3). Rust naga's GLSL backend has no
+// subgroup operations at all.
+func (w *Writer) writeSubgroupBallotBit(s ir.StmtSubgroupBallotBit) error {
+	typeName := "uint"
+	if s.Op == ir.SubgroupBallotBitExtract || s.Op == ir.SubgroupInverseBallot {
+		typeName = "bool"
+	}
+	if w.hasExprType(s.Result) {
+		if res := w.exprType(s.Result); res.Handle != nil {
+			typeName = w.getTypeName(*res.Handle)
+		}
+	}
+	tempName := fmt.Sprintf("_e%d", s.Result)
+	w.namedExpressions[s.Result] = tempName
+
+	mask, err := w.writeExpression(s.Mask)
+	if err != nil {
+		return err
+	}
+
+	funcName := ""
+	switch s.Op {
+	case ir.SubgroupBallotBitExtract:
+		funcName = "subgroupBallotBitExtract"
+	case ir.SubgroupBallotBitCount:
+		funcName = "subgroupBallotBitCount"
+	case ir.SubgroupBallotBitInclusiveCount:
+		funcName = "subgroupBallotInclusiveBitCount"
+	case ir.SubgroupBallotBitExclusiveCount:
+		funcName = "subgroupBallotExclusiveBitCount"
+	case ir.SubgroupBallotFindLSB:
+		funcName = "subgroupBallotFindLSB"
+	case ir.SubgroupBallotFindMSB:
+		funcName = "subgroupBallotFindMSB"
+	case ir.SubgroupInverseBallot:
+		funcName = "subgroupInverseBallot"
+	default:
+		return unsupported.Errorf("a subgroup ballot bit operation %d: unknown operation", s.Op)
+	}
+
+	args := mask
+	if s.Op == ir.SubgroupBallotBitExtract {
+		index, err := w.writeExpression(s.Index)
+		if err != nil {
+			return err
+		}
+		args += ", " + index
+	}
+	w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, args)
 	return nil
 }
 

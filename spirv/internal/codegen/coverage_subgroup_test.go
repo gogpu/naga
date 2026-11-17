@@ -592,3 +592,88 @@ func TestSubgroupAllEqual(t *testing.T) {
 		t.Error("expected CapabilityGroupNonUniformVote")
 	}
 }
+
+// TestSubgroupBallotBit covers emitSubgroupBallotBit: the five opcodes of
+// Capability GroupNonUniformBallot with their operand layouts — the counts
+// carry the group operation, extract carries its index after the mask
+// (grammar opcodes 340-344; card P2-IR-039, ADR-014 D3).
+func TestSubgroupBallotBit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		op         ir.SubgroupBallotBitOperation
+		opcode     spvenums.Op
+		count      bool // the instruction carries a group operation operand
+		groupOp    uint32
+		extract    bool
+		boolResult bool
+	}{
+		{"inverse ballot", ir.SubgroupInverseBallot, spvenums.OpGroupNonUniformInverseBallot, false, 0, false, true},
+		{"extract", ir.SubgroupBallotBitExtract, spvenums.OpGroupNonUniformBallotBitExtract, false, 0, true, true},
+		{"count", ir.SubgroupBallotBitCount, spvenums.OpGroupNonUniformBallotBitCount, true, uint32(spvenums.GroupOperationReduce), false, false},
+		{"inclusive count", ir.SubgroupBallotBitInclusiveCount, spvenums.OpGroupNonUniformBallotBitCount, true, uint32(spvenums.GroupOperationInclusiveScan), false, false},
+		{"exclusive count", ir.SubgroupBallotBitExclusiveCount, spvenums.OpGroupNonUniformBallotBitCount, true, uint32(spvenums.GroupOperationExclusiveScan), false, false},
+		{"find lsb", ir.SubgroupBallotFindLSB, spvenums.OpGroupNonUniformBallotFindLSB, false, 0, false, false},
+		{"find msb", ir.SubgroupBallotFindMSB, spvenums.OpGroupNonUniformBallotFindMSB, false, 0, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resultType := ir.TypeHandle(0) // u32
+			if tc.boolResult {
+				resultType = 1 // bool
+			}
+			mod := buildSubgroupModule(
+				[]ir.Type{
+					{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+					{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+					{Name: "vec4u32", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+				},
+				[]ir.Expression{
+					// expr 0: the ballot mask; expr 1: the extract index;
+					// expr 2: the operation result.
+					{Kind: ir.ExprSubgroupBallotResult{}},
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+					{Kind: ir.ExprSubgroupOperationResult{Type: resultType}},
+				},
+				[]ir.Statement{
+					{Kind: ir.StmtSubgroupBallot{Result: 0}},
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+					{Kind: ir.StmtSubgroupBallotBit{Op: tc.op, Mask: 0, Index: 1, Result: 2}},
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+				},
+			)
+
+			backend := NewBackend(subgroupOptions())
+			spvBytes, err := backend.Compile(mod)
+			if err != nil {
+				t.Fatalf("Compile failed: %v", err)
+			}
+			assertValidSPIRV(t, spvBytes)
+			instrs := decodeSPIRVInstructions(spvBytes)
+
+			if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformBallot) {
+				t.Error("expected CapabilityGroupNonUniformBallot")
+			}
+			var found *spirvInstruction
+			for i := range instrs {
+				if instrs[i].opcode == tc.opcode {
+					found = &instrs[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("expected opcode %v", tc.opcode)
+			}
+			// words: [0] op|count, [1] result type, [2] result, [3] scope,
+			// then the group operation for the counts, the mask, and the
+			// index for extract.
+			wantWordCount := 5
+			if tc.count || tc.extract {
+				wantWordCount = 6
+			}
+			if found.wordCount != wantWordCount {
+				t.Errorf("word count = %d, want %d", found.wordCount, wantWordCount)
+			}
+			if tc.count && found.words[4] != tc.groupOp {
+				t.Errorf("group operation = %d, want %d", found.words[4], tc.groupOp)
+			}
+		})
+	}
+}

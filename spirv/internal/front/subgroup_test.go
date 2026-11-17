@@ -362,3 +362,91 @@ func TestSubgroupAllEqual(t *testing.T) {
 		t.Errorf("collective operation = %v, want reduce", operation.CollectiveOp)
 	}
 }
+
+// TestSubgroupBallotBit: the five ballot-bit opcodes become
+// StmtSubgroupBallotBit with their operation, the ballot's vec4<u32> result
+// as mask, and a bool result for extract and inverse ballot, u32 for the
+// counts and finds (card P2-IR-039, ADR-014 D3).
+func TestSubgroupBallotBit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		inst       []uint32
+		op         ir.SubgroupBallotBitOperation
+		boolResult bool
+	}{
+		{"inverse ballot", instWords(spvenums.OpGroupNonUniformInverseBallot, 12, 21, 15, 20),
+			ir.SubgroupInverseBallot, true},
+		{"extract", instWords(spvenums.OpGroupNonUniformBallotBitExtract, 12, 21, 15, 20, 16),
+			ir.SubgroupBallotBitExtract, true},
+		{"count reduce", instWords(spvenums.OpGroupNonUniformBallotBitCount, 13, 21, 15, uint32(spvenums.GroupOperationReduce), 20),
+			ir.SubgroupBallotBitCount, false},
+		{"count inclusive", instWords(spvenums.OpGroupNonUniformBallotBitCount, 13, 21, 15, uint32(spvenums.GroupOperationInclusiveScan), 20),
+			ir.SubgroupBallotBitInclusiveCount, false},
+		{"count exclusive", instWords(spvenums.OpGroupNonUniformBallotBitCount, 13, 21, 15, uint32(spvenums.GroupOperationExclusiveScan), 20),
+			ir.SubgroupBallotBitExclusiveCount, false},
+		{"find lsb", instWords(spvenums.OpGroupNonUniformBallotFindLSB, 13, 21, 15, 20),
+			ir.SubgroupBallotFindLSB, false},
+		{"find msb", instWords(spvenums.OpGroupNonUniformBallotFindMSB, 13, 21, 15, 20),
+			ir.SubgroupBallotFindMSB, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			module, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+				instWords(spvenums.OpGroupNonUniformBallot, 14, 20, 15, 17),
+				tc.inst,
+			)...)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			fn := &module.Functions[0]
+			ballot, ok := findStatement(fn, func(k ir.StatementKind) bool {
+				_, ok := k.(ir.StmtSubgroupBallot)
+				return ok
+			})
+			if !ok {
+				t.Fatal("no SubgroupBallot statement")
+			}
+			statement, ok := findStatement(fn, func(k ir.StatementKind) bool {
+				_, ok := k.(ir.StmtSubgroupBallotBit)
+				return ok
+			})
+			if !ok {
+				t.Fatal("no SubgroupBallotBit statement")
+			}
+			bit := statement.(ir.StmtSubgroupBallotBit)
+			if bit.Op != tc.op {
+				t.Errorf("operation = %v, want %v", bit.Op, tc.op)
+			}
+			if bit.Mask != ballot.(ir.StmtSubgroupBallot).Result {
+				t.Errorf("mask = %d, want the ballot result %d", bit.Mask, ballot.(ir.StmtSubgroupBallot).Result)
+			}
+			result, ok := fn.Expressions[bit.Result].Kind.(ir.ExprSubgroupOperationResult)
+			if !ok {
+				t.Fatalf("result is %T, want ExprSubgroupOperationResult", fn.Expressions[bit.Result].Kind)
+			}
+			scalar, ok := module.Types[result.Type].Inner.(ir.ScalarType)
+			wantKind := ir.ScalarUint
+			if tc.boolResult {
+				wantKind = ir.ScalarBool
+			}
+			if !ok || scalar.Kind != wantKind {
+				t.Errorf("result type is %+v, want scalar kind %d", module.Types[result.Type].Inner, wantKind)
+			}
+		})
+	}
+}
+
+// TestSubgroupBallotBitClusteredCount: a clustered bit count is refused with
+// the group-operation error — the IR has no clustered form yet (P2-IR-040).
+func TestSubgroupBallotBitClusteredCount(t *testing.T) {
+	_, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+		instWords(spvenums.OpGroupNonUniformBallot, 14, 20, 15, 17),
+		instWords(spvenums.OpGroupNonUniformBallotBitCount, 13, 21, 15, uint32(spvenums.GroupOperationClusteredReduce), 20),
+	)...)
+	if err == nil {
+		t.Fatal("Parse accepted a clustered bit count")
+	}
+	want := errUnsupportedGroupOperation(uint32(spvenums.GroupOperationClusteredReduce)).Message
+	if got := requireError(t, err).Message; got != want {
+		t.Errorf("message = %q, want %q", got, want)
+	}
+}

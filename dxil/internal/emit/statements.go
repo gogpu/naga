@@ -1144,6 +1144,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtSubgroupBallot:
 		return e.emitStmtSubgroupBallot(fn, sk)
 
+	case ir.StmtSubgroupBallotBit:
+		return e.emitStmtSubgroupBallotBit(fn, sk)
+
 	case ir.StmtSubgroupElect:
 		return e.emitStmtSubgroupElect(fn, sk)
 
@@ -4175,6 +4178,188 @@ func (e *Emitter) getWaveBallotFunc() *module.Function {
 	return fn
 }
 
+// emitStmtSubgroupBallotBit emits a ballot bit operation over an arbitrary
+// mask value (card P2-IR-039, ADR-014 D3). DXIL's wave count ops
+// (WaveAllBitCount 135, WavePrefixBitCount 136) count the live wave's
+// predicate, not a value's bits, so the forms are arithmetic over the four
+// mask words with dx.op.unaryBits Countbits (31) / FirstbitLo (32) /
+// FirstbitHi (33) — the ops DXC lowers HLSL countbits / firstbitlow /
+// firstbithigh to (probed 2026-11-17). The count and find forms mask the words
+// to the wave size (dx.op.waveGetLaneCount); the scans count bits below the
+// lane index (dx.op.waveGetLaneIndex) and extract reads one bit, neither of
+// which can reach a bit at or above the size. A zero mask gives 0xFFFFFFFF
+// for the finds, the undefined result the specs allow.
+func (e *Emitter) emitStmtSubgroupBallotBit(fn *ir.Function, s ir.StmtSubgroupBallotBit) error {
+	if _, err := e.emitExpression(fn, s.Mask); err != nil {
+		return fmt.Errorf("StmtSubgroupBallotBit: mask: %w", err)
+	}
+	var words [4]int
+	for c := 0; c < 4; c++ {
+		words[c] = e.getComponentID(s.Mask, c)
+	}
+	i32Ty := e.mod.GetIntType(32)
+
+	switch s.Op {
+	case ir.SubgroupBallotBitExtract, ir.SubgroupInverseBallot:
+		var idxID int
+		if s.Op == ir.SubgroupBallotBitExtract {
+			id, err := e.emitExpression(fn, s.Index)
+			if err != nil {
+				return fmt.Errorf("StmtSubgroupBallotBit: index: %w", err)
+			}
+			idxID = id
+		} else {
+			idxID = e.emitWaveLaneValue("dx.op.waveGetLaneIndex", OpWaveGetLaneIndex)
+		}
+		// The bool result is the selected bit compared unequal to zero.
+		bit := e.emitBallotBitAt(words, idxID)
+		e.exprValues[s.Result] = e.addCmpInstr(ICmpNE, bit, e.getIntConstID(0))
+		return nil
+
+	case ir.SubgroupBallotBitCount, ir.SubgroupBallotFindLSB, ir.SubgroupBallotFindMSB:
+		masked := e.emitBallotBitMaskedWords(words)
+		var resultID int
+		switch s.Op {
+		case ir.SubgroupBallotBitCount:
+			resultID = e.emitFirstbit(OpCountBits, masked[0])
+			for c := 1; c < 4; c++ {
+				resultID = e.addBinOpInstr(i32Ty, BinOpAdd, resultID, e.emitFirstbit(OpCountBits, masked[c]))
+			}
+		case ir.SubgroupBallotFindLSB:
+			resultID = e.emitBallotBitFind(masked, false)
+		case ir.SubgroupBallotFindMSB:
+			resultID = e.emitBallotBitFind(masked, true)
+		}
+		e.exprValues[s.Result] = resultID
+		return nil
+
+	case ir.SubgroupBallotBitInclusiveCount, ir.SubgroupBallotBitExclusiveCount:
+		laneID := e.emitWaveLaneValue("dx.op.waveGetLaneIndex", OpWaveGetLaneIndex)
+		sum := e.emitBallotBitExclusiveSum(words, laneID)
+		if s.Op == ir.SubgroupBallotBitInclusiveCount {
+			sum = e.addBinOpInstr(i32Ty, BinOpAdd, sum, e.emitBallotBitAt(words, laneID))
+		}
+		e.exprValues[s.Result] = sum
+		return nil
+
+	default:
+		return unsupported.Errorf("a subgroup ballot bit operation %d: unknown operation", s.Op)
+	}
+}
+
+// emitWaveLaneValue emits a dx.op.waveGetLaneCount / waveGetLaneIndex call and
+// returns its i32 result, sharing the built-in read's declaration.
+func (e *Emitter) emitWaveLaneValue(funcName string, opcode DXILOpcode) int {
+	i32Ty := e.mod.GetIntType(32)
+	fn := e.waveLaneFunc(funcName)
+	return e.addCallInstr(fn, i32Ty, []int{e.getIntConstID(int64(opcode))})
+}
+
+// emitBallotBitAt returns bit idxID of the mask words as an i32 0 or 1:
+// (words[idx/32] >> (idx%32)) & 1.
+func (e *Emitter) emitBallotBitAt(words [4]int, idxID int) int {
+	i32Ty := e.mod.GetIntType(32)
+	wordIdx := e.addBinOpInstr(i32Ty, BinOpUDiv, idxID, e.getIntConstID(32))
+	bitIdx := e.addBinOpInstr(i32Ty, BinOpURem, idxID, e.getIntConstID(32))
+	word := e.emitBallotWordSelect(words, wordIdx)
+	shifted := e.addBinOpInstr(i32Ty, BinOpLShr, word, bitIdx)
+	return e.addBinOpInstr(i32Ty, BinOpAnd, shifted, e.getIntConstID(1))
+}
+
+// emitBallotWordSelect selects words[wordIdx] by a chain of equality selects.
+// An out-of-range index falls through to the last word — the undefined result
+// the spec allows for an index at or above the subgroup size.
+func (e *Emitter) emitBallotWordSelect(words [4]int, wordIdx int) int {
+	i32Ty := e.mod.GetIntType(32)
+	sel := words[3]
+	for c := 2; c >= 0; c-- {
+		cmp := e.addCmpInstr(ICmpEQ, wordIdx, e.getIntConstID(int64(c)))
+		sel = e.emitSelect3(i32Ty, cmp, words[c], sel)
+	}
+	return sel
+}
+
+// emitBallotBitMaskedWords restricts each mask word to the bits below the wave
+// size: word c keeps its low clamp(size - 32*c, 0, 32) bits. The shift amount
+// is held at 31 when the whole word is kept, so no shift reaches the undefined
+// 32; the select then keeps the unmasked word.
+func (e *Emitter) emitBallotBitMaskedWords(words [4]int) [4]int {
+	i32Ty := e.mod.GetIntType(32)
+	size := e.emitWaveLaneValue("dx.op.waveGetLaneCount", OpWaveGetLaneCount)
+	var masked [4]int
+	for c := 0; c < 4; c++ {
+		diff := e.addBinOpInstr(i32Ty, BinOpSub, size, e.getIntConstID(int64(32*c)))
+		lt0 := e.addCmpInstr(ICmpSLT, diff, e.getIntConstID(0))
+		lo := e.emitSelect3(i32Ty, lt0, e.getIntConstID(0), diff)
+		gt32 := e.addCmpInstr(ICmpSGT, lo, e.getIntConstID(32))
+		r := e.emitSelect3(i32Ty, gt32, e.getIntConstID(32), lo)
+		ge32 := e.addCmpInstr(ICmpSGE, r, e.getIntConstID(32))
+		shiftAmt := e.emitSelect3(i32Ty, ge32, e.getIntConstID(31), r)
+		shifted := e.addBinOpInstr(i32Ty, BinOpShl, e.getIntConstID(1), shiftAmt)
+		mask := e.addBinOpInstr(i32Ty, BinOpSub, shifted, e.getIntConstID(1))
+		anded := e.addBinOpInstr(i32Ty, BinOpAnd, words[c], mask)
+		masked[c] = e.emitSelect3(i32Ty, ge32, words[c], anded)
+	}
+	return masked
+}
+
+// emitBallotBitFind returns the bit number of the least (msb=false) or most
+// (msb=true) significant set bit across the four masked words, or 0xFFFFFFFF
+// when none is set. FirstbitLo gives the lowest set bit's index directly;
+// FirstbitHi counts from the most significant bit, so the highest set bit's
+// index is 31 - FirstbitHi (DXC's firstbithigh lowering). The words are folded
+// in the order that gives the wanted word priority: the lowest word wins for
+// the LSB, the highest for the MSB.
+func (e *Emitter) emitBallotBitFind(words [4]int, msb bool) int {
+	i32Ty := e.mod.GetIntType(32)
+	acc := e.getIntConstID(0xFFFFFFFF)
+	order := []int{3, 2, 1, 0}
+	if msb {
+		order = []int{0, 1, 2, 3}
+	}
+	for _, c := range order {
+		var pos int
+		if msb {
+			fb := e.emitFirstbit(OpFirstbitHi, words[c])
+			pos = e.addBinOpInstr(i32Ty, BinOpSub, e.getIntConstID(31), fb)
+		} else {
+			pos = e.emitFirstbit(OpFirstbitLo, words[c])
+		}
+		global := e.addBinOpInstr(i32Ty, BinOpAdd, e.getIntConstID(int64(32*c)), pos)
+		nonzero := e.addCmpInstr(ICmpNE, words[c], e.getIntConstID(0))
+		acc = e.emitSelect3(i32Ty, nonzero, global, acc)
+	}
+	return acc
+}
+
+// emitBallotBitExclusiveSum counts the set mask bits below the lane index:
+// each word contributes its bits below the index, whole when the index is past
+// the word, none when at or below the word's first bit. The shift amount is
+// clamped to 0..31 so no shift is undefined; the selects discard the
+// out-of-range branches.
+func (e *Emitter) emitBallotBitExclusiveSum(words [4]int, laneID int) int {
+	i32Ty := e.mod.GetIntType(32)
+	sum := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		base := e.getIntConstID(int64(32 * c))
+		shiftAmt := e.addBinOpInstr(i32Ty, BinOpSub, laneID, base)
+		lt0 := e.addCmpInstr(ICmpSLT, shiftAmt, e.getIntConstID(0))
+		lo := e.emitSelect3(i32Ty, lt0, e.getIntConstID(0), shiftAmt)
+		gt31 := e.addCmpInstr(ICmpSGT, lo, e.getIntConstID(31))
+		sa := e.emitSelect3(i32Ty, gt31, e.getIntConstID(31), lo)
+		shifted := e.addBinOpInstr(i32Ty, BinOpShl, e.getIntConstID(1), sa)
+		mask := e.addBinOpInstr(i32Ty, BinOpSub, shifted, e.getIntConstID(1))
+		partial := e.emitFirstbit(OpCountBits, e.addBinOpInstr(i32Ty, BinOpAnd, words[c], mask))
+		full := e.emitFirstbit(OpCountBits, words[c])
+		ge := e.addCmpInstr(ICmpSGE, laneID, e.getIntConstID(int64(32*c+32)))
+		le := e.addCmpInstr(ICmpSLE, laneID, base)
+		inner := e.emitSelect3(i32Ty, ge, full, partial)
+		contrib := e.emitSelect3(i32Ty, le, e.getIntConstID(0), inner)
+		sum = e.addBinOpInstr(i32Ty, BinOpAdd, sum, contrib)
+	}
+	return sum
+}
+
 // emitStmtSubgroupCollectiveOp emits wave collective operations.
 //
 // Mapping from naga IR to DXIL:
@@ -4515,17 +4700,13 @@ func (e *Emitter) emitStmtSubgroupGather(fn *ir.Function, gather ir.StmtSubgroup
 	return nil
 }
 
-// emitWaveGetLaneIndex emits a dx.op.waveGetLaneIndex call and returns the value ID.
+// emitWaveGetLaneIndex emits a dx.op.waveGetLaneIndex call and returns the value
+// ID. It shares the centralized declaration with the built-in read and the
+// ballot bit operations (card P2-IR-039): AddFunction does not deduplicate, so
+// one cache key keeps a single dx.op.waveGetLaneIndex symbol.
 func (e *Emitter) emitWaveGetLaneIndex() int {
 	i32Ty := e.mod.GetIntType(32)
-	key := dxOpKey{name: "dx.op.waveGetLaneIndex", overload: overloadI32}
-	fn, ok := e.dxOpFuncs[key]
-	if !ok {
-		params := []*module.Type{i32Ty}
-		funcTy := e.mod.GetFunctionType(i32Ty, params)
-		fn = e.mod.AddFunction("dx.op.waveGetLaneIndex", funcTy, true)
-		e.dxOpFuncs[key] = fn
-	}
+	fn := e.getOrCreateWaveGetLaneIndexFunc()
 	opcodeVal := e.getIntConstID(int64(OpWaveGetLaneIndex))
 	return e.addCallInstr(fn, i32Ty, []int{opcodeVal})
 }

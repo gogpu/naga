@@ -296,6 +296,20 @@ type Writer struct {
 	// MSL requires these because helper functions can't access entry point bindings directly.
 	funcPassThroughGlobals map[ir.FunctionHandle][]uint32
 
+	// funcBallotBitNeeds caches, per function, whether a ballot bit operation
+	// (directly or through a callee) reads the subgroup size or lane index.
+	// Those values are kernel inputs ([[threads_per_simdgroup]] /
+	// [[thread_index_in_simdgroup]]), so the writer synthesizes them as
+	// entry-point parameters and passes them by value to callees that need
+	// them, as _buffer_sizes is passed (card P2-IR-039).
+	funcBallotBitNeeds map[ir.FunctionHandle]ballotBitNeed
+	// subgroupSizeName and subgroupLaneName name the subgroup size and lane
+	// index values in the function being written: the entry point's builtin
+	// argument or synthetic parameter, or a callee's pass-through parameter.
+	// Empty when the function reads neither.
+	subgroupSizeName string
+	subgroupLaneName string
+
 	// currentEPResources holds the Metal slots of the entry point being
 	// written: its PerEntryPointMap entry, or the automatic numbering
 	// (autoResources) for a nil map. Every slot lookup reads it, as Rust
