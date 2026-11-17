@@ -179,7 +179,7 @@ func (v *validator) collectBlock(fn *ir.Function, block ir.Block) {
 			v.collectBarrier(k.Flags)
 		case ir.StmtMemoryBarrier:
 			v.collectBarrier(k.Flags)
-		case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+		case ir.StmtSubgroupBallot, ir.StmtSubgroupElect, ir.StmtSubgroupBallotBit, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 			v.context.subgroupStages &= v.subgroupStages
 			v.has(CapSubgroup)
 		case ir.StmtCall:
