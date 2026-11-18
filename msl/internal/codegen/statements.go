@@ -2264,6 +2264,14 @@ func (w *Writer) writeSubgroupBallot(ballot ir.StmtSubgroupBallot) error {
 // writeSubgroupCollectiveOperation writes a subgroup collective operation statement.
 // Maps SubgroupOperation + CollectiveOperation to metal::simd_* functions.
 func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOperation) error {
+	if op.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+		// Metal's simd functions combine the whole simdgroup and have no
+		// clustered form; writing simd_sum and friends for a clustered
+		// reduction would silently change the result (the P0-MSL-111 class). A
+		// shuffle-based emulation is possible and stays future work (card
+		// P2-IR-040, ADR-014 D4).
+		return unsupported.Errorf("a subgroup clustered reduction of operation %d: Metal's simd functions have no clustered form (a shuffle-based emulation is future work)", op.Op)
+	}
 	if op.Op == ir.SubgroupOperationAllEqual {
 		return w.writeSubgroupAllEqual(op)
 	}

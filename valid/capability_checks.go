@@ -110,8 +110,18 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 		// All-equal is a vote over one value and has no scan form: SPIR-V's
 		// OpGroupNonUniformAllEqual has no Group Operation operand and no
 		// backend writes a scan of it (ADR-014).
-		if k.Op == ir.SubgroupOperationAllEqual && k.CollectiveOp != ir.CollectiveReduce {
+		if k.Op == ir.SubgroupOperationAllEqual &&
+			(k.CollectiveOp == ir.CollectiveInclusiveScan || k.CollectiveOp == ir.CollectiveExclusiveScan) {
 			v.addErrorInStatement(index, "Subgroup operation is invalid: all-equal has no scan form")
+		}
+		if k.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+			// A clustered reduction is its own operation class: a validator
+			// that allows the arithmetic reductions without the clustered
+			// ones rejects it (ADR-014 D4).
+			need = SubgroupClustered
+			v.checkClusteredOperands(index, k)
+		} else if k.ClusterSize != 0 {
+			v.addErrorInStatement(index, "Subgroup operation is invalid: a cluster size is only valid for a clustered reduction")
 		}
 		operands = append(operands, k.Argument)
 	case ir.StmtSubgroupGather:
@@ -138,6 +148,28 @@ func (v *validator) validateSubgroupStatement(index int, kind ir.StatementKind) 
 		v.useExpression(h)
 	}
 	v.introduce(result)
+}
+
+// checkClusteredOperands checks a clustered reduction: the votes have no
+// clustered form (SPIR-V's ClusteredReduce exists only on the arithmetic
+// instructions), and the size is GLSL's "integral constant expression. At
+// least 1. A power of 2." (GL_KHR_shader_subgroup §3.8). A size larger than
+// the subgroup size is undefined behavior at run time, not an error here:
+// the subgroup size is unknown at compile time. Rust naga has no clustered
+// form to port these checks from (card P2-IR-040, ADR-014 D4).
+func (v *validator) checkClusteredOperands(index int, k ir.StmtSubgroupCollectiveOperation) {
+	switch k.Op {
+	case ir.SubgroupOperationAll, ir.SubgroupOperationAny, ir.SubgroupOperationAllEqual:
+		v.addErrorInStatement(index, "Subgroup operation is invalid: the all, any and all-equal votes have no clustered form")
+		return
+	}
+	if k.ClusterSize == 0 {
+		v.addErrorInStatement(index, "Subgroup operation is invalid: a clustered reduction needs a cluster size of at least 1")
+		return
+	}
+	if k.ClusterSize&(k.ClusterSize-1) != 0 {
+		v.addErrorInStatement(index, "Subgroup operation is invalid: a clustered reduction's cluster size must be a power of 2")
+	}
 }
 
 // checkBallotBitOperands checks the operand rules of a ballot bit operation

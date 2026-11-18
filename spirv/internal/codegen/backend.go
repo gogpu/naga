@@ -10842,6 +10842,15 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 		groupOp = spvenums.GroupOperationInclusiveScan
 	case ir.CollectiveExclusiveScan:
 		groupOp = spvenums.GroupOperationExclusiveScan
+	case ir.CollectiveOperationClusteredReduce:
+		// The clustered reduction needs its own capability on top of the
+		// instruction's (spirv.core.grammar.json, the ClusterSize operand;
+		// glslang emits GroupNonUniform + GroupNonUniformClustered for it,
+		// probed 2026-11-18). Card P2-IR-040, ADR-014 D4.
+		groupOp = spvenums.GroupOperationClusteredReduce
+		e.backend.addCapability(spvenums.CapabilityGroupNonUniformClustered)
+	default:
+		return unsupported.Errorf("a subgroup collective operation %d: unknown operation", stmt.CollectiveOp)
 	}
 
 	var opcode spvenums.Op
@@ -10928,6 +10937,11 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 	} else {
 		ib.AddWord(uint32(groupOp))
 		ib.AddWord(argID)
+		if stmt.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+			// The Cluster Size operand is a constant instruction (SPIR-V
+			// spec: optional, ClusteredReduce only), stored as a u32.
+			ib.AddWord(e.backend.builder.AddConstant(u32TypeID, stmt.ClusterSize))
+		}
 	}
 
 	e.backend.builder.funcAppend(ib.Build(opcode))

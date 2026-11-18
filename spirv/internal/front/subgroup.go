@@ -206,7 +206,9 @@ func (p *parser) subgroupBallotBit(inst instruction, fs *functionState, consumer
 }
 
 // subgroupCollective parses OpGroupNonUniformAll, OpGroupNonUniformAny,
-// arithmetic and bitwise reduction and scan families.
+// arithmetic and bitwise reduction and scan families, including the
+// ClusteredReduce group operation with its optional Cluster Size operand
+// (card P2-IR-040, ADR-014 D4).
 func (p *parser) subgroupCollective(inst instruction, fs *functionState, consumer *emitter, block *ir.Block, bodyIdx int, blockID uint32) error {
 	resultTypeID, err := p.next()
 	if err != nil {
@@ -235,8 +237,24 @@ func (p *parser) subgroupCollective(inst instruction, fs *functionState, consume
 			collective = ir.CollectiveInclusiveScan
 		case spvenums.GroupOperationExclusiveScan:
 			collective = ir.CollectiveExclusiveScan
+		case spvenums.GroupOperationClusteredReduce:
+			collective = ir.CollectiveOperationClusteredReduce
 		default:
 			return errUnsupportedGroupOperation(groupOp)
+		}
+	}
+	// The Cluster Size operand follows the value, and only the clustered
+	// group operation has it (spirv.core.grammar.json: the operand is
+	// optional and appears on the ClusteredReduce form alone). The votes take
+	// no group operation and their count is already checked by the dispatch.
+	var clusterSize uint32
+	if !allOrAny {
+		if collective == ir.CollectiveOperationClusteredReduce {
+			if err := inst.expect(7); err != nil {
+				return err
+			}
+		} else if err := inst.expect(6); err != nil {
+			return err
 		}
 	}
 	argumentID, err := p.next()
@@ -246,6 +264,15 @@ func (p *parser) subgroupCollective(inst instruction, fs *functionState, consume
 	argument, err := p.handleOf(argumentID, fs, consumer, block, bodyIdx)
 	if err != nil {
 		return err
+	}
+	if collective == ir.CollectiveOperationClusteredReduce {
+		clusterSizeID, err := p.next()
+		if err != nil {
+			return err
+		}
+		if clusterSize, err = p.clusterSize(clusterSizeID); err != nil {
+			return err
+		}
 	}
 	if err := p.subgroupScope(scopeID); err != nil {
 		return err
@@ -267,9 +294,45 @@ func (p *parser) subgroupCollective(inst instruction, fs *functionState, consume
 		CollectiveOp: collective,
 		Argument:     argument,
 		Result:       result,
+		ClusterSize:  clusterSize,
 	}})
 	consumer.startWith(fs.fn.Expressions)
 	return nil
+}
+
+// clusterSize resolves the Cluster Size operand of a ClusteredReduce
+// instruction: a 32-bit integer constant instruction whose value is at least
+// 1 and a power of 2 (GL_KHR_shader_subgroup §3.8; the SPIR-V specification
+// states the same constraint on the operand). A signed negative constant is
+// outside the rule, never reinterpreted as a large unsigned size.
+func (p *parser) clusterSize(id uint32) (uint32, error) {
+	constant, err := p.constantLookup(id)
+	if err != nil {
+		// The operand is a constant instruction: an id the module defines as
+		// something else is named as such, not as an unknown id.
+		return 0, errInvalidClusterSize(id)
+	}
+	if constant.kind.constant == nil {
+		return 0, errInvalidClusterSize(id)
+	}
+	init := p.module.Constants[*constant.kind.constant].Init
+	literal, ok := p.module.GlobalExpressions[init].Kind.(ir.Literal)
+	if !ok {
+		return 0, errInvalidClusterSize(id)
+	}
+	var size int64
+	switch value := literal.Value.(type) {
+	case ir.LiteralU32:
+		size = int64(value)
+	case ir.LiteralI32:
+		size = int64(value)
+	default:
+		return 0, errInvalidClusterSize(id)
+	}
+	if size < 1 || size&(size-1) != 0 {
+		return 0, errInvalidClusterSizeValue(size)
+	}
+	return uint32(size), nil
 }
 
 // subgroupGather parses the broadcast and shuffle family and

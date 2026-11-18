@@ -35,6 +35,23 @@ func TestEmitSubgroupScanRefused(t *testing.T) {
 	}
 }
 
+// TestEmitSubgroupClusteredRefused: DXIL has no clustered wave operation
+// (SM 6.5's WaveMultiPrefix is an HLSL-level shuffle emulation), so every
+// clustered reduction is refused with a named limitation instead of being
+// written as the full-wave one (card P2-IR-040, ADR-014 D4).
+func TestEmitSubgroupClusteredRefused(t *testing.T) {
+	for _, op := range []ir.SubgroupOperation{
+		ir.SubgroupOperationAdd, ir.SubgroupOperationMul, ir.SubgroupOperationMin,
+		ir.SubgroupOperationMax, ir.SubgroupOperationAnd, ir.SubgroupOperationOr,
+		ir.SubgroupOperationXor,
+	} {
+		irMod := dxilCollectiveModule(op, ir.CollectiveOperationClusteredReduce, false)
+		if _, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0}); err == nil {
+			t.Errorf("clustered reduction op=%d emitted, want a refusal", op)
+		}
+	}
+}
+
 // TestEmitSubgroupArithmeticScanWritten guards the Add/Mul scans: they have a
 // DXIL prefix form (dx.op.wavePrefixOp, DXC emits it for WavePrefixSum/Product)
 // and must keep being written, inclusive and exclusive.

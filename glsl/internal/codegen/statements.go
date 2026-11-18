@@ -1140,17 +1140,44 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 		case ir.SubgroupOperationMul:
 			funcName = "subgroupInclusiveMul"
 		}
+	case ir.CollectiveOperationClusteredReduce:
+		// The clustered family takes the cluster size as its second argument
+		// (GL_KHR_shader_subgroup §3.8; card P2-IR-040, ADR-014 D4).
+		switch s.Op {
+		case ir.SubgroupOperationAdd:
+			funcName = "subgroupClusteredAdd"
+		case ir.SubgroupOperationMul:
+			funcName = "subgroupClusteredMul"
+		case ir.SubgroupOperationMin:
+			funcName = "subgroupClusteredMin"
+		case ir.SubgroupOperationMax:
+			funcName = "subgroupClusteredMax"
+		case ir.SubgroupOperationAnd:
+			funcName = "subgroupClusteredAnd"
+		case ir.SubgroupOperationOr:
+			funcName = "subgroupClusteredOr"
+		case ir.SubgroupOperationXor:
+			funcName = "subgroupClusteredXor"
+		}
 	}
 
 	// A scan the GLSL subgroup functions have no prefix form for (min, max,
 	// and, or, xor) leaves funcName unset: refuse it, never silently writing
 	// subgroupAdd or another operation in its place (P1-GLSL-016, the
-	// P0-MSL-111 silent-substitution class).
+	// P0-MSL-111 silent-substitution class). The clustered family has no vote
+	// form, so a vote or an unknown operation under it is refused too.
 	if funcName == "" {
+		if s.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+			return unsupported.Errorf("a subgroup clustered reduction of operation %d: the GLSL subgroup functions have no clustered form for it", s.Op)
+		}
 		return unsupported.Errorf("a subgroup scan of operation %d: the GLSL subgroup functions have no prefix form for min, max, and, or or xor", s.Op)
 	}
 
-	w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
+	args := arg
+	if s.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+		args = fmt.Sprintf("%s, %du", arg, s.ClusterSize)
+	}
+	w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, args)
 	return nil
 }
 

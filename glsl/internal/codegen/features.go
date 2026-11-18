@@ -60,6 +60,13 @@ const (
 	// refuses a target whose driver would reject the output. Rust naga has no
 	// such feature: its IR has no level-of-detail query.
 	FeatureTextureQueryLod Features = 1 << 29
+	// FeatureSubgroupClustered is the clustered subgroup reductions
+	// (subgroupClusteredAdd/Mul/Min/Max/And/Or/Xor): GL_KHR_shader_subgroup_
+	// clustered, available wherever the subgroup operations are. It is its own
+	// feature because Rust naga — which has no clustered form — writes only the
+	// seven other subgroup extensions, so the clustered line appears only in
+	// the output that uses it (card P2-IR-040, ADR-014 D4).
+	FeatureSubgroupClustered Features = 1 << 30
 )
 
 // featuresManager collects and writes required features.
@@ -109,6 +116,7 @@ var featureNames = []struct {
 	{FeaturePrimitiveIndex, "PRIMITIVE_INDEX"},
 	{FeatureDrawIndex, "DRAW_INDEX"},
 	{FeatureTextureQueryLod, "TEXTURE_QUERY_LOD"},
+	{FeatureSubgroupClustered, "SUBGROUP_CLUSTERED"},
 }
 
 // String returns the names of the features joined by " | ", as Rust naga's
@@ -154,6 +162,7 @@ func (fm *featuresManager) checkAvailability(v Version) error {
 	coreES(FeatureDynamicArraySize, 400, 310)
 	coreES(FeatureDualSourceBlending, 330, 300)
 	coreES(FeatureSubgroupOperations, 430, 310)
+	coreES(FeatureSubgroupClustered, 430, 310)
 	coreES(FeatureTextureAtomics, 420, 310)
 	if v.isWebGL() {
 		coreES(FeatureMultiView, 140, 300)
@@ -309,6 +318,13 @@ func (fm *featuresManager) writeExtensions(w *Writer) {
 		w.WriteLine("#extension GL_KHR_shader_subgroup_quad : require")
 	}
 
+	if fm.contains(FeatureSubgroupClustered) {
+		// Its own line, written only when a clustered reduction is present:
+		// Rust naga has no clustered form and writes the seven extensions
+		// above alone (card P2-IR-040, ADR-014 D4).
+		w.WriteLine("#extension GL_KHR_shader_subgroup_clustered : require")
+	}
+
 	if fm.contains(FeatureTextureAtomics) {
 		w.WriteLine("#extension GL_OES_shader_image_atomic : require")
 	}
@@ -403,6 +419,36 @@ func (w *Writer) collectFeatures() {
 
 	// Scan expressions for features
 	w.scanExpressionFeatures(ep)
+
+	// Scan the body for the features only a statement announces
+	w.scanSubgroupClustered(ep.Function.Body)
+}
+
+// scanSubgroupClustered requests FeatureSubgroupClustered for a clustered
+// subgroup reduction (card P2-IR-040, ADR-014 D4). The expression scan sees
+// the subgroup operation behind every collective, but not which collective it
+// is, and the clustered extension must appear only in the output that uses it.
+func (w *Writer) scanSubgroupClustered(block ir.Block) {
+	for i := range block {
+		switch k := block[i].Kind.(type) {
+		case ir.StmtSubgroupCollectiveOperation:
+			if k.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+				w.features.request(FeatureSubgroupClustered)
+			}
+		case ir.StmtBlock:
+			w.scanSubgroupClustered(k.Block)
+		case ir.StmtIf:
+			w.scanSubgroupClustered(k.Accept)
+			w.scanSubgroupClustered(k.Reject)
+		case ir.StmtSwitch:
+			for c := range k.Cases {
+				w.scanSubgroupClustered(k.Cases[c].Body)
+			}
+		case ir.StmtLoop:
+			w.scanSubgroupClustered(k.Body)
+			w.scanSubgroupClustered(k.Continuing)
+		}
+	}
 }
 
 // scanVaryingFeatures checks entry point IO for required features.

@@ -296,18 +296,127 @@ func TestSubgroupAllAny(t *testing.T) {
 }
 
 // TestSubgroupUnsupportedGroupOperation: a group operation the IR has no
-// collective for is refused.
+// collective for is refused. The enumerated group operations are Reduce,
+// InclusiveScan, ExclusiveScan and ClusteredReduce (0 to 3); 5 is none of
+// them.
 func TestSubgroupUnsupportedGroupOperation(t *testing.T) {
-	// 5 is ClusteredReduce, which the IR cannot express.
 	_, _, err := parseWords(t, Options{}, subgroupModuleGroups(
 		instWords(spvenums.OpGroupNonUniformIAdd, 13, 20, 15, 5, 16),
 	)...)
 	if err == nil {
-		t.Fatal("Parse accepted a clustered reduce")
+		t.Fatal("Parse accepted a group operation of 5")
 	}
 	if got := requireError(t, err).Message; got != errUnsupportedGroupOperation(5).Message {
 		t.Errorf("message = %q, want %q", got, errUnsupportedGroupOperation(5).Message)
 	}
+}
+
+// TestSubgroupClustered: the ClusteredReduce group operation takes the
+// cluster size as the optional operand after the value, and maps to
+// ir.CollectiveOperationClusteredReduce with the size as a constant (card
+// P2-IR-040, ADR-014 D4). glslang writes the form for the GLSL clustered
+// builtins (probed 2026-11-18).
+func TestSubgroupClustered(t *testing.T) {
+	clusterFour := [][]uint32{instWords(spvenums.OpConstant, 13, 19, 4)}
+	for _, tc := range []struct {
+		name string
+		op   spvenums.Op
+		want ir.SubgroupOperation
+	}{
+		{"iadd", spvenums.OpGroupNonUniformIAdd, ir.SubgroupOperationAdd},
+		{"fmul", spvenums.OpGroupNonUniformFMul, ir.SubgroupOperationMul},
+		{"umin", spvenums.OpGroupNonUniformUMin, ir.SubgroupOperationMin},
+		{"smax", spvenums.OpGroupNonUniformSMax, ir.SubgroupOperationMax},
+		{"bitwise or", spvenums.OpGroupNonUniformBitwiseOr, ir.SubgroupOperationOr},
+		{"logical xor", spvenums.OpGroupNonUniformLogicalXor, ir.SubgroupOperationXor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			module, _, err := parseWords(t, Options{}, subgroupVariantGroups(clusterFour,
+				instWords(tc.op, 13, 20, 15, uint32(spvenums.GroupOperationClusteredReduce), 16, 19),
+			)...)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			statement, ok := findStatement(&module.Functions[0], func(k ir.StatementKind) bool {
+				_, ok := k.(ir.StmtSubgroupCollectiveOperation)
+				return ok
+			})
+			if !ok {
+				t.Fatal("no SubgroupCollectiveOperation statement")
+			}
+			operation := statement.(ir.StmtSubgroupCollectiveOperation)
+			if operation.Op != tc.want {
+				t.Errorf("operation = %v, want %v", operation.Op, tc.want)
+			}
+			if operation.CollectiveOp != ir.CollectiveOperationClusteredReduce {
+				t.Errorf("collective operation = %v, want the clustered reduce", operation.CollectiveOp)
+			}
+			if operation.ClusterSize != 4 {
+				t.Errorf("cluster size = %d, want 4", operation.ClusterSize)
+			}
+		})
+	}
+
+	t.Run("non-constant size", func(t *testing.T) {
+		// 20 is the instruction's own result id, no constant.
+		_, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+			instWords(spvenums.OpGroupNonUniformIAdd, 13, 20, 15, uint32(spvenums.GroupOperationClusteredReduce), 16, 20),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a cluster size that is no constant")
+		}
+		if got := requireError(t, err).Message; got != errInvalidClusterSize(20).Message {
+			t.Errorf("message = %q, want %q", got, errInvalidClusterSize(20).Message)
+		}
+	})
+	for _, tc := range []struct {
+		name  string
+		value int64
+	}{
+		{"zero", 0},
+		{"not a power of 2", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sizeConst := [][]uint32{instWords(spvenums.OpConstant, 13, 19, uint32(tc.value))}
+			_, _, err := parseWords(t, Options{}, subgroupVariantGroups(sizeConst,
+				instWords(spvenums.OpGroupNonUniformIAdd, 13, 20, 15, uint32(spvenums.GroupOperationClusteredReduce), 16, 19),
+			)...)
+			if err == nil {
+				t.Fatalf("Parse accepted a cluster size of %d", tc.value)
+			}
+			if got := requireError(t, err).Message; got != errInvalidClusterSizeValue(tc.value).Message {
+				t.Errorf("message = %q, want %q", got, errInvalidClusterSizeValue(tc.value).Message)
+			}
+		})
+	}
+	t.Run("negative", func(t *testing.T) {
+		// A signed 32-bit constant of -4: outside "at least 1", never
+		// reinterpreted as a large unsigned size.
+		sizeConst := [][]uint32{
+			instWords(spvenums.OpTypeInt, 21, 32, 1),
+			instWords(spvenums.OpConstant, 21, 22, 0xFFFFFFFC), // -4 as 32 bits
+		}
+		_, _, err := parseWords(t, Options{}, subgroupVariantGroups(sizeConst,
+			instWords(spvenums.OpGroupNonUniformIAdd, 13, 20, 15, uint32(spvenums.GroupOperationClusteredReduce), 16, 22),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a cluster size of -4")
+		}
+		if got := requireError(t, err).Message; got != errInvalidClusterSizeValue(-4).Message {
+			t.Errorf("message = %q, want %q", got, errInvalidClusterSizeValue(-4).Message)
+		}
+	})
+	t.Run("missing size operand", func(t *testing.T) {
+		_, _, err := parseWords(t, Options{}, subgroupModuleGroups(
+			instWords(spvenums.OpGroupNonUniformIAdd, 13, 20, 15, uint32(spvenums.GroupOperationClusteredReduce), 16),
+		)...)
+		if err == nil {
+			t.Fatal("Parse accepted a clustered reduce without a cluster size")
+		}
+		if got := requireError(t, err).Message; got != errInvalidOperandCount(spvenums.OpGroupNonUniformIAdd, 6).Message {
+			t.Errorf("message = %q, want %q", got, errInvalidOperandCount(spvenums.OpGroupNonUniformIAdd, 6).Message)
+		}
+	})
 }
 
 // TestSubgroupElect: OpGroupNonUniformElect (no operand) becomes

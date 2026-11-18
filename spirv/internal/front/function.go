@@ -680,7 +680,10 @@ func (p *parser) blockInstruction(inst instruction, fs *functionState, consumer 
 		spvenums.OpGroupNonUniformSMin, spvenums.OpGroupNonUniformUMin, spvenums.OpGroupNonUniformFMin,
 		spvenums.OpGroupNonUniformBitwiseAnd, spvenums.OpGroupNonUniformBitwiseOr, spvenums.OpGroupNonUniformBitwiseXor,
 		spvenums.OpGroupNonUniformLogicalAnd, spvenums.OpGroupNonUniformLogicalOr, spvenums.OpGroupNonUniformLogicalXor:
-		if err := inst.expect(6); err != nil {
+		// Six words, or seven for the ClusteredReduce form with its Cluster
+		// Size operand; subgroupCollective checks the exact count once it has
+		// read the group operation.
+		if _, err := inst.expectAtLeast(6); err != nil {
 			return false, nil, err
 		}
 		return false, nil, p.subgroupCollective(inst, fs, consumer, block, bodyIdx, blockID)

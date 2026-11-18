@@ -4383,6 +4383,14 @@ func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgro
 	argScalar, numComps := scalarAndComponentCount(argInner)
 	ol := overloadForScalar(argScalar)
 
+	// DXIL has no clustered wave operation: SM 6.5's WaveMultiPrefix* is an
+	// HLSL-level emulation that DXC lowers to shuffles, not a dx.op form
+	// (card P2-IR-040, ADR-014 D4). Writing the full-wave reduction for a
+	// clustered one would silently change the result (the P0-MSL-111 class).
+	if op.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+		return unsupported.Errorf("a subgroup clustered reduction of operation %d: DXIL has no clustered wave operation (the SM 6.5 WaveMultiPrefix operations are an HLSL-level shuffle emulation)", op.Op)
+	}
+
 	// Refuse the scans DXIL cannot express, never substituting the reduction
 	// (P1-DXIL-115, the P0-MSL-111 precedent). Add/Mul scans have a prefix form.
 	if op.CollectiveOp != ir.CollectiveReduce {

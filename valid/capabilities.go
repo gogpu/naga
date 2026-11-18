@@ -249,8 +249,10 @@ const (
 )
 
 // SubgroupOperationSet is a set of subgroup operation classes: Rust naga's
-// valid::SubgroupOperationSet, with Rust's bits (bit 6, clustered, and bit
-// 8, quad in all stages, are not supported by Rust either).
+// valid::SubgroupOperationSet, with Rust's bits. Bit 6, clustered, is Rust's
+// commented-out reservation, used here for the clustered reductions (card
+// P2-IR-040, ADR-014 D4); bit 8, quad in all stages, is not supported by Rust
+// and stays unused.
 type SubgroupOperationSet uint8
 
 const (
@@ -267,6 +269,11 @@ const (
 	// SubgroupShuffleRelative is shuffle up and down (Rust
 	// SHUFFLE_RELATIVE).
 	SubgroupShuffleRelative SubgroupOperationSet = 1 << 5
+	// SubgroupClustered is the clustered reductions, subgroupClustered<op> /
+	// SPIR-V's ClusteredReduce group operation. Rust's SubgroupOperationSet
+	// reserves this bit in a comment without implementing the clustered forms;
+	// here it gates them (card P2-IR-040, ADR-014 D4).
+	SubgroupClustered SubgroupOperationSet = 1 << 6
 	// SubgroupQuadFragmentCompute is the quad operations in fragment and
 	// compute shaders (Rust QUAD_FRAGMENT_COMPUTE).
 	SubgroupQuadFragmentCompute SubgroupOperationSet = 1 << 7
@@ -274,7 +281,7 @@ const (
 
 // subgroupOperationNames are Rust's flag names, by bit.
 var subgroupOperationNames = [...]string{
-	"BASIC", "VOTE", "ARITHMETIC", "BALLOT", "SHUFFLE", "SHUFFLE_RELATIVE", "", "QUAD_FRAGMENT_COMPUTE",
+	"BASIC", "VOTE", "ARITHMETIC", "BALLOT", "SHUFFLE", "SHUFFLE_RELATIVE", "CLUSTERED", "QUAD_FRAGMENT_COMPUTE",
 }
 
 // rustDebug is s as Rust's Debug prints it in an error message.
@@ -300,7 +307,8 @@ func subgroupSets(opts Options) (ShaderStages, SubgroupOperationSet) {
 	ops := opts.SubgroupOperations
 	if ops == 0 && caps.Contains(CapSubgroup) {
 		ops = SubgroupBasic | SubgroupVote | SubgroupArithmetic | SubgroupBallot |
-			SubgroupShuffle | SubgroupShuffleRelative | SubgroupQuadFragmentCompute
+			SubgroupShuffle | SubgroupShuffleRelative | SubgroupClustered |
+			SubgroupQuadFragmentCompute
 	}
 	return stages, ops
 }

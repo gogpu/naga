@@ -79,6 +79,68 @@ func TestGLSL_SubgroupBallotBit(t *testing.T) {
 	}
 }
 
+// TestGLSL_SubgroupClustered: the seven clustered reductions are written as
+// the clustered family's builtins with the cluster size as the second
+// argument (card P2-IR-040, ADR-014 D4).
+func TestGLSL_SubgroupClustered(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		op   ir.SubgroupOperation
+		call string
+	}{
+		{"add", ir.SubgroupOperationAdd, "subgroupClusteredAdd(1u, 4u)"},
+		{"mul", ir.SubgroupOperationMul, "subgroupClusteredMul(1u, 4u)"},
+		{"min", ir.SubgroupOperationMin, "subgroupClusteredMin(1u, 4u)"},
+		{"max", ir.SubgroupOperationMax, "subgroupClusteredMax(1u, 4u)"},
+		{"and", ir.SubgroupOperationAnd, "subgroupClusteredAnd(1u, 4u)"},
+		{"or", ir.SubgroupOperationOr, "subgroupClusteredOr(1u, 4u)"},
+		{"xor", ir.SubgroupOperationXor, "subgroupClusteredXor(1u, 4u)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source, _, err := Compile(glslClusteredModule(tc.op, 4), Options{LangVersion: Version450})
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			if !strings.Contains(source, tc.call) {
+				t.Errorf("output lacks %q:\n%s", tc.call, source)
+			}
+			if !strings.Contains(source, "#extension GL_KHR_shader_subgroup_clustered : require") {
+				t.Errorf("output lacks the clustered extension:\n%s", source)
+			}
+		})
+	}
+}
+
+// glslClusteredModule builds a compute entry point whose only statement is one
+// clustered reduction over a uint literal: expr 0 the argument, expr 1 the
+// result.
+func glslClusteredModule(op ir.SubgroupOperation, clusterSize uint32) *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},     // [0] argument
+					{Kind: ir.ExprSubgroupOperationResult{Type: 0}}, // [1] result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtSubgroupCollectiveOperation{
+						Op:           op,
+						CollectiveOp: ir.CollectiveOperationClusteredReduce,
+						Argument:     0,
+						Result:       1,
+						ClusterSize:  clusterSize,
+					}},
+					{Kind: ir.StmtReturn{}},
+				},
+			},
+		}},
+	}
+}
+
 // glslBallotBitModule builds a compute entry point with a ballot followed by
 // one ballot bit operation over its mask: expr 0 the mask, expr 1 a u32
 // index, expr 2 the result (bool for extract/inverse ballot, u32 otherwise).

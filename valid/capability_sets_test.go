@@ -358,6 +358,96 @@ func subgroupBallotBitFormModule(op ir.SubgroupBallotBitOperation) *ir.Module {
 	)
 }
 
+// TestSubgroupClusteredValidation: every clustered arithmetic reduction needs
+// the CLUSTERED class — the bit Rust naga reserved and left commented out —
+// and SUBGROUP (card P2-IR-040, ADR-014 D4). Rust has none of these forms:
+// GL_KHR_shader_subgroup's clustered family and SPIR-V's ClusteredReduce
+// define them.
+func TestSubgroupClusteredValidation(t *testing.T) {
+	for _, op := range []ir.SubgroupOperation{
+		ir.SubgroupOperationAdd, ir.SubgroupOperationMul, ir.SubgroupOperationMin,
+		ir.SubgroupOperationMax, ir.SubgroupOperationAnd, ir.SubgroupOperationOr,
+		ir.SubgroupOperationXor,
+	} {
+		m := subgroupClusteredFormModule(op, 4)
+		expectValid(t, m, valid.Options{Capabilities: valid.CapSubgroup})
+		expectRejected(t, m, valid.Options{
+			Capabilities:       valid.CapSubgroup,
+			SubgroupOperations: valid.SubgroupVote | valid.SubgroupArithmetic | valid.SubgroupBallot,
+		}, "Support for subgroup operation SubgroupOperationSet(CLUSTERED) is required")
+	}
+	expectRejected(t, subgroupClusteredFormModule(ir.SubgroupOperationAdd, 4),
+		valid.Options{}, "Shader requires capability Capabilities(SUBGROUP)")
+}
+
+// TestSubgroupClusteredOperandRules: the cluster size is the GLSL "integral
+// constant expression, at least 1, a power of 2" (GL_KHR_shader_subgroup
+// §3.8), so a clustered reduction of size 0 or 3 is invalid, a non-clustered
+// collective must leave it 0, and the votes have no clustered form (SPIR-V's
+// ClusteredReduce exists only on the arithmetic instructions).
+func TestSubgroupClusteredOperandRules(t *testing.T) {
+	opts := valid.Options{Capabilities: valid.CapSubgroup}
+	expectValid(t, subgroupClusteredFormModule(ir.SubgroupOperationAdd, 1), opts)
+	expectValid(t, subgroupClusteredFormModule(ir.SubgroupOperationAdd, 64), opts)
+
+	expectRejected(t, subgroupClusteredFormModule(ir.SubgroupOperationAdd, 0), opts,
+		"Subgroup operation is invalid: a clustered reduction needs a cluster size of at least 1")
+	expectRejected(t, subgroupClusteredFormModule(ir.SubgroupOperationAdd, 3), opts,
+		"Subgroup operation is invalid: a clustered reduction's cluster size must be a power of 2")
+
+	// The reduce, the scans and the votes have no cluster size.
+	nonClustered := subgroupAllEqualFormModule(ir.CollectiveReduce)
+	nonClustered.EntryPoints[0].Function.Body[0] = ir.Statement{Kind: ir.StmtSubgroupCollectiveOperation{
+		Op:           ir.SubgroupOperationAdd,
+		CollectiveOp: ir.CollectiveReduce,
+		Argument:     0,
+		Result:       1,
+		ClusterSize:  4,
+	}}
+	expectRejected(t, nonClustered, opts,
+		"Subgroup operation is invalid: a cluster size is only valid for a clustered reduction")
+
+	for _, op := range []ir.SubgroupOperation{
+		ir.SubgroupOperationAll, ir.SubgroupOperationAny, ir.SubgroupOperationAllEqual,
+	} {
+		vote := subgroupAllEqualFormModule(ir.CollectiveOperationClusteredReduce)
+		vote.EntryPoints[0].Function.Body[0] = ir.Statement{Kind: ir.StmtSubgroupCollectiveOperation{
+			Op:           op,
+			CollectiveOp: ir.CollectiveOperationClusteredReduce,
+			Argument:     0,
+			Result:       1,
+			ClusterSize:  4,
+		}}
+		expectRejected(t, vote, opts,
+			"Subgroup operation is invalid: the all, any and all-equal votes have no clustered form")
+	}
+}
+
+// subgroupClusteredFormModule builds one clustered arithmetic reduction over
+// a uint literal: type 0 = u32; expressions 0 = the argument, 1 = the result;
+// body = the clustered operation and the return.
+func subgroupClusteredFormModule(op ir.SubgroupOperation, clusterSize uint32) *ir.Module {
+	return subgroupFormModule(
+		[]ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+		},
+		[]ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprSubgroupOperationResult{Type: 0}},
+		},
+		[]ir.Statement{
+			{Kind: ir.StmtSubgroupCollectiveOperation{
+				Op:           op,
+				CollectiveOp: ir.CollectiveOperationClusteredReduce,
+				Argument:     0,
+				Result:       1,
+				ClusterSize:  clusterSize,
+			}},
+			{Kind: ir.StmtReturn{}},
+		},
+	)
+}
+
 // TestSubgroupStages: a non-zero Options.SubgroupStages replaces the stages
 // CapSubgroup derives (Rust Validator::subgroup_stages); an entry point
 // outside them that reaches a subgroup operation, directly or through a
@@ -413,6 +503,7 @@ func TestShaderStagesAreRustBits(t *testing.T) {
 		{"BALLOT", uint64(valid.SubgroupBallot), 1 << 3},
 		{"SHUFFLE", uint64(valid.SubgroupShuffle), 1 << 4},
 		{"SHUFFLE_RELATIVE", uint64(valid.SubgroupShuffleRelative), 1 << 5},
+		{"CLUSTERED", uint64(valid.SubgroupClustered), 1 << 6},
 		{"QUAD_FRAGMENT_COMPUTE", uint64(valid.SubgroupQuadFragmentCompute), 1 << 7},
 	} {
 		if tt.got != tt.rust {

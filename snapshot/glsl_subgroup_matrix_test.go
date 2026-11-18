@@ -39,9 +39,27 @@ import (
 	"github.com/gogpu/naga/spirv"
 )
 
-// glslSubgroupMatrix is the matrix: the basic, vote, ballot, shuffle, quad and
-// arithmetic forms the frontend lowers, and the refusals of the forms the IR or
-// the text backends cannot express.
+// clusteredBackendSkips records the two text backends that refuse a clustered
+// reduction with a named limitation: Metal's simd functions combine the whole
+// simdgroup, and the SM 6.0 HLSL wave intrinsics have no clustered form before
+// the SM 6.5 multi-prefix operations (card P2-IR-040, ADR-014 D4).
+var clusteredBackendSkips = map[string]backendRefusal{
+	"msl": {
+		reason: "Metal's simd functions combine the whole simdgroup and have no clustered form; the " +
+			"writer refuses rather than writing the full-group reduction (a shuffle-based emulation " +
+			"is future work)",
+		wantError: "clustered",
+	},
+	"hlsl": {
+		reason: "the HLSL wave intrinsics have no clustered form before the SM 6.5 multi-prefix " +
+			"operations, and the writer targets SM 6.0; the writer refuses",
+		wantError: "clustered",
+	},
+}
+
+// glslSubgroupMatrix is the matrix: the basic, vote, ballot, shuffle, quad,
+// arithmetic and clustered forms the frontend lowers, and the refusals of the
+// forms the IR or the text backends cannot express.
 var glslSubgroupMatrix = []glslMatrixRow{
 	// --- the basic family ----------------------------------------------------
 
@@ -726,14 +744,17 @@ void main() { o.v = subgroupInverseBallot(subgroupBallot(true)) ? 1u : 0u; }
 `,
 	},
 	{
-		name:      "refuse-clustered-add",
+		name:      "subgroup-clustered-add",
 		stage:     ir.StageCompute,
 		extension: ".comp",
 		builtins:  []string{"subgroupClusteredAdd"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformIAdd ClusteredReduce with the " +
-			"cluster size, but ir.CollectiveOperation has no ClusteredReduce and no cluster-size operand " +
-			"(card P1-GLSLIN-017)",
+		targetEnv: "vulkan1.1",
+		// glslang emits OpGroupNonUniformIAdd ClusteredReduce with the cluster
+		// size as the optional operand; the SPIR-V backend writes the same
+		// words and the capability GroupNonUniformClustered (card P2-IR-040,
+		// ADR-014 D4). Metal's simd functions and the SM 6.0 HLSL wave
+		// intrinsics have no clustered form and refuse.
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -742,13 +763,12 @@ void main() { o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-mul",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredMul"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformIMul ClusteredReduce; the IR has " +
-			"no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-mul",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredMul"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -757,13 +777,12 @@ void main() { o.v = subgroupClusteredMul(gl_GlobalInvocationID.x + 1u, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-min",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredMin"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformUMin ClusteredReduce; the IR has " +
-			"no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-min",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredMin"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -772,13 +791,12 @@ void main() { o.v = subgroupClusteredMin(gl_GlobalInvocationID.x, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-max",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredMax"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformUMax ClusteredReduce; the IR has " +
-			"no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-max",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredMax"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -787,13 +805,12 @@ void main() { o.v = subgroupClusteredMax(gl_GlobalInvocationID.x, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-and",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredAnd"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformBitwiseAnd ClusteredReduce; the " +
-			"IR has no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-and",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredAnd"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -802,13 +819,12 @@ void main() { o.v = subgroupClusteredAnd(gl_GlobalInvocationID.x, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-or",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredOr"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformBitwiseOr ClusteredReduce; the " +
-			"IR has no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-or",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredOr"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
@@ -817,18 +833,49 @@ void main() { o.v = subgroupClusteredOr(gl_GlobalInvocationID.x, 4u); }
 `,
 	},
 	{
-		name:      "refuse-clustered-xor",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		builtins:  []string{"subgroupClusteredXor"},
-		refuse:    "no ClusteredReduce",
-		reason: "glslangValidator accepts the form and emits OpGroupNonUniformBitwiseXor ClusteredReduce; the " +
-			"IR has no clustered collective (card P1-GLSLIN-017)",
+		name:        "subgroup-clustered-xor",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredXor"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(local_size_x = 64) in;
 layout(set = 0, binding = 0) buffer Out { uint v; } o;
 void main() { o.v = subgroupClusteredXor(gl_GlobalInvocationID.x, 4u); }
+`,
+	},
+	{
+		name:        "subgroup-clustered-add-float",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredAdd"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
+		// The float opcode of the clustered form (OpGroupNonUniformFAdd) and a
+		// u32 cluster size, the card's float-argument case under spirv-val.
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_clustered : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { float v; } o;
+void main() { o.v = subgroupClusteredAdd(float(gl_GlobalInvocationID.x), 4u); }
+`,
+	},
+	{
+		name:        "subgroup-clustered-min-int",
+		stage:       ir.StageCompute,
+		extension:   ".comp",
+		builtins:    []string{"subgroupClusteredMin"},
+		targetEnv:   "vulkan1.1",
+		backendSkip: clusteredBackendSkips,
+		// The signed opcode of the clustered form (OpGroupNonUniformSMin) and
+		// an int cluster size, which glslang converts to uint.
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_clustered : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { int v; } o;
+void main() { o.v = subgroupClusteredMin(int(gl_GlobalInvocationID.x), 4); }
 `,
 	},
 	{

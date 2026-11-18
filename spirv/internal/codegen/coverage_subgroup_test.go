@@ -509,6 +509,95 @@ func TestSubgroupCollectiveWithVector(t *testing.T) {
 	}
 }
 
+// TestSubgroupClustered covers emitSubgroupCollectiveOperation with the
+// ClusteredReduce group operation: the cluster size as the optional operand
+// after the value, the operation's own opcode, and Capability
+// GroupNonUniformClustered (grammar opcodes 340-343; card P2-IR-040, ADR-014
+// D4). glslang writes the same words for the GLSL clustered builtins (probed
+// 2026-11-18).
+func TestSubgroupClustered(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		op     ir.SubgroupOperation
+		scalar ir.ScalarType
+		lit    ir.LiteralValue
+		wantOp spvenums.Op
+	}{
+		{"float add", ir.SubgroupOperationAdd, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+			ir.LiteralF32(1.0), spvenums.OpGroupNonUniformFAdd},
+		{"uint min", ir.SubgroupOperationMin, ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+			ir.LiteralU32(1), spvenums.OpGroupNonUniformUMin},
+		{"uint bitwise and", ir.SubgroupOperationAnd, ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+			ir.LiteralU32(1), spvenums.OpGroupNonUniformBitwiseAnd},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mod := buildSubgroupModule(
+				[]ir.Type{{Name: "scalar", Inner: tc.scalar}},
+				[]ir.Expression{
+					// expr 0: the value; expr 1: the operation result.
+					{Kind: ir.Literal{Value: tc.lit}},
+					{Kind: ir.ExprSubgroupOperationResult{Type: 0}},
+				},
+				[]ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtSubgroupCollectiveOperation{
+						Op:           tc.op,
+						CollectiveOp: ir.CollectiveOperationClusteredReduce,
+						Argument:     0,
+						Result:       1,
+						ClusterSize:  4,
+					}},
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 2}}},
+				},
+			)
+
+			backend := NewBackend(subgroupOptions())
+			spvBytes, err := backend.Compile(mod)
+			if err != nil {
+				t.Fatalf("Compile failed: %v", err)
+			}
+			assertValidSPIRV(t, spvBytes)
+			instrs := decodeSPIRVInstructions(spvBytes)
+
+			if !hasCapability(instrs, spvenums.CapabilityGroupNonUniformClustered) {
+				t.Error("expected CapabilityGroupNonUniformClustered")
+			}
+			var found *spirvInstruction
+			for i := range instrs {
+				if instrs[i].opcode == tc.wantOp {
+					found = &instrs[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("expected opcode %v", tc.wantOp)
+			}
+			// words: [0] op|count, [1] result type, [2] result, [3] scope,
+			// [4] group operation, [5] value, [6] cluster size.
+			if found.wordCount != 7 {
+				t.Fatalf("word count = %d, want 7", found.wordCount)
+			}
+			if got := found.words[4]; got != uint32(spvenums.GroupOperationClusteredReduce) {
+				t.Errorf("group operation = %d, want the clustered reduce", got)
+			}
+			clusterID := found.words[6]
+			var size uint32
+			var constantFound bool
+			for _, in := range instrs {
+				if in.opcode == spvenums.OpConstant && in.wordCount == 4 && in.words[2] == clusterID {
+					size = in.words[3]
+					constantFound = true
+				}
+			}
+			if !constantFound {
+				t.Fatalf("the cluster size operand %d is not an OpConstant", clusterID)
+			}
+			if size != 4 {
+				t.Errorf("cluster size constant = %d, want 4", size)
+			}
+		})
+	}
+}
+
 // subgroupOptions are DefaultOptions at SPIR-V 1.3, the version subgroup
 // operations need; the backend refuses them below it.
 func subgroupOptions() Options {

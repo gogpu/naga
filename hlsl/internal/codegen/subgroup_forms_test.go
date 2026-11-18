@@ -47,6 +47,28 @@ func TestHLSL_SubgroupAllEqualBool(t *testing.T) {
 	}
 }
 
+// TestHLSL_SubgroupClusteredRefused: the HLSL wave intrinsics have no
+// clustered form before the SM 6.5 multi-prefix operations, and the writer
+// targets SM 6.0, so a clustered reduction is refused with a named limitation
+// rather than written as the full-wave one (card P2-IR-040, ADR-014 D4).
+func TestHLSL_SubgroupClusteredRefused(t *testing.T) {
+	mod := hlslAllEqualModule(false)
+	mod.EntryPoints[0].Function.Body[0].Kind = ir.StmtSubgroupCollectiveOperation{
+		Op:           ir.SubgroupOperationAdd,
+		CollectiveOp: ir.CollectiveOperationClusteredReduce,
+		Argument:     0,
+		Result:       1,
+		ClusterSize:  4,
+	}
+	_, _, err := Compile(mod, DefaultOptions())
+	if err == nil {
+		t.Fatal("a clustered reduction compiled, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "clustered") {
+		t.Errorf("error = %v, want the clustered-reduction refusal", err)
+	}
+}
+
 // hlslAllEqualModule builds a compute entry point whose only statement is one
 // subgroup all-equal over true (boolOperand) or 1u, with a bool result.
 func hlslAllEqualModule(boolOperand bool) *ir.Module {
