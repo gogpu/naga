@@ -41,10 +41,11 @@
 // (subgroupBallotBitExtract/BitCount/InclusiveBitCount/ExclusiveBitCount/
 // FindLSB/FindMSB and subgroupInverseBallot), and the clustered reductions
 // (subgroupClusteredAdd/Mul/Min/Max/And/Or/Xor with their constant cluster
-// size), but a few subgroup forms the IR cannot express are refused with a
-// message naming the limitation (the gl_Subgroup*Mask variables and the
-// Min/Max/And/Or/Xor scans); ParseInfo and ParseOptions may still change until
-// the frontend is complete.
+// size) and the ballot-mask variables (gl_SubgroupEqMask, GeMask, GtMask,
+// LeMask and LtMask), but a few subgroup forms the IR or a text backend cannot
+// express are refused with a message naming the limitation (the
+// Min/Max/And/Or/Xor scans and the atomic-counter barrier); ParseInfo and
+// ParseOptions may still change until the frontend is complete.
 //
 // # Plain Uniforms
 //

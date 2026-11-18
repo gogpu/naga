@@ -144,22 +144,6 @@ layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
 void main() { o.v = uvec4(gl_SubgroupSize); }
 `,
 	},
-	{
-		name:      "refuse-subgroup-ballot-mask-variable",
-		stage:     ir.StageCompute,
-		extension: ".comp",
-		refuse:    "subgroup ballot mask built-in variables",
-		reason: "gl_SubgroupEqMask and its siblings are GLSL and glslang accepts them, but ir.Builtin has " +
-			"no subgroup ballot-mask value, so the frontend refuses them with the gap named instead of " +
-			"lowering a mask the IR cannot carry (P2-GLSLIN-027)",
-		source: `#version 450
-#extension GL_KHR_shader_subgroup_ballot : require
-layout(local_size_x = 64) in;
-layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
-void main() { o.v = gl_SubgroupEqMask; }
-`,
-	},
-
 	// --- the vote family -----------------------------------------------------
 
 	{
@@ -724,6 +708,41 @@ void main() { o.v = subgroupBallotFindLSB(subgroupBallot(true)); }
 layout(local_size_x = 64) in;
 layout(set = 0, binding = 0) buffer Out { uint v; } o;
 void main() { o.v = subgroupBallotFindMSB(subgroupBallot(true)); }
+`,
+	},
+	{
+		name:      "subgroup-ballot-mask-variables",
+		stage:     ir.StageCompute,
+		extension: ".comp",
+		targetEnv: "vulkan1.1",
+		// The five ballot-mask variables of GL_KHR_shader_subgroup_ballot
+		// (§3.8): glslang emits Input variables decorated SubgroupEqMask ..
+		// SubgroupLtMask (4416-4420, capability GroupNonUniformBallot), and
+		// the SPIR-V backend writes the same (card P2-IR-041, ADR-014 D5).
+		// The text backends have no such built-in: MSL and HLSL refuse with
+		// the limitation named (backendSkip below).
+		backendSkip: map[string]backendRefusal{
+			"msl": {
+				reason: "Metal has no ballot-mask attribute or value; the mask spans every invocation " +
+					"of the simdgroup, so a synthesis needs lane-and-simdgroup-size word arithmetic " +
+					"(simd_ballot(true) holds only the active lanes) — future work",
+				wantError: "ballot-mask",
+			},
+			"hlsl": {
+				reason: "HLSL has no ballot-mask semantic or intrinsic; the mask spans every invocation " +
+					"of the wave, so a synthesis needs lane-and-wave-size word arithmetic " +
+					"(WaveActiveBallot(true) holds only the active lanes) — future work",
+				wantError: "ballot-mask",
+			},
+		},
+		source: `#version 450
+#extension GL_KHR_shader_subgroup_ballot : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer Out { uvec4 v; } o;
+void main() {
+    o.v = gl_SubgroupEqMask | gl_SubgroupGeMask | gl_SubgroupGtMask
+        | gl_SubgroupLeMask | gl_SubgroupLtMask;
+}
 `,
 	},
 	{

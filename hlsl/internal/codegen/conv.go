@@ -150,6 +150,15 @@ func BuiltInToSemantic(b ir.BuiltinValue) (semantic string, supported bool) {
 	// Wave intrinsics are emitted as functions, never as a semantic.
 	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID, ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID:
 		return "", true
+	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+		// The ballot-mask built-ins: HLSL has no semantic and no mask
+		// intrinsic for them, and the mask spans every invocation of the wave
+		// while WaveActiveBallot(true) holds only the active lanes, so a
+		// synthesis needs lane-and-wave-size word arithmetic — future work
+		// (card P2-IR-041, ADR-014 D5). checkBuiltins refuses the entry point
+		// with the limitation named.
+		return "", false
 	case ir.BuiltinCullPrimitive:
 		return "SV_CullPrimitive", true
 	case ir.BuiltinMeshTaskSize, ir.BuiltinPointIndex, ir.BuiltinLineIndices,
@@ -165,6 +174,17 @@ func BuiltInToSemantic(b ir.BuiltinValue) (semantic string, supported bool) {
 		// refuses the entry point.
 		return "", false
 	}
+}
+
+// isSubgroupMaskBuiltin reports whether b is one of the five ballot-mask
+// built-ins (card P2-IR-041, ADR-014 D5).
+func isSubgroupMaskBuiltin(b ir.BuiltinValue) bool {
+	switch b {
+	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+		return true
+	}
+	return false
 }
 
 // InterpolationToHLSL returns the HLSL interpolation modifier: Rust naga's

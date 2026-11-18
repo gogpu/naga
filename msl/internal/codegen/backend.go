@@ -344,14 +344,32 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 }
 
 // checkBuiltins refuses a written entry point whose interface uses a built-in
-// Metal has no attribute for (draw_index: Rust naga's UnsupportedBuiltIn).
+// Metal cannot give: draw_index has no attribute (Rust naga's
+// UnsupportedBuiltIn), and the five ballot-mask built-ins have neither an
+// attribute nor a value Metal provides. The refusal of a mask names the
+// limitation: the mask spans every invocation of the simdgroup, while
+// simd_ballot(true) holds only the active lanes, so a correct synthesis needs
+// lane-and-simdgroup-size word arithmetic (card P2-IR-041, ADR-014 D5).
 func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
-	refused := func(b *ir.Binding) bool {
+	refused := func(b *ir.Binding) string {
 		if b == nil {
-			return false
+			return ""
 		}
 		bi, ok := (*b).(ir.BuiltinBinding)
-		return ok && bi.Builtin == ir.BuiltinDrawIndex
+		if !ok {
+			return ""
+		}
+		switch bi.Builtin {
+		case ir.BuiltinDrawIndex:
+			return "built-in draw_index is not supported"
+		case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+			ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+			return "the ballot-mask built-in " + bi.Builtin.String() +
+				" has no Metal attribute or value: the mask spans every invocation of the simdgroup, " +
+				"so a synthesis needs lane-and-simdgroup-size word arithmetic (simd_ballot(true) holds " +
+				"only the active lanes) — future work (card P2-IR-041, ADR-014 D5)"
+		}
+		return ""
 	}
 	for i := range module.EntryPoints {
 		ep := &module.EntryPoints[i]
@@ -368,8 +386,8 @@ func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
 			}
 		}
 		for _, b := range bindings {
-			if refused(b) {
-				return unsupported.Errorf("msl: entry point %q: built-in draw_index is not supported", ep.Name)
+			if msg := refused(b); msg != "" {
+				return unsupported.Errorf("msl: entry point %q: %s", ep.Name, msg)
 			}
 		}
 	}

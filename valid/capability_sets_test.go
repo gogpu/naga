@@ -448,6 +448,48 @@ func subgroupClusteredFormModule(op ir.SubgroupOperation, clusterSize uint32) *i
 	)
 }
 
+// TestSubgroupMaskBuiltinValidation: each of the five ballot-mask built-ins
+// needs SUBGROUP and the BALLOT operation class (card P2-IR-041, ADR-014 D5);
+// it is a vec4<u32> input, so the module is built directly — WGSL has no
+// spelling for it.
+func TestSubgroupMaskBuiltinValidation(t *testing.T) {
+	for _, builtin := range []ir.BuiltinValue{
+		ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask,
+	} {
+		m := subgroupMaskBuiltinModule(builtin)
+		expectValid(t, m, valid.Options{Capabilities: valid.CapSubgroup})
+		expectRejected(t, m, valid.Options{},
+			"Capability Capabilities(SUBGROUP) is not supported")
+		expectRejected(t, m, valid.Options{
+			Capabilities:       valid.CapSubgroup,
+			SubgroupOperations: valid.SubgroupArithmetic | valid.SubgroupVote,
+		}, "Support for subgroup operation SubgroupOperationSet(BALLOT) is required")
+	}
+}
+
+// subgroupMaskBuiltinModule builds a compute entry point whose only argument
+// is one ballot-mask built-in of type vec4<u32>: type 0 = u32, 1 = vec4<u32>.
+func subgroupMaskBuiltinModule(builtin ir.BuiltinValue) *ir.Module {
+	binding := ir.Binding(ir.BuiltinBinding{Builtin: builtin})
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Workgroup: [3]uint32{64, 1, 1},
+			Function: ir.Function{
+				Name:      "main",
+				Arguments: []ir.FunctionArgument{{Name: "mask", Type: 1, Binding: &binding}},
+				Body:      []ir.Statement{{Kind: ir.StmtReturn{}}},
+			},
+		}},
+	}
+}
+
 // TestSubgroupStages: a non-zero Options.SubgroupStages replaces the stages
 // CapSubgroup derives (Rust Validator::subgroup_stages); an entry point
 // outside them that reaches a subgroup operation, directly or through a

@@ -330,6 +330,12 @@ func TestMapBuiltin(t *testing.T) {
 		spvenums.BuiltInSubgroupId:                ir.BuiltinSubgroupID,
 		spvenums.BuiltInSubgroupSize:              ir.BuiltinSubgroupSize,
 		spvenums.BuiltInSubgroupLocalInvocationId: ir.BuiltinSubgroupInvocationID,
+		// The five ballot-mask built-ins (card P2-IR-041, ADR-014 D5).
+		spvenums.BuiltInSubgroupEqMask: ir.BuiltinSubgroupEqMask,
+		spvenums.BuiltInSubgroupGeMask: ir.BuiltinSubgroupGeMask,
+		spvenums.BuiltInSubgroupGtMask: ir.BuiltinSubgroupGtMask,
+		spvenums.BuiltInSubgroupLeMask: ir.BuiltinSubgroupLeMask,
+		spvenums.BuiltInSubgroupLtMask: ir.BuiltinSubgroupLtMask,
 	}
 	for builtin, want := range cases {
 		got, err := mapBuiltin(uint32(builtin), false)

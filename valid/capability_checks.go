@@ -432,7 +432,9 @@ func builtinCapability(b ir.BuiltinValue) Capabilities {
 		return CapShaderBarycentrics
 	case ir.BuiltinViewIndex:
 		return CapMultiview
-	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID, ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID:
+	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID, ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID,
+		ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
 		return CapSubgroup
 	case ir.BuiltinDrawIndex:
 		return CapDrawIndex
@@ -440,6 +442,21 @@ func builtinCapability(b ir.BuiltinValue) Capabilities {
 		ir.BuiltinMeshTaskSize, ir.BuiltinVertexCount, ir.BuiltinPrimitiveCount, ir.BuiltinVertices,
 		ir.BuiltinPrimitives:
 		return CapMeshShader
+	}
+	return 0
+}
+
+// builtinOperationClass is the subgroup operation class a built-in variable
+// needs, or 0: the five ballot-mask built-ins are the ballot family's
+// (GL_KHR_shader_subgroup_ballot, SPIR-V's GroupNonUniformBallot capability),
+// so a validator that allows SUBGROUP without BALLOT rejects them. The four
+// scalar variables and every other built-in need no class. Rust naga has no
+// ballot-mask built-ins to port this from (card P2-IR-041, ADR-014 D5).
+func builtinOperationClass(b ir.BuiltinValue) SubgroupOperationSet {
+	switch b {
+	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+		return SubgroupBallot
 	}
 	return 0
 }

@@ -204,6 +204,16 @@ func mapBuiltin(word uint32, invariant bool) (ir.BuiltinValue, error) {
 		return ir.BuiltinSubgroupSize, nil
 	case spvenums.BuiltInSubgroupLocalInvocationId:
 		return ir.BuiltinSubgroupInvocationID, nil
+	case spvenums.BuiltInSubgroupEqMask:
+		return ir.BuiltinSubgroupEqMask, nil
+	case spvenums.BuiltInSubgroupGeMask:
+		return ir.BuiltinSubgroupGeMask, nil
+	case spvenums.BuiltInSubgroupGtMask:
+		return ir.BuiltinSubgroupGtMask, nil
+	case spvenums.BuiltInSubgroupLeMask:
+		return ir.BuiltinSubgroupLeMask, nil
+	case spvenums.BuiltInSubgroupLtMask:
+		return ir.BuiltinSubgroupLtMask, nil
 	}
 	return 0, errUnsupportedBuiltIn(word)
 }

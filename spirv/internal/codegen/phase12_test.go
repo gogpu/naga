@@ -314,6 +314,63 @@ func TestCapability_BuiltinPrimitiveIndex(t *testing.T) {
 	assertCapability(t, caps, spvenums.CapabilityGeometry)
 }
 
+// TestSubgroupMaskBuiltins: the five ballot-mask built-ins are vec4<u32> Input
+// variables decorated with their SPIR-V BuiltIns (4416-4420), and the module
+// carries GroupNonUniformBallot (card P2-IR-041, ADR-014 D5).
+func TestSubgroupMaskBuiltins(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		builtin ir.BuiltinValue
+		want    spvenums.BuiltIn
+	}{
+		{"EqMask", ir.BuiltinSubgroupEqMask, spvenums.BuiltInSubgroupEqMask},
+		{"GeMask", ir.BuiltinSubgroupGeMask, spvenums.BuiltInSubgroupGeMask},
+		{"GtMask", ir.BuiltinSubgroupGtMask, spvenums.BuiltInSubgroupGtMask},
+		{"LeMask", ir.BuiltinSubgroupLeMask, spvenums.BuiltInSubgroupLeMask},
+		{"LtMask", ir.BuiltinSubgroupLtMask, spvenums.BuiltInSubgroupLtMask},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			module := &ir.Module{
+				Types: []ir.Type{
+					{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+					{Name: "vec4u32", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+				},
+				EntryPoints: []ir.EntryPoint{{
+					Name:      "main",
+					Stage:     ir.StageCompute,
+					Workgroup: [3]uint32{1, 1, 1},
+					Function: ir.Function{
+						Name:      "main",
+						Arguments: []ir.FunctionArgument{{Name: "mask", Type: 1, Binding: makeBuiltinBinding(tt.builtin)}},
+						Expressions: []ir.Expression{
+							{Kind: ir.ExprFunctionArgument{Index: 0}},
+						},
+						Body: []ir.Statement{{Kind: ir.StmtReturn{}}},
+					},
+				}},
+			}
+			backend := NewBackend(subgroupOptions())
+			spvBytes, err := backend.Compile(module)
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			assertValidSPIRV(t, spvBytes)
+			caps := extractCapabilities(spvBytes)
+			assertCapability(t, caps, spvenums.CapabilityGroupNonUniformBallot)
+			builtins := findBuiltInDecorations(spvBytes)
+			var found bool
+			for _, got := range builtins {
+				if got == uint32(tt.want) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("no BuiltIn decoration %v among %v", tt.want, builtins)
+			}
+		})
+	}
+}
+
 // TestCapability_SubgroupBuiltins verifies CapabilityGroupNonUniform is triggered
 // by subgroup-related builtins.
 func TestCapability_SubgroupBuiltins(t *testing.T) {

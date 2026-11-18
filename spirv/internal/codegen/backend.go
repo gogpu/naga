@@ -2456,6 +2456,14 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		// when capabilities_available is None (default), so only GroupNonUniform.
 		b.addCapability(spvenums.CapabilityGroupNonUniform)
 		b.requireVersion(Version1_3, "a subgroup built-in")
+	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+		// The ballot-mask BuiltIns need GroupNonUniformBallot (SPIR-V 1.1
+		// grammar lists the capability on every one of the five), SPIR-V 1.3
+		// like the rest of the subgroup surface. Rust naga has none of them
+		// (card P2-IR-041, ADR-014 D5).
+		b.addCapability(spvenums.CapabilityGroupNonUniformBallot)
+		b.requireVersion(Version1_3, "a subgroup built-in")
 	}
 }
 
@@ -2502,6 +2510,16 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass spvenums.StorageClass)
 		return spvenums.BuiltInSubgroupSize
 	case ir.BuiltinSubgroupInvocationID:
 		return spvenums.BuiltInSubgroupLocalInvocationId
+	case ir.BuiltinSubgroupEqMask:
+		return spvenums.BuiltInSubgroupEqMask
+	case ir.BuiltinSubgroupGeMask:
+		return spvenums.BuiltInSubgroupGeMask
+	case ir.BuiltinSubgroupGtMask:
+		return spvenums.BuiltInSubgroupGtMask
+	case ir.BuiltinSubgroupLeMask:
+		return spvenums.BuiltInSubgroupLeMask
+	case ir.BuiltinSubgroupLtMask:
+		return spvenums.BuiltInSubgroupLtMask
 	case ir.BuiltinClipDistances:
 		return spvenums.BuiltInClipDistance
 	case ir.BuiltinCullDistance:

@@ -5,9 +5,10 @@ import "testing"
 func TestBuiltinVariableNames(t *testing.T) {
 	// The variable names of Rust naga's lookup_variable
 	// (front/glsl/variables.rs:112-210), in the order it lists them, plus the
-	// four GL_KHR_shader_subgroup_basic scalars, which Rust has no counterpart
-	// for: its GLSL frontend has no subgroups at all (upstream #7571). Their
-	// availability is the extension's, checked when they are lowered
+	// four GL_KHR_shader_subgroup_basic scalars and the five
+	// GL_KHR_shader_subgroup_ballot masks, which Rust has no counterpart for:
+	// its GLSL frontend has no subgroups at all (upstream #7571). Their
+	// availability is the family's extension, checked when they are lowered
 	// (subgroupVariableGate).
 	want := []string{
 		"gl_Position", "gl_FragCoord", "gl_PointCoord",
@@ -20,6 +21,8 @@ func TestBuiltinVariableNames(t *testing.T) {
 		"gl_InstanceIndex", "gl_VertexIndex", "gl_SampleID",
 		"gl_LocalInvocationIndex", "gl_DrawID",
 		"gl_SubgroupSize", "gl_SubgroupInvocationID", "gl_SubgroupID", "gl_NumSubgroups",
+		"gl_SubgroupEqMask", "gl_SubgroupGeMask", "gl_SubgroupGtMask",
+		"gl_SubgroupLeMask", "gl_SubgroupLtMask",
 	}
 	if len(builtinVariableNames) != len(want) {
 		t.Errorf("%d builtin names, want %d", len(builtinVariableNames), len(want))

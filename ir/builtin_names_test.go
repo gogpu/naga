@@ -9,11 +9,11 @@ import (
 // no blanks, no duplicates, and a number for a value outside the enum. An
 // enum that grows without a name fails here.
 func TestBuiltinValueNames(t *testing.T) {
-	if got, want := len(builtinValueNames), int(BuiltinWorkGroupSize)+1; got != want {
+	if got, want := len(builtinValueNames), int(BuiltinSubgroupLtMask)+1; got != want {
 		t.Fatalf("builtinValueNames has %d names, the enum has %d members", got, want)
 	}
 	seen := make(map[string]BuiltinValue, len(builtinValueNames))
-	for b := BuiltinPosition; b <= BuiltinWorkGroupSize; b++ {
+	for b := BuiltinPosition; b <= BuiltinSubgroupLtMask; b++ {
 		name := b.String()
 		if strings.TrimSpace(name) == "" {
 			t.Errorf("built-in %d has an empty name", b)
@@ -28,7 +28,7 @@ func TestBuiltinValueNames(t *testing.T) {
 		}
 		seen[name] = b
 	}
-	for _, b := range []BuiltinValue{BuiltinWorkGroupSize + 1, 255} {
+	for _, b := range []BuiltinValue{BuiltinSubgroupLtMask + 1, 255} {
 		if got := b.String(); !strings.HasPrefix(got, "BuiltinValue(") {
 			t.Errorf("String() for out-of-range value %d = %q, want a number", b, got)
 		}

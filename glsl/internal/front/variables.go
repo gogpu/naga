@@ -42,12 +42,18 @@ var builtinVariableNames = map[string]bool{
 	"gl_SampleID":             true,
 	"gl_LocalInvocationIndex": true,
 	"gl_DrawID":               true,
-	// The GL_KHR_shader_subgroup_basic scalar variables (§8.18); their
-	// availability is the extension's, checked when they are lowered.
+	// The GL_KHR_shader_subgroup_basic scalar variables (§8.18) and the
+	// GL_KHR_shader_subgroup_ballot mask variables; their availability is
+	// the family's extension, checked when they are lowered.
 	"gl_SubgroupSize":         true,
 	"gl_SubgroupInvocationID": true,
 	"gl_SubgroupID":           true,
 	"gl_NumSubgroups":         true,
+	"gl_SubgroupEqMask":       true,
+	"gl_SubgroupGeMask":       true,
+	"gl_SubgroupGtMask":       true,
+	"gl_SubgroupLeMask":       true,
+	"gl_SubgroupLtMask":       true,
 }
 
 // builtinSymbol returns the symbol of the builtin variable name denotes, or nil
@@ -222,6 +228,7 @@ func builtinDataFor(name string, stage ir.ShaderStage) (builtinData, bool) {
 	vec4f := ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
 	vec2f := ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
 	vec3u := ir.VectorType{Size: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}
+	vec4u := ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 	boolean := ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
@@ -299,6 +306,20 @@ func builtinDataFor(name string, stage ir.ShaderStage) (builtinData, bool) {
 		return builtinData{inner: u32, builtin: ir.BuiltinSubgroupID, storage: storageInput}, true
 	case "gl_NumSubgroups":
 		return builtinData{inner: u32, builtin: ir.BuiltinNumSubgroups, storage: storageInput}, true
+
+	// The five ballot-mask variables of GL_KHR_shader_subgroup_ballot (§3.8):
+	// vec4<u32> masks of the invocation-id comparisons, the ballot family's
+	// extension checked by subgroupVariableGate (card P2-IR-041, ADR-014 D5).
+	case "gl_SubgroupEqMask":
+		return builtinData{inner: vec4u, builtin: ir.BuiltinSubgroupEqMask, storage: storageInput}, true
+	case "gl_SubgroupGeMask":
+		return builtinData{inner: vec4u, builtin: ir.BuiltinSubgroupGeMask, storage: storageInput}, true
+	case "gl_SubgroupGtMask":
+		return builtinData{inner: vec4u, builtin: ir.BuiltinSubgroupGtMask, storage: storageInput}, true
+	case "gl_SubgroupLeMask":
+		return builtinData{inner: vec4u, builtin: ir.BuiltinSubgroupLeMask, storage: storageInput}, true
+	case "gl_SubgroupLtMask":
+		return builtinData{inner: vec4u, builtin: ir.BuiltinSubgroupLtMask, storage: storageInput}, true
 	}
 	return builtinData{}, false
 }
