@@ -451,6 +451,21 @@ func (w *Writer) scanSubgroupClustered(block ir.Block) {
 	}
 }
 
+// isSubgroupBuiltinVariable reports whether b is one of the nine subgroup
+// built-in variables — the four scalars of GL_KHR_shader_subgroup_basic and
+// the five ballot masks of GL_KHR_shader_subgroup_ballot (card P2-IR-041,
+// ADR-014 D5).
+func isSubgroupBuiltinVariable(b ir.BuiltinValue) bool {
+	switch b {
+	case ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID,
+		ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID,
+		ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
+		return true
+	}
+	return false
+}
+
 // scanVaryingFeatures checks entry point IO for required features.
 func (w *Writer) scanVaryingFeatures(ep *ir.EntryPoint) {
 	fn := &ep.Function
@@ -493,6 +508,13 @@ func (w *Writer) checkVaryingBinding(binding *ir.Binding, typeHandle ir.TypeHand
 		}
 		if b.Builtin == ir.BuiltinBarycentric || b.Builtin == ir.BuiltinBarycentricNoPerspective {
 			w.features.request(FeatureShaderBarycentrics)
+		}
+		// The nine subgroup variables (the four scalars and the five ballot
+		// masks) are declared only with their GL_KHR_shader_subgroup_*
+		// extensions, so a shader that reads one needs the family's
+		// extensions even when it runs no subgroup operation.
+		if isSubgroupBuiltinVariable(b.Builtin) {
+			w.features.request(FeatureSubgroupOperations)
 		}
 		if b.Builtin == ir.BuiltinPrimitiveIndex {
 			w.features.request(FeaturePrimitiveIndex)

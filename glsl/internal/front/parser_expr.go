@@ -141,9 +141,6 @@ func (p *parser) parsePostfix(e *exprs) (hirHandle, *frontError) {
 			sym = p.builtinSymbol(name)
 		}
 		if sym == nil {
-			if refusal := subgroupVariableRefusal(name, span); refusal != nil {
-				return 0, refusal
-			}
 			return 0, errUnknownVariable(name, span)
 		}
 		base = e.Arena.add(hirVariable{Sym: sym}, span)

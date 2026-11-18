@@ -1442,6 +1442,9 @@ func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeH
 		if c := builtinCapability(b.Builtin); c != 0 && !v.has(c) {
 			v.addError(fmt.Sprintf("entry point %q: %s: Capability %s is not supported", ep.Name, where, c.rustDebug()))
 		}
+		if class := builtinOperationClass(b.Builtin); class != 0 && v.subgroupOperations&class != class {
+			v.addError(fmt.Sprintf("entry point %q: %s: %s", ep.Name, where, unsupportedSubgroupOperation(class)))
+		}
 		if msg := v.builtinVaryingError(ep.Stage, ty, b.Builtin, output); msg != "" {
 			v.addError(fmt.Sprintf("entry point %q: %s: %s", ep.Name, where, msg))
 		}

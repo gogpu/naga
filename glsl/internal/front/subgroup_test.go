@@ -880,21 +880,69 @@ func TestSubgroupBuiltinVariables(t *testing.T) {
 	}
 }
 
+// TestSubgroupMaskBuiltinVariables: the five ballot-mask variables of
+// GL_KHR_shader_subgroup_ballot (§3.8) lower to globals of type vec4<u32>
+// bound as entry arguments, as glslang compiles them (Input variables
+// decorated SubgroupEqMask .. SubgroupLtMask; card P2-IR-041, ADR-014 D5).
+func TestSubgroupMaskBuiltinVariables(t *testing.T) {
+	mod := parseSubgroup(t, subgroupComputeSource(
+		"#extension GL_KHR_shader_subgroup_ballot : require\n",
+		"void main() { o.v = gl_SubgroupEqMask.x + gl_SubgroupGeMask.x + gl_SubgroupGtMask.x"+
+			" + gl_SubgroupLeMask.x + gl_SubgroupLtMask.x; }\n"),
+		ir.StageCompute)
+
+	want := map[string]ir.BuiltinValue{
+		"gl_SubgroupEqMask": ir.BuiltinSubgroupEqMask,
+		"gl_SubgroupGeMask": ir.BuiltinSubgroupGeMask,
+		"gl_SubgroupGtMask": ir.BuiltinSubgroupGtMask,
+		"gl_SubgroupLeMask": ir.BuiltinSubgroupLeMask,
+		"gl_SubgroupLtMask": ir.BuiltinSubgroupLtMask,
+	}
+	bound := map[ir.BuiltinValue]bool{}
+	for _, arg := range mod.EntryPoints[0].Function.Arguments {
+		if arg.Binding == nil {
+			continue
+		}
+		if b, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
+			bound[b.Builtin] = true
+		}
+	}
+	for name, value := range want {
+		var found bool
+		for _, g := range mod.GlobalVariables {
+			if g.Name != name {
+				continue
+			}
+			found = true
+			vec, ok := mod.Types[g.Type].Inner.(ir.VectorType)
+			if !ok || vec.Size != ir.Vec4 || vec.Scalar.Kind != ir.ScalarUint || vec.Scalar.Width != 4 {
+				t.Errorf("%s: type = %v, want vec4<u32>", name, mod.Types[g.Type].Inner)
+			}
+		}
+		if !found {
+			t.Errorf("%s has no global", name)
+		}
+		if !bound[value] {
+			t.Errorf("%s is not bound as an entry argument", name)
+		}
+	}
+}
+
 // TestSubgroupBuiltinVariableAvailability: the variables follow the availability
 // rules of the subgroup builtins — the family's extension is required (glslang:
 // "'gl_SubgroupSize' : required extension not requested:
-// GL_KHR_shader_subgroup_basic", probed 2026-11-16) — and the ballot family's
-// mask variables, which have no ir.Builtin value, are refused with the gap
-// named.
+// GL_KHR_shader_subgroup_basic", probed 2026-11-16; the ballot-mask variables
+// need the ballot family's).
 func TestSubgroupBuiltinVariableAvailability(t *testing.T) {
-	t.Run("the extension is required", func(t *testing.T) {
+	t.Run("the basic extension is required", func(t *testing.T) {
 		parseErr(t, subgroupComputeSource("", "void main() { o.v = gl_SubgroupSize; }\n"),
 			Options{Stage: ir.StageCompute},
 			"'gl_SubgroupSize' : required extension not requested: GL_KHR_shader_subgroup_basic")
 	})
-	t.Run("the ballot masks have no IR value", func(t *testing.T) {
-		parseErr(t, subgroupComputeSource("#extension GL_KHR_shader_subgroup_ballot : require\n",
+	t.Run("the ballot extension is required for a mask", func(t *testing.T) {
+		parseErr(t, subgroupComputeSource("#extension GL_KHR_shader_subgroup_basic : require\n",
 			"void main() { uvec4 m = gl_SubgroupEqMask; o.v = m.x; }\n"),
-			Options{Stage: ir.StageCompute}, "subgroup ballot mask built-in variables")
+			Options{Stage: ir.StageCompute},
+			"'gl_SubgroupEqMask' : required extension not requested: GL_KHR_shader_subgroup_ballot")
 	})
 }

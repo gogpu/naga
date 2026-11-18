@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Ballot-mask built-in variables across the IR, both frontends and the backends that can express them** (card
+  P2-IR-041, ADR-014 D5). The IR gains `ir.BuiltinSubgroupEqMask`, `GeMask`, `GtMask`, `LeMask` and `LtMask`
+  — vec4<u32> inputs whose bit i is set when i = ID / i >= ID / i > ID / i <= ID / i < ID (ID = the subgroup
+  invocation id, bits above the subgroup size zero), SPIR-V's `SubgroupEqMask` … `SubgroupLtMask` BuiltIns
+  (4416–4420), none of which Rust naga has. Validation adds the BALLOT operation class to the `CapSubgroup` the
+  subgroup variables already needed. The GLSL frontend lowers `gl_SubgroupEqMask` … `gl_SubgroupLtMask`
+  (previously refused), gated by the ballot family's extension; the SPIR-V frontend maps the five decorations;
+  the SPIR-V backend writes the decorated Input variables with GroupNonUniformBallot, and the GLSL text
+  backend writes the variable names — and now requests the subgroup extensions for any shader that merely
+  reads one of the nine subgroup variables, a gap that left a scalar-only use without its `#extension`.
+  MSL, HLSL and DXIL refuse the five with a named limitation: the spec's mask spans every invocation while a
+  ballot of true holds only the active lanes, so a correct synthesis needs lane-and-subgroup-size word
+  arithmetic — its own card (P2-IR-042) with a Go evaluator of the equations as the oracle. Verified end to
+  end: glslang accepts the source, the emitted SPIR-V passes spirv-val with the five decorated Input
+  variables, the GLSL output round-trips, and the MSL/HLSL refusals are asserted by the matrix.
+
 - **Clustered subgroup forms across the IR, both frontends and the backends that can express them** (card
   P2-IR-040, ADR-014 D4). The IR gains `ir.CollectiveOperationClusteredReduce` and a `ClusterSize uint32`
   field on `ir.StmtSubgroupCollectiveOperation` — the clustered reductions of `GL_KHR_shader_subgroup`

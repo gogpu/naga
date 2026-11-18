@@ -3270,6 +3270,16 @@ func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
 		return "gl_SubgroupSize"
 	case ir.BuiltinSubgroupInvocationID:
 		return "gl_SubgroupInvocationID"
+	case ir.BuiltinSubgroupEqMask:
+		return "gl_SubgroupEqMask"
+	case ir.BuiltinSubgroupGeMask:
+		return "gl_SubgroupGeMask"
+	case ir.BuiltinSubgroupGtMask:
+		return "gl_SubgroupGtMask"
+	case ir.BuiltinSubgroupLeMask:
+		return "gl_SubgroupLeMask"
+	case ir.BuiltinSubgroupLtMask:
+		return "gl_SubgroupLtMask"
 	case ir.BuiltinClipDistances:
 		return "gl_ClipDistance"
 	case ir.BuiltinCullDistance:

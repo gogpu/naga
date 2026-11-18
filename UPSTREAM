@@ -42,11 +42,12 @@ Current scope
   the GL 3.30 core / ES 3.00 dialects, with the builtin catalogue (the image and
   sampling surface including textureQueryLod, barriers, atomics, the subgroup
   vote/ballot/elect/shuffle/quad/arithmetic/clustered families and built-in
-  variables, the ballot bit operations, subgroupInverseBallot and the clustered
-  reductions included), the combined image sampler split, plain-uniform
-  collection and per-dialect feature gates; a few subgroup forms the IR cannot
-  express stay refused (the gl_Subgroup*Mask variables and the
-  Min/Max/And/Or/Xor scans).
+  variables, the ballot bit operations, subgroupInverseBallot, the clustered
+  reductions and the five ballot-mask variables included), the combined image
+  sampler split, plain-uniform collection and per-dialect feature gates; a few
+  subgroup forms stay refused (the Min/Max/And/Or/Xor scans and the
+  atomic-counter barrier; MSL, HLSL and DXIL refuse the ballot-mask variables
+  themselves, whose synthesis is P2-IR-042).
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
   Rust naga's WGSL and DOT outputs are not implemented; Rust naga has no GLSL
   frontend, so ours is our own implementation.

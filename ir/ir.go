@@ -759,6 +759,29 @@ const (
 	// shader (compute, task or mesh) as vec3<u32> (SPIR-V BuiltIn
 	// WorkgroupSize 25, Rust naga's WorkGroupSize).
 	BuiltinWorkGroupSize
+
+	// The five ballot-mask built-ins below are vec4<u32> inputs: bit i of the
+	// mask is set when the comparison of i with the invocation's subgroup
+	// invocation id ID holds (GL_KHR_shader_subgroup §3.8), and bits above
+	// the subgroup size are zero. They are the masks of a ballot of the
+	// comparison `all true` — the same value SPIR-V carries as the
+	// SubgroupEqMask .. SubgroupLtMask BuiltIns (4416-4420, capability
+	// GroupNonUniformBallot, SPIR-V 1.3). GLSL spells them
+	// gl_SubgroupEqMask, gl_SubgroupGeMask, gl_SubgroupGtMask,
+	// gl_SubgroupLeMask and gl_SubgroupLtMask; WGSL has no spelling, so the
+	// WGSL frontend never produces them. Rust naga has none of the five
+	// (card P2-IR-041, ADR-014 D5).
+	//
+	// BuiltinSubgroupEqMask sets bit ID.
+	BuiltinSubgroupEqMask
+	// BuiltinSubgroupGeMask sets bits i >= ID.
+	BuiltinSubgroupGeMask
+	// BuiltinSubgroupGtMask sets bits i > ID.
+	BuiltinSubgroupGtMask
+	// BuiltinSubgroupLeMask sets bits i <= ID.
+	BuiltinSubgroupLeMask
+	// BuiltinSubgroupLtMask sets bits i < ID.
+	BuiltinSubgroupLtMask
 )
 
 // builtinValueNames are the names BuiltinValue.String returns, indexed by
@@ -803,6 +826,11 @@ var builtinValueNames = [...]string{
 	"cull_distance",
 	"point_coord",
 	"workgroup_size",
+	"subgroup_eq_mask",
+	"subgroup_ge_mask",
+	"subgroup_gt_mask",
+	"subgroup_le_mask",
+	"subgroup_lt_mask",
 }
 
 // String returns the built-in's name for diagnostics (error messages), never
