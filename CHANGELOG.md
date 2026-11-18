@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The ballot-mask built-in variables are now written on MSL, HLSL and DXIL** (card P2-IR-042). Those backends
+  have no such built-in, so each mask is synthesised from the invocation's lane index and the subgroup size per
+  32-bit word — never from a ballot of true, which holds only the active lanes while the spec's mask spans
+  every invocation of the subgroup. A new internal package holds the extension's equations as the semantic
+  oracle, exhaustively tested over every power-of-two size up to 128 and every lane; each writer's test
+  transcribes its emitted formula line for line and checks it against the oracle. HLSL writes helper functions
+  calling `WaveGetLaneIndex`/`WaveGetLaneCount`; MSL declares each mask as a kernel local over
+  `thread_index_in_simdgroup`/`threads_per_simdgroup`; DXIL builds the vec4 through
+  `dx.op.waveGetLaneIndex`/`dx.op.waveGetLaneCount`, and IDxcValidator accepts the emitted DXIL for every mask.
+  The GLSL subgroup matrix's mask row now compiles through its SPIR-V, MSL and HLSL legs. A mask as a struct
+  member stays refused on MSL with the limitation named (no attribute could carry it).
+
 - **Ballot-mask built-in variables across the IR, both frontends and the backends that can express them** (card
   P2-IR-041, ADR-014 D5). The IR gains `ir.BuiltinSubgroupEqMask`, `GeMask`, `GtMask`, `LeMask` and `LtMask`
   — vec4<u32> inputs whose bit i is set when i = ID / i >= ID / i > ID / i <= ID / i < ID (ID = the subgroup

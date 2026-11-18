@@ -719,22 +719,9 @@ void main() { o.v = subgroupBallotFindMSB(subgroupBallot(true)); }
 		// (§3.8): glslang emits Input variables decorated SubgroupEqMask ..
 		// SubgroupLtMask (4416-4420, capability GroupNonUniformBallot), and
 		// the SPIR-V backend writes the same (card P2-IR-041, ADR-014 D5).
-		// The text backends have no such built-in: MSL and HLSL refuse with
-		// the limitation named (backendSkip below).
-		backendSkip: map[string]backendRefusal{
-			"msl": {
-				reason: "Metal has no ballot-mask attribute or value; the mask spans every invocation " +
-					"of the simdgroup, so a synthesis needs lane-and-simdgroup-size word arithmetic " +
-					"(simd_ballot(true) holds only the active lanes) — future work",
-				wantError: "ballot-mask",
-			},
-			"hlsl": {
-				reason: "HLSL has no ballot-mask semantic or intrinsic; the mask spans every invocation " +
-					"of the wave, so a synthesis needs lane-and-wave-size word arithmetic " +
-					"(WaveActiveBallot(true) holds only the active lanes) — future work",
-				wantError: "ballot-mask",
-			},
-		},
+		// MSL and HLSL have no such built-in and synthesize it from the lane
+		// index and the subgroup size per 32-bit word (card P2-IR-042), so all
+		// three legs of the row compile.
 		source: `#version 450
 #extension GL_KHR_shader_subgroup_ballot : require
 layout(local_size_x = 64) in;

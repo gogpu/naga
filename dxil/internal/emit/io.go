@@ -24,10 +24,6 @@ import (
 // Reference: Mesa nir_to_dxil.c emit_load_input_via_intrinsic(),
 // emit_load_global_invocation_id(), emit_load_local_invocation_id()
 func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
-	if err := e.refuseSubgroupMaskBuiltins(fn); err != nil {
-		return err
-	}
-
 	// Precompute signature element index (sigId) assignments that match the
 	// sorted order produced by collectFlatArgBindings + PackSignatureElements.
 	rowMap := e.buildInputRowMap(fn, stage)
@@ -111,7 +107,19 @@ func (e *Emitter) classifyInputArgs(fn *ir.Function, stage ir.ShaderStage, rowMa
 // handled.
 func (e *Emitter) tryEmitSpecialInput(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) (bool, error) {
 	bb, ok := (*arg.Binding).(ir.BuiltinBinding)
-	if !ok || !d3d.IntrinsicInput(bb.Builtin, stage) {
+	if !ok {
+		return false, nil
+	}
+	// The ballot-mask built-ins are synthesized as a vec4 value from the lane
+	// index and the wave size (card P2-IR-042, ADR-014 D5). An unread mask is
+	// dropped like the other wave intrinsics.
+	if kind, isMask := subgroupMaskKind(bb.Builtin); isMask {
+		if !isArgRead(fn, argIdx) {
+			return true, nil
+		}
+		return true, e.emitSubgroupMaskLoad(fn, argIdx, kind)
+	}
+	if !d3d.IntrinsicInput(bb.Builtin, stage) {
 		return false, nil
 	}
 	if isSubgroupInput(bb.Builtin) && !isArgRead(fn, argIdx) {
@@ -127,49 +135,102 @@ func (e *Emitter) tryEmitSpecialInput(fn *ir.Function, argIdx int, arg *ir.Funct
 	return true, nil
 }
 
-// refuseSubgroupMaskBuiltins refuses an interface that carries one of the five
-// ballot-mask built-ins: DXIL has no ballot-mask value, and the spec's mask
-// spans every invocation of the wave while dx.op.ballot(true) holds only the
-// active lanes, so a synthesis needs lane-and-wave-size word arithmetic
-// (future work; card P2-IR-041, ADR-014 D5).
-func (e *Emitter) refuseSubgroupMaskBuiltins(fn *ir.Function) error {
-	refuse := func(b *ir.Binding) error {
-		if b == nil {
-			return nil
-		}
-		bi, ok := (*b).(ir.BuiltinBinding)
-		if !ok || !isSubgroupMaskBuiltin(bi.Builtin) {
-			return nil
-		}
-		return unsupported.Errorf("the ballot-mask built-in %s: DXIL has no ballot-mask value, and the "+
-			"mask spans every invocation of the wave while dx.op.ballot(true) holds only the active "+
-			"lanes, so a synthesis needs lane-and-wave-size word arithmetic (card P2-IR-041, ADR-014 D5)",
-			bi.Builtin)
+// subgroupMaskKind returns the synthesis kind of a ballot-mask built-in and
+// whether b is one: 0 Eq, 1 Ge, 2 Gt, 3 Le, 4 Lt — the order of the equations
+// (card P2-IR-042, ADR-014 D5).
+func subgroupMaskKind(b ir.BuiltinValue) (uint32, bool) {
+	switch b {
+	case ir.BuiltinSubgroupEqMask:
+		return 0, true
+	case ir.BuiltinSubgroupGeMask:
+		return 1, true
+	case ir.BuiltinSubgroupGtMask:
+		return 2, true
+	case ir.BuiltinSubgroupLeMask:
+		return 3, true
+	case ir.BuiltinSubgroupLtMask:
+		return 4, true
 	}
-	for i := range fn.Arguments {
-		if err := refuse(fn.Arguments[i].Binding); err != nil {
-			return err
-		}
-		if st, ok := e.ir.Types[fn.Arguments[i].Type].Inner.(ir.StructType); ok {
-			for j := range st.Members {
-				if err := refuse(st.Members[j].Binding); err != nil {
-					return err
-				}
-			}
-		}
+	return 0, false
+}
+
+// emitSubgroupMaskLoad synthesizes one of the five ballot-mask built-ins into
+// the argument's expression: the mask spans every invocation of the wave, so
+// it is built from the lane index and the wave size per 32-bit word — never
+// from dx.op.ballot(true), which holds only the active lanes (card P2-IR-042,
+// ADR-014 D5; the equations are in internal/subgroupmask).
+func (e *Emitter) emitSubgroupMaskLoad(fn *ir.Function, argIdx int, kind uint32) error {
+	lane := e.emitWaveLaneValue("dx.op.waveGetLaneIndex", OpWaveGetLaneIndex)
+	size := e.emitWaveLaneValue("dx.op.waveGetLaneCount", OpWaveGetLaneCount)
+	comps := make([]int, 4)
+	for c := 0; c < 4; c++ {
+		comps[c] = e.emitSubgroupMaskWord(kind, c, lane, size)
 	}
+	handle := e.findArgExprHandle(fn, argIdx)
+	e.exprValues[handle] = comps[0]
+	e.exprComponents[handle] = comps
 	return nil
 }
 
-// isSubgroupMaskBuiltin reports whether b is one of the five ballot-mask
-// built-ins (card P2-IR-041, ADR-014 D5).
-func isSubgroupMaskBuiltin(b ir.BuiltinValue) bool {
-	switch b {
-	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
-		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
-		return true
+// emitSubgroupMaskWord builds one 32-bit word of a ballot mask:
+//
+//	base  = 32c
+//	lo    = clamp(size - base, 0, 32)
+//	full  = below(lo)
+//	Eq:    (lane>>5 == c) ? 1<<(lane&31) : 0
+//	Ge/Gt: start = lane (+1 for Gt); start <= base ? full : full & ~below(start-base)
+//	Le/Lt: lane < base ? 0 : below(min(lane-base (+1 for Le), lo) clamped to 0)
+//
+// below(n) is 0xFFFFFFFF for n >= 32 and (1 << n) - 1 otherwise (0 for n <= 0),
+// so no shift reaches 32. The Go mirror in the package test transcribes this
+// function line for line.
+func (e *Emitter) emitSubgroupMaskWord(kind uint32, c int, lane, size int) int {
+	i32Ty := e.mod.GetIntType(32)
+	base := e.getIntConstID(int64(32 * c))
+	zero := e.getIntConstID(0)
+
+	lo := e.addBinOpInstr(i32Ty, BinOpSub, size, base)
+	lo = e.emitSelect3(i32Ty, e.addCmpInstr(ICmpSLT, lo, zero), zero, lo)
+	lo = e.emitSelect3(i32Ty, e.addCmpInstr(ICmpSGT, lo, e.getIntConstID(32)), e.getIntConstID(32), lo)
+	full := e.emitMaskBelow(lo)
+
+	if kind == 0 { // Eq
+		wordOfLane := e.addBinOpInstr(i32Ty, BinOpLShr, lane, e.getIntConstID(5))
+		bit := e.addBinOpInstr(i32Ty, BinOpShl, e.getIntConstID(1),
+			e.addBinOpInstr(i32Ty, BinOpAnd, lane, e.getIntConstID(31)))
+		return e.emitSelect3(i32Ty, e.addCmpInstr(ICmpEQ, wordOfLane, e.getIntConstID(int64(c))), bit, zero)
 	}
-	return false
+	if kind <= 2 { // Ge, Gt
+		start := lane
+		if kind == 2 {
+			start = e.addBinOpInstr(i32Ty, BinOpAdd, lane, e.getIntConstID(1))
+		}
+		delta := e.addBinOpInstr(i32Ty, BinOpSub, start, base)
+		below := e.emitMaskBelow(delta)
+		keep := e.addBinOpInstr(i32Ty, BinOpAnd, full, e.addBinOpInstr(i32Ty, BinOpXor, below, e.getIntConstID(0xFFFFFFFF)))
+		return e.emitSelect3(i32Ty, e.addCmpInstr(ICmpSLE, start, base), full, keep)
+	}
+	// Le, Lt
+	delta := e.addBinOpInstr(i32Ty, BinOpSub, lane, base)
+	if kind == 3 {
+		delta = e.addBinOpInstr(i32Ty, BinOpAdd, delta, e.getIntConstID(1))
+	}
+	count := e.emitSelect3(i32Ty, e.addCmpInstr(ICmpSLT, delta, zero), zero, delta)
+	count = e.emitSelect3(i32Ty, e.addCmpInstr(ICmpSGT, count, lo), lo, count)
+	return e.emitMaskBelow(count)
+}
+
+// emitMaskBelow returns (1 << n) - 1 for 1 <= n <= 31, 0xFFFFFFFF for n >= 32,
+// and 0 otherwise: the low n bits. The shift amount is clamped to 0..31 so no
+// shift is undefined, and a select keeps the whole word when n reaches 32.
+func (e *Emitter) emitMaskBelow(n int) int {
+	i32Ty := e.mod.GetIntType(32)
+	ge32 := e.addCmpInstr(ICmpSGE, n, e.getIntConstID(32))
+	gt31 := e.addCmpInstr(ICmpSGT, n, e.getIntConstID(31))
+	shiftAmt := e.emitSelect3(i32Ty, gt31, e.getIntConstID(31), n)
+	shifted := e.addBinOpInstr(i32Ty, BinOpShl, e.getIntConstID(1), shiftAmt)
+	mask := e.addBinOpInstr(i32Ty, BinOpSub, shifted, e.getIntConstID(1))
+	return e.emitSelect3(i32Ty, ge32, e.getIntConstID(0xFFFFFFFF), mask)
 }
 
 // isSubgroupInput reports whether b is a subgroup built-in, read through a
@@ -473,6 +534,12 @@ func (e *Emitter) fixExprValuesForPartialLoad(exprHandle ir.ExpressionHandle, nu
 func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir.BuiltinValue) error {
 	exprHandle := e.findArgExprHandle(fn, argIdx)
 
+	// The ballot-mask built-ins are synthesized in every stage the same way
+	// (card P2-IR-042, ADR-014 D5).
+	if kind, isMask := subgroupMaskKind(builtin); isMask {
+		return e.emitSubgroupMaskLoad(fn, argIdx, kind)
+	}
+
 	switch builtin {
 	case ir.BuiltinGlobalInvocationID:
 		return e.emitVec3ThreadIDLoad(fn, exprHandle, "dx.op.threadId", OpThreadID)
@@ -506,17 +573,6 @@ func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir
 	case ir.BuiltinNumSubgroups:
 		// NumSubgroups = (totalThreads + WaveGetLaneCount() - 1) / WaveGetLaneCount()
 		return e.emitNumSubgroupsLoad(fn, exprHandle)
-
-	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
-		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
-		// DXIL has no ballot-mask value, and the mask spans every invocation
-		// of the wave while dx.op.ballot(true) holds only the active lanes, so
-		// a synthesis needs lane-and-wave-size word arithmetic — future work
-		// (card P2-IR-041, ADR-014 D5).
-		return unsupported.Errorf("the ballot-mask built-in %s: DXIL has no ballot-mask value, and the "+
-			"mask spans every invocation of the wave while dx.op.ballot(true) holds only the active "+
-			"lanes, so a synthesis needs lane-and-wave-size word arithmetic (card P2-IR-041, ADR-014 D5)",
-			builtin)
 
 	default:
 		return unsupported.Errorf("unsupported compute builtin: %d", builtin)
