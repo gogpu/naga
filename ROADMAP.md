@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.22.5** (November 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.22.6** (November 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,7 +32,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.22.5)
+## Where We Are (v0.22.6)
 
 **~373K lines of Go (scc), 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
 172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
