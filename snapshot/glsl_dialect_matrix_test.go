@@ -308,11 +308,11 @@ var glslDialectMatrix = []glslDialectRow{
 		capabilities: []string{"refuse-subgroups"},
 		refuse:       "subgroup",
 		reason: "design §15's Subgroups row allows them in GL 3.30 through GL_KHR_shader_subgroup_*, " +
-			"and glslangValidator accepts this source; the clustered form is refused because " +
-			"ir.CollectiveOperation has no ClusteredReduce (the ballot bit operations and the other " +
-			"implemented families are accepted)",
-		limitation: "ir.CollectiveOperation has no ClusteredReduce and no cluster-size operand " +
-			"(card P2-IR-040, ADR-014 D4; GL_KHR_shader_subgroup_clustered, Rust #7571)",
+			"and glslangValidator accepts this source; the Min scan is refused because no text backend " +
+			"writes the Min/Max/And/Or/Xor scans (the clustered forms, the ballot bit operations and " +
+			"the other implemented families are accepted)",
+		limitation: "the Min/Max/And/Or/Xor scans have no Metal or HLSL spelling " +
+			"(card P1-GLSLIN-017; Rust #7571)",
 		glslang: glslangAccepts,
 	},
 	{

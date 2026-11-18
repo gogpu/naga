@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Clustered subgroup forms across the IR, both frontends and the backends that can express them** (card
+  P2-IR-040, ADR-014 D4). The IR gains `ir.CollectiveOperationClusteredReduce` and a `ClusterSize uint32`
+  field on `ir.StmtSubgroupCollectiveOperation` — the clustered reductions of `GL_KHR_shader_subgroup`
+  (`subgroupClusteredAdd/Mul/Min/Max/And/Or/Xor`, "an integral constant expression. At least 1. A power of
+  2.") and SPIR-V's `ClusteredReduce` group operation with its optional Cluster Size operand, none of which
+  Rust naga has. Validation adds `valid.SubgroupClustered` (the bit Rust reserved and left commented out),
+  requires the size to be at least 1 and a power of 2, requires it to stay 0 on every other collective, and
+  refuses the votes under it. The GLSL frontend lowers the seven builtins with glslang's error texts for a
+  non-constant, zero, negative or non-power-of-2 size, and the SPIR-V frontend maps `ClusteredReduce` with
+  its constant operand. The SPIR-V backend writes the native form with `GroupNonUniformClustered`, the GLSL
+  text backend writes the builtins; MSL, HLSL (before the SM 6.5 multi-prefix operations) and DXIL have no
+  clustered form and refuse with a named limitation — a shuffle-based emulation is future work. Verified end
+  to end: spirv-val on the emitted SPIR-V, glslang on every matrix source, and the GLSL subgroup matrix;
+  unit tests pin the IR shape, the operand rules, the frontend mappings and each backend's output or refusal.
 - **Ballot bit operations across the IR, both frontends and every backend** (card P2-IR-039, ADR-014 D3).
   The IR gains `ir.StmtSubgroupBallotBit` and the `ir.SubgroupBallotBitOperation` enum (Extract, Count,
   InclusiveCount, ExclusiveCount, FindLSB, FindMSB, InverseBallot) — the seven ballot bit forms of

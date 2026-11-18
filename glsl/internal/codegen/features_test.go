@@ -362,6 +362,24 @@ func TestWriteExtensions_SubgroupOperations(t *testing.T) {
 			t.Errorf("expected %s in output, got:\n%s", ext, output)
 		}
 	}
+	// The clustered family has its own feature: Rust naga writes the seven
+	// extensions above without it (card P2-IR-040, ADR-014 D4).
+	if strings.Contains(output, "GL_KHR_shader_subgroup_clustered") {
+		t.Errorf("the clustered extension is written without a clustered operation:\n%s", output)
+	}
+}
+
+func TestWriteExtensions_SubgroupClustered(t *testing.T) {
+	module := &ir.Module{}
+
+	w := newWriter(module, &Options{LangVersion: Version450})
+	w.features.request(FeatureSubgroupOperations)
+	w.features.request(FeatureSubgroupClustered)
+	w.features.writeExtensions(w)
+	output := w.String()
+	if !strings.Contains(output, "#extension GL_KHR_shader_subgroup_clustered : require") {
+		t.Errorf("expected the clustered extension, got:\n%s", output)
+	}
 }
 
 func TestWriteExtensions_TextureAtomics(t *testing.T) {

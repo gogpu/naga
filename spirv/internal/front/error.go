@@ -155,6 +155,20 @@ func errUnsupportedGroupOperation(op uint32) *Error {
 	return &Error{Message: fmt.Sprintf("unsupported group operation %%%d", op)}
 }
 
+// errInvalidClusterSize is a ClusteredReduce Cluster Size operand that is no
+// 32-bit integer constant instruction: SPIR-V takes the optional operand as a
+// constant. Rust naga has no clustered form, so the text is ours.
+func errInvalidClusterSize(id uint32) *Error {
+	return &Error{Message: fmt.Sprintf("cluster size %%%d is not a constant instruction", id)}
+}
+
+// errInvalidClusterSizeValue is a constant cluster size outside the rule GLSL
+// states for it — "at least 1. A power of 2." (GL_KHR_shader_subgroup §3.8);
+// the SPIR-V specification states the same constraint on the operand.
+func errInvalidClusterSizeValue(value int64) *Error {
+	return &Error{Message: fmt.Sprintf("cluster size %d must be at least 1 and a power of 2", value)}
+}
+
 func errCombinedSamplerRejected(id uint32) *Error {
 	return &Error{Message: fmt.Sprintf("combined image sampler %%%d: splitting is disabled by CombinedImageSamplerReject", id)}
 }

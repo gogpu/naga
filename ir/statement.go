@@ -352,6 +352,18 @@ type StmtSubgroupCollectiveOperation struct {
 	CollectiveOp CollectiveOperation // How to combine the results
 	Argument     ExpressionHandle    // The value to compute over
 	Result       ExpressionHandle    // SubgroupOperationResult expression
+	// ClusterSize is the number of consecutive invocations one cluster spans,
+	// used by CollectiveOperationClusteredReduce only: the cluster the
+	// invocation belongs to is its subgroup invocation id divided by this
+	// size (GL_KHR_shader_subgroup §3.8). The value is "an integral constant
+	// expression. At least 1. A power of 2." — a constant in the statement,
+	// never an expression, as SPIR-V takes it as the optional Cluster Size
+	// operand of the grouped instructions. Zero for every other collective
+	// operation. A size larger than the subgroup size is undefined behavior
+	// at run time (GL_KHR_shader_subgroup §3.8), not a validation error — the
+	// subgroup size is not known when the shader compiles. Rust naga has no
+	// clustered form (card P2-IR-040, ADR-014 D4).
+	ClusterSize uint32
 }
 
 func (StmtSubgroupCollectiveOperation) statementKind() {}

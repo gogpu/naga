@@ -2470,6 +2470,13 @@ func ballotBitExclusiveSum(maskName, laneName string) string {
 // writeSubgroupCollectiveOperationStatement writes a SubgroupCollectiveOperation statement.
 // Matches Rust naga: `const TYPE _eN = WaveActiveOp(argument);`
 func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupCollectiveOperation) error {
+	if s.CollectiveOp == ir.CollectiveOperationClusteredReduce {
+		// The HLSL wave intrinsics have no clustered form before the SM 6.5
+		// multi-prefix operations (WaveMultiPrefix*), and the writer targets
+		// SM 6.0; WaveActiveSum for a clustered reduction would silently change
+		// the result (the P0-MSL-111 class; card P2-IR-040, ADR-014 D4).
+		return fmt.Errorf("a subgroup clustered reduction of operation %d: the HLSL wave intrinsics have no clustered form before the SM 6.5 multi-prefix operations", s.Op)
+	}
 	w.WriteIndent()
 	name := w.nameExpression(s.Result)
 	typeName := w.expressionTypeStr(s.Result)

@@ -401,6 +401,117 @@ func TestSubgroupBallotBitOperandTypes(t *testing.T) {
 	}
 }
 
+// TestSubgroupClusteredForms pins the seven clustered builtins
+// (GL_KHR_shader_subgroup §3.8): each lowers to
+// ir.StmtSubgroupCollectiveOperation with ClusteredReduce, the builtin's
+// operation, and the cluster size the second argument names as a constant.
+// glslang emits OpGroupNonUniform*<op> ClusteredReduce with the cluster size
+// as the optional operand (probed 2026-11-18; card P2-IR-040, ADR-014 D4).
+func TestSubgroupClusteredForms(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_clustered : require\n"
+	cases := []struct {
+		name string
+		call string
+		op   ir.SubgroupOperation
+	}{
+		{"add", "subgroupClusteredAdd(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationAdd},
+		{"mul", "subgroupClusteredMul(gl_GlobalInvocationID.x + 1u, 4u)", ir.SubgroupOperationMul},
+		{"min", "subgroupClusteredMin(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationMin},
+		{"max", "subgroupClusteredMax(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationMax},
+		{"and", "subgroupClusteredAnd(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationAnd},
+		{"or", "subgroupClusteredOr(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationOr},
+		{"xor", "subgroupClusteredXor(gl_GlobalInvocationID.x, 4u)", ir.SubgroupOperationXor},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mod := parseSubgroup(t, subgroupComputeSource(extensions,
+				"void main() { o.v = "+tc.call+"; }\n"), ir.StageCompute)
+			op := firstSubgroupCollective(t, mod)
+			if op.Op != tc.op {
+				t.Fatalf("operation is %d, want %d", op.Op, tc.op)
+			}
+			if op.CollectiveOp != ir.CollectiveOperationClusteredReduce {
+				t.Fatalf("collective is %d, want a clustered reduce", op.CollectiveOp)
+			}
+			if op.ClusterSize != 4 {
+				t.Fatalf("cluster size is %d, want 4", op.ClusterSize)
+			}
+			res, ok := mainFunction(t, mod).Expressions[op.Result].Kind.(ir.ExprSubgroupOperationResult)
+			if !ok {
+				t.Fatalf("result expression is %T, want ExprSubgroupOperationResult", mainFunction(t, mod).Expressions[op.Result].Kind)
+			}
+			scalar, isScalar := mod.Types[res.Type].Inner.(ir.ScalarType)
+			if !isScalar || scalar.Kind != ir.ScalarUint {
+				t.Fatalf("result type is %v, want the argument's uint", mod.Types[res.Type].Inner)
+			}
+		})
+	}
+}
+
+// TestSubgroupClusteredOperands: the value types of the clustered family —
+// the arithmetic four take int, uint, float and double, the bitwise three add
+// bool (the extension's genBType overloads) — the cluster size accepts an int
+// literal (glslang converts it to uint, probed 2026-11-18) and a
+// const-qualified local, and its errors are glslang's texts.
+func TestSubgroupClusteredOperands(t *testing.T) {
+	const extensions = "#extension GL_KHR_shader_subgroup_clustered : require\n"
+
+	t.Run("float add", func(t *testing.T) {
+		mod := parseSubgroup(t, subgroupComputeSource(extensions,
+			"void main() { o.f = subgroupClusteredAdd(float(gl_GlobalInvocationID.x), 4u); }\n"), ir.StageCompute)
+		if op := firstSubgroupCollective(t, mod); op.Op != ir.SubgroupOperationAdd {
+			t.Fatalf("operation is %d, want add", op.Op)
+		}
+	})
+	t.Run("bool and", func(t *testing.T) {
+		mod := parseSubgroup(t, subgroupComputeSource(extensions,
+			"void main() { o.v = subgroupClusteredAnd(gl_GlobalInvocationID.x > 3u, 4u) ? 1u : 0u; }\n"), ir.StageCompute)
+		if op := firstSubgroupCollective(t, mod); op.Op != ir.SubgroupOperationAnd {
+			t.Fatalf("operation is %d, want and", op.Op)
+		}
+	})
+	t.Run("int cluster size", func(t *testing.T) {
+		mod := parseSubgroup(t, subgroupComputeSource(extensions,
+			"void main() { o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, 4); }\n"), ir.StageCompute)
+		if op := firstSubgroupCollective(t, mod); op.ClusterSize != 4 {
+			t.Fatalf("cluster size is %d, want 4", op.ClusterSize)
+		}
+	})
+	t.Run("const local cluster size", func(t *testing.T) {
+		mod := parseSubgroup(t, subgroupComputeSource(extensions,
+			"const uint cluster = 8u;\nvoid main() { o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, cluster); }\n"), ir.StageCompute)
+		if op := firstSubgroupCollective(t, mod); op.ClusterSize != 8 {
+			t.Fatalf("cluster size is %d, want 8", op.ClusterSize)
+		}
+	})
+
+	// The cluster-size errors are glslang's, including the ones its semantic
+	// layer reports: a runtime value, zero or negative, not a power of 2.
+	cases := []struct{ name, body, want string }{
+		{"non-constant", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, gl_GlobalInvocationID.x);",
+			"'cluster size' : argument must be compile-time constant"},
+		{"zero", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, 0u);",
+			"'cluster size' : argument must be at least 1"},
+		{"negative", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, -4);",
+			"'cluster size' : argument must be at least 1"},
+		{"not a power of 2", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, 3u);",
+			"'cluster size' : argument must be a power of 2"},
+		// A float is not the overload's uint parameter: glslang reports no
+		// matching overload, which the frontend spells as the unknown function.
+		{"float cluster size", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x, 4.0);",
+			"Unknown function 'subgroupClusteredAdd'"},
+		// The arithmetic four take no bool value.
+		{"bool value of add", "o.v = subgroupClusteredAdd(gl_GlobalInvocationID.x > 3u, 4u) ? 1u : 0u;",
+			"Unknown function 'subgroupClusteredAdd'"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parseErr(t, subgroupComputeSource(extensions, "void main() { "+tc.body+" }\n"),
+				Options{Stage: ir.StageCompute}, tc.want)
+		})
+	}
+}
+
 // TestSubgroupGather pins the gather modes of the broadcast, shuffle and quad
 // families: each builtin maps to the ir.GatherMode glslang's SPIR-V opcode
 // names (OpGroupNonUniformBroadcast, ...ShuffleXor, ...QuadSwap with
@@ -659,20 +770,12 @@ func TestSubgroupGapRefusals(t *testing.T) {
 	all := "#extension GL_KHR_shader_subgroup_basic : require\n" +
 		"#extension GL_KHR_shader_subgroup_vote : require\n" +
 		"#extension GL_KHR_shader_subgroup_ballot : require\n" +
-		"#extension GL_KHR_shader_subgroup_arithmetic : require\n" +
-		"#extension GL_KHR_shader_subgroup_clustered : require\n"
+		"#extension GL_KHR_shader_subgroup_arithmetic : require\n"
 	cases := []struct {
 		name    string
 		use     string
 		refusal string
 	}{
-		{"clustered add", "o.v = subgroupClusteredAdd(1u, 4u);", "no ClusteredReduce"},
-		{"clustered mul", "o.v = subgroupClusteredMul(1u, 4u);", "no ClusteredReduce"},
-		{"clustered min", "o.v = subgroupClusteredMin(1u, 4u);", "no ClusteredReduce"},
-		{"clustered max", "o.v = subgroupClusteredMax(1u, 4u);", "no ClusteredReduce"},
-		{"clustered and", "o.v = subgroupClusteredAnd(1u, 4u);", "no ClusteredReduce"},
-		{"clustered or", "o.v = subgroupClusteredOr(1u, 4u);", "no ClusteredReduce"},
-		{"clustered xor", "o.v = subgroupClusteredXor(1u, 4u);", "no ClusteredReduce"},
 		{"inclusive min", "o.v = subgroupInclusiveMin(1u);", "the Min/Max/And/Or/Xor scans"},
 		{"inclusive max", "o.v = subgroupInclusiveMax(1u);", "the Min/Max/And/Or/Xor scans"},
 		{"inclusive and", "o.v = subgroupInclusiveAnd(1u);", "the Min/Max/And/Or/Xor scans"},

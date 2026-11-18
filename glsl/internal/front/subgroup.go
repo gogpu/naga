@@ -17,16 +17,19 @@ package front
 //     and subgroupInverseBallot become ir.StmtSubgroupBallotBit, and the
 //     broadcast, shuffle and quad families become ir.StmtSubgroupGather;
 //   - the arithmetic reductions and the Add/Mul scans become collective
-//     operations.
+//     operations;
+//   - the clustered family becomes a collective operation with
+//     ir.CollectiveOperationClusteredReduce and the cluster size as a
+//     constant (card P2-IR-040, ADR-014 D4).
 //
 // What the IR (or the text backends) cannot express is refused with a message
 // naming the missing capability, never lowered to a different operation: the
-// clustered forms have no ir.CollectiveOperation, the mask built-in variables
-// have no ir.Builtin value, and the Min/Max/And/Or/Xor scans have no Metal or
-// HLSL spelling. subgroupElect lowers to ir.StmtSubgroupElect and
-// subgroupAllEqual to a collective operation with ir.SubgroupOperationAllEqual
-// (card P2-IR-038, ADR-014); the ballot bit operations lower to
-// ir.StmtSubgroupBallotBit (card P2-IR-039, ADR-014 D3).
+// mask built-in variables have no ir.Builtin value, and the
+// Min/Max/And/Or/Xor scans have no Metal or HLSL spelling. subgroupElect
+// lowers to ir.StmtSubgroupElect and subgroupAllEqual to a collective
+// operation with ir.SubgroupOperationAllEqual (card P2-IR-038, ADR-014); the
+// ballot bit operations lower to ir.StmtSubgroupBallotBit (card P2-IR-039,
+// ADR-014 D3).
 //
 // Every builtin is available only where glslang has it: the source must enable
 // the family's extension (GL_KHR_shader_subgroup_basic is implied by each of
@@ -38,6 +41,8 @@ package front
 // subgroupAdd).
 
 import (
+	"errors"
+
 	"github.com/gogpu/naga/ir"
 )
 
@@ -103,6 +108,10 @@ const (
 	// subgroupFormCollective is the vote and arithmetic families:
 	// ir.StmtSubgroupCollectiveOperation.
 	subgroupFormCollective
+	// subgroupFormClustered is the clustered family: a collective operation
+	// with ir.CollectiveOperationClusteredReduce and the constant cluster
+	// size its second argument names.
+	subgroupFormClustered
 	// subgroupFormElect is subgroupElect: ir.StmtSubgroupElect.
 	subgroupFormElect
 	// subgroupFormBallot is subgroupBallot: ir.StmtSubgroupBallot.
@@ -284,10 +293,20 @@ func subgroupBuiltinFunction(name string) (subgroupBuiltin, bool) {
 
 	// --- GL_KHR_shader_subgroup_clustered -----------------------------------
 
-	case "subgroupClusteredAdd", "subgroupClusteredMul", "subgroupClusteredMin",
-		"subgroupClusteredMax", "subgroupClusteredAnd", "subgroupClusteredOr",
-		"subgroupClusteredXor":
-		return subgroupBuiltin{family: subgroupFamilyClustered, gap: subgroupClusteredGapText}, true
+	case "subgroupClusteredAdd":
+		return subgroupClustered(ir.SubgroupOperationAdd), true
+	case "subgroupClusteredMul":
+		return subgroupClustered(ir.SubgroupOperationMul), true
+	case "subgroupClusteredMin":
+		return subgroupClustered(ir.SubgroupOperationMin), true
+	case "subgroupClusteredMax":
+		return subgroupClustered(ir.SubgroupOperationMax), true
+	case "subgroupClusteredAnd":
+		return subgroupClustered(ir.SubgroupOperationAnd), true
+	case "subgroupClusteredOr":
+		return subgroupClustered(ir.SubgroupOperationOr), true
+	case "subgroupClusteredXor":
+		return subgroupClustered(ir.SubgroupOperationXor), true
 	}
 	return subgroupBuiltin{}, false
 }
@@ -298,17 +317,16 @@ func subgroupCollective(family subgroupFamily, op ir.SubgroupOperation, cop ir.C
 	return subgroupBuiltin{family: family, form: subgroupFormCollective, arity: 1, op: op, cop: cop}
 }
 
+// subgroupClustered builds the catalog entry of a clustered reduction: the
+// value and the cluster size (GL_KHR_shader_subgroup §3.8).
+func subgroupClustered(op ir.SubgroupOperation) subgroupBuiltin {
+	return subgroupBuiltin{family: subgroupFamilyClustered, form: subgroupFormClustered, arity: 2,
+		op: op, cop: ir.CollectiveOperationClusteredReduce}
+}
+
 // The refusal bodies of the forms the frontend recognizes but cannot lower.
 // Each names the missing capability, as the atomic path's refusals do.
 const (
-	// subgroupClusteredGapText: ir.CollectiveOperation has no ClusteredReduce.
-	// glslang accepts the clustered forms and emits
-	// OpGroupNonUniformIAdd ... ClusteredReduce with the cluster size operand;
-	// ADR-014 fixes the IR shape and P2-IR-040 implements it.
-	subgroupClusteredGapText = "subgroup operations are not implemented by the GLSL frontend: " +
-		"ir.CollectiveOperation has Reduce, InclusiveScan and ExclusiveScan but no ClusteredReduce and no " +
-		"cluster-size operand, so the clustered forms cannot be represented (card P2-IR-040)"
-
 	// subgroupScanGapText: the Min/Max/And/Or/Xor scans are expressible in the
 	// IR, but no text backend spells them: Metal's simd functions have no
 	// prefix form for them (the MSL writer refuses the scan rather than
@@ -436,9 +454,107 @@ func (f *Frontend) subgroupCall(c *Context, e *hirArena, name string, b subgroup
 		return f.subgroupBallotBitCall(c, e, name, b, rawArgs, span)
 	case subgroupFormCollective:
 		return f.subgroupCollectiveCall(c, e, name, b, rawArgs[0], span)
+	case subgroupFormClustered:
+		return f.subgroupClusteredCall(c, e, name, b, rawArgs, span)
 	default:
 		return f.subgroupGatherCall(c, e, name, b, rawArgs, span)
 	}
+}
+
+// subgroupClusteredCall lowers a clustered reduction: the value is the first
+// argument and the cluster size the second, a constant the statement stores
+// (GL_KHR_shader_subgroup §3.8). The result type is the argument's own type,
+// as for the arithmetic reductions. glslang emits
+// OpGroupNonUniform*<op> ClusteredReduce with the size as the optional
+// Cluster Size operand (probed 2026-11-18; card P2-IR-040, ADR-014 D4).
+func (f *Frontend) subgroupClusteredCall(c *Context, e *hirArena, name string, b subgroupBuiltin, rawArgs []hirHandle, span ir.Span) (ir.ExpressionHandle, bool, *frontError) {
+	argument, argumentSpan, err := c.lowerExpect(e, rawArgs[0], rhsPos)
+	if err != nil {
+		return 0, false, err
+	}
+	if terr := c.typifierGrow(span); terr != nil {
+		return 0, false, terr
+	}
+	if !f.subgroupClusteredValue(c, argument, b.op) {
+		return 0, false, errSemantic(span, "Unknown function '%s'", name)
+	}
+	clusterSize, err := f.subgroupClusterSize(c, e, rawArgs[1], name, span)
+	if err != nil {
+		return 0, false, err
+	}
+	resultType, err := c.resolveTypeHandle(argument, argumentSpan)
+	if err != nil {
+		return 0, false, err
+	}
+
+	c.emitEnd()
+	result, rerr := c.addExpression(ir.ExprSubgroupOperationResult{Type: resultType}, span)
+	if rerr != nil {
+		return 0, false, rerr
+	}
+	c.body = append(c.body, ir.Statement{Kind: ir.StmtSubgroupCollectiveOperation{
+		Op:           b.op,
+		CollectiveOp: b.cop,
+		Argument:     argument,
+		Result:       result,
+		ClusterSize:  clusterSize,
+	}})
+	c.emitStart()
+	return result, true, nil
+}
+
+// subgroupClusterSize reads a clustered builtin's cluster-size argument:
+// GL_KHR_shader_subgroup §3.8 requires "an integral constant expression. At
+// least 1. A power of 2." A size greater than gl_SubgroupSize is undefined
+// behavior at run time, not an error here. The messages are glslang's, which
+// reports them from its semantic layer (probed 2026-11-18); a non-integer
+// constant matches no overload there, so it surfaces as the unknown function.
+func (f *Frontend) subgroupClusterSize(c *Context, e *hirArena, raw hirHandle, name string, span ir.Span) (uint32, *frontError) {
+	cluster, clusterSpan, err := c.lowerExpect(e, raw, rhsPos)
+	if err != nil {
+		return 0, err
+	}
+	// The resolving view: a const-qualified local is a constant expression
+	// (GLSL 4.50 §4.3.3), as glslang accepts it there (probed: const uint cs =
+	// 4u; subgroupClusteredAdd(x, cs) compiles).
+	lit, ok := c.eval.LiteralWithConstLocals(cluster)
+	if !ok {
+		return 0, errMessage(clusterSpan, "'cluster size' : argument must be compile-time constant")
+	}
+	size, convErr := u32FromLiteral(lit)
+	if convErr != nil {
+		if errors.Is(convErr, errNegativeConstant) {
+			return 0, errMessage(clusterSpan, "'cluster size' : argument must be at least 1")
+		}
+		return 0, errSemantic(span, "Unknown function '%s'", name)
+	}
+	if size == 0 {
+		return 0, errMessage(clusterSpan, "'cluster size' : argument must be at least 1")
+	}
+	if size&(size-1) != 0 {
+		return 0, errMessage(clusterSpan, "'cluster size' : argument must be a power of 2")
+	}
+	return size, nil
+}
+
+// subgroupClusteredValue reports whether the operand is a value the clustered
+// builtin takes: GL_KHR_shader_subgroup §3.8 gives the arithmetic four
+// genType, genIType, genUType and genDType, and the bitwise three the same
+// integer types plus genBType (a bool And/Or/Xor is the logical operation,
+// which glslang compiles to OpGroupNonUniformLogicalAnd and friends — probed
+// 2026-11-18).
+func (f *Frontend) subgroupClusteredValue(c *Context, expr ir.ExpressionHandle, op ir.SubgroupOperation) bool {
+	scalar, ok := subgroupValueScalar(c.getType(expr))
+	if !ok {
+		return false
+	}
+	switch scalar.Kind {
+	case ir.ScalarSint, ir.ScalarUint, ir.ScalarFloat:
+		return true
+	case ir.ScalarBool:
+		return op == ir.SubgroupOperationAnd || op == ir.SubgroupOperationOr || op == ir.SubgroupOperationXor
+	}
+	return false
 }
 
 // subgroupElectCall lowers subgroupElect() to ir.StmtSubgroupElect. The GLSL

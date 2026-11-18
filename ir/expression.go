@@ -667,6 +667,17 @@ const (
 	CollectiveReduce        CollectiveOperation = iota // Reduce across all invocations
 	CollectiveInclusiveScan                            // Inclusive prefix scan
 	CollectiveExclusiveScan                            // Exclusive prefix scan
+	// CollectiveOperationClusteredReduce is the clustered reduction of the
+	// clustered subgroup family (GLSL's subgroupClustered<op>, SPIR-V's
+	// ClusteredReduce group operation): the operation is computed within each
+	// cluster of ClusterSize consecutive invocations. GLSL defines the cluster
+	// size as "an integral constant expression. At least 1. A power of 2."
+	// (GL_KHR_shader_subgroup §3.8), so StmtSubgroupCollectiveOperation stores
+	// it as a constant, and this operation is the only reader of that field.
+	// Appended after ExclusiveScan so the existing values keep their numbers.
+	// Rust naga has no clustered operation (the valid::SubgroupOperationSet bit
+	// 6 it reserved stays commented out there) — card P2-IR-040, ADR-014 D4.
+	CollectiveOperationClusteredReduce
 )
 
 // GatherMode represents the specific behavior of a SubgroupGather statement.

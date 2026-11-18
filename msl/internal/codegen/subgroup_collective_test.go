@@ -33,6 +33,30 @@ func TestMSL_SubgroupScansRefused(t *testing.T) {
 	}
 }
 
+// TestMSL_SubgroupClusteredRefused: Metal's simd functions combine the whole
+// simdgroup and have no clustered form, so the writer refuses every clustered
+// reduction with a named limitation instead of writing the full-group one
+// (card P2-IR-040, ADR-014 D4; the P0-MSL-111 class).
+func TestMSL_SubgroupClusteredRefused(t *testing.T) {
+	for _, op := range []ir.SubgroupOperation{
+		ir.SubgroupOperationAdd, ir.SubgroupOperationMul, ir.SubgroupOperationMin,
+		ir.SubgroupOperationMax, ir.SubgroupOperationAnd, ir.SubgroupOperationOr,
+		ir.SubgroupOperationXor,
+	} {
+		mod := subgroupCollectiveModule(op, ir.CollectiveOperationClusteredReduce)
+		stmt := mod.EntryPoints[0].Function.Body[0].Kind.(ir.StmtSubgroupCollectiveOperation)
+		stmt.ClusterSize = 4
+		mod.EntryPoints[0].Function.Body[0].Kind = stmt
+		_, _, err := Compile(mod, DefaultOptions())
+		if err == nil {
+			t.Fatalf("operation %d compiled as a clustered reduction, want a refusal", op)
+		}
+		if !strings.Contains(err.Error(), "clustered") {
+			t.Errorf("operation %d: error = %v, want the clustered-reduction refusal", op, err)
+		}
+	}
+}
+
 // TestMSL_SubgroupCollectiveForms pins the forms the writer does write: the
 // min/max/and/or/xor reductions, and the Add and Mul scans (Metal's simd
 // prefix functions exist for sum and product only).

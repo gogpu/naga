@@ -901,15 +901,20 @@ func TestSubgroupBuiltinsRefused(t *testing.T) {
 	const header = `#version 330 core
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_clustered : require
 layout(location = 0) out vec4 color;
 `
 	t.Run("builtin function", func(t *testing.T) {
-		parseErr(t, header+`void main() { color = vec4(float(subgroupClusteredAdd(1u, 4u))); }
-`, Options{Stage: ir.StageFragment}, "card P2-IR-040")
+		parseErr(t, header+`void main() { color = vec4(float(subgroupInclusiveMin(1u))); }
+`, Options{Stage: ir.StageFragment}, "card P1-GLSLIN-017")
 	})
 	t.Run("ballot bit count accepted in GL 3.30", func(t *testing.T) {
 		parseOK(t, header+`void main() { color = vec4(float(subgroupBallotBitCount(subgroupBallot(true)))); }
+`, Options{Stage: ir.StageFragment})
+	})
+	t.Run("clustered add accepted in GL 3.30", func(t *testing.T) {
+		parseOK(t, header+`void main() { color = vec4(float(subgroupClusteredAdd(1u, 4u))); }
 `, Options{Stage: ir.StageFragment})
 	})
 }

@@ -68,7 +68,7 @@ func TestCapabilitiesAreRustBits(t *testing.T) {
 // derived set, as Rust's subgroup_stages()/subgroup_operations().
 func TestSubgroupSetsDerivedAsRust(t *testing.T) {
 	allOps := SubgroupBasic | SubgroupVote | SubgroupArithmetic | SubgroupBallot | SubgroupShuffle |
-		SubgroupShuffleRelative | SubgroupQuadFragmentCompute
+		SubgroupShuffleRelative | SubgroupClustered | SubgroupQuadFragmentCompute
 	for _, tt := range []struct {
 		name   string
 		opts   Options
