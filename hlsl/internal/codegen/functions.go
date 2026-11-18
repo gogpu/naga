@@ -83,7 +83,9 @@ func isSubgroupBuiltinBinding(binding *ir.Binding) bool {
 	}
 	switch bb.Builtin {
 	case ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID,
-		ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID:
+		ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID,
+		ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
 		return true
 	}
 	return false
@@ -647,6 +649,25 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 				return
 			case ir.BuiltinSubgroupID:
 				fmt.Fprintf(&w.Out, "%s.%s / WaveGetLaneCount()", epInput.argName, epInput.localInvocationIndexName)
+				return
+			case ir.BuiltinSubgroupEqMask:
+				// The masks span every invocation of the wave, so they are
+				// built from the lane index and the wave size, never from
+				// WaveActiveBallot(true) — which holds only the active lanes
+				// (card P2-IR-042, ADR-014 D5).
+				w.Out.WriteString("naga_subgroup_mask(0u)")
+				return
+			case ir.BuiltinSubgroupGeMask:
+				w.Out.WriteString("naga_subgroup_mask(1u)")
+				return
+			case ir.BuiltinSubgroupGtMask:
+				w.Out.WriteString("naga_subgroup_mask(2u)")
+				return
+			case ir.BuiltinSubgroupLeMask:
+				w.Out.WriteString("naga_subgroup_mask(3u)")
+				return
+			case ir.BuiltinSubgroupLtMask:
+				w.Out.WriteString("naga_subgroup_mask(4u)")
 				return
 			}
 		}

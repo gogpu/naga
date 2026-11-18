@@ -202,6 +202,9 @@ type Writer struct {
 	externalTextureLoadEmitted        bool
 	externalTextureSampleEmitted      bool
 	externalTextureDimensionsEmitted  bool
+	// needsSubgroupMaskHelper is set when an entry point carries one of the
+	// five ballot-mask built-ins (card P2-IR-042).
+	needsSubgroupMaskHelper bool
 
 	// Typed div/mod overloads: tracks which (scalar kind, vector size) combos are needed.
 	// Vector size 0 means scalar. Single merged slice in first-use order to match
@@ -659,11 +662,12 @@ func (w *Writer) writeModule() error {
 	wrappedStructsCode := w.Out.String()
 
 	// 5c. Write modf/frexp functions, atomic compare-exchange template functions,
-	// and float-to-int helper functions.
+	// float-to-int helper functions, and the ballot-mask synthesis functions.
 	w.Out = strings.Builder{}
 	w.writeModfFrexpFunctions()
 	w.writeAtomicCompareExchangeFunctions()
 	w.writeF2IHelpers()
+	w.writeSubgroupMaskHelpers()
 	wrappedFuncsCode := w.Out.String()
 
 	// 6. Now we know the effective Metal version and which helpers are needed.
@@ -1081,6 +1085,39 @@ func f2iFunctionName(dst ir.ScalarType) string {
 
 // writeF2IHelpers emits ALL float-to-int helper function definitions.
 // Used during the wrappedFuncsCode phase for helpers not interleaved.
+// writeSubgroupMaskHelpers writes the ballot-mask synthesis functions when an
+// entry point carries one of the five mask built-ins: Metal has no such
+// value, and the mask spans every invocation of the simdgroup while
+// simd_ballot(true) holds only the active lanes, so the mask is built from
+// the lane index and the simdgroup size per 32-bit word (card P2-IR-042,
+// ADR-014 D5; the equations are in internal/subgroupmask).
+func (w *Writer) writeSubgroupMaskHelpers() {
+	if !w.needsSubgroupMaskHelper {
+		return
+	}
+	ns := Namespace
+	w.WriteLine("%suint __naga_subgroup_mask_word(%suint kind, %suint word, %suint lane, %suint size) {",
+		ns, ns, ns, ns, ns)
+	w.WriteLine("    %suint base = word << 5u;", ns)
+	w.WriteLine("    %suint lo = size > base ? %smin(size - base, 32u) : 0u;", ns, ns)
+	w.WriteLine("    %suint full = lo >= 32u ? 0xFFFFFFFFu : ((1u << lo) - 1u);", ns)
+	w.WriteLine("    if (kind == 0u) { return (lane >> 5u) == word ? (1u << (lane & 31u)) : 0u; }")
+	w.WriteLine("    if (kind <= 2u) {")
+	w.WriteLine("        %suint start = kind == 2u ? lane + 1u : lane;", ns)
+	w.WriteLine("        if (start <= base) { return full; }")
+	w.WriteLine("        %suint delta = start - base;", ns)
+	w.WriteLine("        return delta < 32u ? (full & ~((1u << delta) - 1u)) : 0u;")
+	w.WriteLine("    }")
+	w.WriteLine("    if (lane < base) { return 0u; }")
+	w.WriteLine("    %suint count = %smin(kind == 3u ? lane - base + 1u : lane - base, lo);", ns, ns)
+	w.WriteLine("    return count >= 32u ? 0xFFFFFFFFu : ((1u << count) - 1u);")
+	w.WriteLine("}")
+	w.WriteLine("%suint4 __naga_subgroup_mask(%suint kind, %suint lane, %suint size) {", ns, ns, ns, ns)
+	w.WriteLine("    return %suint4(__naga_subgroup_mask_word(kind, 0u, lane, size), __naga_subgroup_mask_word(kind, 1u, lane, size), __naga_subgroup_mask_word(kind, 2u, lane, size), __naga_subgroup_mask_word(kind, 3u, lane, size));", ns)
+	w.WriteLine("}")
+	w.WriteLine("")
+}
+
 func (w *Writer) writeF2IHelpers() {
 	// No-op: f2i helpers are now interleaved demand-driven via writeF2IHelper.
 }

@@ -107,7 +107,11 @@ func IntrinsicInput(b ir.BuiltinValue, stage ir.ShaderStage) bool {
 		ir.BuiltinSubgroupSize,
 		ir.BuiltinSubgroupInvocationID,
 		ir.BuiltinSubgroupID,
-		ir.BuiltinNumSubgroups:
+		ir.BuiltinNumSubgroups,
+		// The ballot-mask built-ins are synthesized from wave intrinsics
+		// (card P2-IR-042, ADR-014 D5), never signature elements.
+		ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
+		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
 		return true
 	case ir.BuiltinSampleMask:
 		return stage == ir.StageFragment

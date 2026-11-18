@@ -152,13 +152,11 @@ func BuiltInToSemantic(b ir.BuiltinValue) (semantic string, supported bool) {
 		return "", true
 	case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
 		ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
-		// The ballot-mask built-ins: HLSL has no semantic and no mask
-		// intrinsic for them, and the mask spans every invocation of the wave
-		// while WaveActiveBallot(true) holds only the active lanes, so a
-		// synthesis needs lane-and-wave-size word arithmetic — future work
-		// (card P2-IR-041, ADR-014 D5). checkBuiltins refuses the entry point
-		// with the limitation named.
-		return "", false
+		// The ballot-mask built-ins are computed from wave intrinsics, like
+		// the four scalars above: naga_subgroup_mask reads the lane index and
+		// the wave size and builds the mask's four words (card P2-IR-042,
+		// ADR-014 D5). Never a semantic.
+		return "", true
 	case ir.BuiltinCullPrimitive:
 		return "SV_CullPrimitive", true
 	case ir.BuiltinMeshTaskSize, ir.BuiltinPointIndex, ir.BuiltinLineIndices,

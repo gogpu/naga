@@ -345,13 +345,13 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 
 // checkBuiltins refuses a written entry point whose interface uses a built-in
 // Metal cannot give: draw_index has no attribute (Rust naga's
-// UnsupportedBuiltIn), and the five ballot-mask built-ins have neither an
-// attribute nor a value Metal provides. The refusal of a mask names the
-// limitation: the mask spans every invocation of the simdgroup, while
-// simd_ballot(true) holds only the active lanes, so a correct synthesis needs
-// lane-and-simdgroup-size word arithmetic (card P2-IR-041, ADR-014 D5).
+// UnsupportedBuiltIn), and a ballot-mask built-in as a *struct member* has
+// nowhere to live — a direct mask argument is synthesized from the lane index
+// and the simdgroup size into a kernel local (card P2-IR-042, ADR-014 D5), a
+// member would need the same local threaded through the struct the writer
+// rebuilds, which no frontend produces.
 func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
-	refused := func(b *ir.Binding) string {
+	refused := func(b *ir.Binding, member bool) string {
 		if b == nil {
 			return ""
 		}
@@ -364,10 +364,12 @@ func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
 			return "built-in draw_index is not supported"
 		case ir.BuiltinSubgroupEqMask, ir.BuiltinSubgroupGeMask, ir.BuiltinSubgroupGtMask,
 			ir.BuiltinSubgroupLeMask, ir.BuiltinSubgroupLtMask:
-			return "the ballot-mask built-in " + bi.Builtin.String() +
-				" has no Metal attribute or value: the mask spans every invocation of the simdgroup, " +
-				"so a synthesis needs lane-and-simdgroup-size word arithmetic (simd_ballot(true) holds " +
-				"only the active lanes) — future work (card P2-IR-041, ADR-014 D5)"
+			if member {
+				return "the ballot-mask built-in " + bi.Builtin.String() +
+					" as a struct member: Metal synthesizes a direct mask argument from the lane " +
+					"index and the simdgroup size, but has no attribute a struct member could take " +
+					"(card P2-IR-042, ADR-014 D5)"
+			}
 		}
 		return ""
 	}
@@ -376,17 +378,17 @@ func checkBuiltins(module *ir.Module, sel *backend.EntryPointSelector) error {
 		if sel != nil && (sel.Name != ep.Name || sel.Stage != ep.Stage) {
 			continue
 		}
-		var bindings []*ir.Binding
 		for _, arg := range ep.Function.Arguments {
-			bindings = append(bindings, arg.Binding)
+			// A direct mask argument is synthesized, not refused; only a
+			// struct member is checked for the mask limitation.
 			if st, ok := module.Types[arg.Type].Inner.(ir.StructType); ok {
 				for j := range st.Members {
-					bindings = append(bindings, st.Members[j].Binding)
+					if msg := refused(st.Members[j].Binding, true); msg != "" {
+						return unsupported.Errorf("msl: entry point %q: %s", ep.Name, msg)
+					}
 				}
 			}
-		}
-		for _, b := range bindings {
-			if msg := refused(b); msg != "" {
+			if msg := refused(arg.Binding, false); msg != "" {
 				return unsupported.Errorf("msl: entry point %q: %s", ep.Name, msg)
 			}
 		}

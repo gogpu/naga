@@ -300,17 +300,6 @@ func checkBuiltins(module *ir.Module, options *Options) error {
 			return nil
 		}
 		if bi, ok := (*b).(ir.BuiltinBinding); ok {
-			if isSubgroupMaskBuiltin(bi.Builtin) {
-				// The card P2-IR-041 limitation, named: the mask spans every
-				// invocation of the wave, so it is not WaveActiveBallot(true),
-				// which holds only the active lanes — a synthesis needs
-				// lane-and-wave-size word arithmetic (ADR-014 D5).
-				return NewError(ErrUnsupportedFeature, fmt.Sprintf(
-					"entry point %q: built-in %s is a ballot-mask built-in, which HLSL cannot express: "+
-						"the mask spans every invocation of the wave while WaveActiveBallot(true) holds only "+
-						"the active lanes, so a synthesis needs lane-and-wave-size word arithmetic "+
-						"(card P2-IR-041, ADR-014 D5)", ep.Name, bi.Builtin))
-			}
 			if _, supported := BuiltInToSemantic(bi.Builtin); !supported {
 				return NewError(ErrUnsupportedFeature, fmt.Sprintf("entry point %q: built-in %s has no HLSL semantic", ep.Name, bi.Builtin))
 			}

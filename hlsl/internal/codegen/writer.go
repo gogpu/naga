@@ -130,6 +130,12 @@ type Writer struct {
 	// Scalar type names needing LoadedStorageValueFrom.
 	needsStorageLoadHelpers map[string]bool
 
+	// needsSubgroupMaskHelper is set when an entry point carries one of the
+	// five ballot-mask built-ins; subgroupMaskHelperWritten keeps the
+	// synthesis functions to one definition (card P2-IR-042).
+	needsSubgroupMaskHelper   bool
+	subgroupMaskHelperWritten bool
+
 	// Struct constructor tracking
 	structConstructors        map[ir.TypeHandle]struct{}
 	structConstructorsWritten map[ir.TypeHandle]struct{}
@@ -393,6 +399,7 @@ func (w *Writer) writeModule() error {
 	// 4. Scan for needed helpers
 	w.scanForStructConstructors()
 	w.scanStorageTextureHelpers()
+	w.scanSubgroupMaskBuiltins()
 
 	// 4b. Write special functions (predeclared type helpers + RayDescFromRayDesc_)
 	// Matches Rust naga's write_special_functions called at module level.
@@ -928,6 +935,7 @@ func (w *Writer) writePerFunctionWrappedHelpers(fn *ir.Function) {
 	// Matches Rust: write_wrapped_expression_functions handles Compose + ImageLoad scalar.
 	w.writeComposeConstructors(fn)
 	w.writeStorageLoadHelpers()
+	w.writeSubgroupMaskHelpers()
 	// 5. ZeroValue wrapper functions
 	w.writeZeroValueWrapperFunctions(fn.Expressions)
 	// 6. Cast functions (naga_f2i32, naga_f2i64, etc.)
@@ -2315,6 +2323,70 @@ func (w *Writer) isStoragePointerInFunc(fn *ir.Function, handle ir.ExpressionHan
 			return false
 		}
 	}
+}
+
+// scanSubgroupMaskBuiltins requests the ballot-mask helpers when an entry
+// point's interface carries one of the five mask built-ins: HLSL has no such
+// value, so the writer synthesizes it from the lane index and the wave size
+// (card P2-IR-042, ADR-014 D5).
+func (w *Writer) scanSubgroupMaskBuiltins() {
+	uses := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bi, ok := (*b).(ir.BuiltinBinding)
+		return ok && isSubgroupMaskBuiltin(bi.Builtin)
+	}
+	for _, ep := range w.module.EntryPoints {
+		for i := range ep.Function.Arguments {
+			arg := &ep.Function.Arguments[i]
+			if uses(arg.Binding) {
+				w.needsSubgroupMaskHelper = true
+			}
+			if int(arg.Type) < len(w.module.Types) {
+				if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
+					for j := range st.Members {
+						if uses(st.Members[j].Binding) {
+							w.needsSubgroupMaskHelper = true
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// writeSubgroupMaskHelpers writes the ballot-mask synthesis functions once,
+// before the first function that needs them: the mask spans every invocation
+// of the wave, so it is built from the lane index and the wave size per
+// 32-bit word — never from WaveActiveBallot(true), which holds only the active
+// lanes (card P2-IR-042, ADR-014 D5; the equations are in
+// internal/subgroupmask).
+func (w *Writer) writeSubgroupMaskHelpers() {
+	if !w.needsSubgroupMaskHelper || w.subgroupMaskHelperWritten {
+		return
+	}
+	w.subgroupMaskHelperWritten = true
+	w.WriteLine("uint naga_subgroup_mask_word(uint kind, uint word, uint lane, uint size) {")
+	w.WriteLine("    uint base = word << 5u;")
+	w.WriteLine("    uint lo = size > base ? min(size - base, 32u) : 0u;")
+	w.WriteLine("    uint full = lo >= 32u ? 0xFFFFFFFFu : ((1u << lo) - 1u);")
+	w.WriteLine("    if (kind == 0u) { return (lane >> 5u) == word ? (1u << (lane & 31u)) : 0u; }")
+	w.WriteLine("    if (kind <= 2u) {")
+	w.WriteLine("        uint start = kind == 2u ? lane + 1u : lane;")
+	w.WriteLine("        if (start <= base) { return full; }")
+	w.WriteLine("        uint delta = start - base;")
+	w.WriteLine("        return delta < 32u ? (full & ~((1u << delta) - 1u)) : 0u;")
+	w.WriteLine("    }")
+	w.WriteLine("    if (lane < base) { return 0u; }")
+	w.WriteLine("    uint count = min(kind == 3u ? lane - base + 1u : lane - base, lo);")
+	w.WriteLine("    return count >= 32u ? 0xFFFFFFFFu : ((1u << count) - 1u);")
+	w.WriteLine("}")
+	w.WriteLine("uint4 naga_subgroup_mask(uint kind) {")
+	w.WriteLine("    uint lane = WaveGetLaneIndex();")
+	w.WriteLine("    uint size = WaveGetLaneCount();")
+	w.WriteLine("    return uint4(naga_subgroup_mask_word(kind, 0u, lane, size), naga_subgroup_mask_word(kind, 1u, lane, size), naga_subgroup_mask_word(kind, 2u, lane, size), naga_subgroup_mask_word(kind, 3u, lane, size));")
+	w.WriteLine("}")
 }
 
 // writeStorageLoadHelpers writes storage texture scalar load helpers.

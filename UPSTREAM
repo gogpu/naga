@@ -46,8 +46,8 @@ Current scope
   reductions and the five ballot-mask variables included), the combined image
   sampler split, plain-uniform collection and per-dialect feature gates; a few
   subgroup forms stay refused (the Min/Max/And/Or/Xor scans and the
-  atomic-counter barrier; MSL, HLSL and DXIL refuse the ballot-mask variables
-  themselves, whose synthesis is P2-IR-042).
+  atomic-counter barrier). The MSL, HLSL and DXIL backends synthesise the
+  ballot-mask variables from the lane index and the subgroup size (P2-IR-042).
   Backends: SPIR-V, MSL, GLSL, HLSL; DXIL (experimental, not in Rust naga).
   Rust naga's WGSL and DOT outputs are not implemented; Rust naga has no GLSL
   frontend, so ours is our own implementation.

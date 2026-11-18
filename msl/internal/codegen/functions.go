@@ -736,10 +736,28 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	vptExistingInstanceID := ""
 	existingSubgroupSize := ""
 	existingSubgroupLane := ""
+	// The ballot-mask arguments: Metal has no attribute or value for them, so
+	// each becomes a kernel local synthesized from the lane index and the
+	// simdgroup size, declared before the body (card P2-IR-042, ADR-014 D5).
+	type maskLocal struct {
+		argName  string
+		typeName string
+		kind     uint32
+	}
+	var maskLocals []maskLocal
 	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			// Direct argument with builtin binding
 			if builtin, ok := (*arg.Binding).(ir.BuiltinBinding); ok && !isVarying(arg.Binding) {
+				if kind, isMask := subgroupMaskKind(builtin.Builtin); isMask {
+					argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)})
+					maskLocals = append(maskLocals, maskLocal{
+						argName:  argName,
+						typeName: w.writeTypeName(arg.Type, StorageAccess(0)),
+						kind:     kind,
+					})
+					continue
+				}
 				attr := builtinInputAttribute(builtin.Builtin, ep.Stage)
 				if attr != "" {
 					argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)})
@@ -833,6 +851,12 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// the workgroup zero-init parameter above. Callees receive them by value
 	// (card P2-IR-039, ADR-014 D3).
 	ballotNeed := w.ballotBitNeedOf(fn)
+	if len(maskLocals) > 0 {
+		// Every mask needs the lane index and the simdgroup size.
+		ballotNeed.size = true
+		ballotNeed.lane = true
+		w.needsSubgroupMaskHelper = true
+	}
 	w.subgroupSizeName = ""
 	w.subgroupLaneName = ""
 	if ballotNeed.size {
@@ -1090,6 +1114,13 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// aliases, then the function's own local variables (back/msl/writer.rs,
 	// the private-global block, the argument reconstruction, put_locals).
 	emitInputAliases()
+
+	// The ballot-mask locals: one call per mask over the lane index and the
+	// simdgroup size the parameters above carry (card P2-IR-042, ADR-014 D5).
+	for _, m := range maskLocals {
+		w.WriteLine("%s %s = %s__naga_subgroup_mask(%du, %s, %s);",
+			m.typeName, m.argName, Namespace, m.kind, w.subgroupLaneName, w.subgroupSizeName)
+	}
 
 	// Local variables — after the private globals and the input aliases,
 	// matching Rust naga order.
@@ -2040,6 +2071,25 @@ func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage)
 // never reaches the generated MSL.
 const mslBuiltinUnmapped = "[[unmapped]]"
 
+// subgroupMaskKind returns the __naga_subgroup_mask kind of a ballot-mask
+// built-in and whether b is one: 0 Eq, 1 Ge, 2 Gt, 3 Le, 4 Lt — the order of
+// the equations (card P2-IR-042, ADR-014 D5).
+func subgroupMaskKind(b ir.BuiltinValue) (uint32, bool) {
+	switch b {
+	case ir.BuiltinSubgroupEqMask:
+		return 0, true
+	case ir.BuiltinSubgroupGeMask:
+		return 1, true
+	case ir.BuiltinSubgroupGtMask:
+		return 2, true
+	case ir.BuiltinSubgroupLeMask:
+		return 3, true
+	case ir.BuiltinSubgroupLtMask:
+		return 4, true
+	}
+	return 0, false
+}
+
 // builtinInputAttribute returns the MSL attribute for a built-in input.
 func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string {
 	switch builtin {
@@ -2162,6 +2212,12 @@ func (w *Writer) checkBuiltinAttribute(ep *ir.EntryPoint, b ir.BuiltinBinding, t
 		attr = builtinInputAttribute(b.Builtin, ep.Stage)
 	}
 	if attr == mslBuiltinUnmapped {
+		// A ballot-mask input has no attribute by design: a direct argument
+		// is synthesized into a kernel local (card P2-IR-042, ADR-014 D5), and
+		// the struct-member shape is refused by checkBuiltins.
+		if _, isMask := subgroupMaskKind(b.Builtin); isMask && !output && !member {
+			return nil
+		}
 		return unsupported.Errorf("msl: entry point %q: built-in %s is not supported", ep.Name, b.Builtin)
 	}
 	return nil
