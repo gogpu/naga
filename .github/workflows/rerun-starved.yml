@@ -1,0 +1,75 @@
+name: Rerun starved runs
+
+# A hosted job can be cancelled before it ever starts — zero steps, no runner
+# assigned — when GitHub's runner pool is exhausted: "The job was not acquired
+# by Runner of type hosted even after multiple attempts". That is
+# infrastructure, not a test failure, and on 2026-11-18 it hit three of this
+# repo's runs (the macOS arm64 capacity shortage). This listener retries such a
+# run exactly once so nobody has to. A real failure is never retried: the
+# decision requires every failed job to be cancelled without a runner and
+# without steps, on the run's first attempt, with no newer run of the same
+# workflow for the same commit. The judged run's code is never executed — only
+# this default-branch workflow and the jobs API answer (card P3-CI-006).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: rerun-starved-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  rerun:
+    name: Rerun a starved run once
+    runs-on: ubuntu-latest
+    # Routine completions cost no runner: only a failed first attempt of a
+    # push or pull-request run reaches the decision step. A rerun is attempt 2
+    # and never re-enters, which also caps the retries at one.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      && github.event.workflow_run.run_attempt == 1
+      && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'pull_request')
+    steps:
+      - name: Decide whether the failure is a starved job
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+        run: |
+          set -euo pipefail
+          # The repo's CI has well under 100 jobs, so one page reads them all.
+          # Every failed-or-cancelled job must be a starved one: cancelled,
+          # with no runner assigned and no step executed.
+          jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100")
+          total=$(echo "$jobs" | jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled")] | length')
+          starved=$(echo "$jobs" | jq '[.jobs[] | select(.conclusion == "cancelled" and ((.runner_name // "") | length) == 0 and ((.steps // []) | length) == 0)] | length')
+          real=$(echo "$jobs" | jq '[.jobs[] | select(.conclusion == "failure")] | length')
+          echo "failed-or-cancelled=$total starved=$starved real-failures=$real"
+          # A newer run of this workflow for the same commit supersedes this
+          # one; retrying an obsolete run helps nobody.
+          newer=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
+            | jq "[.workflow_runs[] | select(.workflow_id == $WORKFLOW_ID and .id > $RUN_ID)] | length")
+          echo "newer-runs=$newer"
+          if [ "$total" -gt 0 ] && [ "$starved" -eq "$total" ] && [ "$real" -eq 0 ] && [ "$newer" -eq 0 ]; then
+            echo "rerun=true" >> "$GITHUB_OUTPUT"
+            echo "Every failed job was starved at runner acquisition (no runner, no steps); retrying the failed jobs once." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "rerun=false" >> "$GITHUB_OUTPUT"
+            echo "Not a starved run — a real failure, a job that ran, or a superseded commit — so it stays red." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retry the failed jobs
+        if: steps.decide.outputs.rerun == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: gh run rerun "$RUN_ID" --failed --repo "$REPO"
