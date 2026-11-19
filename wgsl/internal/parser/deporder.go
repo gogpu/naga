@@ -123,14 +123,21 @@ func collectDeclDependencies(d Decl) []string {
 	case *StructDecl:
 		for _, m := range d.Members {
 			collectTypeRefs(m.Type, add)
+			collectAttributeDeps(m.Attributes, add)
 		}
 	case *FunctionDecl:
 		for _, p := range d.Params {
 			collectTypeRefs(p.Type, add)
+			collectAttributeDeps(p.Attributes, add)
 		}
 		if d.ReturnType != nil {
 			collectTypeRefs(d.ReturnType, add)
 		}
+		// @workgroup_size takes constant expressions that may name later
+		// declarations (issue #261, card P2-WGSL-120 — the expert
+		// validation's hole 3).
+		collectAttributeDeps(d.Attributes, add)
+		collectAttributeDeps(d.ReturnAttrs, add)
 		// Body: track locals to avoid false dependencies
 		locals := make(map[string]bool)
 		for _, p := range d.Params {
@@ -144,6 +151,7 @@ func collectDeclDependencies(d Decl) []string {
 		if d.Init != nil {
 			collectExprDeps(d.Init, nil, add)
 		}
+		collectAttributeDeps(d.Attributes, add)
 	case *ConstDecl:
 		collectTypeRefs(d.Type, add)
 		if d.Init != nil {
@@ -154,8 +162,13 @@ func collectDeclDependencies(d Decl) []string {
 		if d.Init != nil {
 			collectExprDeps(d.Init, nil, add)
 		}
+		collectAttributeDeps(d.Attributes, add)
 	case *AliasDecl:
 		collectTypeRefs(d.Type, add)
+	case *ConstAssertDecl:
+		// The condition may name any module-scope declaration (issue #261,
+		// card P2-WGSL-120 — the expert validation's hole 1).
+		collectExprDeps(d.Condition, nil, add)
 	}
 	return refs
 }
@@ -178,6 +191,56 @@ func collectTypeRefs(t Type, add func(string)) {
 		}
 	case *PtrType:
 		collectTypeRefs(t.PointeeType, add)
+	case *BindingArrayType:
+		// A binding array names its element type and, unless unbounded, its
+		// size expression — mirror *ArrayType (issue #261, card P2-WGSL-120 —
+		// the expert validation's hole 2).
+		collectTypeRefs(t.Element, add)
+		if t.Size != nil {
+			collectExprDeps(t.Size, nil, add)
+		}
+	}
+}
+
+// The attribute names whose arguments are constant expressions that may name
+// a declaration; the other attributes take keywords or strings (@builtin,
+// @interpolate, @diagnostic, @must_use), where an identifier is a name, not a
+// reference (card P2-WGSL-120).
+const (
+	attrWorkgroupSize = "workgroup_size"
+	attrSize          = "size"
+	attrAlign         = "align"
+	attrID            = "id"
+	attrGroup         = "group"
+	attrBinding       = "binding"
+)
+
+// exprAttributeNames is the set exprAttributeArgs tests.
+var exprAttributeNames = map[string]bool{
+	attrWorkgroupSize: true,
+	attrSize:          true,
+	attrAlign:         true,
+	attrID:            true,
+	attrGroup:         true,
+	attrBinding:       true,
+}
+
+// exprAttributeArgs reports whether an attribute's arguments are expressions
+// that may name a declaration.
+func exprAttributeArgs(name string) bool {
+	return exprAttributeNames[name]
+}
+
+// collectAttributeDeps collects the expression arguments of the attributes
+// whose arguments are constant expressions (card P2-WGSL-120).
+func collectAttributeDeps(attrs []Attribute, add func(string)) {
+	for i := range attrs {
+		if !exprAttributeArgs(attrs[i].Name) {
+			continue
+		}
+		for _, a := range attrs[i].Args {
+			collectExprDeps(a, nil, add)
+		}
 	}
 }
 
@@ -206,6 +269,14 @@ func collectExprDeps(e Expr, locals map[string]bool, add func(string)) {
 		for _, a := range e.Args {
 			collectExprDeps(a, locals, add)
 		}
+	case *BitcastExpr:
+		// A bitcast reads exactly one operand and names its target type, and
+		// both may resolve to module-scope declarations that appear later:
+		// WGSL declarations are order-independent (issue #261, card
+		// P2-WGSL-120). Without this case nothing inside the bitcast reached
+		// the dependency order and the user was emitted before its operands.
+		collectTypeRefs(e.Type, add)
+		collectExprDeps(e.Expr, locals, add)
 	case *IndexExpr:
 		collectExprDeps(e.Expr, locals, add)
 		collectExprDeps(e.Index, locals, add)
@@ -285,6 +356,11 @@ func collectStmtDeps(s Stmt, locals map[string]bool, add func(string)) {
 	case *ExprStmt:
 		collectExprDeps(s.Expr, locals, add)
 	case *BreakIfStmt:
+		collectExprDeps(s.Condition, locals, add)
+	case *ConstAssertDecl:
+		// const_assert is also a statement; its condition names declarations
+		// like any other expression (issue #261, card P2-WGSL-120 — the expert
+		// validation's hole 1).
 		collectExprDeps(s.Condition, locals, add)
 	}
 }
