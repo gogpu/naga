@@ -319,11 +319,11 @@ var globalAttributeTargets = map[string]attributeTarget{
 	"closest_hit":      targetFunction,
 	"miss":             targetFunction,
 	"incoming_payload": targetFunction,
-	"workgroup_size":   targetFunction,
+	attrWorkgroupSize:  targetFunction,
 	"early_depth_test": targetFunction,
 	"must_use":         targetFunction,
-	"group":            targetVariable,
-	"binding":          targetVariable,
+	attrGroup:          targetVariable,
+	attrBinding:        targetVariable,
 	"id":               targetOverride,
 }
 
