@@ -8,7 +8,7 @@ import "testing"
 // already follows that rule (issue #261, card P2-WGSL-120). Before the fix
 // the dependency-order pass skipped the bitcast's contents: a later var, const
 // or texture was "unresolved identifier", and a later function call inside the
-// bitcast was "``{unknown type}``".
+// bitcast was "“{unknown type}“".
 func TestLowerBitcastForwardRefs(t *testing.T) {
 	cases := []struct {
 		name string
