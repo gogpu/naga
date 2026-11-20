@@ -20,7 +20,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multisampled storage image, a class the frontend does not model (`image2DMS` is not a type it parses,
   matching Rust naga's own refusal), so no argument could ever match such an overload.
 
+### Changed
+
+- **CI retries a run once when its jobs were starved at runner acquisition** (the macOS arm64 capacity
+  shortage of September–November 2026). The listener reruns the failed jobs only when every
+  failed-or-cancelled job was cancelled at zero steps with no runner assigned, on the first attempt, with no
+  newer run for the same commit; a real failure is never retried, and the judged run's code is never
+  executed by the listener.
+
 ### Fixed
+
+- **GLSL below 4.00 / ES 3.10 gets `countLeadingZeros` as Rust naga's log2 polyfill instead of `findMSB`**
+  (card P2-GLSL-005). `findMSB` exists only from desktop GLSL 4.00 and ES 3.10, so every shader that called
+  `countLeadingZeros` produced GLSL that no driver compiles at the backend's default target, GLSL 3.30.
+  Below the integer-functions boundary the backend now emits Rust's polyfill operand for operand
+  (`31.0 - floor(log2(x + 0.5))`, the negative-int short-circuit, `mix(…, lessThan(x, 0))` for the vector
+  form); at and above it the built-in path is unchanged, and `firstLeadingBit`/`firstTrailingBit` stay
+  unconditional, as in Rust. glslang validates the emitted source at 330/ES 300/ES 310/400.
+
+- **`@builtin(view_index)` compiles and validates at shader model 6.1 on DXIL** (card P2-DXIL-109). With
+  `PSVRuntimeInfo1.UsesViewID` set, the PSV0 part must carry one output-dependence mask per non-empty output
+  stream before the input-to-output tables, and the module's `dx.viewIdState` the same mask — neither was
+  written, so IDxcValidator rejected every such shader with "PSV0 part is not well-formed". The viewid
+  analyzer now marks the outputs that depend on the ViewID input and feeds both tables from one result; the
+  emitted container matches DXC's for the same shaders, masks and tables bit-identical.
 
 - **Type sizes are bounded by Rust naga's `MAX_TYPE_SIZE` wherever they are derived** (card P2-WGSL-116). An
   array's size is its element count times the stride; computed in uint32, `array<f32, 0x40000000>` wrapped to
@@ -53,8 +76,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Diagnostics come in a stable order across compiles** (card P3-API-008): the WGSL lowerer collected the
   unused-variable warnings while ranging over a Go map, so their order changed between runs of the same
-  compiler and a consumer's stderr-diff harness could not compare two runs. `wgsl.Parse` now sorts the
-  warnings by source position, then message; a 200-compile determinism test pins it.
+  compiler and a consumer's stderr-diff harness — wgpu's gate compares two runs of its shader corpus — could
+  not tell a real difference from noise. The finding came from that external harness, not from this repo's
+  own tests. `wgsl.Parse` now sorts the warnings by source position, then message; a 200-compile determinism
+  test pins it.
+
+- **A module-scope declaration is usable before its declaration through every syntax the dependency-order
+  walkers read** (issue #261). The walkers that order WGSL declarations missed four node kinds — the operand
+  and the target type of `bitcast`, `const_assert` conditions in both scopes, `binding_array` element and
+  size, and constant-expression attribute arguments (`@workgroup_size(N)` with a later `const N`) — so a
+  function that used a later declaration through any of them failed with "unresolved identifier" or an
+  unknown type, although module-scope declarations are in scope across the whole program. An exhaustiveness
+  test now carries one node of every expression, type, statement and declaration kind with a sentinel
+  reference, so a future AST node that a walker misses fails the test instead of shipping an ordering hole.
 
 ## [0.22.6] - 2026-11-18
 
