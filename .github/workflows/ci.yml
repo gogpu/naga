@@ -239,8 +239,24 @@ jobs:
         run: go build ./...
 
   fuzz:
-    name: Fuzz Test
+    name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The real fuzz targets of the tree: the two input frontends. A wgsl/ir
+        # target set is card TEST-DXIL-003; until it exists this job runs what
+        # exists — the previous step ran `-fuzz=FuzzLexer`, which no package
+        # defines, and `|| true` hid that fact (card TEST-FUZZ-CI-001).
+        include:
+          - package: ./glsl/internal/front/
+            target: FuzzParseGLSLModule
+          - package: ./glsl/internal/front/
+            target: FuzzParseGLSL
+          - package: ./glsl/internal/front/
+            target: FuzzPreprocess
+          - package: ./spirv/internal/front/
+            target: FuzzParse
 
     steps:
       - name: Checkout code
@@ -252,8 +268,8 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - name: Run fuzz tests
-        run: go -C wgsl test -fuzz=FuzzLexer -fuzztime=30s || true
+      - name: Run ${{ matrix.target }}
+        run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30s ${{ matrix.package }}
 
   # Dependency freshness check
   # Uses go-mod-outdated (https://github.com/psampaz/go-mod-outdated)
