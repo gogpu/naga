@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/container"
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -978,18 +979,35 @@ func TestIsPSVSemanticSystemManaged(t *testing.T) {
 // TestEntryUsesViewIndex pins the multiview detection used for ViewID
 // flag computation, SFI0 mapping, and PSV0 UsesViewID byte. A shader
 // reading @builtin(view_index) must trigger BOTH the SM 6.1 auto-upgrade
-// and the dx.op.viewID emit path — this test guards the helper.
+// and the dx.op.viewID emit path — this test guards the helper, including
+// the struct-member input shape (the emitter produces dx.op.viewID for it,
+// so the flag must be set or IDxcValidator rejects the container with
+// "Flags must match usage").
 func TestEntryUsesViewIndex(t *testing.T) {
 	bind := func(b ir.Binding) *ir.Binding { return &b }
 
+	// structMemberMod holds type 0 = struct { @builtin(view_index) vi: u32 }
+	// for the struct-member cases below.
+	structMemberMod := &ir.Module{
+		Types: []ir.Type{{
+			Inner: ir.StructType{Members: []ir.StructMember{{
+				Name:    "vi",
+				Type:    ir.TypeHandle(1),
+				Binding: bind(ir.BuiltinBinding{Builtin: ir.BuiltinViewIndex}),
+			}}},
+		}},
+	}
+
 	cases := []struct {
 		name string
+		mod  *ir.Module
 		ep   *ir.EntryPoint
 		want bool
 	}{
-		{"nil entry point", nil, false},
+		{"nil entry point", nil, nil, false},
 		{
 			"no view_index argument",
+			nil,
 			&ir.EntryPoint{
 				Function: ir.Function{
 					Arguments: []ir.FunctionArgument{
@@ -1001,6 +1019,7 @@ func TestEntryUsesViewIndex(t *testing.T) {
 		},
 		{
 			"view_index as the only argument",
+			nil,
 			&ir.EntryPoint{
 				Function: ir.Function{
 					Arguments: []ir.FunctionArgument{
@@ -1012,6 +1031,7 @@ func TestEntryUsesViewIndex(t *testing.T) {
 		},
 		{
 			"view_index alongside other builtins",
+			nil,
 			&ir.EntryPoint{
 				Function: ir.Function{
 					Arguments: []ir.FunctionArgument{
@@ -1024,6 +1044,7 @@ func TestEntryUsesViewIndex(t *testing.T) {
 		},
 		{
 			"location binding is not view_index",
+			nil,
 			&ir.EntryPoint{
 				Function: ir.Function{
 					Arguments: []ir.FunctionArgument{
@@ -1033,11 +1054,23 @@ func TestEntryUsesViewIndex(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"view_index as a struct member of the argument",
+			structMemberMod,
+			&ir.EntryPoint{
+				Function: ir.Function{
+					Arguments: []ir.FunctionArgument{
+						{Type: ir.TypeHandle(0)},
+					},
+				},
+			},
+			true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := entryUsesViewIndex(tc.ep); got != tc.want {
-				t.Errorf("entryUsesViewIndex() = %v, want %v", got, tc.want)
+			if got := viewid.EntryUsesViewIndex(tc.mod, tc.ep); got != tc.want {
+				t.Errorf("EntryUsesViewIndex() = %v, want %v", got, tc.want)
 			}
 		})
 	}

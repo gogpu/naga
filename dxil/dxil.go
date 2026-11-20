@@ -1441,7 +1441,7 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// Reachability filter (BUG-DXIL-016) keeps multi-EP modules in sync
 	// with emit/resources.go which applies the same filter.
 	info.ResourceBindings = collectPSVResources(irMod, t)
-	if entryUsesViewIndex(ep) {
+	if viewid.EntryUsesViewIndex(irMod, ep) {
 		info.UsesViewID = true
 	}
 	// Pixel-shader DepthOutput byte: set when the entry point writes any
@@ -3215,25 +3215,7 @@ func typeContains64BitScalar(m *ir.Module, th ir.TypeHandle) bool {
 // need to know in advance for the SM auto-upgrade.
 func moduleUsesViewID(m *ir.Module) bool {
 	for i := range m.EntryPoints {
-		if entryUsesViewIndex(&m.EntryPoints[i]) {
-			return true
-		}
-	}
-	return false
-}
-
-// entryUsesViewIndex reports whether any argument of the entry point
-// (or struct member of an argument) carries the BuiltinViewIndex binding.
-func entryUsesViewIndex(ep *ir.EntryPoint) bool {
-	if ep == nil {
-		return false
-	}
-	check := func(b ir.Binding) bool {
-		bb, ok := b.(ir.BuiltinBinding)
-		return ok && bb.Builtin == ir.BuiltinViewIndex
-	}
-	for i := range ep.Function.Arguments {
-		if ep.Function.Arguments[i].Binding != nil && check(*ep.Function.Arguments[i].Binding) {
+		if viewid.EntryUsesViewIndex(m, &m.EntryPoints[i]) {
 			return true
 		}
 	}
