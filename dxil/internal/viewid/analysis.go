@@ -126,6 +126,41 @@ func (s *analysisState) markEverythingDependsOnEverything() {
 			s.outputTaint[outSigIdx][col] = allInputs.copy()
 		}
 	}
+	// The same conservatism applies to the view index: a shader this walker
+	// could not trace may well be view dependent, and reporting "no output
+	// depends on the view index" would understate the PSV0 masks D3D12
+	// uses for multiview validation.
+	if s.entryHasViewIndexArg() {
+		for outSigIdx := range s.outputTaint {
+			for col := range s.outputTaint[outSigIdx] {
+				s.outputTaint[outSigIdx][col].add(ViewIDScalar)
+			}
+		}
+	}
+}
+
+// entryHasViewIndexArg reports whether the entry point takes
+// @builtin(view_index), directly or as a struct member.
+func (s *analysisState) entryHasViewIndexArg() bool {
+	for i := range s.ep.Function.Arguments {
+		arg := &s.ep.Function.Arguments[i]
+		if isViewIndexBinding(arg.Binding) {
+			return true
+		}
+		if arg.Binding != nil {
+			continue
+		}
+		st, ok := s.irMod.Types[arg.Type].Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		for m := range st.Members {
+			if isViewIndexBinding(st.Members[m].Binding) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // initArgumentTaint populates exprTaint for every ExprFunctionArgument
@@ -138,11 +173,10 @@ func (s *analysisState) markEverythingDependsOnEverything() {
 // preserved (InputAssembler packing).
 func (s *analysisState) initArgumentTaint() {
 	fn := &s.ep.Function
-	isVSInput := s.ep.Stage == ir.StageVertex
 
 	// Build a mapping from (argIdx, memberIdx) -> sigIdx using the same
 	// sorted flat binding list as collectFlatArgBindings.
-	sigIdxMap := buildViewIDSigMap(s.irMod, fn.Arguments, isVSInput)
+	sigIdxMap := buildViewIDSigMap(s.irMod, fn.Arguments, s.ep.Stage)
 
 	for argIdx := range fn.Arguments {
 		arg := &fn.Arguments[argIdx]
@@ -156,13 +190,12 @@ func (s *analysisState) initArgumentTaint() {
 		argType := s.irMod.Types[arg.Type]
 		if arg.Binding != nil {
 			// Direct binding on argument.
-			si, hasSig := sigIdxMap[viewIDArgKey{argIdx: argIdx, memberIdx: -1}]
-			if !hasSig {
+			taint, matched := s.bindingTaint(*arg.Binding, argType.Inner, sigIdxMap,
+				viewIDArgKey{argIdx: argIdx, memberIdx: -1})
+			if !matched {
 				continue
 			}
-			taint := s.taintForSig(si)
-			// Replicate scalar taint across argument's component count.
-			s.exprTaint[argHandle] = expandTaintToType(s.irMod, argType.Inner, taint)
+			s.exprTaint[argHandle] = taint
 			continue
 		}
 
@@ -179,24 +212,19 @@ func (s *analysisState) initArgumentTaint() {
 		memberTaints := make([]componentTaint, len(st.Members))
 		for memIdx := range st.Members {
 			member := &st.Members[memIdx]
-			if member.Binding == nil {
-				// Unbound member (unusual but possible in struct types
-				// shared with non-entry-point functions). Zero taint.
-				memberTy := s.irMod.Types[member.Type]
-				n := totalScalarCount(s.irMod, memberTy.Inner)
-				memberTaints[memIdx] = emptyTaint(n)
-				continue
-			}
-			si, hasSig := sigIdxMap[viewIDArgKey{argIdx: argIdx, memberIdx: memIdx}]
-			if !hasSig {
-				memberTy := s.irMod.Types[member.Type]
-				n := totalScalarCount(s.irMod, memberTy.Inner)
-				memberTaints[memIdx] = emptyTaint(n)
-				continue
-			}
-			taint := s.taintForSig(si)
 			memberTy := s.irMod.Types[member.Type]
-			memberTaints[memIdx] = expandTaintToType(s.irMod, memberTy.Inner, taint)
+			// An unbound member (unusual but possible in struct types
+			// shared with non-entry-point functions) and a bound member
+			// with no signature element both carry no input taint.
+			if member.Binding != nil {
+				taint, matched := s.bindingTaint(*member.Binding, memberTy.Inner, sigIdxMap,
+					viewIDArgKey{argIdx: argIdx, memberIdx: memIdx})
+				memberTaints[memIdx] = taint
+				if matched {
+					continue
+				}
+			}
+			memberTaints[memIdx] = emptyTaint(totalScalarCount(s.irMod, memberTy.Inner))
 		}
 
 		// Flatten the struct for the argument expression's taint.
@@ -221,6 +249,27 @@ func (s *analysisState) initArgumentTaint() {
 	}
 }
 
+// bindingTaint returns the per-flattened-scalar taint of one flat binding.
+// @builtin(view_index) is not a signature element — it is read through
+// dx.op.viewID and an output that receives it is "view dependent", so the
+// value is tagged with the ViewIDScalar sentinel and carried to the
+// outputs by the ordinary taint propagation. Any other binding takes its
+// scalars from the input signature element it maps to. matched is false
+// when the binding has no signature element and is not the view index.
+func (s *analysisState) bindingTaint(
+	b ir.Binding, inner ir.TypeInner, sigIdxMap map[viewIDArgKey]int, key viewIDArgKey,
+) (taint componentTaint, matched bool) {
+	if isViewIndexBinding(&b) {
+		return expandTaintToType(s.irMod, inner, viewIDTaint()), true
+	}
+	si, ok := sigIdxMap[key]
+	if !ok {
+		return nil, false
+	}
+	// Replicate the element's scalar taint across the binding's components.
+	return expandTaintToType(s.irMod, inner, s.taintForSig(si)), true
+}
+
 // viewIDArgKey identifies a specific binding element for the ViewID
 // signature index mapping. memberIdx is -1 for direct-binding arguments.
 type viewIDArgKey struct {
@@ -230,9 +279,13 @@ type viewIDArgKey struct {
 
 // buildViewIDSigMap builds a mapping from (argIdx, memberIdx) to the
 // signature element index, using the same sorted order as
-// collectFlatArgBindings. This ensures the ViewID analysis assigns
-// taint from the correct input signature element.
-func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) map[viewIDArgKey]int {
+// collectFlatArgBindings with the bindings that produce no signature
+// element dropped — exactly what the emitter does when it builds ISG1 and
+// PSV0 (bindingToSignatureElements returns nil for those). This ensures
+// the ViewID analysis assigns taint from the correct input signature
+// element; keeping an intrinsic binding such as @builtin(view_index) in
+// the list would shift every element sorted after it.
+func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, stage ir.ShaderStage) map[viewIDArgKey]int {
 	type entry struct {
 		key     viewIDArgKey
 		binding ir.Binding
@@ -241,6 +294,9 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 	for argIdx := range args {
 		arg := &args[argIdx]
 		if arg.Binding != nil {
+			if !isSignatureBinding(*arg.Binding, stage) {
+				continue
+			}
 			entries = append(entries, entry{
 				key:     viewIDArgKey{argIdx: argIdx, memberIdx: -1},
 				binding: *arg.Binding,
@@ -255,7 +311,7 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 		order := d3d.SortedMemberIndices(st.Members)
 		for _, idx := range order {
 			m := st.Members[idx]
-			if m.Binding == nil {
+			if m.Binding == nil || !isSignatureBinding(*m.Binding, stage) {
 				continue
 			}
 			entries = append(entries, entry{
@@ -265,7 +321,7 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 		}
 	}
 	// Apply the same cross-argument sort for non-VS inputs.
-	if !isVSInput {
+	if stage != ir.StageVertex {
 		sort.SliceStable(entries, func(i, j int) bool {
 			ki := d3d.NewMemberInterfaceKey(&entries[i].binding)
 			kj := d3d.NewMemberInterfaceKey(&entries[j].binding)
@@ -277,6 +333,34 @@ func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput b
 		result[e.key] = i
 	}
 	return result
+}
+
+// isSignatureBinding reports whether a binding becomes a signature
+// element of the stage: a built-in read through its own dx.op (SV_ViewID,
+// a pixel shader's SV_Coverage, the subgroup built-ins) has no ISG1 row
+// and no PSV0 entry.
+func isSignatureBinding(b ir.Binding, stage ir.ShaderStage) bool {
+	bb, ok := b.(ir.BuiltinBinding)
+	if !ok {
+		return true
+	}
+	return !d3d.IntrinsicInput(bb.Builtin, stage) && bb.Builtin != ir.BuiltinViewIndex
+}
+
+// isViewIndexBinding reports whether b binds @builtin(view_index).
+func isViewIndexBinding(b *ir.Binding) bool {
+	if b == nil {
+		return false
+	}
+	bb, ok := (*b).(ir.BuiltinBinding)
+	return ok && bb.Builtin == ir.BuiltinViewIndex
+}
+
+// viewIDTaint is the taint set of a @builtin(view_index) value.
+func viewIDTaint() scalarSet {
+	s := newScalarSet()
+	s.add(ViewIDScalar)
+	return s
 }
 
 // findArgHandle finds the ExpressionHandle for a FunctionArgument with

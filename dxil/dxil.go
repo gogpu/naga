@@ -1531,8 +1531,7 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 		// component dependency table. Must agree byte-for-byte with the
 		// bitcode `dx.viewIdState` regenerated content or dxil.dll's
 		// content-verifier reports 'ViewIDState mismatch'.
-		info.InputToOutputTable = buildInputToOutputTable(irMod, ep, t.epTypes, sigs)
-		return info
+		return attachViewIDTables(info, sigs, irMod, ep, t.epTypes)
 	}
 
 	// Fallback: no graphics signatures, use minimal string table with just
@@ -3453,6 +3452,50 @@ func blockUsesRayQuery(block ir.Block) bool {
 	return false
 }
 
+// attachViewIDTables fills the PSV0 dependency tables of info from the
+// IR-level dxil/internal/viewid analyzer: the input-to-output table and,
+// when the entry point reads @builtin(view_index), the
+// outputs-dependent-on-ViewID mask.
+//
+// PSVRuntimeInfo1.UsesViewID makes the validator expect that mask before
+// the input-to-output tables — its absence is the "PSV0 part is not
+// well-formed" failure. The module's dx.viewIdState carries the same
+// mask (emitGraphicsViewIDState) and the validator compares the two.
+func attachViewIDTables(
+	info container.PSVInfo, sigs graphicsPSVSigs,
+	irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier,
+) container.PSVInfo {
+	deps := analyzePSVViewID(irMod, ep, types, sigs)
+	if deps == nil {
+		return info
+	}
+	if len(deps.InputCompToOutputComps) > 0 {
+		info.InputToOutputTable = deps.InputCompToOutputComps
+	}
+	if info.UsesViewID {
+		info.ViewIDOutputMask = deps.ViewIDDependentOutputs
+	}
+	return info
+}
+
+// analyzePSVViewID runs the IR-level dxil/internal/viewid dataflow
+// analyzer for an entry point's PSV-side signature elements and returns
+// its dependency tables, or nil when the entry point has no output
+// signature (the analyzer's output space is then empty and nothing can be
+// written).
+//
+// A shader that reads @builtin(view_index) has no input signature at all
+// and is still analyzed: the view index is not a signature element, so a
+// zero-input early return would drop the ViewID dependency masks.
+func analyzePSVViewID(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, sigs graphicsPSVSigs) *viewid.Deps {
+	outElems := psvSigsToViewIDElems(sigs.PSVOutputs)
+	if len(outElems) == 0 {
+		return nil
+	}
+	inElems := psvSigsToViewIDElems(sigs.PSVInputs)
+	return viewid.Analyze(irMod, ep, types, inElems, outElems)
+}
+
 // buildInputToOutputTable computes the PSV0 dependency table for an
 // entry point via the IR-level dxil/internal/viewid dataflow analyzer.
 //
@@ -3471,13 +3514,11 @@ func blockUsesRayQuery(block ir.Block) bool {
 // Returns nil when the entry point has no signature — the PSV0
 // dep-table region is zero-sized in that case.
 func buildInputToOutputTable(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, sigs graphicsPSVSigs) []uint32 {
-	inElems := psvSigsToViewIDElems(sigs.PSVInputs)
-	outElems := psvSigsToViewIDElems(sigs.PSVOutputs)
-	if len(inElems) == 0 || len(outElems) == 0 {
+	if len(psvSigsToViewIDElems(sigs.PSVInputs)) == 0 {
 		return nil
 	}
-	deps := viewid.Analyze(irMod, ep, types, inElems, outElems)
-	if deps == nil {
+	deps := analyzePSVViewID(irMod, ep, types, sigs)
+	if deps == nil || len(deps.InputCompToOutputComps) == 0 {
 		return nil
 	}
 	return deps.InputCompToOutputComps

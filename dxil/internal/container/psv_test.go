@@ -392,6 +392,76 @@ func TestEncodePSV0KeepsSigCountsWhenElementsProvided(t *testing.T) {
 	}
 }
 
+// TestEncodePSV0ViewIDMask (P2-DXIL-109) pins the ViewID dependency mask
+// layout: when PSVRuntimeInfo1.UsesViewID is set, one
+// MaskDwords(SigOutputVectors) dword mask for outputs that depend on the
+// view index follows the signature elements, before the input-to-output
+// tables. DXC's SimplePSV walker (DxilContainerValidation.cpp:674-692)
+// sizes the payload from the header and requires the part to end exactly
+// there, so a missing mask makes the part "not well-formed".
+func TestEncodePSV0ViewIDMask(t *testing.T) {
+	info := PSVInfo{
+		ShaderStage:      PSVPixel,
+		MaxWaveLaneCount: 0xFFFFFFFF,
+		UsesViewID:       true,
+		SigInputElements: 1, SigOutputElements: 1,
+		SigInputVectors: 1, SigOutputVectors: 1,
+		PSVSigInputs: []PSVSignatureElement{
+			{Rows: 1, ColsAndStart: 0x0F},
+		},
+		PSVSigOutputs: []PSVSignatureElement{
+			{Rows: 1, ColsAndStart: 0x0F},
+		},
+		SemanticIndexTable: []uint32{0},
+		ViewIDOutputMask:   []uint32{0x0F},
+		InputToOutputTable: []uint32{0x1, 0x2, 0x4, 0x8},
+	}
+
+	// Fixed prefix: size field + runtime info + resource count + string
+	// table size + semantic index count/entries + element size + elements.
+	semBytes := 4 + 4*len(info.SemanticIndexTable)
+	elemBytes := 4 + 2*psvSignatureElementSize
+	prefix := 4 + runtimeInfo3Size + 4 + 4 + semBytes + elemBytes
+	maskBytes := 4 * psvComputeMaskDwordsFromVectors(uint32(info.SigOutputVectors))
+	ioBytes := 4 * psvComputeInputOutputTableDwords(
+		uint32(info.SigInputVectors), uint32(info.SigOutputVectors))
+
+	data := EncodePSV0(info)
+	if want := prefix + int(maskBytes) + int(ioBytes); len(data) != want {
+		t.Fatalf("PSV0 size: got %d, want %d (prefix %d + mask %d + io %d)",
+			len(data), want, prefix, maskBytes, ioBytes)
+	}
+	if got := binary.LittleEndian.Uint32(data[prefix:]); got != 0x0F {
+		t.Errorf("ViewID mask: got %#x, want 0x0F", got)
+	}
+	for i, want := range info.InputToOutputTable {
+		off := prefix + int(maskBytes) + 4*i
+		if got := binary.LittleEndian.Uint32(data[off:]); got != want {
+			t.Errorf("io table entry %d: got %#x, want %#x", i, got, want)
+		}
+	}
+
+	// The size the encoder reserves and the size the validator's walker
+	// computes must be the same number.
+	if got, want := psvDependencyTableSize(info), maskBytes+ioBytes; got != want {
+		t.Errorf("dependency region: got %d bytes, want %d (mask %d + io %d)", got, want, maskBytes, ioBytes)
+	}
+
+	// Without the flag the mask is not written and the input-to-output
+	// table follows the signature elements directly.
+	info.UsesViewID = false
+	data = EncodePSV0(info)
+	if want := prefix + int(ioBytes); len(data) != want {
+		t.Fatalf("PSV0 size without UsesViewID: got %d, want %d", len(data), want)
+	}
+	if got := binary.LittleEndian.Uint32(data[prefix:]); got != 0x1 {
+		t.Errorf("io table head without UsesViewID: got %#x, want 0x1", got)
+	}
+	if got := psvDependencyTableSize(info); got != ioBytes {
+		t.Errorf("dependency region without UsesViewID: got %d bytes, want %d", got, ioBytes)
+	}
+}
+
 // TestBuildPSVStringTableEmpty verifies the empty-name edge case: the helper
 // must still return a 4-byte aligned non-nil slice with offset 0.
 func TestBuildPSVStringTableEmpty(t *testing.T) {
