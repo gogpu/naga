@@ -2038,15 +2038,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 // This tests 29 blend modes, HSL color space, overlay, color dodge/burn, soft light,
 // deeply nested function calls, mix/step/sqrt builtins, select with vec3, and module-level constants.
 func TestCompileFullBlendShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/blend.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/blend.wgsl")
 	if err != nil {
-		t.Skipf("blend.wgsl not available: %v", err)
+		t.Fatalf("vendored blend.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
 	validateWithVulkanSDK(t, spirvBytes)
-
 	t.Logf("Successfully compiled full blend shader (%d lines): %d bytes",
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
@@ -2055,9 +2054,9 @@ func TestCompileFullBlendShader(t *testing.T) {
 // This tests texture_storage_2d, textureStore, bitwise ops, continue statement,
 // multiple compute entry points, and two bind groups.
 func TestCompileStripShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/strip.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/strip.wgsl")
 	if err != nil {
-		t.Skipf("strip.wgsl not available: %v", err)
+		t.Fatalf("vendored strip.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))
@@ -2072,9 +2071,9 @@ func TestCompileStripShader(t *testing.T) {
 // This tests texture_2d_array, textureSample with array index, storage buffers,
 // for loops with u32, switch inside for loop, and multiple entry points.
 func TestCompileCompositeShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/composite.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/composite.wgsl")
 	if err != nil {
-		t.Skipf("composite.wgsl not available: %v", err)
+		t.Fatalf("vendored composite.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))
@@ -2089,9 +2088,9 @@ func TestCompileCompositeShader(t *testing.T) {
 // This tests atomicAdd, atomicStore, complex control flow with many if/else if chains,
 // multiple compute entry points, and sqrt/ceil/pow builtins.
 func TestCompileFlattenShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/flatten.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/flatten.wgsl")
 	if err != nil {
-		t.Skipf("flatten.wgsl not available: %v", err)
+		t.Fatalf("vendored flatten.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))
@@ -2106,9 +2105,9 @@ func TestCompileFlattenShader(t *testing.T) {
 // This tests atomicAdd, atomicStore, complex tile binning with nested function calls,
 // and multiple compute entry points.
 func TestCompileCoarseShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/coarse.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/coarse.wgsl")
 	if err != nil {
-		t.Skipf("coarse.wgsl not available: %v", err)
+		t.Fatalf("vendored coarse.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))
@@ -2123,9 +2122,9 @@ func TestCompileCoarseShader(t *testing.T) {
 // This tests workgroup shared memory (var<workgroup>), workgroupBarrier(),
 // bitwise shift operators, multiple compute entry points, and complex control flow.
 func TestCompileFineShader(t *testing.T) {
-	source, err := os.ReadFile("../../gg/internal/gpu/shaders/fine.wgsl")
+	source, err := os.ReadFile("../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/shaders/fine.wgsl")
 	if err != nil {
-		t.Skipf("fine.wgsl not available: %v", err)
+		t.Fatalf("vendored fine.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSL(t, string(source))

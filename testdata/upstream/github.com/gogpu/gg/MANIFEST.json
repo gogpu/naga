@@ -3,8 +3,9 @@
   "kind": "vendored",
   "source": {
     "repository": "https://github.com/gogpu/gg",
-    "commit": "bd563f4c293fd1f70afe56276c444a38302bac15",
-    "commitDate": "2026-09-01"
+    "commit": "3b2cd102efd8439c4e171934e1a638a40f051e11",
+    "commitDate": "2026-11-02",
+    "note": "refresh: blend.wgsl blend_soft_light select() condition is vecN\u003cbool\u003e since 3b2cd10 (was invalid WGSL); unskips the gg production-shader tests (card P2-TEST-010)"
   },
   "files": [
     {
@@ -14,8 +15,8 @@
     },
     {
       "path": "internal/gpu/shaders/blend.wgsl",
-      "sha256": "4b76be757e2d25dcc02321b53f8e0f78aa5237b08cf4c1b960588d8c6b2b4ec4",
-      "gitBlob": "f517183ba60b3c9aece2e8a1589f4a8bd88e00a5"
+      "sha256": "88952d0c8215f6f70014a9b7d6a15e5284be8dc5dc799ea7155df83aa06d72ab",
+      "gitBlob": "aef7dadd6656e6ddf7a8285ee03782bb3334f91a"
     },
     {
       "path": "internal/gpu/shaders/blit.wgsl",

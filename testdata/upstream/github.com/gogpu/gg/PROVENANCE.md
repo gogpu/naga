@@ -15,10 +15,14 @@ SHA-256 and git blob id in `MANIFEST.json`, and `TestUpstreamTrees`
 ## Source
 
 - Repository: https://github.com/gogpu/gg
-- Commit: `bd563f4c293fd1f70afe56276c444a38302bac15` (2026-09-01), the head of
-  `main` when taken.
+- Commit: `3b2cd102efd8439c4e171934e1a638a40f051e11` (2026-11-02) — the copy was
+  first taken at `bd563f4c293fd1f70afe56276c444a38302bac15` (2026-09-01, the head
+  of `main` then) and refreshed here for `blend.wgsl`, whose `blend_soft_light`
+  got a `vecN<bool>` `select()` condition in `3b2cd10` (the old source passed
+  `step()`, invalid WGSL, and failed spirv-val; card P2-TEST-010).
 - Taken: 2026-11-01, read from git objects (`git cat-file blob <commit>:<path>`),
-  so the bytes do not depend on a checkout's line-ending settings.
+  so the bytes do not depend on a checkout's line-ending settings; refreshed
+  2026-11-20 to the commit above.
 
 | Here | Upstream |
 |---|---|
