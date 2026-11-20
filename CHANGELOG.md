@@ -76,8 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Diagnostics come in a stable order across compiles** (card P3-API-008): the WGSL lowerer collected the
   unused-variable warnings while ranging over a Go map, so their order changed between runs of the same
-  compiler and a consumer's stderr-diff harness could not compare two runs. `wgsl.Parse` now sorts the
-  warnings by source position, then message; a 200-compile determinism test pins it.
+  compiler and a consumer's stderr-diff harness — wgpu's gate compares two runs of its shader corpus — could
+  not tell a real difference from noise. The finding came from that external harness, not from this repo's
+  own tests. `wgsl.Parse` now sorts the warnings by source position, then message; a 200-compile determinism
+  test pins it.
 
 - **A module-scope declaration is usable before its declaration through every syntax the dependency-order
   walkers read** (issue #261). The walkers that order WGSL declarations missed four node kinds — the operand
