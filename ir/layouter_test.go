@@ -90,3 +90,55 @@ func TestLayouterErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestLayouterMaxTypeSize: an array's size is its element count times the
+// stride, bounded by MaxTypeSize exactly as Rust's TypeInner::try_size
+// (proc/type_methods.rs:262-270) bounds it — a count above the limit or a
+// product above it is TooLarge, never a wrapped value (card P2-WGSL-116).
+// The multiplication runs in 64-bit arithmetic; Rust's count rules apply: a
+// runtime-sized array counts one element, an override-sized one not evaluated
+// yet counts none.
+func TestLayouterMaxTypeSize(t *testing.T) {
+	u32 := Type{Inner: ScalarType{Kind: ScalarUint, Width: 4}}
+	u32Ptr := func(v uint32) *uint32 { return &v }
+	pending := OverrideHandle(0)
+	tests := []struct {
+		name     string
+		ty       Type
+		wantSize uint32 // meaning of the layouter computed a size
+		wantErr  bool
+	}{
+		// 4 × 2^30 = 2^32, which wraps to 0 in uint32 arithmetic.
+		{"count times stride wraps", Type{Inner: ArrayType{Base: 0, Size: ArraySize{Constant: u32Ptr(0x40000000)}, Stride: 4}}, 0, true},
+		{"just above the limit", Type{Inner: ArrayType{Base: 0, Size: ArraySize{Constant: u32Ptr(0x20000001)}, Stride: 4}}, 0, true},
+		// Rust refuses a count above the limit before the product
+		// (type_methods.rs:262-265): a zero stride would otherwise hide it.
+		{"count above the limit with a zero stride", Type{Inner: ArrayType{Base: 0, Size: ArraySize{Constant: u32Ptr(0x80000000)}, Stride: 0}}, 0, true},
+		// 0x1FFFFFFF × 4 = 0x7FFFFFFC, the largest a u32 array can be.
+		{"at the limit", Type{Inner: ArrayType{Base: 0, Size: ArraySize{Constant: u32Ptr(0x1FFFFFFF)}, Stride: 4}}, 0x7FFFFFFC, false},
+		{"runtime-sized counts one element", Type{Inner: ArrayType{Base: 0, Stride: 4}}, 4, false},
+		{"pending counts none while unresolved", Type{Inner: ArrayType{Base: 0, Size: ArraySize{Pending: &pending}, Stride: 4}}, 0, false},
+		// Rust's try_size returns a struct's span unchecked
+		// (proc/type_methods.rs:272); we bound it (card P2-WGSL-122's
+		// deviation, completed at the shared layouter).
+		{"struct span above the limit", Type{Inner: StructType{Span: 0x80000000}}, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var l Layouter
+			err := l.Update(&Module{Types: []Type{u32, tt.ty}})
+			if tt.wantErr {
+				if err == nil || err.Error() != "layout of type 1: size exceeds the limit of 2147483647 bytes" {
+					t.Fatalf("Update error = %v, want the MaxTypeSize error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			if got := l.Layout(1).Size; got != tt.wantSize {
+				t.Errorf("Layout(1).Size = %d, want %d", got, tt.wantSize)
+			}
+		})
+	}
+}

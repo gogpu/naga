@@ -453,6 +453,12 @@ func (p *parser) parseTypeArray(inst instruction) error {
 	}
 	handle := p.insertType(dec.name, dec.namePresent(), inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
+	// Lay the new type out now, so an array whose size exceeds
+	// ir.MaxTypeSize is refused at parse rather than when a later type or
+	// the validator happens to lay it out (card P2-WGSL-116).
+	if err := p.updateLayouter(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -498,6 +504,12 @@ func (p *parser) parseTypeRuntimeArray(inst instruction) error {
 	}
 	handle := p.insertType(dec.name, dec.namePresent(), inner)
 	p.lookupType[id] = lookupType{handle: handle, baseID: typeID, hasBase: true}
+	// Lay the new type out now, so an array whose size exceeds
+	// ir.MaxTypeSize is refused at parse rather than when a later type or
+	// the validator happens to lay it out (card P2-WGSL-116).
+	if err := p.updateLayouter(); err != nil {
+		return err
+	}
 	return nil
 }
 
