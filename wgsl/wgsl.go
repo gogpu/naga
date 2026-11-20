@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -96,6 +97,17 @@ func Parse(source string, options ParseOptions) (*ir.Module, ParseInfo, error) {
 	for _, w := range result.Warnings {
 		info.Warnings = append(info.Warnings, frontend.Diagnostic{Message: w.Message, Span: spanOf(source, w.Span)})
 	}
+	// The lowerer collects some warnings by ranging over Go maps (the local
+	// declarations behind the unused-variable check), so their order changes
+	// between runs unless it is fixed here: a consumer's stderr-diff harness
+	// compares two runs of the same compiler and saw noise (card P3-API-008).
+	sort.Slice(info.Warnings, func(i, j int) bool {
+		a, b := info.Warnings[i], info.Warnings[j]
+		if a.Span.Start != b.Span.Start {
+			return a.Span.Start < b.Span.Start
+		}
+		return a.Message < b.Message
+	})
 	return result.Module, info, nil
 }
 
