@@ -1065,6 +1065,27 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 		// findLSB always returns signed; cast to unsigned if arg is unsigned
 		return w.wrapUintCast(fmt.Sprintf("findLSB(%s)", argStr), m.Arg), nil
 	case ir.MathCountLeadingZeros:
+		// findMSB exists only from desktop GLSL 4.00 / ES 3.10. Below that,
+		// Rust naga (back/glsl/writer.rs, CountLeadingZeros) emits a log2-based
+		// polyfill instead of the built-in.
+		if !w.options.LangVersion.supportsIntegerFunctions() {
+			// isUnsignedExpr reports vector size 0 for signed vectors, so the
+			// vector-ness is taken from getExprVectorSize.
+			_, isUint := w.isUnsignedExpr(m.Arg)
+			vecSize, isVec := w.getExprVectorSize(m.Arg)
+			switch {
+			case isVec && isUint:
+				return fmt.Sprintf("uvec%d(vec%d(31.0) - floor(log2(vec%d(%s) + 0.5)))",
+					vecSize, vecSize, vecSize, args[0]), nil
+			case isVec:
+				return fmt.Sprintf("ivec%d(mix(vec%d(31.0) - floor(log2(vec%d(%s) + 0.5)), vec%d(0.0), lessThan(%s, ivec%d(0u))))",
+					vecSize, vecSize, vecSize, args[0], vecSize, args[0], vecSize), nil
+			case isUint:
+				return fmt.Sprintf("uint(31.0 - floor(log2(float(%s) + 0.5)))", args[0]), nil
+			default:
+				return fmt.Sprintf("(%s < 0 ? 0 : int(31.0 - floor(log2(float(%s) + 0.5))))", args[0], args[0]), nil
+			}
+		}
 		// findMSB of an unsigned value is -1 for zero and 31 for a negative i32.
 		if _, isUint := w.isUnsignedExpr(m.Arg); isUint {
 			return w.wrapUintCast(fmt.Sprintf("(31 - findMSB(%s))", args[0]), m.Arg), nil

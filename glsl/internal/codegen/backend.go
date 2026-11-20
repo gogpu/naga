@@ -139,6 +139,16 @@ func (v Version) supportsFma() bool {
 	return v.Major > 4 || (v.Major == 4 && v.Minor >= 0)
 }
 
+// supportsIntegerFunctions returns true if the integer bit built-ins such as
+// findMSB and findLSB are available: desktop GLSL 400+, ES 310+.
+// Matches Rust naga Version::supports_integer_functions.
+func (v Version) supportsIntegerFunctions() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major >= 4
+}
+
 // SupportsStorageBuffers returns true if this version supports storage buffers.
 func (v Version) SupportsStorageBuffers() bool {
 	if v.ES {
