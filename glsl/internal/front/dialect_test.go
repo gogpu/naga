@@ -489,6 +489,30 @@ void main() { color = vec4(float(textureQueryLevels(tex))); }
 			want:  "'textureQueryLevels' : not supported by GLSL ES 3.00",
 		},
 		{
+			name: "textureSamples in 330",
+			// ERROR: 0:4: 'textureSamples' : no matching overloaded function
+			// found
+			source: `#version 330 core
+uniform sampler2DMS tex;
+out ivec4 count;
+void main() { count = ivec4(textureSamples(tex), 0, 0, 0); }
+`,
+			stage: ir.StageFragment,
+			want:  "'textureSamples' : not supported by GLSL 3.30 core",
+		},
+		{
+			name: "textureSamples in 300 es",
+			// ERROR: 0:3: 'sampler2DMS' : Reserved word
+			source: `#version 300 es
+precision highp float;
+uniform sampler2DMS tex;
+out ivec4 count;
+void main() { count = ivec4(textureSamples(tex), 0, 0, 0); }
+`,
+			stage: ir.StageFragment,
+			want:  "'textureSamples' : not supported by GLSL ES 3.00",
+		},
+		{
 			name: "workgroup size outside compute",
 			// ERROR: 0:2: 'local_size_x' : there is no such layout identifier
 			// for this stage taking an assigned value

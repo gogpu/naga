@@ -145,6 +145,9 @@ const (
 	macroTextureGather
 	// macroTextureQueryLod is textureQueryLod, the level-of-detail query.
 	macroTextureQueryLod
+	// macroTextureSamples is textureSamples, the sample count of a
+	// multisampled sampler.
+	macroTextureSamples
 )
 
 // textureLevelType says where a texture() family call takes its level of
@@ -268,6 +271,9 @@ func (m *macroCall) call(c *Context, args []loweredArg, span ir.Span) (ir.Expres
 
 	case macroTextureQueryLevels:
 		return callAsInt(c, ir.ImageQueryNumLevels{}, args[0].expr)
+
+	case macroTextureSamples:
+		return callAsInt(c, ir.ImageQueryNumSamples{}, args[0].expr)
 
 	case macroImageLoad:
 		return m.callImageLoad(c, args, span)
@@ -1143,6 +1149,8 @@ func (f *Frontend) injectTextureBuiltin(decl *functionDeclaration, name string, 
 		f.injectTextureGatherBuiltins(decl, name, variations)
 	case "textureQueryLevels":
 		f.injectTextureQueryLevelsBuiltins(decl, variations)
+	case "textureSamples":
+		f.injectTextureSamplesBuiltins(decl, variations)
 	case "textureQueryLod":
 		f.injectTextureQueryLodBuiltins(decl, variations)
 	case "texelFetch", "texelFetchOffset":
@@ -1441,6 +1449,30 @@ func (f *Frontend) injectTextureQueryLevelsBuiltins(decl *functionDeclaration, v
 			SampledKind:  kind,
 		}
 		decl.overloads = append(decl.overloads, f.addBuiltinOverload([]ir.TypeInner{image}, &macroCall{kind: macroTextureQueryLevels}))
+	})
+}
+
+// injectTextureSamplesBuiltins adds textureSamples, the sample count of a
+// multisampled sampler (GLSL 4.50 §8.9). Only the multisampled classes have
+// an overload — glslang refuses textureSamples on a single-sampled sampler
+// ("no matching overloaded function found") — and the 2D multisampled array is
+// the shape the standard variation does not request on its own
+// (builtins.rs:2313-2365). Rust naga's GLSL frontend declares no counterpart
+// (front/glsl/builtins.rs has no textureSamples injection); the GLSL spec
+// decides the shape, as with textureQueryLod above.
+func (f *Frontend) injectTextureSamplesBuiltins(decl *functionDeclaration, variations builtinVariations) {
+	f.textureArgsGenerator(textureArgsMulti|textureArgsOptionsOf(variations), func(kind ir.ScalarKind, dim ir.ImageDimension, arrayed, multi, _ bool) {
+		if !multi {
+			return
+		}
+		image := ir.ImageType{
+			Dim:          dim,
+			Arrayed:      arrayed,
+			Class:        ir.ImageClassSampled,
+			Multisampled: true,
+			SampledKind:  kind,
+		}
+		decl.overloads = append(decl.overloads, f.addBuiltinOverload([]ir.TypeInner{image}, &macroCall{kind: macroTextureSamples}))
 	})
 }
 

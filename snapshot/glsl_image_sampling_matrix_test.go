@@ -652,6 +652,47 @@ void main() { fragLevels = ivec4(textureQueryLevels(s)); }
 `,
 	},
 	{
+		name:      "texture-samples-2d-ms",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"textureSamples"},
+		// The sample count of a multisampled image (GLSL 4.50 §8.9): the call
+		// takes the combined sampler and no level argument, and only the
+		// multisampled classes have an overload.
+		source: `#version 450
+layout(set = 0, binding = 0) uniform sampler2DMS s;
+layout(location = 0) out ivec4 fragSamples;
+void main() { fragSamples = ivec4(textureSamples(s), 0, 0, 0); }
+`,
+	},
+	{
+		name:      "texture-samples-2d-ms-array",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"textureSamples"},
+		// A multisampled 2D array is the shape the standard builtin variation
+		// does not request on its own (Rust's D2_MULTI_TEXTURES_ARRAY).
+		source: `#version 450
+layout(set = 0, binding = 0) uniform sampler2DMSArray s;
+layout(location = 0) out ivec4 fragSamples;
+void main() { fragSamples = ivec4(textureSamples(s), 0, 0, 0); }
+`,
+	},
+	{
+		name:      "texture-samples-separate-sampler",
+		stage:     ir.StageFragment,
+		extension: ".frag",
+		builtins:  []string{"textureSamples"},
+		// The combined-sampler split: the constructor pairs two separate
+		// declarations, and the query takes the image the pair stands for.
+		source: `#version 450
+layout(set = 0, binding = 0) uniform texture2DMS t;
+layout(set = 0, binding = 1) uniform sampler smp;
+layout(location = 0) out ivec4 fragSamples;
+void main() { fragSamples = ivec4(textureSamples(sampler2DMS(t, smp)), 0, 0, 0); }
+`,
+	},
+	{
 		// textureQueryLod's ok rows live in glsl_texture_query_lod_test.go: its
 		// MSL output needs LangVersion 2.2 (calculate_clamped_lod), which this
 		// matrix's shared driver does not raise. The row here drives the name

@@ -303,6 +303,17 @@ var glslDialectMatrix = []glslDialectRow{
 	},
 	{
 		dialect:      glslDialectGL330,
+		file:         "refuse-texture-samples.frag",
+		stage:        ir.StageFragment,
+		capabilities: []string{"refuse-texture-samples"},
+		refuse:       "textureSamples",
+		reason: "textureSamples is GLSL 4.00: design §15 has no sample-count query for this dialect, " +
+			"and the frontend implements it for Vulkan GLSL. glslangValidator: \"'textureSamples' : no " +
+			"matching overloaded function found\"",
+		glslang: glslangRejects,
+	},
+	{
+		dialect:      glslDialectGL330,
 		file:         "refuse-subgroups.frag",
 		stage:        ir.StageFragment,
 		capabilities: []string{"refuse-subgroups"},
@@ -546,6 +557,17 @@ var glslDialectMatrix = []glslDialectRow{
 		refuse:       "textureQueryLevels",
 		reason: "textureQueryLevels is ES 3.10: design §15 has no query for this dialect. " +
 			"glslangValidator: \"textureQueryLevels : no matching overloaded function found\"",
+		glslang: glslangRejects,
+	},
+	{
+		dialect:      glslDialectES300,
+		file:         "refuse-texture-samples.frag",
+		stage:        ir.StageFragment,
+		capabilities: []string{"refuse-texture-samples"},
+		refuse:       "textureSamples",
+		reason: "textureSamples is ES 3.10, and the multisampled sampler types it reads are reserved " +
+			"words in ES 3.00: design §15 has no sample-count query for this dialect. " +
+			"glslangValidator: \"'sampler2DMS' : Reserved word\"",
 		glslang: glslangRejects,
 	},
 	{
@@ -817,6 +839,7 @@ var glslDialectCapabilities = []glslDialectCapability{
 	{name: "refuse-layout-binding", dialects: glslBothDialects, note: "§15 layout(binding=)/set=: no"},
 	{name: "refuse-texture-gather", dialects: glslBothDialects, note: "§15: textureGather is 4.00 / ES 3.10"},
 	{name: "refuse-texture-query-levels", dialects: glslBothDialects, note: "§15: textureQueryLevels is 4.30 / ES 3.10"},
+	{name: "refuse-texture-samples", dialects: glslBothDialects, note: "§15: textureSamples is 4.00 / ES 3.10"},
 	{name: "refuse-subgroups", dialects: glslBothDialects, note: "§15 Subgroups: no in ES 3.00, extension-only in 3.30"},
 	{name: "refuse-gl-fragcolor", dialects: glslBothDialects, note: "§15 gl_FragColor: no"},
 	{name: "refuse-default-precision", dialects: []glslDialect{glslDialectES300}, note: "§15 Precision qualifiers: fragment float needs a default in ES 3.00"},

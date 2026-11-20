@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The GLSL frontend accepts `textureSamples` and lowers it to the IR's sample-count query** (card
+  P2-GLSLIN-014). The builtin takes the multisampled sampler classes of GLSL 4.00 — `sampler2DMS` and
+  `sampler2DMSArray`, in all three texel kinds — and becomes `ImageQueryNumSamples`, converted to the `int`
+  the GLSL call returns, the query the WGSL frontend, the SPIR-V frontend and every backend already
+  implement. The 2D multisampled array overload is injected when its argument asks for it, like Rust's
+  `D2_MULTI_TEXTURES_ARRAY` variation, so a shader that uses only `sampler2DMS` sees that overload alone.
+  The GL 3.30 core and ES 3.00 dialects refuse the call at the version gate (GLSL 4.00 / ES 3.10), with
+  glslang's verdict recorded in the dialect corpus. `imageSamples` stays out of the frontend: it takes a
+  multisampled storage image, a class the frontend does not model (`image2DMS` is not a type it parses,
+  matching Rust naga's own refusal), so no argument could ever match such an overload.
+
 ### Fixed
 
 - **Type sizes are bounded by Rust naga's `MAX_TYPE_SIZE` wherever they are derived** (card P2-WGSL-116). An

@@ -371,6 +371,16 @@ func TestBuiltinCatalogTextureFamily(t *testing.T) {
 	if !ov.void {
 		t.Fatal("imageStore is not marked void")
 	}
+
+	// textureSamples is the sample-count query of a multisampled sampler
+	// (GLSL 4.50 §8.9): one parameter, the sampler, and no other shape. The
+	// multisampled 2D array is the shape the standard variation does not
+	// request on its own (builtins.rs:2313-2365).
+	checkBuiltinCatalogVariation(t, variationStandard|variationD2MultiTexturesArray, []builtinCatalogCase{
+		{"textureSamples 2DMS", []ir.TypeInner{sampledImage(ir.Dim2D, false, true, ir.ScalarFloat)}, macroTextureSamples, nil, nil, nil, nil, nil, nil},
+		{"textureSamples 2DMSArray", []ir.TypeInner{sampledImage(ir.Dim2D, true, true, ir.ScalarFloat)}, macroTextureSamples, nil, nil, nil, nil, nil, nil},
+		{"textureSamples usampler2DMS", []ir.TypeInner{sampledImage(ir.Dim2D, false, true, ir.ScalarUint)}, macroTextureSamples, nil, nil, nil, nil, nil, nil},
+	})
 }
 
 // TestBuiltinCatalogDoubleVariation covers Rust's inject_double_builtin
