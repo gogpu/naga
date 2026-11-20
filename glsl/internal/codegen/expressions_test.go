@@ -912,7 +912,9 @@ func TestGLSL_MathExpressions(t *testing.T) {
 		{"reverseBits", ir.MathReverseBits, "bitfieldReverse("},
 		{"firstLeadingBit", ir.MathFirstLeadingBit, "findMSB("},
 		{"firstTrailingBit", ir.MathFirstTrailingBit, "findLSB("},
-		{"countLeadingZeros", ir.MathCountLeadingZeros, "findMSB("},
+		// Default target is GLSL 3.30, which has no findMSB, so
+		// countLeadingZeros goes through the log2 polyfill.
+		{"countLeadingZeros", ir.MathCountLeadingZeros, "31.0 - floor(log2("},
 		{"countTrailingZeros", ir.MathCountTrailingZeros, "findLSB("},
 		{"radians", ir.MathRadians, "radians("},
 		{"degrees", ir.MathDegrees, "degrees("},
