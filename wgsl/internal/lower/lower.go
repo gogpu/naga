@@ -712,9 +712,23 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 		}
 		offset += size
 	}
-	// Round struct size up to alignment of largest member
-	structSize := (offset + maxAlign - 1) &^ (maxAlign - 1)
-	l.registerNamedType(s.Name, ir.StructType{Members: members, Span: structSize})
+	// Round struct size up to alignment of largest member. The rounding can
+	// push the span past MAX_TYPE_SIZE even when every member offset passed
+	// the per-member bound: @align(0x80000000) rounds a f32 member's offset
+	// to 0 and the struct's span to the alignment, and an @size exactly at
+	// the maximum rounds over it. The finished span is therefore bounded too
+	// (MAX_TYPE_SIZE, valid/mod.rs:41), in 64-bit arithmetic so the rounding
+	// itself cannot wrap. This completes the rule rather than copying it:
+	// Rust naga checks per-member offsets only and its layouter trusts a
+	// struct's span (proc/type_methods.rs:272), so it accepts these two
+	// shapes (oracle run, span 0x80000000, validation OK); carrying a type
+	// above the same bound the member check enforces would seed the layout
+	// arithmetic with an oversized span.
+	structSpan := (uint64(offset) + uint64(maxAlign) - 1) &^ (uint64(maxAlign) - 1)
+	if structSpan > uint64(maxTypeSize) {
+		return parser.NewSourceError(msgTypeTooLarge, s.Pos(), l.source)
+	}
+	l.registerNamedType(s.Name, ir.StructType{Members: members, Span: uint32(structSpan)})
 	return nil
 }
 

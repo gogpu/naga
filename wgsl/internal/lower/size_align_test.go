@@ -160,6 +160,16 @@ struct S { @size(g()) x: f32 }` + uniform,
 			"type is too large"},
 		{"overflow by accumulation", `struct S { @size(0x7FFFFFFF) x: f32, y: f32 }` + uniform,
 			"type is too large"},
+		// The per-member bound sees a fine offset in both cases; the struct's
+		// rounded span is what crosses MAX_TYPE_SIZE. Rust naga accepts both
+		// (oracle run at the pinned wgpu@14328f4: parsed span 0x80000000,
+		// validation OK — its lowerer checks per-member offsets only and its
+		// layouter trusts a struct's span, proc/type_methods.rs:272); they
+		// are refused here on purpose, see the lowerStruct comment.
+		{"struct span above the maximum by alignment", `struct S { @align(0x80000000) x: f32 }` + uniform,
+			"type is too large"},
+		{"struct span above the maximum by rounding", `struct S { @size(0x7FFFFFFF) @align(16) x: f32 }` + uniform,
+			"type is too large"},
 		{"no argument", `struct S { @size() x: f32 }` + uniform,
 			"requires exactly one argument"},
 		{"two arguments", `struct S { @align(16, 2) x: f32 }` + uniform,
@@ -169,5 +179,15 @@ struct S { @size(g()) x: f32 }` + uniform,
 		t.Run(tc.name, func(t *testing.T) {
 			expectError(t, tc.src, tc.want)
 		})
+	}
+}
+
+// TestLowerSizeAlignSpanBoundary: MAX_TYPE_SIZE is a strict upper bound, so a
+// struct whose rounded span is exactly the maximum stays accepted. bool keeps
+// every alignment at 1, and with them the rounding at the maximum exact.
+func TestLowerSizeAlignSpanBoundary(t *testing.T) {
+	st := findStruct(t, mustCompile(t, `struct S { @size(0x7FFFFFFF) x: bool }`), "S")
+	if st.Span != 0x7FFFFFFF {
+		t.Fatalf("struct span = %#x, want 0x7FFFFFFF — a span at the bound is allowed", st.Span)
 	}
 }
