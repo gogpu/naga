@@ -104,7 +104,11 @@ func (c *layoutContext) layout(h TypeHandle) (TypeLayout, error) {
 	if err != nil {
 		return TypeLayout{}, err
 	}
-	c.layouts[i] = TypeLayout{Size: typeInnerSize(c.m, inner), Alignment: alignment}
+	size, ok := typeInnerSize(c.m, inner)
+	if !ok {
+		return TypeLayout{}, fmt.Errorf("layout of type %d: size exceeds the limit of %d bytes", h, MaxTypeSize)
+	}
+	c.layouts[i] = TypeLayout{Size: size, Alignment: alignment}
 	c.state[i] = layoutDone
 	return c.layouts[i], nil
 }
@@ -152,42 +156,79 @@ func (c *layoutContext) elementAlignment(h TypeHandle, what string, base TypeHan
 	return l.Alignment, nil
 }
 
+// MaxTypeSize is Rust naga's valid::MAX_TYPE_SIZE (valid/mod.rs:41): the
+// largest size in bytes a type may have — i32::MAX, the bound Rust's
+// TypeInner::try_size (proc/type_methods.rs:232-279) holds every type to. A
+// size computed beyond it is an error, never a wrapped value.
+const MaxTypeSize uint32 = 1<<31 - 1
+
 // typeInnerSize is the byte size of inner following WGSL/WebGPU alignment
 // rules, as Rust naga's TypeInner::try_size(gctx): 0 for opaque types
 // (samplers, images, pointers) and for an array whose size is given by an
-// override not yet evaluated; a runtime-sized array counts one element.
-func typeInnerSize(module *Module, inner TypeInner) uint32 {
+// override not yet evaluated; a runtime-sized array counts one element. ok is
+// false when the size exceeds MaxTypeSize — an array's element count times
+// its stride (computed in 64-bit arithmetic, so the product cannot wrap) or a
+// struct's span.
+func typeInnerSize(module *Module, inner TypeInner) (size uint32, ok bool) {
 	switch t := inner.(type) {
 	case ScalarType:
-		return uint32(t.Width)
+		return uint32(t.Width), true
 	case AtomicType:
-		return uint32(t.Scalar.Width)
+		return uint32(t.Scalar.Width), true
 	case VectorType:
-		return uint32(t.Size) * uint32(t.Scalar.Width)
+		return uint32(t.Size) * uint32(t.Scalar.Width), true
 	case MatrixType:
 		// Matrices are arrays of aligned columns. Column vector alignment
 		// follows WGSL rules: vec2→align 2, vec3/vec4→align 4.
 		colAlign := vectorAlignment(t.Rows)
 		colStride := colAlign * uint32(t.Scalar.Width)
-		return colStride * uint32(t.Columns)
+		return colStride * uint32(t.Columns), true
 	case ArrayType:
 		// Rust try_size: a runtime-sized array counts one element; a pending
 		// size counts its override's value, or 0 while it is not evaluated.
+		// A count above the limit is refused before the product, as Rust
+		// does: a zero stride would otherwise hide it.
 		l, err := t.Size.Resolve(module)
+		var count uint64
 		switch {
 		case err != nil:
-			return 0
+			count = 0
 		case l.Dynamic:
-			return t.Stride
+			count = 1
+		default:
+			count = uint64(l.Known)
 		}
-		return l.Known * t.Stride
+		if count > uint64(MaxTypeSize) {
+			return 0, false
+		}
+		return sizeWithinLimit(count, uint64(t.Stride))
 	case StructType:
-		return t.Span
+		// Rust's try_size returns a struct's span unchecked
+		// (proc/type_methods.rs:272). We bound it: a struct span over
+		// MAX_TYPE_SIZE is the same wrong layout the WGSL frontend refuses at
+		// creation (card P2-WGSL-122, endorsed by the expert), and a struct
+		// the frontend did not build — a GLSL frontend's std140 block or a
+		// SPIR-V module's — must not smuggle an oversized type past the
+		// bound the rest of the IR holds to.
+		if t.Span > MaxTypeSize {
+			return 0, false
+		}
+		return t.Span, true
 	default:
 		// Pointers, images, samplers, acceleration structures, ray queries
 		// and binding arrays.
-		return 0
+		return 0, true
 	}
+}
+
+// sizeWithinLimit returns count × stride when it fits MaxTypeSize. The
+// operands are both 32-bit, so the product cannot wrap 64 bits.
+func sizeWithinLimit(count, stride uint64) (uint32, bool) {
+	product := count * stride
+	if product > uint64(MaxTypeSize) {
+		return 0, false
+	}
+	return uint32(product), true
 }
 
 // vectorAlignment returns the alignment in components for a vector size.

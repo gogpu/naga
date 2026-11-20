@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Type sizes are bounded by Rust naga's `MAX_TYPE_SIZE` wherever they are derived** (card P2-WGSL-116). An
+  array's size is its element count times the stride; computed in uint32, `array<f32, 0x40000000>` wrapped to
+  a zero-size struct that compiled without an error, and an array of `0x20000001` elements exceeded the bound
+  silently outside a struct. The shared `ir.Layouter` (Rust's `proc::Layouter`) now computes sizes in 64-bit
+  arithmetic and fails with "size exceeds the limit of 2147483647 bytes" for anything above
+  `ir.MaxTypeSize` (`valid/mod.rs:41`), following `try_size`: a runtime-sized array counts one element, an
+  override count not evaluated yet counts none, a count above the limit is refused before the product, and a
+  struct's span is bounded too — a deliberate completion of Rust's rule, which returns that span unchecked.
+  The layouter bounds every module it lays out (a consumer runs it for workgroup storage sizes); it is a
+  backstop rather than a validation gate, so the frontends refuse oversized types where they are created:
+  the WGSL frontend with the shader-creation errors Rust reports — "type is too large" at the array, and
+  "struct member is too large" at the member's name when the array is a member's type — plus one final
+  layouter run over every lowered module, and the SPIR-V frontend by laying each array out as it parses it.
+  A lowering error that carries its own source position now keeps it instead of having its structured span
+  re-anchored at the declaration.
+
 - **`@size` and `@align` on a struct member are evaluated and validated instead of being silently dropped**
   (card P1-WGSL-122, found by the expert's validation of #261). Only a bare decimal literal used to be read;
   any other spelling — a named constant, a constant expression, a hex literal — was ignored, so the module

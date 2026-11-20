@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/ir"
 )
 
 // A declared array length is a literal in the source, and every whole-array
@@ -66,7 +67,7 @@ func TestCompileAcceptsFunctionVariablesAtTheBound(t *testing.T) {
 }
 
 // The byte size counted for each kind of type: WGSL's byte-size, an array's
-// stride times its length, saturating rather than wrapping.
+// stride times its length.
 func TestFunctionVariableBytes(t *testing.T) {
 	m := lowerSource(t, `
 struct S { p: vec3<f32>, k: f32 }
@@ -76,14 +77,34 @@ struct S { p: vec3<f32>, k: f32 }
     var c: mat4x4<f32>;
     var d: array<vec3<f32>, 10>;
     var e: S;
-    var f: array<array<S, 4294967295>, 4294967295>;
 }
 `)
 	fn := &m.EntryPoints[0].Function
-	want := map[string]uint64{"a": 4, "b": 12, "c": 64, "d": 160, "e": 16, "f": variableBytesCap}
+	want := map[string]uint64{"a": 4, "b": 12, "c": 64, "d": 160, "e": 16}
 	for _, lv := range fn.LocalVars {
 		if got := variableBytes(m, lv.Type); got != want[lv.Name] {
 			t.Errorf("%s: %d bytes, want %d", lv.Name, got, want[lv.Name])
+		}
+	}
+}
+
+// TestVariableBytesSaturates: a huge array size saturates at the cap instead
+// of wrapping. The frontends no longer produce such a type — its size exceeds
+// MAX_TYPE_SIZE (card P2-WGSL-116) — so it is built in the IR directly: the
+// backend's own defense must hold for IR from any source.
+func TestVariableBytesSaturates(t *testing.T) {
+	u32max := uint32(0xFFFFFFFF)
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	m := &ir.Module{Types: []ir.Type{
+		{Inner: f32},
+		{Inner: ir.VectorType{Size: ir.Vec3, Scalar: f32}},
+		{Inner: ir.StructType{Span: 16, Members: []ir.StructMember{{Type: 0}, {Type: 1}}}},
+		{Inner: ir.ArrayType{Base: 2, Size: ir.ArraySize{Constant: &u32max}, Stride: 16}},
+		{Inner: ir.ArrayType{Base: 3, Size: ir.ArraySize{Constant: &u32max}, Stride: 16}},
+	}}
+	for h, name := range map[ir.TypeHandle]string{3: "array<S, max>", 4: "array<array<S, max>, max>"} {
+		if got := variableBytes(m, h); got != variableBytesCap {
+			t.Errorf("%s: %d bytes, want the cap %d", name, got, variableBytesCap)
 		}
 	}
 }

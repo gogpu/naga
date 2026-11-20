@@ -392,3 +392,35 @@ func TestStorageExpressionLimitCostIndependentOfFunctions(t *testing.T) {
 			100*overLimit, large, overLimit, small)
 	}
 }
+
+// TestTypeSizeLimit: a parsed type's size is bounded by ir.MaxTypeSize
+// (Rust's valid::MAX_TYPE_SIZE, the layouter's try_size), and an array is
+// laid out as soon as it is parsed, so an OpTypeArray whose count times
+// stride exceeds the limit is refused at parse (card P2-WGSL-116). The count
+// itself is already capped by maxArrayElements; the stride decoration is what
+// this bound covers.
+func TestTypeSizeLimit(t *testing.T) {
+	module := func(stride uint32) []byte {
+		return spvWords(
+			headerWords(),
+			instWords(spvenums.OpCapability, uint32(spvenums.CapabilityShader)),
+			instWords(spvenums.OpMemoryModel, 0, 1),
+			instWords(spvenums.OpDecorate, 5, uint32(spvenums.DecorationArrayStride), stride),
+			instWords(spvenums.OpTypeInt, 3, 32, 0),
+			instWords(spvenums.OpConstant, 3, 4, 2),
+			instWords(spvenums.OpTypeArray, 5, 3, 4),
+		)
+	}
+
+	// 2 × 0x3FFFFFFF = 0x7FFFFFFE, within the limit.
+	if _, _, err := Parse(module(0x3FFFFFFF), Options{}); err != nil {
+		t.Fatalf("Parse at the limit: %v", err)
+	}
+	_, _, err := Parse(module(0x40000000), Options{})
+	if err == nil {
+		t.Fatal("Parse accepted an array over the maximum type size")
+	}
+	if got := requireError(t, err).Message; !strings.Contains(got, "size exceeds the limit") {
+		t.Errorf("message = %q, want the type size limit", got)
+	}
+}

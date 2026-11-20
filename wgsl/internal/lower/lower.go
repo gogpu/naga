@@ -292,39 +292,39 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 		case *parser.AliasDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerAlias(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		case *parser.StructDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerStruct(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		case *parser.VarDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerGlobalVar(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		case *parser.OverrideDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerOverride(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		case *parser.ConstDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerConstant(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		case *parser.FunctionDecl:
 			redefine(d.Name, d.Span)
 			if err := l.lowerFunction(d); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 			processedFunctions[d.Name] = true
 		case *parser.ConstAssertDecl:
 			// Module-scope const_assert — evaluate and error if false.
 			// Matches Rust naga: ConstAssertFailed / NotBool.
 			if err := l.evalConstAssert(d.Condition); err != nil {
-				l.addError(err.Error(), d.Span)
+				l.addDeclError(err, d.Span)
 			}
 		}
 	}
@@ -334,7 +334,7 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	for _, f := range ast.Functions {
 		if !processedFunctions[f.Name] {
 			if err := l.lowerFunction(f); err != nil {
-				l.addError(err.Error(), f.Span)
+				l.addDeclError(err, f.Span)
 			}
 		}
 	}
@@ -360,6 +360,19 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// when function call flushes interact with statement-level emit wrappers.
 	// Rust naga doesn't have this issue because its emitter uses a different restart mechanism.
 	irutil.DeduplicateEmits(l.module)
+
+	// Lay the finished module out once with the bounded layouter: it is the
+	// backstop for a type the creation-time checks never see, such as an
+	// anonymous array the constant evaluator registers, so no WGSL module can
+	// carry a size over MAX_TYPE_SIZE into a consumer's arithmetic (card
+	// P2-WGSL-116). The layouter is not a validation gate — a consumer runs
+	// it for what it needs laid out — so this run is what makes the bound
+	// hold for every module this frontend produces.
+	var layouter ir.Layouter
+	if err := layouter.Update(l.module); err != nil {
+		l.addError(err.Error(), parser.Span{})
+		return nil, &l.errors
+	}
 
 	return &LowerResult{
 		Module:   l.module,
@@ -388,6 +401,19 @@ func (l *Lowerer) literalNotRepresentable(lit *parser.Literal) error {
 // addError adds an error with source location.
 func (l *Lowerer) addError(message string, span parser.Span) {
 	l.errors.Add(parser.NewSourceError(message, span, l.source))
+}
+
+// addDeclError records a declaration's lowering error. An error that already
+// carries its own source position keeps it — a struct member's or an
+// attribute argument's position is where Rust naga points — and everything
+// else is anchored at the declaration.
+func (l *Lowerer) addDeclError(err error, span parser.Span) {
+	var sourceErr *parser.SourceError
+	if errors.As(err, &sourceErr) {
+		l.errors.Add(sourceErr)
+		return
+	}
+	l.addError(err.Error(), span)
 }
 
 // registerBuiltinTypes is a no-op placeholder for future use.
@@ -667,6 +693,14 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 		memberNames[m.Name] = true
 		typeHandle, err := l.resolveType(m.Type)
 		if err != nil {
+			// A member whose type exceeds MAX_TYPE_SIZE is Rust's
+			// Error::StructMemberTooLarge, labeled at the member's name
+			// (front/wgsl/error.rs:1696-1703); the array creation refusal is
+			// the TypeTooLarge it is reported as there.
+			var sourceErr *parser.SourceError
+			if errors.As(err, &sourceErr) && sourceErr.Message == msgTypeTooLarge {
+				return parser.NewSourceError(msgStructMemberTooLarge, m.Span, l.source)
+			}
 			return fmt.Errorf("struct %s member %s: %w", s.Name, m.Name, err)
 		}
 
@@ -707,7 +741,7 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 		// Rust naga's MAX_TYPE_SIZE bound (valid/mod.rs:41, checked after the
 		// same addition at front/wgsl/lower/mod.rs:4888), computed in 64-bit
 		// arithmetic: a large @size makes the sum itself wrap in uint32.
-		if uint64(offset)+uint64(size) > uint64(maxTypeSize) {
+		if uint64(offset)+uint64(size) > uint64(ir.MaxTypeSize) {
 			return parser.NewSourceError(msgTypeTooLarge, m.Type.Pos(), l.source)
 		}
 		offset += size
@@ -725,7 +759,7 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 	// above the same bound the member check enforces would seed the layout
 	// arithmetic with an oversized span.
 	structSpan := (uint64(offset) + uint64(maxAlign) - 1) &^ (uint64(maxAlign) - 1)
-	if structSpan > uint64(maxTypeSize) {
+	if structSpan > uint64(ir.MaxTypeSize) {
 		return parser.NewSourceError(msgTypeTooLarge, s.Pos(), l.source)
 	}
 	l.registerNamedType(s.Name, ir.StructType{Members: members, Span: uint32(structSpan)})
@@ -738,18 +772,15 @@ const (
 	attrAlignName = "align"
 )
 
-// maxTypeSize is Rust naga's valid::MAX_TYPE_SIZE (valid/mod.rs:41): i32::MAX.
-// A struct's running offset may not exceed it after a member is added.
-const maxTypeSize uint32 = 1<<31 - 1
-
 // Member layout error texts, as in Rust naga's front/wgsl/error.rs.
 const (
-	msgFixedFootprint     = "@size attribute requires a type with creation-fixed footprint"
-	msgNonPowerOfTwoAlign = "struct member alignment must be a power of 2"
-	msgSizeTooLow         = "struct member size must be at least %d"
-	msgAlignTooLow        = "struct member alignment must be at least %d"
-	msgTypeTooLarge       = "type is too large"
-	msgAttributeArity     = "attribute `@%s` requires exactly one argument"
+	msgFixedFootprint       = "@size attribute requires a type with creation-fixed footprint"
+	msgNonPowerOfTwoAlign   = "struct member alignment must be a power of 2"
+	msgSizeTooLow           = "struct member size must be at least %d"
+	msgAlignTooLow          = "struct member alignment must be at least %d"
+	msgTypeTooLarge         = "type is too large"
+	msgStructMemberTooLarge = "struct member is too large"
+	msgAttributeArity       = "attribute `@%s` requires exactly one argument"
 )
 
 // memberSize returns the number of bytes a struct member occupies: its type's
@@ -4692,6 +4723,24 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		// so stride = roundUp(elemAlign, elemSize).
 		elemAlign, elemSize := l.typeAlignmentAndSize(base)
 		stride := (elemSize + elemAlign - 1) &^ (elemAlign - 1)
+		// Rust's layouter bounds every type's size at MAX_TYPE_SIZE
+		// (proc/type_methods.rs try_size): an array's is its element count
+		// times the stride — one element for a runtime-sized array, none for
+		// an override count not yet evaluated — and the product must not wrap
+		// (64-bit here). A count above the limit is refused before the
+		// product, as Rust does: a zero stride would otherwise hide it. The
+		// error is the shader-creation error Rust's WGSL frontend reports
+		// when its layouter meets the type.
+		count := uint64(1)
+		switch {
+		case size.Constant != nil:
+			count = uint64(*size.Constant)
+		case size.Pending != nil:
+			count = 0
+		}
+		if count > uint64(ir.MaxTypeSize) || uint64(stride)*count > uint64(ir.MaxTypeSize) {
+			return 0, parser.NewSourceError(msgTypeTooLarge, t.Pos(), l.source)
+		}
 		return l.registerType("", ir.ArrayType{Base: base, Size: size, Stride: stride}), nil
 	case *parser.PtrType:
 		pointee, err := l.resolveType(t.PointeeType)
