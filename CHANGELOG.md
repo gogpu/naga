@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (i32::MAX), checked in 64-bit arithmetic so a huge `@size` cannot wrap the accumulator. Red-on-base tests
   cover the dropped layouts (offsets and span) and every rule.
 
+- **Diagnostics come in a stable order across compiles** (card P3-API-008): the WGSL lowerer collected the
+  unused-variable warnings while ranging over a Go map, so their order changed between runs of the same
+  compiler and a consumer's stderr-diff harness could not compare two runs. `wgsl.Parse` now sorts the
+  warnings by source position, then message; a 200-compile determinism test pins it.
+
 ## [0.22.6] - 2026-11-18
 
 ### Added
