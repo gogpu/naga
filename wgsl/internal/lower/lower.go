@@ -679,14 +679,16 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 		// Calculate proper alignment and size for WGSL uniform buffer layout
 		align, size := l.typeAlignmentAndSize(typeHandle)
 
-		// Check for explicit @align(N) attribute on the member
-		if explicitAlign := getAlignAttribute(m.Attributes); explicitAlign > 0 {
-			align = explicitAlign
+		// @size and @align take const-expressions that resolve to a u32 or
+		// i32 (WGSL §size-attr, §align-attr). Size is checked before
+		// alignment, the order Rust naga uses
+		// (front/wgsl/lower/mod.rs:4832-4866), so a member with both
+		// attributes invalid reports the same first error.
+		if size, err = l.memberSize(m.Attributes, typeHandle, size); err != nil {
+			return err
 		}
-
-		// Check for explicit @size(N) attribute on the member
-		if explicitSize := getSizeAttribute(m.Attributes); explicitSize > 0 {
-			size = explicitSize
+		if align, err = l.memberAlign(m.Attributes, align); err != nil {
+			return err
 		}
 
 		if align > maxAlign {
@@ -702,42 +704,130 @@ func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 			Binding: binding,
 			Offset:  offset,
 		}
+		// Rust naga's MAX_TYPE_SIZE bound (valid/mod.rs:41, checked after the
+		// same addition at front/wgsl/lower/mod.rs:4888), computed in 64-bit
+		// arithmetic: a large @size makes the sum itself wrap in uint32.
+		if uint64(offset)+uint64(size) > uint64(maxTypeSize) {
+			return parser.NewSourceError(msgTypeTooLarge, m.Type.Pos(), l.source)
+		}
 		offset += size
 	}
-	// Round struct size up to alignment of largest member
-	structSize := (offset + maxAlign - 1) &^ (maxAlign - 1)
-	l.registerNamedType(s.Name, ir.StructType{Members: members, Span: structSize})
+	// Round struct size up to alignment of largest member. The rounding can
+	// push the span past MAX_TYPE_SIZE even when every member offset passed
+	// the per-member bound: @align(0x80000000) rounds a f32 member's offset
+	// to 0 and the struct's span to the alignment, and an @size exactly at
+	// the maximum rounds over it. The finished span is therefore bounded too
+	// (MAX_TYPE_SIZE, valid/mod.rs:41), in 64-bit arithmetic so the rounding
+	// itself cannot wrap. This completes the rule rather than copying it:
+	// Rust naga checks per-member offsets only and its layouter trusts a
+	// struct's span (proc/type_methods.rs:272), so it accepts these two
+	// shapes (oracle run, span 0x80000000, validation OK); carrying a type
+	// above the same bound the member check enforces would seed the layout
+	// arithmetic with an oversized span.
+	structSpan := (uint64(offset) + uint64(maxAlign) - 1) &^ (uint64(maxAlign) - 1)
+	if structSpan > uint64(maxTypeSize) {
+		return parser.NewSourceError(msgTypeTooLarge, s.Pos(), l.source)
+	}
+	l.registerNamedType(s.Name, ir.StructType{Members: members, Span: uint32(structSpan)})
 	return nil
 }
 
-// getAlignAttribute extracts the value from an @align(N) attribute, returns 0 if not found.
-func getAlignAttribute(attrs []parser.Attribute) uint32 {
-	for _, attr := range attrs {
-		if attr.Name == "align" && len(attr.Args) == 1 {
-			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				var val uint32
-				if _, err := fmt.Sscanf(lit.Value, "%d", &val); err == nil {
-					return val
-				}
-			}
-		}
+// Struct member layout attributes (WGSL §size-attr, §align-attr).
+const (
+	attrSizeName  = "size"
+	attrAlignName = "align"
+)
+
+// maxTypeSize is Rust naga's valid::MAX_TYPE_SIZE (valid/mod.rs:41): i32::MAX.
+// A struct's running offset may not exceed it after a member is added.
+const maxTypeSize uint32 = 1<<31 - 1
+
+// Member layout error texts, as in Rust naga's front/wgsl/error.rs.
+const (
+	msgFixedFootprint     = "@size attribute requires a type with creation-fixed footprint"
+	msgNonPowerOfTwoAlign = "struct member alignment must be a power of 2"
+	msgSizeTooLow         = "struct member size must be at least %d"
+	msgAlignTooLow        = "struct member alignment must be at least %d"
+	msgTypeTooLarge       = "type is too large"
+	msgAttributeArity     = "attribute `@%s` requires exactly one argument"
+)
+
+// memberSize returns the number of bytes a struct member occupies: its type's
+// size, or the value of its @size attribute. The checks and their order are
+// Rust naga's (front/wgsl/lower/mod.rs:4832-4848): evaluate the
+// const-expression, refuse a member type without a creation-fixed footprint,
+// then refuse a size below SizeOf(T).
+func (l *Lowerer) memberSize(attrs []parser.Attribute, typeHandle ir.TypeHandle, minSize uint32) (uint32, error) {
+	attr, ok := findMemberLayoutAttribute(attrs, attrSizeName)
+	if !ok {
+		return minSize, nil
 	}
-	return 0
+	arg, err := l.memberLayoutArg(attr)
+	if err != nil {
+		return 0, err
+	}
+	size, err := l.attributeU32(arg)
+	if err != nil {
+		return 0, err
+	}
+	// Rust's Array { size: Dynamic | Pending } check; our IR spells both as
+	// an array whose size is not a constant.
+	if arr, ok := l.module.Types[typeHandle].Inner.(ir.ArrayType); ok && arr.Size.Constant == nil {
+		return 0, parser.NewSourceError(msgFixedFootprint, arg.Pos(), l.source)
+	}
+	if size < minSize {
+		return 0, parser.NewSourceErrorf(arg.Pos(), l.source, msgSizeTooLow, minSize)
+	}
+	return size, nil
 }
 
-// getSizeAttribute extracts the value from a @size(N) attribute, returns 0 if not found.
-func getSizeAttribute(attrs []parser.Attribute) uint32 {
+// memberAlign returns the alignment a struct member requires: its type's
+// alignment, or the value of its @align attribute. The checks and their order
+// are Rust naga's (front/wgsl/lower/mod.rs:4850-4866): evaluate the
+// const-expression, refuse a value that is not a power of two, then refuse
+// one below AlignOf(T).
+func (l *Lowerer) memberAlign(attrs []parser.Attribute, minAlign uint32) (uint32, error) {
+	attr, ok := findMemberLayoutAttribute(attrs, attrAlignName)
+	if !ok {
+		return minAlign, nil
+	}
+	arg, err := l.memberLayoutArg(attr)
+	if err != nil {
+		return 0, err
+	}
+	align, err := l.attributeU32(arg)
+	if err != nil {
+		return 0, err
+	}
+	if align == 0 || align&(align-1) != 0 {
+		return 0, parser.NewSourceError(msgNonPowerOfTwoAlign, arg.Pos(), l.source)
+	}
+	if align < minAlign {
+		return 0, parser.NewSourceErrorf(arg.Pos(), l.source, msgAlignTooLow, minAlign)
+	}
+	return align, nil
+}
+
+// findMemberLayoutAttribute returns the struct member layout attribute with
+// the given name.
+func findMemberLayoutAttribute(attrs []parser.Attribute, name string) (parser.Attribute, bool) {
 	for _, attr := range attrs {
-		if attr.Name == "size" && len(attr.Args) == 1 {
-			if lit, ok := attr.Args[0].(*parser.Literal); ok {
-				var val uint32
-				if _, err := fmt.Sscanf(lit.Value, "%d", &val); err == nil {
-					return val
-				}
-			}
+		if attr.Name == name {
+			return attr, true
 		}
 	}
-	return 0
+	return parser.Attribute{}, false
+}
+
+// memberLayoutArg returns the single argument of a member layout attribute.
+// Rust's parser admits exactly one expression in the attribute's parentheses;
+// ours accepts any number, so a wrong arity is refused here rather than
+// silently dropped (card P1-WGSL-122).
+func (l *Lowerer) memberLayoutArg(attr parser.Attribute) (parser.Expr, error) {
+	if len(attr.Args) != 1 {
+		return nil, parser.NewSourceErrorf(attr.NameSpan, l.source, msgAttributeArity, attr.Name)
+	}
+	return attr.Args[0], nil
 }
 
 // typeAlignmentAndSize returns the alignment and size of a type for uniform buffer layout.

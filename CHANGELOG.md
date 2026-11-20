@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`@size` and `@align` on a struct member are evaluated and validated instead of being silently dropped**
+  (card P1-WGSL-122, found by the expert's validation of #261). Only a bare decimal literal used to be read;
+  any other spelling — a named constant, a constant expression, a hex literal — was ignored, so the module
+  compiled with a default layout, and invalid values (`@align(3)`, `@size(2)` on an `f32`, `@align(1)` on a
+  `vec4<f32>`) were accepted with a wrong layout instead of being refused. The argument now goes through the
+  same module-const evaluation as `@group`/`@binding`/`@id` and enforces the spec's rules — a
+  `const-expression` resolving to `i32`/`u32`; `@align` a power of two and at least the member type's
+  alignment; `@size` at least the type's size and on a type with creation-fixed footprint — with Rust naga's
+  messages and the argument's span, and an override or runtime name in either attribute is the same
+  shader-creation error `@id` already gives. A member offset may no longer exceed Rust's `MAX_TYPE_SIZE`
+  (i32::MAX), checked in 64-bit arithmetic so a huge `@size` cannot wrap the accumulator. Red-on-base tests
+  cover the dropped layouts (offsets and span) and every rule.
+
 ## [0.22.6] - 2026-11-18
 
 ### Added
