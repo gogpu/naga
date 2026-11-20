@@ -4,6 +4,7 @@
 package dxil
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/gogpu/naga/backend"
@@ -47,6 +48,39 @@ fn main(@builtin(view_index) vi: u32, @location(0) color: vec4<f32>) -> Out {
 }
 `
 
+// viewIndexStructMemberFS delivers @builtin(view_index) as a struct member of
+// the entry input rather than as a direct argument. Rust naga accepts the
+// shape (valid/interface.rs:347-355) and the emitter produces dx.op.viewID
+// for it, so the PSV0 flag and the dependency mask must be set the same way
+// as for a direct argument. Before the flag fix this shape compiled and then
+// failed IDxcValidator with HRESULT 0x80aa0009 "Flags must match usage.
+// Flags declared=0, actual=2097152" (0x200000 = ViewID).
+const viewIndexStructMemberFS = `
+struct Fin {
+    @builtin(view_index) vi: u32,
+    @location(0) color: vec4<f32>,
+}
+
+@fragment
+fn main(in: Fin) -> @location(0) vec4<f32> {
+    return in.color * f32(in.vi);
+}
+`
+
+// viewIndexStructMemberVS is the vertex-stage twin of
+// viewIndexStructMemberFS: both builtins arrive as struct members.
+const viewIndexStructMemberVS = `
+struct Vin {
+    @builtin(vertex_index) i: u32,
+    @builtin(view_index) vi: u32,
+}
+
+@vertex
+fn main(in: Vin) -> @builtin(position) vec4<f32> {
+    return vec4(f32(in.i) + f32(in.vi), 0.0, 0.0, 1.0);
+}
+`
+
 // sm61 asks for shader model 6.1, the first model with dx.op.viewID.
 func sm61(t *testing.T) Options {
 	t.Helper()
@@ -76,6 +110,8 @@ func TestViewIndexPSV0DependencyTable(t *testing.T) {
 		{"vertex", viewIndexVS},
 		{"fragment", viewIndexFS},
 		{"fragment partial mask", viewIndexPartialFS},
+		{"vertex struct member", viewIndexStructMemberVS},
+		{"fragment struct member", viewIndexStructMemberFS},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -87,6 +123,27 @@ func TestViewIndexPSV0DependencyTable(t *testing.T) {
 				t.Fatalf("Validate: %v", err)
 			}
 		})
+	}
+}
+
+// TestViewIndexStructMemberRequiresSM61 (P2-DXIL-116): the struct-member
+// shape must drive the same shader-model requirement as a direct argument —
+// dx.op.viewID exists only from SM 6.1, so a 6.0 compile must be refused
+// with the "view index" version error instead of emitting a container the
+// requested model cannot express.
+func TestViewIndexStructMemberRequiresSM61(t *testing.T) {
+	opts := DefaultOptions()
+	opts.ShaderModel = backend.ShaderModel{Major: 6, Minor: 0}
+	_, _, err := Compile(lowerSource(t, viewIndexStructMemberFS), opts)
+	if err == nil {
+		t.Fatal("Compile at SM 6.0: expected the view-index version error, got nil")
+	}
+	var verr *backend.VersionError
+	if !errors.As(err, &verr) || verr.Feature != "the view index" {
+		t.Fatalf("Compile at SM 6.0: got %v, want a backend.VersionError about the view index", err)
+	}
+	if verr.Required != (backend.Version{Major: 6, Minor: 1}) {
+		t.Errorf("Required: got %v, want 6.1", verr.Required)
 	}
 }
 
@@ -103,6 +160,8 @@ func TestViewIDDependentOutputs(t *testing.T) {
 		{"vertex position.x", viewIndexVS, "main", 0x1},
 		{"fragment color", viewIndexFS, "main", 0xF},
 		{"fragment partial", viewIndexPartialFS, "main", 0xF},
+		{"vertex struct member", viewIndexStructMemberVS, "main", 0x1},
+		{"fragment struct member", viewIndexStructMemberFS, "main", 0xF},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

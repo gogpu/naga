@@ -142,25 +142,7 @@ func (s *analysisState) markEverythingDependsOnEverything() {
 // entryHasViewIndexArg reports whether the entry point takes
 // @builtin(view_index), directly or as a struct member.
 func (s *analysisState) entryHasViewIndexArg() bool {
-	for i := range s.ep.Function.Arguments {
-		arg := &s.ep.Function.Arguments[i]
-		if isViewIndexBinding(arg.Binding) {
-			return true
-		}
-		if arg.Binding != nil {
-			continue
-		}
-		st, ok := s.irMod.Types[arg.Type].Inner.(ir.StructType)
-		if !ok {
-			continue
-		}
-		for m := range st.Members {
-			if isViewIndexBinding(st.Members[m].Binding) {
-				return true
-			}
-		}
-	}
-	return false
+	return EntryUsesViewIndex(s.irMod, s.ep)
 }
 
 // initArgumentTaint populates exprTaint for every ExprFunctionArgument
@@ -354,6 +336,39 @@ func isViewIndexBinding(b *ir.Binding) bool {
 	}
 	bb, ok := (*b).(ir.BuiltinBinding)
 	return ok && bb.Builtin == ir.BuiltinViewIndex
+}
+
+// EntryUsesViewIndex reports whether the entry point takes
+// @builtin(view_index) as a direct argument or as a struct member of one.
+// It is the single predicate behind the three places that must agree on the
+// answer: this package's analyzer, the emitter's ViewID feature bit and
+// dx.viewIdState sizing, and the PSV0 UsesViewID flag. A struct-member
+// binding is emitted as dx.op.viewID by the emitter (io.go), so a settler
+// that reads only direct argument bindings leaves the container without the
+// flag the validator regenerates from that call.
+func EntryUsesViewIndex(irMod *ir.Module, ep *ir.EntryPoint) bool {
+	if ep == nil {
+		return false
+	}
+	for i := range ep.Function.Arguments {
+		arg := &ep.Function.Arguments[i]
+		if isViewIndexBinding(arg.Binding) {
+			return true
+		}
+		if arg.Binding != nil {
+			continue
+		}
+		st, ok := irMod.Types[arg.Type].Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		for m := range st.Members {
+			if isViewIndexBinding(st.Members[m].Binding) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // viewIDTaint is the taint set of a @builtin(view_index) value.

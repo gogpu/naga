@@ -1973,23 +1973,11 @@ func (e *Emitter) moduleUsesInt64TypedAtomic() bool {
 }
 
 // entryUsesViewIDInput reports whether the current entry point binds
-// BuiltinViewIndex on any argument. Used by computeBitcodeShaderFlags to
-// set the ViewID feature bit, which the validator regenerates from
-// instruction-level dx.op.viewID usage.
+// BuiltinViewIndex on any argument, directly or as a struct member. Used by
+// computeBitcodeShaderFlags to set the ViewID feature bit, which the
+// validator regenerates from instruction-level dx.op.viewID usage.
 func (e *Emitter) entryUsesViewIDInput() bool {
-	if e.currentEntryPoint == nil {
-		return false
-	}
-	for i := range e.currentEntryPoint.Function.Arguments {
-		arg := &e.currentEntryPoint.Function.Arguments[i]
-		if arg.Binding == nil {
-			continue
-		}
-		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinViewIndex {
-			return true
-		}
-	}
-	return false
+	return viewid.EntryUsesViewIndex(e.ir, e.currentEntryPoint)
 }
 
 // moduleUses16Bit reports whether the EMITTED bitcode contains half or

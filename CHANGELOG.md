@@ -43,7 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stream before the input-to-output tables, and the module's `dx.viewIdState` the same mask — neither was
   written, so IDxcValidator rejected every such shader with "PSV0 part is not well-formed". The viewid
   analyzer now marks the outputs that depend on the ViewID input and feeds both tables from one result; the
-  emitted container matches DXC's for the same shaders, masks and tables bit-identical.
+  emitted container matches DXC's for the same shaders, masks and tables bit-identical. The ViewID feature
+  bit and the PSV0 flag come from one shared predicate that also recognises the builtin arriving as a struct
+  member of the entry input — that shape emits `dx.op.viewID` too, and without the flag the validator
+  rejected the container with "Flags must match usage".
 
 - **Type sizes are bounded by Rust naga's `MAX_TYPE_SIZE` wherever they are derived** (card P2-WGSL-116). An
   array's size is its element count times the stride; computed in uint32, `array<f32, 0x40000000>` wrapped to
