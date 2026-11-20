@@ -139,6 +139,12 @@ func (d dialect) supportsTextureQueryLevels() bool { return d.vulkan() }
 // below 1.50), and no GLSL ES version has it.
 func (d dialect) supportsTextureQueryLod() bool { return d.vulkan() }
 
+// supportsTextureSamples reports whether textureSamples exists. glslang:
+// "'textureSamples' : no matching overloaded function found" in 330 core; GLSL
+// 4.00 introduced it, and ES 3.10 introduced both it and the multisampled
+// sampler types, which ES 3.00 treats as reserved words.
+func (d dialect) supportsTextureSamples() bool { return d.vulkan() }
+
 // allowsIOLocation reports whether layout(location=N) may be written on an in
 // or out variable of the given stage. GL 3.30 core and ES 3.00 give a location
 // to vertex shader inputs; a varying (a vertex output or a fragment input)
@@ -203,6 +209,10 @@ func (d dialect) builtinRefusal(name string) string {
 	case "textureQueryLod":
 		if !d.supportsTextureQueryLod() {
 			return d.unsupported(name, " (textureQueryLod requires GLSL 4.00; no GLSL ES version has it)")
+		}
+	case "textureSamples":
+		if !d.supportsTextureSamples() {
+			return d.unsupported(name, " (textureSamples requires GLSL 4.00 or ES 3.10)")
 		}
 	case "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr", "atomicXor",
 		"atomicExchange", "atomicCompSwap":
