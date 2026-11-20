@@ -14,14 +14,11 @@ import (
 // the error each must give and gg's card for its fix. An entry goes when the
 // vendored copy is re-pinned to the gg commit with the fix; the test fails if
 // a listed shader validates.
-var ggInvalidShaders = map[string]struct{ want, card string }{
-	// blend_soft_light uses step() (a float vector) as select conditions
-	// (P1-WGSL-095).
-	"gpu/blend.wgsl": {
-		want: "Expected selection condition to be a boolean value, got Vector { size: Tri, scalar: Scalar { kind: Float, width: 4 } }",
-		card: "gogpu/gg:P1-BLEND-003",
-	},
-}
+//
+// Empty since 2026-11-20: the only entry, gpu/blend.wgsl, was re-pinned to gg
+// 3b2cd10, which gives blend_soft_light's select() a vecN<bool> condition
+// (gogpu/gg:P1-BLEND-003).
+var ggInvalidShaders = map[string]struct{ want, card string }{}
 
 // TestGGShadersNeedNoCapability: gg compiles its production shaders with
 // Compile and the zero CompileOptions, so every capability gate must leave

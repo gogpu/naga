@@ -307,11 +307,12 @@ const ggUpstreamDir = "../testdata/upstream/github.com/gogpu/gg"
 // ggKnownDXILFailures are the gg entry points (path in the gg tree / entry
 // point) whose DXIL the validator rejects today, each with its card. The test
 // fails when one of them validates, so a fixed entry leaves this list.
-var ggKnownDXILFailures = map[string]string{
-	// The vendored blend.wgsl is invalid WGSL (a float select condition),
-	// which the validator rejects since P1-WGSL-095; gg fixes the shader.
-	"internal/gpu/shaders/blend.wgsl/fs_main": "gogpu/gg:P1-BLEND-003",
-}
+//
+// Empty since 2026-11-20: the only entry, internal/gpu/shaders/blend.wgsl/
+// fs_main, passes after the vendored tree was re-pinned to gg 3b2cd10, which
+// gives blend_soft_light's select() a vecN<bool> condition
+// (gogpu/gg:P1-BLEND-003).
+var ggKnownDXILFailures = map[string]string{}
 
 // TestDxilValGGProduction walks the gg production shader corpora and requires
 // every entry point to produce DXIL that DXC's IDxcValidator accepts. This is

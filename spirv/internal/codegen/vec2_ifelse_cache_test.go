@@ -176,10 +176,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // TestPathTilingFullShader compiles the actual path_tiling.wgsl and disassembles it.
 // This is the real shader that produces 12.5% pixel diff.
 func TestPathTilingFullShader(t *testing.T) {
-	shaderPath := "../../gg/internal/gpu/tilecompute/shaders/path_tiling.wgsl"
+	shaderPath := "../../../testdata/upstream/github.com/gogpu/gg/internal/gpu/tilecompute/shaders/path_tiling.wgsl"
 	shaderSrc, err := os.ReadFile(shaderPath)
 	if err != nil {
-		t.Skipf("path_tiling.wgsl not found: %v", err)
+		t.Fatalf("vendored path_tiling.wgsl missing: %v", err)
 	}
 
 	spirvBytes := compileWGSLToSPIRV(t, "PathTiling", string(shaderSrc))
