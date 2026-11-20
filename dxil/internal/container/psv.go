@@ -127,6 +127,20 @@ type PSVInfo struct {
 	//
 	// Nil for shaders with no input or output signature vectors.
 	InputToOutputTable []uint32
+
+	// ViewIDOutputMask is the per-output-component bitmap of the outputs
+	// whose value depends on @builtin(view_index), stream 0, packed the
+	// same way as InputToOutputTable: MaskDwordsForComponents(
+	// SigOutputVectors) dwords, bit c standing for output component c in
+	// the linear space row*4+col.
+	//
+	// It is written only when UsesViewID is set, between the signature
+	// elements and the input-to-output tables (DXC SimplePSV,
+	// DxilContainerValidation.cpp:674-692; serializer
+	// DxilContainerAssembler.cpp:541-561). The module's dx.viewIdState
+	// carries the same dwords, and the validator compares the two
+	// (DxilContainerValidation.cpp:210-268).
+	ViewIDOutputMask []uint32
 }
 
 // PSVResourceType mirrors DXC DxilPipelineStateValidation.h enum
@@ -435,8 +449,16 @@ func EncodePSV0(info PSVInfo) []byte {
 	//   pData[inputComp * MaskDwordsForComponents(outVectors)] = bitmap
 	//
 	// where inputComp = inputVectorRow * 4 + col.
-	writePSVDepTable(out, pos, depBytes, sigInputVectors, sigOutputVectors, info.InputToOutputTable)
-	_ = depBytes // bytes accounted for in totalSize allocation above
+	//
+	// When the shader reads the view index, the outputs-dependent-on-
+	// ViewID masks come first (one per non-empty output stream), then the
+	// input-to-output tables. The validator's walker sizes the part from
+	// PSVRuntimeInfo1 and requires the part to end exactly there, and its
+	// content verifier compares the masks against the module's
+	// dx.viewIdState.
+	maskBytes := psvViewIDMaskSize(info)
+	pos = writePSVViewIDMask(out, pos, maskBytes, info.ViewIDOutputMask)
+	writePSVDepTable(out, pos, depBytes-maskBytes, sigInputVectors, sigOutputVectors, info.InputToOutputTable)
 
 	return out
 }
@@ -484,34 +506,72 @@ func psvComputeInputOutputTableDwords(in, out uint32) uint32 {
 	return psvComputeMaskDwordsFromVectors(out) * in * 4
 }
 
+// psvSigVectors returns the signature vector counts as they are written to
+// PSVRuntimeInfo1, i.e. a single uint8 for the input rows and stream 0's
+// output rows, streams 1-3 zero (no geometry shader support yet). The
+// counts are clamped to zero when no signature element exists, matching
+// the self-consistency clamp in EncodePSV0, so every size computed from
+// them agrees with what the validator's walker reads back.
+func psvSigVectors(info PSVInfo) (sigIn uint32, sigOut [4]uint32) {
+	if len(info.PSVSigInputs) == 0 && len(info.PSVSigOutputs) == 0 {
+		return 0, [4]uint32{}
+	}
+	return uint32(info.SigInputVectors), [4]uint32{uint32(info.SigOutputVectors), 0, 0, 0}
+}
+
+// psvViewIDMaskSize returns the byte size of the ViewID dependency masks
+// that follow the signature elements when UsesViewID is set: one
+// MaskDwords(SigOutputVectors[stream]) dword mask per non-empty output
+// stream (DXC SimplePSV, DxilContainerValidation.cpp:674-692).
+func psvViewIDMaskSize(info PSVInfo) uint32 {
+	if !info.UsesViewID {
+		return 0
+	}
+	_, sigOut := psvSigVectors(info)
+	var size uint32
+	for _, ov := range sigOut {
+		if ov == 0 {
+			continue
+		}
+		size += 4 * psvComputeMaskDwordsFromVectors(ov)
+	}
+	return size
+}
+
 // psvDependencyTableSize returns the total byte size of the dependency
-// tables that must follow the signature elements in PSV0. Mirrors the
-// SimplePSV walker in DxilContainerValidation.cpp:609. We zero-fill
-// them — the structural well-formedness check only depends on size.
+// tables that must follow the signature elements in PSV0: the optional
+// ViewID masks, then the input-to-output tables. Mirrors the SimplePSV
+// walker in DxilContainerValidation.cpp:609-726, whose size must equal
+// the part's size exactly.
 func psvDependencyTableSize(info PSVInfo) uint32 {
 	if len(info.PSVSigInputs) == 0 && len(info.PSVSigOutputs) == 0 {
 		return 0
 	}
-	const numStreams = 4
-	// SigOutputVectors is currently a single uint8 covering stream 0;
-	// streams 1-3 are zero (no GS support yet). Mirror the layout the
-	// validator expects regardless.
-	sigOutputVectors := [numStreams]uint32{uint32(info.SigOutputVectors), 0, 0, 0}
-	sigInputVectors := uint32(info.SigInputVectors)
-
-	var size uint32
-	// 1. Optional ViewID dependency tables — only when UsesViewID is set.
-	//    We never set UsesViewID, so this block is currently dead, but
-	//    kept for future-proofing.
-	//
-	// 2. Always: per-stream Input→Output dependency tables.
-	for _, ov := range sigOutputVectors {
+	size := psvViewIDMaskSize(info)
+	// Per-stream Input→Output dependency tables.
+	sigIn, sigOut := psvSigVectors(info)
+	for _, ov := range sigOut {
 		if ov == 0 {
 			continue
 		}
-		size += 4 * psvComputeInputOutputTableDwords(sigInputVectors, ov)
+		size += 4 * psvComputeInputOutputTableDwords(sigIn, ov)
 	}
 	return size
+}
+
+// writePSVViewIDMask writes the ViewID-output-component mask (bit c set
+// when output component c depends on the view index) at pos, bounded by
+// size bytes. A nil or short mask leaves the region zero-filled.
+func writePSVViewIDMask(out []byte, pos int, size uint32, mask []uint32) int {
+	end := pos + int(size)
+	for i, v := range mask {
+		off := pos + i*4
+		if off+4 > end || off+4 > len(out) {
+			break
+		}
+		binary.LittleEndian.PutUint32(out[off:], v)
+	}
+	return end
 }
 
 func writePSVSigElement(out []byte, pos int, elem *PSVSignatureElement) int {

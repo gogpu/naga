@@ -3124,6 +3124,7 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 	//
 	//   [NumInputScalars,
 	//    NumOutputScalars,
+	//    OutputsDependentOnViewId[0..outUINTs-1],  (only when UsesViewID)
 	//    InputContrib[0..NumInputs-1] * outUINTs each]
 	//
 	// Per-input contribution masks come from the IR-level pass-through
@@ -3140,23 +3141,42 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 	// pad outUINTs to 1 here; that inflates the array from [2 x i32] to
 	// [2+inComps x i32] with trailing zeros, mismatching the DXC golden.
 	// Reference: ComputeViewIdState.cpp:208 RoundUpToUINT, line 264-268.
-	totalUINTs := 2 + uint64(inComps)*uint64(outUINTs)
+	//
+	// P2-DXIL-109: a shader reading the view index reserves one more
+	// outUINTs-sized mask for the outputs that depend on it, in the same
+	// component-index bit space as the contribution rows
+	// (SerializeOutputsDependentOnViewId, ComputeViewIdState.cpp:210-227).
+	// PSV0 carries the identical mask; the validator compares them.
+	usesViewID := e.entryUsesViewIDInput()
+	maskUINTs := uint64(0)
+	if usesViewID {
+		maskUINTs = uint64(outUINTs)
+	}
+	totalUINTs := 2 + maskUINTs + uint64(inComps)*uint64(outUINTs)
 	values := make([]uint64, totalUINTs)
 	values[0] = uint64(inComps)
 	values[1] = uint64(outComps)
 
-	// Run the dataflow analyzer when we have both inputs and outputs.
+	// Run the dataflow analyzer when we have outputs.
 	var deps *viewid.Deps
-	if len(inElems) > 0 && len(outElems) > 0 {
+	if len(outElems) > 0 {
 		deps = viewid.Analyze(e.ir, ep, e.typifierOf(&ep.Function), inElems, outElems)
 	}
 	// Map pre-computed IR usage masks to per-input-element masks.
 	e.inputUsedMasks = e.computeInputElementUsedMasks(ep, inElems)
 
 	if deps != nil {
+		if usesViewID {
+			for i, v := range deps.ViewIDDependentOutputs {
+				idx := uint64(2) + uint64(i)
+				if idx < uint64(2)+maskUINTs {
+					values[idx] = uint64(v)
+				}
+			}
+		}
 		// Copy per-input-scalar dwords (each scalar = outUINTs dwords).
 		for i, v := range deps.InputScalarToOutputs {
-			idx := uint64(2) + uint64(i)
+			idx := uint64(2) + maskUINTs + uint64(i)
 			if idx < totalUINTs {
 				values[idx] = uint64(v)
 			}

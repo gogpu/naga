@@ -408,7 +408,7 @@ func TestBuildViewIDSigMapNonVSSort(t *testing.T) {
 	}
 
 	// Non-VS: should sort locations before builtins.
-	sigMap := buildViewIDSigMap(mod, args, false)
+	sigMap := buildViewIDSigMap(mod, args, ir.StageFragment)
 
 	// color (location 0) should come first (sigIdx 0).
 	colorIdx, ok := sigMap[viewIDArgKey{argIdx: 1, memberIdx: -1}]

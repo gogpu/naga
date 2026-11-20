@@ -91,7 +91,33 @@ type Deps struct {
 	//
 	// Size: SigInputVectors * 4 * MaskDwordsForComponents(SigOutputVectors).
 	InputCompToOutputComps []uint32
+
+	// ViewIDDependentOutputs[outComp * ...] is a bitmap of output
+	// components whose value depends on @builtin(view_index) — the
+	// "m_OutputsDependentOnViewId" mask of DXC's ComputeViewIdState
+	// (ComputeViewIdState.cpp:210-227 SerializeOutputsDependentOnViewId).
+	// Bit b of dword w stands for output component w*32+b in the same
+	// packed linear space as InputCompToOutputComps: outputVectorRow*4 +
+	// outputCol.
+	//
+	// The mask is serialized twice and both copies must be identical: in
+	// the module's dx.viewIdState (right after the output-scalar count)
+	// and in PSV0 (between the signature elements and the
+	// input-to-output tables), both only when the shader uses the view
+	// index (DxilContainerAssembler.cpp:541-561,
+	// DxilPipelineStateValidation.h:918-926).
+	//
+	// Size: MaskDwordsForComponents(SigOutputVectors).
+	ViewIDDependentOutputs []uint32
 }
+
+// ViewIDScalar is the taint slot that stands for the @builtin(view_index)
+// value. Real input scalars are cumulative indices below the input
+// signature's scalar count, so the largest uint32 never collides with
+// one; emitTaintResults drops it from the input→output tables the same
+// way (a sentinel is not an input component) and only records it in
+// ViewIDDependentOutputs.
+const ViewIDScalar = ^uint32(0)
 
 // MaskDwordsForScalars returns the number of uint32 dwords required to
 // hold a per-scalar output bitmap with `n` output scalars. Mirrors DXC's
@@ -195,9 +221,14 @@ func Analyze(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, inpu
 		SigOutputVectors:       sigOutVectors,
 		InputScalarToOutputs:   make([]uint32, numInScalars*outMaskDwords),
 		InputCompToOutputComps: make([]uint32, sigInVectors*4*outCompMaskDwords),
+		ViewIDDependentOutputs: make([]uint32, outCompMaskDwords),
 	}
 
-	if numInScalars == 0 || numOutScalars == 0 {
+	// A shader with no input signature can still be view dependent: the
+	// view index is not a signature element, so the walk below is what
+	// discovers it (@builtin(view_index) reads dx.op.viewID, which no
+	// input element stands for).
+	if numOutScalars == 0 {
 		return deps
 	}
 
@@ -248,6 +279,12 @@ func emitTaintResults(
 			outComp := outSig.VectorRow*4 + outSig.StartCol + outCol
 			taint := state.outputTaint[outSigIdx][outCol]
 			for inScalar := range taint {
+				if inScalar == ViewIDScalar {
+					// One dword row of bitmaps, indexed by output
+					// component — the same space as outComp below.
+					setBit(deps.ViewIDDependentOutputs, 0, outComp, outCompMaskDwords)
+					continue
+				}
 				// inScalar is the analyzer's cumulative index. Remap to
 				// packed linear for the serialized mask.
 				if int(inScalar) >= len(inScalarToComp) {
