@@ -22,7 +22,10 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-
+> **Not affiliated with gfx-rs.** This is a Go project, independent of and not affiliated with or endorsed by
+> gfx-rs. The Rust naga lives in [gfx-rs/wgpu](https://github.com/gfx-rs/wgpu/tree/trunk/naga); this project
+> began as its port ([`UPSTREAM`](UPSTREAM) records the starting commit). Bug reports about this project belong
+> here, not with gfx-rs.
 
 ---
 
