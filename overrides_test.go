@@ -309,6 +309,99 @@ func TestProcessOverridesWorkgroupSize(t *testing.T) {
 	}
 }
 
+// TestProcessOverridesAnonymousArraySizeOverride: an override-expression array
+// size is an anonymous override (no name, no id) created by the front end for
+// the size expression. Rust naga's inner loop in process_overrides feeds it to
+// process_override and hits unreachable!() when a later override follows
+// (gfx-rs/wgpu#10660, pipeline_constants.rs:376); here its initializer is
+// rebuilt and the array size resolves from it.
+func TestProcessOverridesAnonymousArraySizeOverride(t *testing.T) {
+	const src = `
+override n: u32 = 4u;
+var<workgroup> a: array<u32, n * 2u>;
+override m: u32 = 1u;
+@compute @workgroup_size(m) fn main() { a[0] = 1u; }
+`
+	for _, tc := range []struct {
+		name      string
+		constants naga.PipelineConstants
+		wantSize  uint32
+		wantWG    [3]uint32
+	}{
+		{"defaults", nil, 8, [3]uint32{1, 1, 1}},
+		{"n=3", naga.PipelineConstants{"n": 3}, 6, [3]uint32{1, 1, 1}},
+		{"m=2", naga.PipelineConstants{"m": 2}, 8, [3]uint32{2, 1, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := lowerSource(t, src)
+			if !anonymousSizeOverride(t, m, "a") {
+				t.Fatal("the array size is not pending on an anonymous override; this test would not pin the gfx-rs/wgpu#10660 class")
+			}
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
+				t.Fatalf("validate input: %v", err)
+			}
+			out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: tc.constants})
+			if err != nil {
+				t.Fatalf("ProcessOverrides: %v", err)
+			}
+			size, err := workgroupArraySize(out, "a")
+			if err != nil {
+				t.Fatalf("array size of a: %v", err)
+			}
+			if size != tc.wantSize {
+				t.Errorf("array size of a = %d, want %d", size, tc.wantSize)
+			}
+			if ep := out.EntryPoints[0]; ep.Workgroup != tc.wantWG {
+				t.Errorf("Workgroup = %v, want %v", ep.Workgroup, tc.wantWG)
+			}
+		})
+	}
+}
+
+// anonymousSizeOverride reports whether the global name's array size is
+// pending on an override with neither name nor id — the shape Rust naga's
+// process_override panics on.
+func anonymousSizeOverride(t *testing.T, m *ir.Module, name string) bool {
+	t.Helper()
+	for i := range m.GlobalVariables {
+		v := &m.GlobalVariables[i]
+		if v.Name != name {
+			continue
+		}
+		at, ok := m.Types[v.Type].Inner.(ir.ArrayType)
+		if !ok || at.Size.Pending == nil {
+			return false
+		}
+		o := &m.Overrides[*at.Size.Pending]
+		return o.ID == nil && o.Name == "" && !o.NamePresent
+	}
+	t.Fatalf("no global %q", name)
+	return false
+}
+
+// workgroupArraySize resolves the element count of the global variable name.
+func workgroupArraySize(m *ir.Module, name string) (uint32, error) {
+	for i := range m.GlobalVariables {
+		v := &m.GlobalVariables[i]
+		if v.Name != name {
+			continue
+		}
+		at, ok := m.Types[v.Type].Inner.(ir.ArrayType)
+		if !ok {
+			return 0, fmt.Errorf("global %q: type is %T, want ir.ArrayType", name, m.Types[v.Type].Inner)
+		}
+		n, err := at.Size.Resolve(m)
+		if err != nil {
+			return 0, err
+		}
+		if n.Dynamic {
+			return 0, fmt.Errorf("global %q: array size is dynamic after processing", name)
+		}
+		return n.Known, nil
+	}
+	return 0, fmt.Errorf("no global %q", name)
+}
+
 // localSize returns the LocalSize execution mode of a SPIR-V module
 // (OpExecutionMode = 16, LocalSize = 17).
 func localSize(t *testing.T, spv []byte) [3]uint32 {
